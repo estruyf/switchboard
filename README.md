@@ -79,7 +79,7 @@ If macOS blocks the app the first time you open it, see [Building, signing and n
 
 1. **Open Switchboard.** The sidebar lists the sessions you start or continue in Switchboard. To see your sessions from the terminal, Claude desktop and your editor too, turn on *Show sessions from other apps* in Settings.
 2. **Pick a session** to read it, or type below it to continue.
-3. **Start something new** with ⌘N: choose a folder, and whether to work in the current folder or a new worktree.
+3. **Start something new** with ⌘N: pick the project, write what Claude should work on, and choose where it runs: this checkout or a new worktree. Model, effort and permission mode sit right under the prompt.
 4. When a session needs you (a permission or a question), it's marked in the sidebar and you get a notification.
 
 ## Keyboard shortcuts

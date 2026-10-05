@@ -1,4 +1,4 @@
-import { ChevronDown, FolderOpen } from 'lucide-react';
+import { Check, ChevronsUpDown, FolderOpen } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { basename, tildify } from '../../lib/format.ts';
 import { fuzzyScore } from '../../lib/fuzzy.ts';
@@ -6,30 +6,34 @@ import { useProjects } from '../../state/projectsStore.ts';
 import { ProjectIcon } from '../ProjectIcon.tsx';
 
 /**
- * The folder for a new session: recent projects, filterable by typing, with their icons.
- * "Choose another folder…" opens the system dialog for anything else.
+ * The project header of a new session: the project's tile, name and path. The name opens the
+ * recent folders, filterable by typing; "Open another folder…" opens the system dialog.
  */
 export function FolderPicker({
   value,
   folders,
   home,
+  branches,
   onChange,
   onChooseOther,
 }: {
   value: string | null;
   folders: string[];
   home: string | null;
+  /** The checked-out branch per folder, where known. */
+  branches: Map<string, string | null>;
   onChange(folder: string): void;
   onChooseOther(): void;
 }) {
   const projects = useProjects((s) => s.projects);
   const [open, setOpen] = useState(false);
-  // Opens upward when the field sits near the bottom of the window (it usually does).
+  // Opens upward when the header sits near the bottom of the window (a short window).
   const [upward, setUpward] = useState(false);
   const [filter, setFilter] = useState('');
   const [active, setActive] = useState(0);
   const ref = useRef<HTMLDivElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
+  const trigger = useRef<HTMLButtonElement>(null);
 
   const options = useMemo(() => {
     const all = value && !folders.includes(value) ? [value, ...folders] : folders;
@@ -71,73 +75,93 @@ export function FolderPicker({
 
   const current = value ? (projects.get(value)?.name ?? basename(value)) : null;
   return (
-    <div ref={ref} className="relative min-w-0 flex-1">
-      <button
-        type="button"
-        data-folder-select
-        data-value={value ?? ''}
-        onClick={(e) => {
-          setUpward(window.innerHeight - e.currentTarget.getBoundingClientRect().bottom < 340);
-          setOpen((o) => !o);
-        }}
-        className="flex h-7 w-full min-w-0 items-center gap-2 rounded-md border border-border bg-card px-2 text-left text-[12px] text-text hover:bg-border/30"
-      >
-        {value ? <ProjectIcon project={projects.get(value)} root={value} size={14} /> : <FolderOpen size={14} className="shrink-0 text-faint" />}
-        {current ? (
-          <span className="min-w-0 flex-1 truncate">
-            {current}
-            <span className="text-faint">  —  {tildify(value!, home)}</span>
-          </span>
-        ) : (
-          <span className="min-w-0 flex-1 text-faint">Choose a folder…</span>
-        )}
-        <ChevronDown size={13} className="shrink-0 text-faint" />
-      </button>
+    <div ref={ref} className="relative flex min-w-0 items-center gap-3.5" data-project-header>
+      {value ? (
+        <ProjectIcon project={projects.get(value)} root={value} size={44} />
+      ) : (
+        <span className="flex size-11 shrink-0 items-center justify-center rounded-[10px] border border-dashed border-border text-faint">
+          <FolderOpen size={20} />
+        </span>
+      )}
+      <div className="min-w-0 flex-1">
+        <p className="text-[10.5px] font-semibold tracking-[0.12em] text-accent-ink uppercase">New session</p>
+        <button
+          ref={trigger}
+          type="button"
+          data-folder-select
+          data-value={value ?? ''}
+          aria-haspopup="menu"
+          aria-expanded={open}
+          onClick={(e) => {
+            setUpward(window.innerHeight - e.currentTarget.getBoundingClientRect().bottom < 340);
+            setOpen((o) => !o);
+          }}
+          className="-mx-1.5 flex max-w-full min-w-0 items-center gap-1 rounded-md px-1.5 text-left hover:bg-border/40"
+        >
+          <span className={`min-w-0 truncate text-[20px] leading-8 font-semibold ${current ? 'text-text' : 'text-faint'}`}>{current ?? 'Choose a folder…'}</span>
+          <ChevronsUpDown size={15} className="shrink-0 text-faint" />
+        </button>
+        {value && <p className="truncate font-mono text-[11.5px] text-faint" title={value}>{tildify(value, home)}</p>}
+      </div>
 
       {open && (
-        <div className={`absolute inset-x-0 z-40 flex max-h-80 ${upward ? 'bottom-full mb-1 flex-col-reverse' : 'top-full mt-1 flex-col'}`} data-folder-panel>
-            <div className="flex max-h-80 min-h-0 flex-1 flex-col overflow-hidden rounded-lg border border-border bg-card shadow-xl" data-folder-list>
+        <div className={`absolute left-0 z-40 flex max-h-96 w-[min(30rem,100%)] ${upward ? 'bottom-full mb-1 flex-col-reverse' : 'top-full mt-2 flex-col'}`} data-folder-panel>
+          <div className="flex max-h-96 min-h-0 flex-1 flex-col overflow-hidden rounded-lg border border-border bg-card shadow-xl" data-folder-list role="menu" aria-label="Recent folders">
             <input
               autoFocus
               value={filter}
               onChange={(e) => setFilter(e.target.value)}
               onKeyDown={(e) => {
-                if (e.key === 'Escape') (e.stopPropagation(), setOpen(false));
+                if (e.key === 'Escape') (e.stopPropagation(), setOpen(false), trigger.current?.focus());
                 else if (e.key === 'ArrowDown') (e.preventDefault(), setActive((i) => Math.min(count - 1, i + 1)));
                 else if (e.key === 'ArrowUp') (e.preventDefault(), setActive((i) => Math.max(0, i - 1)));
                 else if (e.key === 'Enter') (e.preventDefault(), pick(active));
+                else if (e.key === 'Tab') setOpen(false);
               }}
               placeholder="Filter projects"
+              aria-label="Filter projects"
               spellCheck={false}
               className="h-9 shrink-0 border-b border-border bg-transparent px-3 text-[12.5px] text-text outline-none placeholder:text-faint"
             />
             <div ref={listRef} className="min-h-0 flex-1 overflow-y-auto py-1">
+              <p className="px-3 pt-1 pb-0.5 text-[10px] tracking-wide text-faint uppercase">Recent folders</p>
               {options.length === 0 && <p className="px-3 py-2 text-[12px] text-faint">No project matches.</p>}
-              {options.map((folder, index) => (
-                <button
-                  key={folder}
-                  type="button"
-                  data-folder-option={folder}
-                  data-active={index === active}
-                  onMouseMove={() => setActive(index)}
-                  onClick={() => pick(index)}
-                  className={`flex h-8 w-full items-center gap-2 px-3 text-left text-[12.5px] ${index === active ? 'bg-accent/15' : ''}`}
-                >
-                  <ProjectIcon project={projects.get(folder)} root={folder} size={16} />
-                  <span className="shrink-0 text-text">{projects.get(folder)?.name ?? basename(folder)}</span>
-                  <span className="min-w-0 flex-1 truncate text-[11.5px] text-faint">{tildify(folder, home)}</span>
-                  {folder === value && <span className="shrink-0 text-accent-ink">✓</span>}
-                </button>
-              ))}
+              {options.map((folder, index) => {
+                const branch = branches.get(folder);
+                return (
+                  <button
+                    key={folder}
+                    type="button"
+                    role="menuitemradio"
+                    aria-checked={folder === value}
+                    data-folder-option={folder}
+                    data-active={index === active}
+                    onMouseMove={() => setActive(index)}
+                    onClick={() => pick(index)}
+                    className={`flex w-full items-center gap-2.5 px-3 py-1.5 text-left ${index === active ? 'bg-accent/15' : ''}`}
+                  >
+                    <ProjectIcon project={projects.get(folder)} root={folder} size={22} />
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-[12.5px] text-text">{projects.get(folder)?.name ?? basename(folder)}</span>
+                      <span className="block truncate font-mono text-[11px] text-faint">
+                        {tildify(folder, home)}
+                        {branch && ` · ${branch}`}
+                      </span>
+                    </span>
+                    {folder === value && <Check size={14} className="shrink-0 text-accent-ink" />}
+                  </button>
+                );
+              })}
               <button
                 type="button"
+                role="menuitem"
                 data-active={active === options.length}
                 onMouseMove={() => setActive(options.length)}
                 onClick={() => pick(options.length)}
-                className={`flex h-8 w-full items-center gap-2 border-t border-border px-3 text-left text-[12.5px] text-muted ${active === options.length ? 'bg-accent/15' : ''}`}
+                className={`mt-1 flex h-9 w-full items-center gap-2.5 border-t border-border px-3 text-left text-[12.5px] text-muted ${active === options.length ? 'bg-accent/15' : ''}`}
               >
-                <FolderOpen size={14} className="shrink-0" />
-                Choose another folder…
+                <FolderOpen size={15} className="shrink-0" />
+                Open another folder…
               </button>
             </div>
           </div>

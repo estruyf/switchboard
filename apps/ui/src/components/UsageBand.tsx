@@ -48,8 +48,11 @@ function Ring({ percent, severity }: { percent: number; severity: string }) {
 const money = (minorUnits: number, currency: string | null) =>
   new Intl.NumberFormat(undefined, { style: 'currency', currency: currency ?? 'USD', maximumFractionDigits: 2 }).format(minorUnits / 100);
 
-/** Plan usage above the composer, like the claude-stats mod: one pill per window with a ring and a reset countdown. */
-export function UsageBand() {
+/**
+ * Plan usage above the composer, like the claude-stats mod: one pill per window with a ring and a reset countdown.
+ * `compact` drops the pills for a single line (`6% 5h · 4h44m`), for the new session's route tray.
+ */
+export function UsageBand({ compact = false }: { compact?: boolean }) {
   const usage = useUsage((s) => s.usage);
   const [now, setNow] = useState(Date.now());
   useEffect(() => {
@@ -60,6 +63,25 @@ export function UsageBand() {
   const limits = visibleLimits(usage.limits);
   const extra = usage.extraUsage;
   if (limits.length === 0) return null;
+  const resetTitle = (limit: UsageLimit) =>
+    limit.resetsAt ? `Resets ${new Date(limit.resetsAt).toLocaleString(undefined, { weekday: 'short', hour: 'numeric', minute: '2-digit' })}` : undefined;
+
+  if (compact) {
+    return (
+      <div className="flex shrink-0 items-center gap-3 text-[11.5px]" data-usage-band>
+        {limits.map((limit) => (
+          <div key={`${limit.kind}:${limit.scope ?? ''}`} className="flex items-center gap-1.5 whitespace-nowrap" title={resetTitle(limit)}>
+            <Ring percent={limit.percent} severity={limit.severity} />
+            <span className="font-semibold text-muted tabular-nums">{Math.round(limit.percent)}%</span>
+            <span className="text-faint">
+              {limitLabel(limit)}
+              {limit.resetsAt && ` · ${countdown(limit.resetsAt, now)}`}
+            </span>
+          </div>
+        ))}
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-wrap items-center gap-1.5" data-usage-band>
@@ -67,7 +89,7 @@ export function UsageBand() {
         <div
           key={`${limit.kind}:${limit.scope ?? ''}`}
           className="flex h-7 items-center gap-1.5 rounded-full border border-border bg-card px-2.5 text-[12px]"
-          title={limit.resetsAt ? `Resets ${new Date(limit.resetsAt).toLocaleString(undefined, { weekday: 'short', hour: 'numeric', minute: '2-digit' })}` : undefined}
+          title={resetTitle(limit)}
         >
           <Ring percent={limit.percent} severity={limit.severity} />
           <span className="font-semibold tabular-nums">{Math.round(limit.percent)}%</span>

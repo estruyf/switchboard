@@ -1,5 +1,5 @@
 import { ImagePlus } from 'lucide-react';
-import { useEffect, useLayoutEffect, useRef, useState, type ClipboardEvent, type DragEvent, type KeyboardEvent } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, type ClipboardEvent, type DragEvent, type KeyboardEvent, type ReactNode } from 'react';
 import type { ImageAttachment, SlashCommand } from '@switchboard/protocol/client';
 import { useEngineConnection } from '../../engine/useEngine.ts';
 import { tokenAtCaret } from './tokens.ts';
@@ -27,6 +27,12 @@ export interface ComposerProps {
   submitLabel?: string;
   disabledReason?: string | null;
   autoFocus?: boolean;
+  /** Controls shown in the card's bottom bar in place of the hint line (the new session view). */
+  toolbar?: ReactNode;
+  /** A shortcut shown on the submit button, like `⌘↵`. */
+  submitHint?: string;
+  /** A taller prompt that is the main thing on screen. */
+  large?: boolean;
   onSubmit(text: string, attachments: ImageAttachment[]): Promise<void> | void;
   onInterrupt?(): void;
   onCycleMode?(): void;
@@ -237,12 +243,17 @@ export function Composer(props: ComposerProps) {
           onKeyDown={onKeyDown}
           onPaste={onPaste}
           onBlur={() => setTimeout(() => setPalette(null), 100)}
-          className="block max-h-80 w-full resize-none bg-transparent text-[13.5px] leading-relaxed text-text outline-none placeholder:text-faint"
+          className={`block max-h-80 w-full resize-none bg-transparent leading-relaxed text-text outline-none placeholder:text-faint ${props.large ? 'min-h-24 px-1 pt-1 text-[14.5px]' : 'text-[13.5px]'}`}
         />
-        <div className="mt-1.5 flex items-center justify-between gap-2">
-          <span className="min-w-0 truncate text-[11px] text-faint">
-            {notice ? <span className="text-error">{notice}</span> : props.running ? 'Esc to interrupt · messages you send now are queued' : '/ for commands · @ for files · ⇧Tab mode'}
-          </span>
+        {props.toolbar && notice && <p className="mt-1 truncate text-[11px] text-error">{notice}</p>}
+        <div className={`flex items-center justify-between gap-2 ${props.toolbar ? '-mx-3 mt-2 flex-wrap border-t border-border px-2 pt-2' : 'mt-1.5'}`}>
+          {props.toolbar ? (
+            <div className="flex min-w-0 flex-wrap items-center gap-1">{props.toolbar}</div>
+          ) : (
+            <span className="min-w-0 truncate text-[11px] text-faint">
+              {notice ? <span className="text-error">{notice}</span> : props.running ? 'Esc to interrupt · messages you send now are queued' : '/ for commands · @ for files · ⇧Tab mode'}
+            </span>
+          )}
           <div className="flex shrink-0 items-center gap-1.5">
             <input
               ref={fileRef}
@@ -276,9 +287,10 @@ export function Composer(props: ComposerProps) {
               data-composer-submit
               onClick={() => void submit()}
               disabled={disabled || sending || (!text.trim() && attachments.length === 0)}
-              className="rounded-md bg-accent px-3 py-1 text-[12px] font-medium text-on-accent disabled:opacity-40"
+              className={`flex items-center gap-2 rounded-md bg-accent px-3 text-[12px] font-medium text-on-accent disabled:opacity-40 ${props.submitHint ? 'h-7' : 'py-1'}`}
             >
               {sending ? 'Sending…' : (props.submitLabel ?? (props.running ? 'Queue' : 'Send'))}
+              {props.submitHint && !sending && <kbd className="font-sans text-[11px] font-normal opacity-60">{props.submitHint}</kbd>}
             </button>
           </div>
         </div>

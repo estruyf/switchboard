@@ -1,17 +1,20 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { Box, ChevronDown, GitBranch } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import type { Effort, ImageAttachment, PermissionMode, ProjectInspection, SlashCommand } from '@switchboard/protocol/client';
 import { useEngineConnection } from '../../engine/useEngine.ts';
+import { ChoiceMenu } from './ChoiceMenu.tsx';
+import { EffortDial } from './EffortDial.tsx';
 import { FolderPicker } from './FolderPicker.tsx';
-import { basename, guessHome, tildify } from '../../lib/format.ts';
-import { MODE_CHOICES, MODE_LABEL, worktreeSlug } from '../../lib/modes.ts';
+import { MODE_DESCRIPTION, MODE_DOT, routeHint } from './route.ts';
+import { guessHome } from '../../lib/format.ts';
+import { MODE_CHOICES, MODE_LABEL, nextMode, worktreeSlug } from '../../lib/modes.ts';
 import { useHosts } from '../../state/hostsStore.ts';
 import { useProjects } from '../../state/projectsStore.ts';
-import { useSessions } from '../../state/sessionsStore.ts';
+import { realBranch, toRows, useSessions } from '../../state/sessionsStore.ts';
 import { Composer } from '../composer/Composer.tsx';
 import { UsageBand } from '../UsageBand.tsx';
 
 const DEFAULTS_KEY = 'newSession.defaults';
-const EFFORTS: Effort[] = ['low', 'medium', 'high', 'xhigh', 'max'];
 
 interface Defaults {
   cwd: string | null;
@@ -24,19 +27,20 @@ interface Defaults {
 
 const INITIAL: Defaults = { cwd: null, model: '', permissionMode: 'default', effort: '', workspace: 'current', baseRef: 'fresh' };
 
-const field = 'h-7 rounded-md border border-border bg-card px-2 text-[12px] text-text outline-none focus:border-accent-ink/60 disabled:opacity-50';
-
-function Segmented<T extends string>({ value, options, onChange, disabled }: { value: T; options: Array<{ value: T; label: string; title?: string }>; onChange(v: T): void; disabled?: boolean }) {
+function Segmented<T extends string>({ label, value, options, onChange, disabled }: { label: string; value: T; options: Array<{ value: T; label: string; title?: string }>; onChange(v: T): void; disabled?: boolean }) {
   return (
-    <div className="flex rounded-md border border-border bg-card p-0.5">
+    <div role="radiogroup" aria-label={label} className="flex shrink-0 rounded-md border border-border bg-card p-0.5">
       {options.map((o) => (
         <button
           key={o.value}
           type="button"
+          role="radio"
+          aria-checked={value === o.value}
           title={o.title}
           disabled={disabled}
+          data-segment={o.value}
           onClick={() => onChange(o.value)}
-          className={`rounded px-2.5 py-0.5 text-[12px] disabled:opacity-50 ${value === o.value ? 'bg-accent/15 text-text' : 'text-muted hover:text-text'}`}
+          className={`rounded px-2 py-px text-[11.5px] whitespace-nowrap disabled:opacity-50 ${value === o.value ? 'bg-accent/15 text-text' : 'text-muted hover:text-text'}`}
         >
           {o.label}
         </button>
@@ -45,13 +49,31 @@ function Segmented<T extends string>({ value, options, onChange, disabled }: { v
   );
 }
 
-/** Starts a new Claude Code session: pick a folder and options, then write the first message. */
+/** One patch point in the route tray: the dashed cable from the previous socket (if any), a dot, then its control. */
+function Socket({ children, on = true, cable = false, grow = false }: { children: ReactNode; on?: boolean; cable?: boolean; grow?: boolean }) {
+  return (
+    <div className={`flex min-w-0 items-center gap-1.5 ${grow ? 'flex-1 basis-40' : 'shrink-0'}`}>
+      {cable && <span className="mr-0.5 w-4 shrink-0 border-t border-dashed border-faint" aria-hidden />}
+      <span className={`size-[7px] shrink-0 rounded-full border ${on ? 'border-accent-ink bg-accent-ink' : 'border-faint bg-transparent'}`} aria-hidden />
+      {children}
+    </div>
+  );
+}
+
+const Divider = () => <span className="mx-1 h-4 w-px shrink-0 bg-border" aria-hidden />;
+
+/**
+ * Starts a new Claude Code session. The prompt is the main thing; around it sit the project,
+ * the model, effort and permission mode, and the route the session takes (this checkout or a worktree).
+ */
 export function NewSessionView() {
   const connection = useEngineConnection();
   const client = connection.status === 'connected' ? connection.client : null;
   const sessions = useSessions((s) => s.sessions);
   const select = useSessions((s) => s.select);
   const models = useHosts((s) => s.models);
+  const hosts = useHosts((s) => s.hosts);
+  const live = useSessions((s) => s.live);
   const [d, setD] = useState<Defaults>(INITIAL);
   const [loaded, setLoaded] = useState(false);
   const [inspection, setInspection] = useState<ProjectInspection | null>(null);
@@ -75,6 +97,15 @@ export function NewSessionView() {
     return [...[...latest.entries()].sort((a, b) => b[1] - a[1]).slice(0, 15).map(([root]) => root), ...added];
   }, [sessions, projects]);
   const home = useMemo(() => guessHome(recent), [recent]);
+  // The branch each folder had checked out in its latest session (worktree sessions are on their own branch).
+  const branches = useMemo(() => {
+    const latest = new Map<string, { at: number; branch: string | null }>();
+    for (const s of sessions.values()) {
+      if (s.worktree || (latest.get(s.projectRoot)?.at ?? -1) >= s.updatedAt) continue;
+      latest.set(s.projectRoot, { at: s.updatedAt, branch: realBranch(s.gitBranch) });
+    }
+    return new Map([...latest].map(([root, { branch }]) => [root, branch]));
+  }, [sessions]);
 
   // Restore last choices.
   useEffect(() => {
@@ -122,6 +153,14 @@ export function NewSessionView() {
   const canWorktree = inspection?.isGitRepo ?? false;
   const useWorktree = d.workspace === 'worktree' && canWorktree;
   const effectiveName = nameTouched ? worktreeName : worktreeSlug(draftPrompt);
+  const branch = inspection?.branch ?? (d.cwd ? (branches.get(d.cwd) ?? null) : null);
+  const folderBranches = useMemo(() => (d.cwd && inspection?.branch ? new Map(branches).set(d.cwd, inspection.branch) : branches), [branches, d.cwd, inspection]);
+
+  // Sessions with a Claude Code process in this project right now, newest first.
+  const running = useMemo(
+    () => (d.cwd ? toRows(sessions, live, hosts).filter((row) => row.live && row.projectRoot === d.cwd).sort((a, b) => b.updatedAt - a.updatedAt) : []),
+    [sessions, live, hosts, d.cwd],
+  );
 
   const create = async (text: string, attachments: ImageAttachment[]) => {
     if (!client || !d.cwd) throw new Error('Choose a folder first');
@@ -137,108 +176,143 @@ export function NewSessionView() {
     select(sessionId);
   };
 
+  const modelLabel = d.model ? (models.find((m) => m.value === d.model)?.displayName ?? d.model) : 'Default model';
+  const toolbar = (
+    <>
+      <ChoiceMenu
+        name="model"
+        value={d.model}
+        onChange={(model) => update({ model })}
+        title="Model"
+        choices={[
+          { value: '', label: 'Default model', description: models.find((m) => m.value === 'default')?.description || 'What Claude Code would pick' },
+          ...models.filter((m) => m.value !== 'default').map((m) => ({ value: m.value, label: m.displayName, description: m.description })),
+        ]}
+        width={260}
+      >
+        <Box size={13} className="shrink-0" />
+        <span className="max-w-40 truncate">{modelLabel}</span>
+        <ChevronDown size={12} className="shrink-0 text-faint" />
+      </ChoiceMenu>
+      <Divider />
+      <EffortDial value={d.effort} onChange={(effort) => update({ effort })} />
+      <Divider />
+      <ChoiceMenu
+        name="mode"
+        value={d.permissionMode}
+        onChange={(permissionMode) => update({ permissionMode })}
+        title="Permission mode (⇧Tab in the prompt)"
+        choices={MODE_CHOICES.map((mode) => ({ value: mode, label: MODE_LABEL[mode], description: MODE_DESCRIPTION[mode], dot: MODE_DOT[mode] }))}
+        width={280}
+      >
+        <span className={`size-2 shrink-0 rounded-full ${MODE_DOT[d.permissionMode] ?? 'bg-faint'}`} />
+        {MODE_LABEL[d.permissionMode]}
+        <kbd className="font-sans text-[11px] text-faint">⇧Tab</kbd>
+      </ChoiceMenu>
+    </>
+  );
+
+  const folderProblem = !d.cwd ? 'Pick where Claude should work.' : !inspection ? 'Checking folder…' : !inspection.exists ? 'This folder no longer exists.' : null;
+
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <header className="drag flex h-13 shrink-0 items-center border-b border-border px-6">
-        <h1 className="text-[13px] font-semibold">New session</h1>
-      </header>
+      {/* No title bar: the eyebrow names the view. The strip keeps the window draggable. */}
+      <div className="drag h-13 shrink-0" />
 
-      <div className="flex min-h-0 flex-1 flex-col justify-end overflow-y-auto">
-        <div className="mx-auto grid w-full max-w-3xl grid-cols-[minmax(0,1fr)] gap-4 px-6 pb-4">
-          <div className="grid gap-1.5">
-            <label className="text-[11px] tracking-wide text-faint uppercase">Folder</label>
-            <div className="flex min-w-0 gap-2">
-              <FolderPicker value={d.cwd} folders={recent} home={home} onChange={(cwd) => update({ cwd })} onChooseOther={() => void chooseFolder()} />
-            </div>
-            <p className="text-[11px] text-faint">
-              {!d.cwd
-                ? 'Pick where Claude should work.'
-                : !inspection
-                  ? 'Checking folder…'
-                  : !inspection.exists
-                    ? 'This folder no longer exists.'
-                    : inspection.isGitRepo
-                      ? `Git repository${inspection.branch ? ` on ${inspection.branch}` : ''}`
-                      : 'Not a git repository'}
-            </p>
-          </div>
+      <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
+        <div className="mx-auto my-auto grid w-full max-w-3xl grid-cols-[minmax(0,1fr)] gap-5 px-6 pt-2 pb-12" data-new-session-view>
+          <FolderPicker value={d.cwd} folders={recent} home={home} branches={folderBranches} onChange={(cwd) => update({ cwd })} onChooseOther={() => void chooseFolder()} />
 
-          <div className="grid gap-1.5">
-            <label className="text-[11px] tracking-wide text-faint uppercase">Workspace</label>
-            <div className="flex flex-wrap items-center gap-2">
-              <Segmented
-                value={useWorktree ? 'worktree' : 'current'}
-                onChange={(workspace) => update({ workspace })}
-                options={[
-                  { value: 'current', label: 'Current folder', title: 'Work on the checked-out branch, like running `claude` here' },
-                  { value: 'worktree', label: 'New worktree', title: canWorktree ? 'Claude Code creates a git worktree on a new branch' : 'Needs a git repository' },
-                ]}
-                disabled={!canWorktree}
+          <div>
+            <div onInput={(e) => setDraftPrompt((e.target as HTMLTextAreaElement).value ?? '')} className="relative z-10">
+              <Composer
+                cwd={d.cwd}
+                commands={commands}
+                placeholder="What should Claude work on?"
+                submitLabel="Start session"
+                submitHint="⌘↵"
+                large
+                autoFocus
+                toolbar={toolbar}
+                onCycleMode={() => update({ permissionMode: nextMode(d.permissionMode) })}
+                disabledReason={!client ? 'Connecting to the engine…' : !d.cwd ? 'Choose a folder first' : inspection && !inspection.exists ? 'That folder no longer exists' : null}
+                onSubmit={create}
               />
+            </div>
+
+            <div className="mx-3 flex flex-wrap items-center gap-x-1.5 gap-y-1.5 rounded-b-lg border border-t-0 border-border bg-sidebar px-3 py-1.5" data-route-tray>
+              <Socket>
+                <Segmented
+                  label="Workspace"
+                  value={useWorktree ? 'worktree' : 'current'}
+                  onChange={(workspace) => update({ workspace })}
+                  options={[
+                    { value: 'current', label: 'This checkout', title: 'Work on the checked-out branch, like running `claude` here' },
+                    { value: 'worktree', label: 'New worktree', title: canWorktree ? 'Claude Code creates a git worktree on a new branch' : 'Needs a git repository' },
+                  ]}
+                  disabled={!canWorktree}
+                />
+              </Socket>
               {useWorktree && (
                 <>
-                  <input
-                    className={`${field} w-56 font-mono`}
-                    value={effectiveName}
-                    placeholder="worktree name"
-                    onChange={(e) => {
-                      setNameTouched(true);
-                      setWorktreeName(e.target.value.replace(/[^A-Za-z0-9._-]/g, '-'));
-                    }}
-                    title={`Branch worktree-${effectiveName} in .claude/worktrees/${effectiveName}`}
-                  />
-                  <Segmented
-                    value={d.baseRef}
-                    onChange={(baseRef) => update({ baseRef })}
-                    options={[
-                      { value: 'fresh', label: 'From origin', title: "Branch from origin's default branch (Claude Code's default)" },
-                      { value: 'head', label: 'From HEAD', title: 'Branch from your current local HEAD, including unpushed commits' },
-                    ]}
-                  />
+                  <Socket cable>
+                    <Segmented
+                      label="Branch from"
+                      value={d.baseRef}
+                      onChange={(baseRef) => update({ baseRef })}
+                      options={[
+                        { value: 'fresh', label: 'from origin', title: "Branch from origin's default branch (Claude Code's default)" },
+                        { value: 'head', label: 'HEAD', title: 'Branch from your current local HEAD, including unpushed commits' },
+                      ]}
+                    />
+                  </Socket>
                 </>
               )}
+              <Socket cable grow on={useWorktree || !!branch}>
+                <GitBranch size={12} className="shrink-0 text-faint" />
+                {useWorktree ? (
+                  <label className="flex min-w-0 flex-1 items-center font-mono text-[11.5px]" title={`Branch worktree-${effectiveName} in .claude/worktrees/${effectiveName}`}>
+                    <span className="text-faint">worktree-</span>
+                    <input
+                      data-worktree-name
+                      aria-label="Worktree name"
+                      className="w-full min-w-0 rounded border border-transparent bg-transparent px-0.5 text-text outline-none placeholder:text-faint hover:border-border focus:border-accent-ink/60"
+                      value={nameTouched ? worktreeName : ''}
+                      placeholder={worktreeSlug(draftPrompt)}
+                      spellCheck={false}
+                      onChange={(e) => {
+                        setNameTouched(e.target.value !== '');
+                        setWorktreeName(e.target.value.replace(/[^A-Za-z0-9._-]/g, '-'));
+                      }}
+                    />
+                  </label>
+                ) : (
+                  <span className="truncate font-mono text-[11.5px] text-muted" data-route-branch>
+                    {branch ?? (inspection && !inspection.isGitRepo ? 'no git' : '…')}
+                  </span>
+                )}
+              </Socket>
+              <span className="ml-auto pl-2">
+                <UsageBand compact />
+              </span>
             </div>
           </div>
 
-          <div className="flex flex-wrap items-center gap-2">
-            <select data-model-select className={field} value={d.model} onChange={(e) => update({ model: e.target.value })} title="Model">
-              <option value="">Default model</option>
-              {models
-                .filter((m) => m.value !== 'default')
-                .map((m) => (
-                  <option key={m.value} value={m.value}>
-                    {m.displayName}
-                  </option>
-                ))}
-            </select>
-            <select className={field} value={d.permissionMode} onChange={(e) => update({ permissionMode: e.target.value as PermissionMode })} title="Permission mode">
-              {MODE_CHOICES.map((m) => (
-                <option key={m} value={m}>
-                  {MODE_LABEL[m]}
-                </option>
-              ))}
-            </select>
-            <select className={field} value={d.effort} onChange={(e) => update({ effort: e.target.value as Effort | '' })} title="Effort">
-              <option value="">Default effort</option>
-              {EFFORTS.map((e) => (
-                <option key={e} value={e}>
-                  {e} effort
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <UsageBand />
-          <div onInput={(e) => setDraftPrompt((e.target as HTMLTextAreaElement).value ?? '')}>
-            <Composer
-              cwd={d.cwd}
-              commands={commands}
-              placeholder="What should Claude work on?"
-              submitLabel="Start session"
-              autoFocus
-              disabledReason={!client ? 'Connecting to the engine…' : !d.cwd ? 'Choose a folder first' : inspection && !inspection.exists ? 'That folder no longer exists' : null}
-              onSubmit={create}
-            />
+          <div className="-mt-2 flex flex-wrap items-center justify-between gap-x-4 gap-y-1 px-1 text-[11.5px] text-faint" data-route-hint>
+            <span className="min-w-0 truncate">
+              {folderProblem ?? routeHint({ worktree: useWorktree, isGitRepo: canWorktree, branch, name: effectiveName })}
+            </span>
+            {running.length > 0 && (
+              <span className="flex min-w-0 items-center gap-1.5" data-running-here>
+                <span className="size-1.5 shrink-0 rounded-full bg-ok" aria-hidden />
+                <span className="min-w-0 truncate" title={running.map((r) => r.title).join('\n')}>
+                  {running.length === 1 ? `“${running[0]!.title}” is running here` : `${running.length} sessions running here`}
+                </span>
+                <button type="button" onClick={() => select(running[0]!.id)} className="shrink-0 text-link hover:underline" data-open-running>
+                  Open
+                </button>
+              </span>
+            )}
           </div>
         </div>
       </div>
