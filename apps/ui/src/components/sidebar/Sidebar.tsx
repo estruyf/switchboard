@@ -13,6 +13,7 @@ import { useOpenIn } from '../OpenInButton.tsx';
 import { ProjectIcon } from '../ProjectIcon.tsx';
 import { ProjectFilter, useProjectIconEntries } from './ProjectMenu.tsx';
 import { StatusIcon } from './StatusIcon.tsx';
+import appIcon from '../../assets/app-icon.png';
 
 type ListRow = { kind: 'session'; data: SessionRowData; settled: boolean } | { kind: 'settled-header'; count: number; open: boolean };
 
@@ -178,7 +179,8 @@ export function Sidebar() {
   return (
     <aside className="flex w-80 shrink-0 flex-col border-r border-border bg-sidebar">
       {/* Traffic lights on the left; the bar doubles as a window drag handle. */}
-      <div className="drag flex h-13 shrink-0 items-center pl-21">
+      <div className="drag flex h-13 shrink-0 items-center gap-2 pl-21">
+        <img src={appIcon} alt="" width={20} height={20} draggable={false} />
         <span className="text-[13px] font-semibold text-text/90">Switchboard</span>
       </div>
 

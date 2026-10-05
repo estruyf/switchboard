@@ -391,6 +391,9 @@ async function runSmokeStep(win: BrowserWindow | null): Promise<void> {
 }
 
 app.whenReady().then(() => {
+  // Packaged builds take the icon from the bundle's icon.icns; in development, set it on the Dock.
+  if (!app.isPackaged) app.dock?.setIcon(join(here, '../../build/icon.png'));
+  app.setAboutPanelOptions({ applicationName: 'Switchboard', iconPath: join(here, '../../build/icon.png') });
   engine = new EngineProcess({
     entry: join(here, 'engine.js'),
     dataDir: app.getPath('userData'),
