@@ -30,8 +30,44 @@ export const SessionSummary = z.object({
   updatedAt: z.number(),
   fileSize: z.number().nullable(),
   tag: z.string().nullable(),
+  /** Kept at the top of the list. */
+  pinned: z.boolean(),
+  /** When the user settled it by hand; new activity after this brings it back. */
+  settledAt: z.number().nullable(),
+  /** When the user last looked at it in this app. */
+  viewedAt: z.number().nullable(),
+  /** Changed since the user last looked at it. */
+  unread: z.boolean(),
 });
 export type SessionSummary = z.infer<typeof SessionSummary>;
+
+export const ProjectIcon = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('image'), dataUrl: z.string().max(300_000) }),
+  z.object({ kind: z.literal('emoji'), value: z.string().min(1).max(16) }),
+]);
+export type ProjectIcon = z.infer<typeof ProjectIcon>;
+
+/** How the user can set a project's icon. */
+export const ProjectIconChoice = z.discriminatedUnion('kind', [
+  /** Go back to the detected icon (or the letter when nothing is found). */
+  z.object({ kind: z.literal('auto') }),
+  /** Always use the letter. */
+  z.object({ kind: z.literal('none') }),
+  z.object({ kind: z.literal('emoji'), value: z.string().min(1).max(16) }),
+  z.object({ kind: z.literal('file'), path: z.string().min(1).max(4096).startsWith('/') }),
+]);
+export type ProjectIconChoice = z.infer<typeof ProjectIconChoice>;
+
+export const ProjectInfo = z.object({
+  root: z.string(),
+  name: z.string(),
+  icon: ProjectIcon.nullable(),
+  iconSource: z.enum(['custom', 'detected']).nullable(),
+  /** Added by hand (listed even without sessions). */
+  added: z.boolean(),
+  exists: z.boolean(),
+});
+export type ProjectInfo = z.infer<typeof ProjectInfo>;
 
 /** Normalised live state from the `~/.claude/sessions` registry. */
 export const LiveStatus = z.enum(['running', 'needs-you', 'idle']);

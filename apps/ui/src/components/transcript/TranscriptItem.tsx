@@ -1,4 +1,5 @@
 import { memo, useState } from 'react';
+import { useOpenIn } from '../OpenInButton.tsx';
 import type { DisplayItem } from './displayItems.ts';
 import { Markdown } from './Markdown.tsx';
 import { toolSummary } from './toolSummary.ts';
@@ -12,8 +13,21 @@ function Disclosure({ open, onToggle, children }: { open: boolean; onToggle: () 
   );
 }
 
+const FILE_TOOLS = new Set(['Read', 'Write', 'Edit', 'MultiEdit', 'NotebookEdit']);
+
+/** The file a tool touched (absolute path) and, for Read, the line it started at. */
+function fileTarget(item: Extract<DisplayItem, { kind: 'tool' }>): { path: string; line?: number } | null {
+  if (!FILE_TOOLS.has(item.name)) return null;
+  const input = item.input as { file_path?: unknown; notebook_path?: unknown; offset?: unknown };
+  const path = typeof input.file_path === 'string' ? input.file_path : typeof input.notebook_path === 'string' ? input.notebook_path : null;
+  if (!path?.startsWith('/')) return null;
+  return typeof input.offset === 'number' && input.offset > 0 ? { path, line: input.offset } : { path };
+}
+
 function ToolCard({ item, cwd }: { item: Extract<DisplayItem, { kind: 'tool' }>; cwd: string | null }) {
   const [open, setOpen] = useState(false);
+  const openIn = useOpenIn();
+  const target = fileTarget(item);
   const { label, detail } = toolSummary(item.name, item.input, cwd);
   const state = item.result === null ? 'pending' : item.result.isError ? 'error' : 'ok';
   return (
@@ -24,7 +38,21 @@ function ToolCard({ item, cwd }: { item: Extract<DisplayItem, { kind: 'tool' }>;
           title={state === 'pending' ? 'No result recorded' : state === 'error' ? 'Failed' : 'Succeeded'}
         />
         <span className="shrink-0 text-[12px] font-medium">{label}</span>
-        <span className="min-w-0 truncate font-mono text-[12px] text-muted">{detail}</span>
+        <span className="min-w-0 flex-1 truncate font-mono text-[12px] text-muted">{detail}</span>
+        {target && (
+          <span
+            role="link"
+            tabIndex={0}
+            title={`Open ${target.path} in your editor`}
+            onClick={(e) => {
+              e.stopPropagation();
+              void openIn(target.path, target.line ? { line: target.line } : {}).catch(() => {});
+            }}
+            className="shrink-0 rounded px-1 text-[11px] text-faint hover:bg-border/60 hover:text-accent"
+          >
+            Open ↗
+          </span>
+        )}
       </Disclosure>
       {open && (
         <div className="mt-2 grid gap-2 pb-1 select-text">

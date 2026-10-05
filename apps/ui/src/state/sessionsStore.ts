@@ -1,7 +1,8 @@
 import { create } from 'zustand';
-import type { LiveSession, SessionsChanged, SessionsSnapshot, SessionSummary } from '@switchboard/protocol/client';
+import type { LiveSession, SessionHostInfo, SessionsChanged, SessionsSnapshot, SessionSummary } from '@switchboard/protocol/client';
+import { hostAsLive, isActiveHost } from './hostsStore.ts';
 
-export type MainView = 'session' | 'diagnostics';
+export type MainView = 'session' | 'new' | 'diagnostics';
 
 interface SessionsState {
   sessions: Map<string, SessionSummary>;
@@ -13,9 +14,6 @@ interface SessionsState {
   selectedId: string | null;
   view: MainView;
   filter: string;
-  collapsed: Set<string>;
-  /** Projects showing all their sessions instead of the newest few. */
-  expanded: Set<string>;
 
   applySnapshot(snapshot: SessionsSnapshot): void;
   applyChanged(change: SessionsChanged): void;
@@ -23,19 +21,10 @@ interface SessionsState {
   select(id: string | null): void;
   setView(view: MainView): void;
   setFilter(filter: string): void;
-  toggleCollapsed(projectRoot: string): void;
-  toggleExpanded(projectRoot: string): void;
 }
 
 /** Claude Code records `HEAD` when there is no branch (e.g. before the first commit); that is not a name worth showing. */
 export const realBranch = (branch: string | null) => (branch && branch !== 'HEAD' ? branch : null);
-
-const toggle = (set: Set<string>, key: string) => {
-  const next = new Set(set);
-  if (next.has(key)) next.delete(key);
-  else next.add(key);
-  return next;
-};
 
 export const useSessions = create<SessionsState>()((set) => ({
   sessions: new Map(),
@@ -45,8 +34,6 @@ export const useSessions = create<SessionsState>()((set) => ({
   selectedId: null,
   view: 'session',
   filter: '',
-  collapsed: new Set(),
-  expanded: new Set(),
 
   applySnapshot: (snapshot) =>
     set({
@@ -66,8 +53,6 @@ export const useSessions = create<SessionsState>()((set) => ({
   select: (id) => set({ selectedId: id, view: 'session' }),
   setView: (view) => set({ view }),
   setFilter: (filter) => set({ filter }),
-  toggleCollapsed: (root) => set((state) => ({ collapsed: toggle(state.collapsed, root) })),
-  toggleExpanded: (root) => set((state) => ({ expanded: toggle(state.expanded, root) })),
 }));
 
 /** A session as the sidebar shows it: the summary (if indexed) merged with its live state. */
@@ -80,12 +65,26 @@ export interface SessionRowData {
   isWorktree: boolean;
   live: LiveSession | null;
   summary: SessionSummary | null;
+  pinned: boolean;
+  settledAt: number | null;
+  unread: boolean;
+  /** The last run in this app failed. */
+  error: boolean;
 }
 
-export function toRows(sessions: Map<string, SessionSummary>, live: Map<string, LiveSession>): SessionRowData[] {
+export function toRows(
+  sessions: Map<string, SessionSummary>,
+  live: Map<string, LiveSession>,
+  hosts: Map<string, SessionHostInfo> = new Map(),
+): SessionRowData[] {
   const rows: SessionRowData[] = [];
+  // Sessions running in this app report their own state; it is more precise than the registry.
+  const liveFor = (id: string) => {
+    const host = hosts.get(id);
+    return isActiveHost(host) ? hostAsLive(host) : (live.get(id) ?? null);
+  };
   for (const s of sessions.values()) {
-    const l = live.get(s.id) ?? null;
+    const l = liveFor(s.id);
     rows.push({
       id: s.id,
       title: l?.name && !s.customTitle ? l.name : s.title,
@@ -95,11 +94,21 @@ export function toRows(sessions: Map<string, SessionSummary>, live: Map<string, 
       isWorktree: s.worktree !== null,
       live: l,
       summary: s,
+      pinned: s.pinned,
+      settledAt: s.settledAt,
+      unread: s.unread,
+      error: hosts.get(s.id)?.state === 'error',
     });
   }
   // Running sessions that have not written a transcript yet still deserve a row.
-  for (const l of live.values()) {
-    if (sessions.has(l.sessionId)) continue;
+  const seen = new Set(sessions.keys());
+  const pending = [
+    ...[...hosts.values()].filter(isActiveHost).flatMap((h) => hostAsLive(h) ?? []),
+    ...live.values(),
+  ];
+  for (const l of pending) {
+    if (seen.has(l.sessionId)) continue;
+    seen.add(l.sessionId);
     rows.push({
       id: l.sessionId,
       title: l.name ?? 'New session',
@@ -109,6 +118,10 @@ export function toRows(sessions: Map<string, SessionSummary>, live: Map<string, 
       isWorktree: false,
       live: l,
       summary: null,
+      pinned: false,
+      settledAt: null,
+      unread: false,
+      error: false,
     });
   }
   return rows;

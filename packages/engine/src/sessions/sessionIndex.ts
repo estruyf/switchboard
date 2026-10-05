@@ -7,8 +7,21 @@ import type { ProjectResolver } from '../claude/projectResolver.ts';
 import type { RawSessionInfo, SessionSource } from '../claude/sessionSource.ts';
 import { coalesce } from '../util/coalesce.ts';
 
+/** What the index derives from disk; user flags are added on the way out (see `decorate`). */
+type RawSummary = Omit<SessionSummary, 'pinned' | 'settledAt' | 'viewedAt' | 'unread'>;
+
+interface Flags {
+  pinned: boolean;
+  settledAt: number | null;
+  viewedAt: number | null;
+}
+
+const NO_FLAGS: Flags = { pinned: false, settledAt: null, viewedAt: null };
+/** Writes that land right after the user looked are not "new" for them. */
+const UNREAD_SLACK_MS = 2_000;
+
 interface Entry {
-  summary: SessionSummary;
+  summary: RawSummary;
   path: string | null;
   mtime: number | null;
   entrypoint: string | null;
@@ -29,6 +42,13 @@ export interface SessionIndexOptions {
   /** A transcript file was written (its summary may or may not have changed). */
   onTranscriptChanged: (sessionId: string) => void;
   log: (level: LogLevel, message: string) => void;
+  /**
+   * Sessions that changed after this moment and were never opened in the app
+   * count as unread (so a first launch doesn't mark every old session unread).
+   */
+  baseline: number;
+  /** Sessions this app created; they get the `app` origin whatever Claude Code recorded. */
+  isOwned?: (sessionId: string) => boolean;
   /** Safety-net full rescan, in case file events were missed. */
   refreshIntervalMs?: number;
 }
@@ -48,6 +68,7 @@ const oneLine = (text: string, max: number) => {
  */
 export class SessionIndex {
   private readonly entries = new Map<string, Entry>();
+  private readonly flags = new Map<string, Flags>();
   private complete = false;
   private refreshing: Promise<void> | undefined;
   private watcher: FSWatcher | undefined;
@@ -67,7 +88,14 @@ export class SessionIndex {
           jsonl_path = excluded.jsonl_path, jsonl_mtime = excluded.jsonl_mtime,
           entrypoint = excluded.entrypoint, summary_json = excluded.summary_json`),
       remove: db.prepare('DELETE FROM sessions WHERE id = ?'),
+      flagsAll: db.prepare('SELECT id, pinned, settled_at, viewed_at FROM session_flags'),
+      flagsUpsert: db.prepare(`
+        INSERT INTO session_flags (id, pinned, settled_at, viewed_at) VALUES (?, ?, ?, ?)
+        ON CONFLICT (id) DO UPDATE SET pinned = excluded.pinned, settled_at = excluded.settled_at, viewed_at = excluded.viewed_at`),
     };
+    for (const row of this.statements.flagsAll.all() as Array<{ id: string; pinned: number; settled_at: number | null; viewed_at: number | null }>) {
+      this.flags.set(row.id, { pinned: row.pinned === 1, settledAt: row.settled_at, viewedAt: row.viewed_at });
+    }
     this.loadCache();
   }
 
@@ -75,7 +103,7 @@ export class SessionIndex {
     for (const row of this.statements.all.all() as Array<Record<string, unknown>>) {
       try {
         this.entries.set(String(row.id), {
-          summary: JSON.parse(String(row.summary_json)) as SessionSummary,
+          summary: JSON.parse(String(row.summary_json)) as RawSummary,
           path: (row.jsonl_path as string | null) ?? null,
           mtime: (row.jsonl_mtime as number | null) ?? null,
           entrypoint: (row.entrypoint as string | null) ?? null,
@@ -86,10 +114,43 @@ export class SessionIndex {
     }
   }
 
+  get(sessionId: string): SessionSummary | null {
+    const entry = this.entries.get(sessionId);
+    return entry ? this.decorate(entry.summary) : null;
+  }
+
   /** Sessions newest first, plus whether the first full scan has finished. */
   snapshot(): { sessions: SessionSummary[]; complete: boolean } {
-    const sessions = [...this.entries.values()].map((e) => e.summary).sort((a, b) => b.updatedAt - a.updatedAt);
+    const sessions = [...this.entries.values()].map((e) => this.decorate(e.summary)).sort((a, b) => b.updatedAt - a.updatedAt);
     return { sessions, complete: this.complete };
+  }
+
+  private decorate(raw: RawSummary): SessionSummary {
+    const flags = this.flags.get(raw.id) ?? NO_FLAGS;
+    const seen = flags.viewedAt ?? this.options.baseline;
+    return { ...raw, ...flags, unread: raw.updatedAt > seen + UNREAD_SLACK_MS };
+  }
+
+  /** Pins, or settles/unsettles, a session and tells every window. */
+  setFlags(sessionId: string, change: { pinned?: boolean; settled?: boolean }): void {
+    const current = this.flags.get(sessionId) ?? NO_FLAGS;
+    const next: Flags = {
+      ...current,
+      ...(change.pinned !== undefined ? { pinned: change.pinned } : {}),
+      ...(change.settled !== undefined ? { settledAt: change.settled ? Date.now() : null } : {}),
+    };
+    this.writeFlags(sessionId, next);
+  }
+
+  markViewed(sessionId: string): void {
+    this.writeFlags(sessionId, { ...(this.flags.get(sessionId) ?? NO_FLAGS), viewedAt: Date.now() });
+  }
+
+  private writeFlags(sessionId: string, flags: Flags): void {
+    this.flags.set(sessionId, flags);
+    this.statements.flagsUpsert.run(sessionId, flags.pinned ? 1 : 0, flags.settledAt, flags.viewedAt);
+    const entry = this.entries.get(sessionId);
+    if (entry) this.options.onChange({ upserted: [this.decorate(entry.summary)], removed: [], complete: this.complete });
   }
 
   start(): void {
@@ -181,7 +242,7 @@ export class SessionIndex {
     const cwd = info.cwd ?? null;
     const location = cwd ? this.options.resolver.resolve(cwd) : null;
     const title = oneLine(info.customTitle || info.summary || info.firstPrompt || 'Untitled session', TITLE_MAX);
-    const summary: SessionSummary = {
+    const summary: RawSummary = {
       id: info.sessionId,
       title,
       firstPrompt: info.firstPrompt ? oneLine(info.firstPrompt, 500) : null,
@@ -192,7 +253,7 @@ export class SessionIndex {
       worktree: location?.worktree
         ? { name: location.worktree.name, branch: this.options.resolver.branch(location) }
         : null,
-      origin: originFromEntrypoint(entrypoint),
+      origin: this.options.isOwned?.(info.sessionId) ? 'app' : originFromEntrypoint(entrypoint),
       createdAt: info.createdAt ?? null,
       updatedAt: info.lastModified,
       fileSize: info.fileSize ?? null,
@@ -219,7 +280,7 @@ export class SessionIndex {
       db.exec('ROLLBACK');
       throw error;
     }
-    this.options.onChange({ upserted: upserted.map((e) => e.summary), removed, complete: this.complete });
+    this.options.onChange({ upserted: upserted.map((e) => this.decorate(e.summary)), removed, complete: this.complete });
   }
 
   private fileChanged(sessionId: string, path: string): void {

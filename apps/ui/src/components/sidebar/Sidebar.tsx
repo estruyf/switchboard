@@ -1,13 +1,23 @@
 import { useVirtualizer } from '@tanstack/react-virtual';
-import { memo, useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
+import { Activity, ChevronRight, GitBranch, Pin, Search, SquarePen } from 'lucide-react';
+import { memo, useEffect, useMemo, useRef, useState, type KeyboardEvent, type MouseEvent } from 'react';
+import { useEngineConnection } from '../../engine/useEngine.ts';
 import { shortAge } from '../../lib/format.ts';
+import { useHosts } from '../../state/hostsStore.ts';
+import { useProjects } from '../../state/projectsStore.ts';
 import { toRows, useSessions, type SessionRowData } from '../../state/sessionsStore.ts';
-import { buildSidebarRows, type SidebarRow } from '../../state/sidebarRows.ts';
-import { StatusDot } from '../StatusDot.tsx';
+import { buildSessionList, isActive, rowStatus } from '../../state/sidebarRows.ts';
+import { Menu, type MenuEntry } from '../Menu.tsx';
+import { useOpenIn } from '../OpenInButton.tsx';
+import { ProjectIcon } from '../ProjectIcon.tsx';
+import { ProjectFilter, useProjectIconEntries } from './ProjectMenu.tsx';
+import { StatusIcon } from './StatusIcon.tsx';
 
-const ROW_HEIGHT: Record<SidebarRow['kind'], number> = { project: 30, session: 30, more: 26 };
+type ListRow = { kind: 'session'; data: SessionRowData; settled: boolean } | { kind: 'settled-header'; count: number; open: boolean };
 
-/** Re-renders relative ages once a minute without touching the store. */
+const ROW_HEIGHT = { session: 70, 'settled-header': 34 } as const;
+
+/** Re-renders relative ages (and the 48 h cut-off) once a minute. */
 function useNow(intervalMs = 60_000): number {
   const [now, setNow] = useState(Date.now());
   useEffect(() => {
@@ -17,87 +27,105 @@ function useNow(intervalMs = 60_000): number {
   return now;
 }
 
-const SessionRow = memo(function SessionRow({ data, selected, now }: { data: SessionRowData; selected: boolean; now: number }) {
+const SessionRow = memo(function SessionRow({
+  data,
+  selected,
+  settled,
+  now,
+  onContextMenu,
+}: {
+  data: SessionRowData;
+  selected: boolean;
+  settled: boolean;
+  now: number;
+  onContextMenu(event: MouseEvent, data: SessionRowData): void;
+}) {
   const select = useSessions((s) => s.select);
-  const tooltip = [data.title, data.branch && `Branch: ${data.branch}`, data.summary?.cwd].filter(Boolean).join('\n');
+  const project = useProjects((s) => s.projects.get(data.projectRoot));
+  const status = rowStatus(data);
+  const emphasised = status !== null && status !== 'idle';
+  const ageTone = status === 'needs-you' ? 'text-warn' : status === 'running' || status === 'unread' ? 'text-accent' : 'text-faint';
   return (
     <button
       type="button"
       data-session-id={data.id}
       onClick={() => select(data.id)}
-      title={tooltip}
-      className={`flex h-[28px] w-full items-center gap-2 rounded-md pr-2 pl-6 text-left ${
-        selected ? 'bg-accent/15 text-text' : 'text-text/85 hover:bg-border/50'
-      }`}
+      onContextMenu={(e) => onContextMenu(e, data)}
+      title={[data.title, data.summary?.cwd].filter(Boolean).join('\n')}
+      className={`grid h-[66px] w-full grid-rows-3 rounded-lg px-2.5 py-1.5 text-left ${selected ? 'bg-accent/15' : 'hover:bg-border/45'}`}
     >
-      <StatusDot live={data.live} />
-      <span className="min-w-0 flex-1 truncate">{data.title}</span>
-      {data.isWorktree && (
-        <span className="shrink-0 rounded bg-border/70 px-1 text-[10px] text-muted" title={`Worktree branch ${data.branch ?? ''}`}>
-          wt
-        </span>
-      )}
-      <span className="shrink-0 text-[11px] text-faint tabular-nums">{shortAge(data.updatedAt, now)}</span>
+      <span className="flex min-w-0 items-center gap-1.5 text-[11px] text-muted">
+        <ProjectIcon project={project} root={data.projectRoot} size={13} />
+        <span className="min-w-0 flex-1 truncate">{project?.name ?? data.projectRoot.split('/').pop()}</span>
+        {data.pinned && <Pin size={11} className="shrink-0 text-faint" aria-label="Pinned" />}
+        <span className={`shrink-0 tabular-nums ${ageTone}`}>{shortAge(data.updatedAt, now)}</span>
+      </span>
+      <span className={`min-w-0 truncate text-[13px] leading-5 ${emphasised || selected ? 'font-semibold text-text' : settled ? 'text-muted' : 'text-text/80'}`}>
+        {data.title}
+      </span>
+      <span className="flex min-w-0 items-center gap-1.5 text-[11px] text-faint">
+        {data.branch && (
+          <>
+            <GitBranch size={11} className={`shrink-0 ${data.isWorktree ? 'text-accent/80' : ''}`} aria-label={data.isWorktree ? 'Worktree' : 'Branch'} />
+            <span className="min-w-0 truncate">{data.branch}</span>
+          </>
+        )}
+        <span className="flex-1" />
+        <StatusIcon status={status} />
+      </span>
     </button>
   );
 });
 
-function ProjectRow({ row }: { row: Extract<SidebarRow, { kind: 'project' }> }) {
-  const toggle = useSessions((s) => s.toggleCollapsed);
-  return (
-    <button
-      type="button"
-      onClick={() => toggle(row.root)}
-      title={row.root}
-      className="flex h-[28px] w-full items-center gap-1.5 rounded-md px-1.5 text-left text-[12px] text-muted hover:bg-border/40"
-    >
-      <span className={`inline-block w-3 text-[9px] text-faint transition-transform ${row.collapsed ? '' : 'rotate-90'}`}>▶</span>
-      <span className="min-w-0 flex-1 truncate font-medium text-text/90">{row.name}</span>
-      {row.liveStatus && (
-        <span
-          className={`size-1.5 rounded-full ${row.liveStatus === 'needs-you' ? 'bg-warn' : row.liveStatus === 'running' ? 'bg-accent' : 'bg-ok'}`}
-          title={`${row.liveCount} open`}
-        />
-      )}
-      <span className="text-[11px] text-faint tabular-nums">{row.count}</span>
-    </button>
-  );
-}
-
-function MoreRow({ row }: { row: Extract<SidebarRow, { kind: 'more' }> }) {
-  const toggle = useSessions((s) => s.toggleExpanded);
-  return (
-    <button type="button" onClick={() => toggle(row.root)} className="h-[24px] w-full rounded-md pl-6 text-left text-[11px] text-faint hover:text-muted">
-      {row.expanded ? 'Show fewer' : `Show ${row.hidden} more`}
-    </button>
-  );
-}
-
 export function Sidebar() {
+  const connection = useEngineConnection();
+  const client = connection.status === 'connected' ? connection.client : null;
   const sessions = useSessions((s) => s.sessions);
   const live = useSessions((s) => s.live);
-  const filter = useSessions((s) => s.filter);
-  const collapsed = useSessions((s) => s.collapsed);
-  const expanded = useSessions((s) => s.expanded);
+  const hosts = useHosts((s) => s.hosts);
+  const waiting = useHosts((s) => s.permissions.size);
+  const search = useSessions((s) => s.filter);
   const selectedId = useSessions((s) => s.selectedId);
   const complete = useSessions((s) => s.complete);
   const loaded = useSessions((s) => s.loaded);
   const view = useSessions((s) => s.view);
-  const { setFilter, select, setView } = useSessions.getState();
+  const { setFilter: setSearch, select, setView } = useSessions.getState();
+  const projectFilter = useProjects((s) => s.filter);
+  const settledOpen = useProjects((s) => s.settledOpen);
+  const toggleSettled = useProjects((s) => s.toggleSettled);
+  const openIn = useOpenIn();
+  const projectIcons = useProjectIconEntries();
+  const [menu, setMenu] = useState<{ x: number; y: number; entries: MenuEntry[] } | null>(null);
   const now = useNow();
 
-  const all = useMemo(() => toRows(sessions, live), [sessions, live]);
-  const rows = useMemo(
-    () => buildSidebarRows(all, { filter, collapsed, expanded, selectedId }),
-    [all, filter, collapsed, expanded, selectedId],
-  );
+  const all = useMemo(() => toRows(sessions, live, hosts), [sessions, live, hosts]);
+  const { active, settled } = useMemo(() => buildSessionList(all, { search, project: projectFilter, now }), [all, search, projectFilter, now]);
+  const counts = useMemo(() => {
+    const map = new Map<string, { total: number; active: number }>();
+    for (const row of all) {
+      const entry = map.get(row.projectRoot) ?? { total: 0, active: 0 };
+      entry.total++;
+      if (isActive(row, now)) entry.active++;
+      map.set(row.projectRoot, entry);
+    }
+    return map;
+  }, [all, now]);
+
+  const rows = useMemo<ListRow[]>(() => {
+    const list: ListRow[] = active.map((data) => ({ kind: 'session', data, settled: false }));
+    // While searching, settled matches are shown too.
+    const showSettled = settledOpen || search.trim() !== '';
+    if (settled.length) list.push({ kind: 'settled-header', count: settled.length, open: showSettled });
+    if (showSettled) for (const data of settled) list.push({ kind: 'session', data, settled: true });
+    return list;
+  }, [active, settled, settledOpen, search]);
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const virtualizer = useVirtualizer({
     count: rows.length,
     getScrollElement: () => scrollRef.current,
     estimateSize: (i) => ROW_HEIGHT[rows[i]!.kind],
-    overscan: 12,
+    overscan: 10,
   });
 
   // ↑/↓ moves through visible sessions, like a native source list.
@@ -107,53 +135,89 @@ export function Sidebar() {
     const ids = rows.flatMap((r, index) => (r.kind === 'session' ? [{ id: r.data.id, index }] : []));
     if (ids.length === 0) return;
     const current = ids.findIndex((r) => r.id === selectedId);
-    const nextIndex = current === -1 ? 0 : Math.min(ids.length - 1, Math.max(0, current + (event.key === 'ArrowDown' ? 1 : -1)));
-    const next = ids[nextIndex]!;
+    const next = ids[current === -1 ? 0 : Math.min(ids.length - 1, Math.max(0, current + (event.key === 'ArrowDown' ? 1 : -1)))]!;
     select(next.id);
     virtualizer.scrollToIndex(next.index, { align: 'auto' });
   };
 
-  const liveCount = live.size;
+  const sessionMenu = (event: MouseEvent, data: SessionRowData) => {
+    event.preventDefault();
+    const at = { x: event.clientX, y: event.clientY };
+    const settledNow = !isActive(data, Date.now());
+    const flag = (change: { pinned?: boolean; settled?: boolean }) => void client?.call('sessions.setFlags', { sessionId: data.id, ...change });
+    const cwd = data.summary?.cwd ?? data.live?.cwd ?? null;
+    setMenu({
+      ...at,
+      entries: [
+        { label: data.pinned ? 'Unpin' : 'Pin to top', onSelect: () => flag({ pinned: !data.pinned }), disabled: !data.summary },
+        settledNow
+          ? { label: 'Move back to the main list', onSelect: () => flag({ settled: false }), disabled: !data.summary }
+          : { label: 'Settle', hint: 'until new activity', onSelect: () => flag({ settled: true, pinned: false }), disabled: !data.summary },
+        { label: 'Open folder in editor', onSelect: () => cwd && void openIn(cwd).catch(() => {}), disabled: !cwd },
+        { label: 'Copy session ID', onSelect: () => void navigator.clipboard.writeText(data.id) },
+        'separator',
+        ...projectIcons.entries(data.projectRoot, at),
+      ],
+    });
+  };
+
+  const liveCount = new Set([...live.keys(), ...[...hosts.values()].filter((h) => h.state !== 'closed' && h.state !== 'error').map((h) => h.sessionId)]).size;
 
   return (
-    <aside className="flex w-72 shrink-0 flex-col border-r border-border bg-sidebar">
-      {/* Leaves room for the macOS traffic lights and doubles as a window drag handle. */}
-      <div className="drag h-13 shrink-0" />
+    <aside className="flex w-80 shrink-0 flex-col border-r border-border bg-sidebar">
+      {/* Traffic lights on the left; the bar doubles as a window drag handle. */}
+      <div className="drag flex h-13 shrink-0 items-center pl-21">
+        <span className="text-[13px] font-semibold text-text/90">Switchboard</span>
+      </div>
 
-      <div className="flex gap-2 px-3 pb-2">
-        <input
-          type="search"
-          value={filter}
-          onChange={(e) => setFilter(e.target.value)}
-          placeholder="Filter sessions"
-          spellCheck={false}
-          className="no-drag h-7 min-w-0 flex-1 rounded-md border border-border bg-card px-2 text-[12px] text-text outline-none placeholder:text-faint focus:border-accent/60"
-        />
+      <div className="flex items-center gap-1 px-3 pb-1.5">
+        <label className="no-drag flex h-7 min-w-0 flex-1 items-center gap-2 rounded-md px-1.5 text-muted focus-within:bg-card focus-within:ring-1 focus-within:ring-accent/50 hover:bg-border/40">
+          <Search size={14} className="shrink-0" />
+          <input
+            type="search"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search"
+            spellCheck={false}
+            className="h-full min-w-0 flex-1 bg-transparent text-[12px] text-text outline-none placeholder:text-muted"
+          />
+        </label>
         <button
           type="button"
-          disabled
-          title="New session (⌘N) arrives in Phase 3"
-          className="no-drag h-7 rounded-md border border-border bg-card px-2 text-[12px] text-faint"
+          data-new-session
+          onClick={() => setView('new')}
+          title="New session (⌘N)"
+          className={`no-drag flex size-7 items-center justify-center rounded-md hover:bg-border/50 ${view === 'new' ? 'bg-accent/15 text-text' : 'text-muted hover:text-text'}`}
         >
-          New
+          <SquarePen size={15} />
         </button>
       </div>
 
-      <div ref={scrollRef} tabIndex={0} onKeyDown={onKeyDown} className="min-h-0 flex-1 overflow-y-auto px-2 outline-none">
+      <ProjectFilter counts={counts} />
+
+      <div ref={scrollRef} tabIndex={0} onKeyDown={onKeyDown} className="min-h-0 flex-1 overflow-y-auto px-2 pb-2 outline-none">
         {loaded && rows.length === 0 ? (
-          <p className="px-2 py-4 text-[12px] text-muted">{filter ? 'No sessions match this filter.' : 'No Claude Code sessions found yet.'}</p>
+          <p className="px-2 py-4 text-[12px] text-muted">
+            {search ? 'No sessions match your search.' : projectFilter ? 'No sessions in this project yet.' : 'No Claude Code sessions found yet.'}
+          </p>
         ) : (
           <div style={{ height: virtualizer.getTotalSize(), position: 'relative' }}>
             {virtualizer.getVirtualItems().map((item) => {
               const row = rows[item.index]!;
               return (
                 <div key={item.key} style={{ position: 'absolute', top: 0, left: 0, right: 0, height: item.size, transform: `translateY(${item.start}px)` }}>
-                  {row.kind === 'project' ? (
-                    <ProjectRow row={row} />
-                  ) : row.kind === 'session' ? (
-                    <SessionRow data={row.data} selected={row.data.id === selectedId} now={now} />
+                  {row.kind === 'session' ? (
+                    <SessionRow data={row.data} settled={row.settled} selected={view === 'session' && row.data.id === selectedId} now={now} onContextMenu={sessionMenu} />
                   ) : (
-                    <MoreRow row={row} />
+                    <button
+                      type="button"
+                      data-settled-toggle
+                      onClick={toggleSettled}
+                      className="mt-1 flex h-[30px] w-full items-center gap-1.5 rounded-md px-2.5 text-[12px] text-faint hover:text-muted"
+                    >
+                      Settled ({row.count})
+                      <ChevronRight size={13} className={`transition-transform ${row.open ? 'rotate-90' : ''}`} />
+                    </button>
                   )}
                 </div>
               );
@@ -162,19 +226,24 @@ export function Sidebar() {
         )}
       </div>
 
-      <footer className="flex h-9 shrink-0 items-center justify-between border-t border-border px-3 text-[11px] text-faint">
-        <span>
+      <footer className="flex h-10 shrink-0 items-center gap-2 border-t border-border px-3 text-[11px] text-faint">
+        <span className="min-w-0 flex-1 truncate">
           {sessions.size} sessions{liveCount > 0 && ` · ${liveCount} open`}
+          {waiting > 0 && <span className="text-warn">{` · ${waiting} waiting`}</span>}
           {!complete && loaded && ' · scanning…'}
         </span>
         <button
           type="button"
           onClick={() => setView(view === 'diagnostics' ? 'session' : 'diagnostics')}
-          className={`rounded px-1.5 py-0.5 hover:bg-border/60 hover:text-muted ${view === 'diagnostics' ? 'text-text' : ''}`}
+          title="Diagnostics"
+          className={`flex size-7 items-center justify-center rounded-md hover:bg-border/60 hover:text-muted ${view === 'diagnostics' ? 'text-text' : ''}`}
         >
-          Diagnostics
+          <Activity size={14} />
         </button>
       </footer>
+
+      {menu && <Menu x={menu.x} y={menu.y} entries={menu.entries} onClose={() => setMenu(null)} />}
+      {projectIcons.picker}
     </aside>
   );
 }

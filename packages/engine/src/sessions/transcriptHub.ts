@@ -1,6 +1,6 @@
 import type { LogLevel, TranscriptMessage, TranscriptUpdate } from '@switchboard/protocol';
 import type { SessionSource } from '../claude/sessionSource.ts';
-import { normaliseMessage } from '../claude/transcript.ts';
+import { normaliseMessage, type RawSessionMessage } from '../claude/transcript.ts';
 import { coalesce } from '../util/coalesce.ts';
 
 interface Watcher {
@@ -8,15 +8,26 @@ interface Watcher {
   uuids: string[] | null;
   /** A change arrived while the initial load was in flight. */
   dirty: boolean;
+  /** Sent from the live stream but not yet seen in the file. */
+  live: Set<string>;
   emit: (update: TranscriptUpdate) => void;
 }
 
-/** Works out the smallest update that brings a watcher from `sent` to `next`. */
-export function diffTranscript(sent: readonly string[], next: readonly TranscriptMessage[]): Pick<TranscriptUpdate, 'mode' | 'messages'> | null {
-  const isPrefix = next.length >= sent.length && sent.every((uuid, i) => next[i]!.uuid === uuid);
-  if (!isPrefix) return { mode: 'replace', messages: [...next] };
-  if (next.length === sent.length) return null;
-  return { mode: 'append', messages: next.slice(sent.length) };
+/**
+ * Works out the smallest update that brings a watcher from `sent` to `next`
+ * (the file's current content). When the file is merely behind what was
+ * already streamed live, nothing is sent: it will catch up.
+ */
+export function diffTranscript(
+  sent: readonly string[],
+  next: readonly TranscriptMessage[],
+  live: ReadonlySet<string> = new Set(),
+): Pick<TranscriptUpdate, 'mode' | 'messages'> | null {
+  const sentIsPrefix = next.length >= sent.length && sent.every((uuid, i) => next[i]!.uuid === uuid);
+  if (sentIsPrefix) return next.length === sent.length ? null : { mode: 'append', messages: next.slice(sent.length) };
+  const fileIsBehind = next.every((m, i) => sent[i] === m.uuid) && sent.slice(next.length).every((uuid) => live.has(uuid));
+  if (fileIsBehind) return null;
+  return { mode: 'replace', messages: [...next] };
 }
 
 /**
@@ -38,7 +49,7 @@ export class TranscriptHub {
 
   /** Starts sending `transcript.updated` for a session; the first update is a full `replace`. */
   watch(sessionId: string, emit: Watcher['emit']): () => void {
-    const watcher: Watcher = { uuids: null, dirty: false, emit };
+    const watcher: Watcher = { uuids: null, dirty: false, live: new Set(), emit };
     let set = this.watchers.get(sessionId);
     if (!set) this.watchers.set(sessionId, (set = new Set()));
     set.add(watcher);
@@ -51,6 +62,31 @@ export class TranscriptHub {
         this.reloads.delete(sessionId);
       }
     };
+  }
+
+  /**
+   * Messages straight from a session this app runs, ahead of the file. They
+   * carry the same uuids Claude Code writes, so the later file read confirms
+   * them instead of duplicating them.
+   */
+  pushLive(sessionId: string, raw: readonly RawSessionMessage[]): void {
+    const set = this.watchers.get(sessionId);
+    if (!set || raw.length === 0) return;
+    const messages = raw.map(normaliseMessage);
+    for (const watcher of set) {
+      if (watcher.uuids === null) {
+        watcher.dirty = true;
+        continue;
+      }
+      const known = new Set(watcher.uuids);
+      const fresh = messages.filter((m) => !known.has(m.uuid));
+      if (fresh.length === 0) continue;
+      for (const m of fresh) {
+        watcher.uuids.push(m.uuid);
+        watcher.live.add(m.uuid);
+      }
+      watcher.emit({ sessionId, mode: 'append', messages: fresh });
+    }
   }
 
   /** Called when a transcript file changed on disk. Reloads are coalesced per session. */
@@ -81,9 +117,11 @@ export class TranscriptHub {
         watcher.dirty = true;
         continue;
       }
-      const diff = initial ? { mode: 'replace' as const, messages } : diffTranscript(watcher.uuids!, messages);
+      const diff = initial ? { mode: 'replace' as const, messages } : diffTranscript(watcher.uuids!, messages, watcher.live);
+      for (const m of messages) watcher.live.delete(m.uuid);
       if (!diff) continue;
       watcher.uuids = messages.map((m) => m.uuid);
+      if (diff.mode === 'replace') watcher.live.clear();
       watcher.emit({ sessionId, ...diff });
       if (initial && watcher.dirty) {
         watcher.dirty = false;

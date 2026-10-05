@@ -47,6 +47,7 @@ function setup(infos: RawSessionInfo[], db = openCacheDatabase(join(tempDir(), '
   const changes: SessionsChanged[] = [];
   const transcriptChanges: string[] = [];
   const index = new SessionIndex({
+    baseline: 1500,
     db: db.db,
     source: fake.source,
     projectsDir,
@@ -101,6 +102,26 @@ describe('SessionIndex', () => {
     expect(second.index.snapshot()).toMatchObject({ complete: false, sessions: [{ id: ID_A }] });
   });
 
+  it('tracks pins, settling and unread state, and keeps them across restarts', async () => {
+    const db = openCacheDatabase(join(tempDir(), 'cache.sqlite'));
+    const t = setup([info(ID_A, { lastModified: 1000 }), info(ID_B, { lastModified: 9_000 })], db);
+    await t.index.refresh();
+    // Older than the baseline → read; newer → unread until viewed.
+    expect(t.index.get(ID_A)).toMatchObject({ unread: false, pinned: false, settledAt: null });
+    expect(t.index.get(ID_B)!.unread).toBe(true);
+    t.index.markViewed(ID_B);
+    expect(t.index.get(ID_B)).toMatchObject({ unread: false });
+    t.index.setFlags(ID_A, { pinned: true, settled: true });
+    expect(t.changes.at(-1)!.upserted[0]).toMatchObject({ id: ID_A, pinned: true });
+    expect(t.index.get(ID_A)!.settledAt).toBeGreaterThan(0);
+    t.index.setFlags(ID_A, { settled: false });
+    expect(t.index.get(ID_A)).toMatchObject({ pinned: true, settledAt: null });
+    t.index.stop();
+    const again = setup([], db);
+    expect(again.index.get(ID_A)).toMatchObject({ pinned: true });
+    expect(again.index.get(ID_B)).toMatchObject({ unread: false });
+  });
+
   it('follows transcript writes and deletions through the file watcher', async () => {
     const { index, changes, transcriptChanges, projectsDir, infos } = setup([]);
     index.start();
@@ -128,6 +149,11 @@ describe('diffTranscript', () => {
     expect(diffTranscript(['a', 'b'], t('a', 'c'))).toEqual({ mode: 'replace', messages: t('a', 'c') });
     expect(diffTranscript(['a', 'b'], t('a'))).toEqual({ mode: 'replace', messages: t('a') });
   });
+
+  it('waits when the file is only behind messages that were streamed live', () => {
+    expect(diffTranscript(['a', 'p', 'r'], t('a', 'p'), new Set(['p', 'r']))).toBeNull();
+    expect(diffTranscript(['a', 'p'], t('a'), new Set(['x']))).toEqual({ mode: 'replace', messages: t('a') });
+  });
 });
 
 describe('TranscriptHub', () => {
@@ -152,6 +178,35 @@ describe('TranscriptHub', () => {
     await until(() => updates.length === 3);
     expect(updates[2]!.mode).toBe('replace');
     stop();
+    hub.stop();
+  });
+
+  it('shows live messages at once and lets the file confirm them without duplicates', async () => {
+    const { source, messages } = fakeSource([]);
+    messages.set(ID_A, [msg('1')]);
+    const hub = new TranscriptHub(source, () => {});
+    const updates: TranscriptUpdate[] = [];
+    hub.watch(ID_A, (u) => updates.push(u));
+    await until(() => updates.length === 1);
+
+    hub.pushLive(ID_A, [msg('2'), msg('3')]);
+    expect(updates[1]).toMatchObject({ mode: 'append' });
+    expect(uuids(updates[1]!.messages)).toEqual(['2', '3']);
+
+    // The file catches up in two steps; neither produces an update.
+    messages.set(ID_A, [msg('1'), msg('2')]);
+    hub.changed(ID_A);
+    await new Promise((r) => setTimeout(r, 150));
+    messages.set(ID_A, [msg('1'), msg('2'), msg('3')]);
+    hub.changed(ID_A);
+    await new Promise((r) => setTimeout(r, 150));
+    expect(updates).toHaveLength(2);
+
+    // New file content after that is appended as usual.
+    messages.set(ID_A, [msg('1'), msg('2'), msg('3'), msg('4')]);
+    hub.changed(ID_A);
+    await until(() => updates.length === 3);
+    expect(uuids(updates[2]!.messages)).toEqual(['4']);
     hub.stop();
   });
 

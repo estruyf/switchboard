@@ -12,6 +12,8 @@ export const IpcChannel = {
   enginePort: 'switchboard:engine-port',
   engineRestarted: 'switchboard:engine-restarted',
   rendererReady: 'switchboard:renderer-ready',
+  pickFolder: 'switchboard:pick-folder',
+  pickImage: 'switchboard:pick-image',
 } as const;
 
 /** Sent once per engine connection by the renderer. Used for startup timing and the smoke test. */
@@ -32,4 +34,8 @@ export interface SwitchboardBridge {
   /** Fires when the engine process was restarted and the old port is dead. */
   onEngineRestarted(listener: () => void): () => void;
   reportReady(report: RendererReadyReport): void;
+  /** Native folder picker. Resolves to null when cancelled. */
+  pickFolder(defaultPath?: string): Promise<string | null>;
+  /** Native image picker (for project icons). Resolves to null when cancelled. */
+  pickImage(defaultPath?: string): Promise<string | null>;
 }

@@ -29,6 +29,10 @@ const result = JSON.parse(readFileSync(join(outDir, 'result.json'), 'utf8'));
 console.log(`✓ UI talking to the engine ${result.connectedMs}ms after process start (diagnostics loaded at ${result.loadedMs}ms)`);
 console.log(`${result.sessionCount > 0 ? '✓' : '✗'} ${result.sessionCount} sessions listed on first load`);
 console.log(`${result.transcriptOpened ? '✓' : '✗'} newest session's transcript rendered`);
+if (result.liveSession !== null) {
+  console.log(`${result.liveSession === 'ok' ? '✓' : '✗'} live session through the UI: ${result.liveSession}`);
+  if (result.liveSession !== 'ok') process.exitCode = 1;
+}
 console.log(`✓ engine restarted and renderer reconnected in ${result.restartRecoveryMs}ms`);
 if (!result.transcriptOpened || result.sessionCount === 0) process.exitCode = 1;
 console.log(`  claude ${result.reports[0].claudeVersion ?? 'not found'} · engine ping ${result.reports[0].pingMs}ms · electron ${result.versions.electron}`);

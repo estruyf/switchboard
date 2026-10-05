@@ -1,7 +1,9 @@
+import { existsSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import {
   contract,
+  RpcError,
   serveRpc,
   type Contract,
   type HandlerContext,
@@ -15,12 +17,17 @@ import {
 import { LiveRegistry } from './claude/liveRegistry.ts';
 import { createProjectResolver } from './claude/projectResolver.ts';
 import { sdkSessionSource, type SessionSource } from './claude/sessionSource.ts';
+import { HostManager, type SdkRuntime } from './host/hostManager.ts';
+import { ProjectRegistry } from './projects/projectRegistry.ts';
 import { createAppStateStore } from './db/appState.ts';
 import { openCacheDatabase } from './db/database.ts';
 import { findClaude } from './system/claudeBinary.ts';
 import { SessionIndex } from './sessions/sessionIndex.ts';
 import { TranscriptHub } from './sessions/transcriptHub.ts';
-import { resolveShellEnv, type ShellEnv } from './system/shellEnv.ts';
+import { detectEditors, openInEditor } from './system/editors.ts';
+import { FileIndex } from './system/files.ts';
+import { ShellEnvironment } from './system/shellEnvironment.ts';
+import type { ShellEnv } from './system/shellEnv.ts';
 import pkg from '../package.json' with { type: 'json' };
 
 export interface EngineOptions {
@@ -38,6 +45,8 @@ export interface EngineOptions {
   sessionSource?: SessionSource;
   /** Start watching ~/.claude immediately. Defaults to true. */
   watchSessions?: boolean;
+  /** Claude Code itself. Defaults to the Agent SDK (tests pass a fake). */
+  sdk?: () => Promise<SdkRuntime>;
 }
 
 export interface Engine {
@@ -69,7 +78,17 @@ export function createEngine(options: EngineOptions): Engine {
   const source = options.sessionSource ?? sdkSessionSource();
   const resolver = createProjectResolver();
   const transcripts = new TranscriptHub(source, log);
+  const owned = new Set(
+    (cache.db.prepare('SELECT id FROM owned_sessions').all() as Array<{ id: string }>).map((r) => r.id),
+  );
+  const markOwned = cache.db.prepare('INSERT OR IGNORE INTO owned_sessions (id, created_at) VALUES (?, ?)');
+  const storedBaseline = appState.get('sessions.baseline');
+  const baseline = typeof storedBaseline === 'number' ? storedBaseline : Date.now();
+  if (typeof storedBaseline !== 'number') appState.set('sessions.baseline', baseline);
+  const projects = new ProjectRegistry(cache.db, join(options.dataDir, 'project-icons'));
   const sessions = new SessionIndex({
+    baseline,
+    isOwned: (id) => owned.has(id),
     db: cache.db,
     source,
     projectsDir: join(claudeConfigDir, 'projects'),
@@ -107,12 +126,35 @@ export function createEngine(options: EngineOptions): Engine {
   if (cache.recovered) log('warn', 'Cache database was unreadable and has been rebuilt');
 
   // Both are slow-ish (login shell, `claude --version`), so start them now and await on demand.
-  const shellEnv = options.shellEnv ?? resolveShellEnv();
-  const claude = shellEnv.then((shell) => findClaude(shell.env, options.claudeBinary));
+  const shell = new ShellEnvironment(appState, options.shellEnv ? () => options.shellEnv! : undefined);
+  const claude = shell.forLookup().then((env) => findClaude(env, options.claudeBinary));
+  const files = new FileIndex();
+
+  const hosts = new HostManager({
+    sdk: options.sdk ?? (() => import('@anthropic-ai/claude-agent-sdk')),
+    env: async () => (await shell.ready).env,
+    claudePath: async () => (await claude)?.path,
+    isOpenElsewhere: (id) => !hosts.has(id) && registry.list().some((l) => l.sessionId === id),
+    refreshLive: () => registry.scan(),
+    sessionCwd: (id) => sessions.get(id)?.cwd ?? registry.list().find((l) => l.sessionId === id)?.cwd ?? null,
+    onInfo: (info) => broadcast('session.host', info),
+    onStream: (delta) => broadcast('session.stream', delta),
+    onMessages: (id, messages) => transcripts.pushLive(id, messages),
+    onPermission: (request) => broadcast('session.permission', request),
+    onPermissionResolved: (requestId, sessionId) => broadcast('session.permissionResolved', { requestId, sessionId }),
+    onCreated: (id) => {
+      owned.add(id);
+      markOwned.run(id, Date.now());
+    },
+    log,
+  });
+
+  const defaultEditorKey = 'editor.default';
+  const editorEnv = () => shell.forLookup();
 
   const handlers: Handlers<Contract> = {
     'system.info': async (): Promise<SystemInfo> => {
-      const shell = await shellEnv;
+      const described = await shell.describe();
       return {
         engineVersion: pkg.version,
         startedAt,
@@ -122,7 +164,7 @@ export function createEngine(options: EngineOptions): Engine {
           sqlite: cache.sqliteVersion,
         },
         paths: { dataDir: options.dataDir, database: cache.path, claudeConfigDir },
-        shell: { path: shell.shell, resolved: shell.resolved, durationMs: shell.durationMs },
+        shell: { path: described.shell, resolved: described.resolved, cached: described.cached, durationMs: described.durationMs },
         claude: await claude,
       };
     },
@@ -133,6 +175,27 @@ export function createEngine(options: EngineOptions): Engine {
       return {};
     },
     'sessions.list': () => ({ ...sessions.snapshot(), live: registry.list() }),
+    'sessions.setFlags': ({ sessionId, pinned, settled }) => {
+      sessions.setFlags(sessionId, { ...(pinned !== undefined ? { pinned } : {}), ...(settled !== undefined ? { settled } : {}) });
+      return {};
+    },
+    'sessions.markViewed': ({ sessionId }) => {
+      sessions.markViewed(sessionId);
+      return {};
+    },
+    'projects.list': () => ({ projects: projects.list(new Set(sessions.snapshot().sessions.map((s) => s.projectRoot))) }),
+    'projects.add': ({ path }) => {
+      projects.add(path);
+      return {};
+    },
+    'projects.remove': ({ root }) => {
+      projects.remove(root);
+      return {};
+    },
+    'projects.setIcon': ({ root, icon }) => {
+      projects.setIcon(root, icon);
+      return {};
+    },
     'sessions.refresh': async () => {
       await sessions.refresh();
       registry.scan();
@@ -150,6 +213,69 @@ export function createEngine(options: EngineOptions): Engine {
       const map = subscriptionsFor(context);
       map.get(sessionId)?.();
       map.delete(sessionId);
+      return {};
+    },
+
+    'hosts.list': () => hosts.list(),
+    'session.create': async (params) => {
+      if (!existsSync(params.cwd)) throw new RpcError('NOT_FOUND', `Folder not found: ${params.cwd}`);
+      if (params.worktree && !resolver.resolve(params.cwd).gitDir) {
+        throw new RpcError('NOT_A_REPO', 'Worktrees need a git repository');
+      }
+      return { sessionId: await hosts.create(params) };
+    },
+    'session.send': (params) => hosts.send(params),
+    'session.interrupt': async ({ sessionId }) => {
+      await hosts.interrupt(sessionId);
+      return {};
+    },
+    'session.setPermissionMode': async ({ sessionId, mode }) => {
+      await hosts.setPermissionMode(sessionId, mode);
+      return {};
+    },
+    'session.setModel': async ({ sessionId, model }) => {
+      await hosts.setModel(sessionId, model);
+      return {};
+    },
+    'session.close': ({ sessionId }) => {
+      hosts.close(sessionId);
+      return {};
+    },
+    'session.respond': ({ requestId, decision }) => {
+      hosts.respond(requestId, decision);
+      return {};
+    },
+    'session.commands': ({ sessionId, cwd }) => ({ commands: hosts.commands(sessionId, cwd) }),
+    'session.prewarm': ({ cwd }) => {
+      if (existsSync(cwd)) void hosts.prewarm(cwd).catch((error: Error) => log('debug', `Pre-warm failed: ${error.message}`));
+      return {};
+    },
+    'models.list': () => ({ models: hosts.listModels() }),
+
+    'projects.inspect': ({ path }) => {
+      const exists = existsSync(path);
+      const location = resolver.resolve(path);
+      return { path, exists, isGitRepo: exists && location.gitDir !== null, root: location.root, branch: resolver.branch(location) };
+    },
+    'files.search': async ({ cwd, query, limit }) => ({ files: await files.search(cwd, query, limit) }),
+    'editors.list': async () => {
+      const editors = detectEditors(await editorEnv());
+      const stored = appState.get(defaultEditorKey);
+      const defaultId = typeof stored === 'string' && editors.some((e) => e.id === stored) ? stored : (editors.find((e) => e.kind === 'editor')?.id ?? null);
+      return { editors, defaultId };
+    },
+    'editors.open': async ({ path, line, editorId }) => {
+      const env = await editorEnv();
+      const stored = appState.get(defaultEditorKey);
+      const id = editorId ?? (typeof stored === 'string' ? stored : detectEditors(env).find((e) => e.kind === 'editor')?.id);
+      if (!id) throw new RpcError('NO_EDITOR', 'No editor found. Install one or pick one in the Open in menu.');
+      if (!existsSync(path)) throw new RpcError('NOT_FOUND', `Not found: ${path}`);
+      openInEditor(id, path, line, env);
+      if (editorId && (detectEditors(env).find((e) => e.id === editorId)?.kind === 'editor')) appState.set(defaultEditorKey, editorId);
+      return {};
+    },
+    'editors.setDefault': ({ editorId }) => {
+      appState.set(defaultEditorKey, editorId);
       return {};
     },
   };
@@ -170,6 +296,7 @@ export function createEngine(options: EngineOptions): Engine {
     close() {
       for (const server of servers) server.dispose();
       servers.clear();
+      hosts.closeAll();
       sessions.stop();
       registry.stop();
       transcripts.stop();

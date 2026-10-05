@@ -15,6 +15,8 @@ const bridge: SwitchboardBridge = {
     return () => ipcRenderer.off(IpcChannel.engineRestarted, handler);
   },
   reportReady: (report: RendererReadyReport) => ipcRenderer.send(IpcChannel.rendererReady, report),
+  pickFolder: (defaultPath?: string) => ipcRenderer.invoke(IpcChannel.pickFolder, defaultPath) as Promise<string | null>,
+  pickImage: (defaultPath?: string) => ipcRenderer.invoke(IpcChannel.pickImage, defaultPath) as Promise<string | null>,
 };
 
 contextBridge.exposeInMainWorld('switchboard', bridge);

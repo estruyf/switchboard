@@ -90,4 +90,28 @@ export const migrations: readonly string[] = [
   );
   CREATE INDEX sessions_project_updated ON sessions (project_root, updated_at DESC);
   `,
+
+  // v3: sessions created by this app (origin badge). Kept apart from the
+  // sessions cache, which may be dropped and rebuilt at any time.
+  `
+  CREATE TABLE owned_sessions (
+    id         TEXT PRIMARY KEY,
+    created_at INTEGER NOT NULL
+  );
+  `,
+
+  // v4: user choices for the sidebar. Like owned_sessions, never dropped on rebuilds.
+  `
+  CREATE TABLE session_flags (
+    id         TEXT PRIMARY KEY,
+    pinned     INTEGER NOT NULL DEFAULT 0,
+    settled_at INTEGER,
+    viewed_at  INTEGER
+  );
+  CREATE TABLE project_settings (
+    root      TEXT PRIMARY KEY,
+    icon_json TEXT,
+    added_at  INTEGER
+  );
+  `,
 ];

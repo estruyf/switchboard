@@ -1,7 +1,7 @@
 import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { app, BrowserWindow, ipcMain, MessageChannelMain, nativeTheme, shell } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, MessageChannelMain, nativeTheme, shell } from 'electron';
 import { IpcChannel, type RendererReadyReport } from '@switchboard/protocol/bridge';
 import { EngineProcess } from './engineProcess.ts';
 
@@ -70,6 +70,29 @@ interface TimedReport extends RendererReadyReport {
   /** ms from process start until the full diagnostics (shell env, claude version) were loaded. */
   loadedMs: number;
 }
+ipcMain.handle(IpcChannel.pickFolder, async (event, defaultPath: unknown) => {
+  const win = BrowserWindow.fromWebContents(event.sender);
+  const options: Electron.OpenDialogOptions = {
+    title: 'Choose a folder for the new session',
+    properties: ['openDirectory', 'createDirectory'],
+    ...(typeof defaultPath === 'string' ? { defaultPath } : {}),
+  };
+  const result = win ? await dialog.showOpenDialog(win, options) : await dialog.showOpenDialog(options);
+  return result.canceled ? null : (result.filePaths[0] ?? null);
+});
+
+ipcMain.handle(IpcChannel.pickImage, async (event, defaultPath: unknown) => {
+  const win = BrowserWindow.fromWebContents(event.sender);
+  const options: Electron.OpenDialogOptions = {
+    title: 'Choose a project icon',
+    properties: ['openFile'],
+    filters: [{ name: 'Images', extensions: ['svg', 'png', 'ico', 'jpg', 'jpeg', 'webp', 'gif'] }],
+    ...(typeof defaultPath === 'string' ? { defaultPath } : {}),
+  };
+  const result = win ? await dialog.showOpenDialog(win, options) : await dialog.showOpenDialog(options);
+  return result.canceled ? null : (result.filePaths[0] ?? null);
+});
+
 const readyReports: TimedReport[] = [];
 ipcMain.on(IpcChannel.rendererReady, (event, report: RendererReadyReport) => {
   const timed: TimedReport = {
@@ -94,6 +117,49 @@ async function waitInPage(win: BrowserWindow, expression: string, timeoutMs = 10
   return false;
 }
 
+/** Sets a React-controlled field the way a user would, so onChange fires (smoke test only). */
+function setFieldValue(win: BrowserWindow, selector: string, value: string): Promise<unknown> {
+  return win.webContents.executeJavaScript(`(() => {
+    const el = document.querySelector(${JSON.stringify(selector)});
+    const setter = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(el), 'value').set;
+    setter.call(el, ${JSON.stringify(value)});
+    el.dispatchEvent(new Event(el.tagName === 'SELECT' ? 'change' : 'input', { bubbles: true }));
+  })()`);
+}
+
+/**
+ * Optional live step (SWITCHBOARD_SMOKE_LIVE_CWD): starts a real Haiku session
+ * through the UI, approves its permission prompt and waits for the reply.
+ */
+async function runLiveSessionStep(win: BrowserWindow, cwd: string): Promise<string> {
+  const click = (selector: string) => win.webContents.executeJavaScript(`document.querySelector(${JSON.stringify(selector)}).click()`);
+  const shot = async (name: string) => writeFileSync(join(smokeOutDir!, name), (await win.webContents.capturePage()).toPNG());
+  await click('[data-new-session]');
+  if (!(await waitInPage(win, `[...document.querySelectorAll('[data-folder-select] option')].some((o) => o.value === ${JSON.stringify(cwd)})`))) {
+    return 'folder not offered';
+  }
+  await setFieldValue(win, '[data-folder-select]', cwd);
+  await setFieldValue(win, '[data-model-select]', 'haiku');
+  await setFieldValue(win, '[data-composer]', 'Run exactly this with the Bash tool: touch smoke-ui.txt — then reply with exactly: SMOKE OK');
+  if (!(await waitInPage(win, "!document.querySelector('[data-composer-submit]').disabled"))) return 'submit stayed disabled';
+  // Never start a session anywhere but the requested sandbox folder.
+  await new Promise((resolve) => setTimeout(resolve, 300));
+  const chosen = await win.webContents.executeJavaScript("document.querySelector('[data-folder-select]').value");
+  if (chosen !== cwd) return `aborted: folder field shows ${chosen}, not the sandbox`;
+  await shot('new-session.png');
+  await click('[data-composer-submit]');
+  if (!(await waitInPage(win, "document.querySelector('[data-permission-allow]')", 60_000))) return 'no permission prompt';
+  await new Promise((resolve) => setTimeout(resolve, 300));
+  await shot('permission.png');
+  await click('[data-permission-allow]');
+  // The prompt itself contains the phrase, so only an assistant text item counts.
+  const replied = "[...document.querySelectorAll('[data-item-kind=\"text\"]')].some((el) => el.innerText.includes('SMOKE OK'))";
+  if (!(await waitInPage(win, replied, 60_000))) return 'no reply';
+  await new Promise((resolve) => setTimeout(resolve, 800));
+  await shot('session.png');
+  return 'ok';
+}
+
 /**
  * Smoke test: first ready → screenshot, open the newest session and screenshot
  * its transcript, then kill the engine; second ready (after the automatic
@@ -101,17 +167,24 @@ async function waitInPage(win: BrowserWindow, expression: string, timeoutMs = 10
  */
 let crashedAt = 0;
 let transcriptOpened = false;
+let liveSession: string | null = null;
 async function runSmokeStep(win: BrowserWindow | null): Promise<void> {
   if (!smokeOutDir || !win) return;
   mkdirSync(smokeOutDir, { recursive: true });
   if (readyReports.length === 1) {
     await waitInPage(win, "document.querySelector('[data-session-id]')", 5_000);
     writeFileSync(join(smokeOutDir, 'window.png'), (await win.webContents.capturePage()).toPNG());
+    await win.webContents.executeJavaScript("document.querySelector('[data-project-filter]')?.click()");
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    writeFileSync(join(smokeOutDir, 'projects.png'), (await win.webContents.capturePage()).toPNG());
+    await win.webContents.executeJavaScript("document.querySelector('[data-project-filter]')?.click()");
     await win.webContents.executeJavaScript("document.querySelector('[data-session-id]')?.click()");
     transcriptOpened = await waitInPage(win, "document.querySelector('[data-transcript-item]')");
     // Give the virtualiser a frame to measure and scroll to the end before capturing.
     await new Promise((resolve) => setTimeout(resolve, 300));
     writeFileSync(join(smokeOutDir, 'transcript.png'), (await win.webContents.capturePage()).toPNG());
+    const liveCwd = process.env.SWITCHBOARD_SMOKE_LIVE_CWD;
+    if (liveCwd) liveSession = await runLiveSessionStep(win, liveCwd).catch((error: Error) => `failed: ${error.message}`);
     crashedAt = performance.now();
     engine.crash();
     return;
@@ -126,6 +199,7 @@ async function runSmokeStep(win: BrowserWindow | null): Promise<void> {
         restartRecoveryMs: Math.round(performance.now() - crashedAt),
         sessionCount: readyReports[0]!.sessionCount,
         transcriptOpened,
+        liveSession,
         reports: readyReports,
         versions: { electron: process.versions.electron, chrome: process.versions.chrome, node: process.versions.node },
       },
@@ -150,7 +224,7 @@ app.whenReady().then(() => {
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });
-  if (smokeOutDir) setTimeout(() => exitApp(2), 45_000).unref();
+  if (smokeOutDir) setTimeout(() => exitApp(2), process.env.SWITCHBOARD_SMOKE_LIVE_CWD ? 180_000 : 45_000).unref();
 });
 
 app.on('second-instance', () => {

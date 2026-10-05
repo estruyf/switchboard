@@ -1,0 +1,27 @@
+import { describe, expect, it } from 'vitest';
+import { tokenAtCaret } from '../components/composer/tokens.ts';
+import { nextMode, worktreeSlug } from './modes.ts';
+
+describe('composer tokens', () => {
+  it('detects slash commands only at the start, and @-mentions anywhere', () => {
+    expect(tokenAtCaret('/rev', 4)).toEqual({ kind: 'slash', start: 0, query: 'rev' });
+    expect(tokenAtCaret('please /rev', 11)).toBeNull();
+    expect(tokenAtCaret('look at @src/ma', 15)).toEqual({ kind: 'file', start: 8, query: 'src/ma' });
+    expect(tokenAtCaret('mail me@example.com', 19)).toBeNull();
+    expect(tokenAtCaret('/review now', 11)).toBeNull();
+  });
+});
+
+describe('modes', () => {
+  it('cycles like the CLI', () => {
+    expect(nextMode('default')).toBe('acceptEdits');
+    expect(nextMode('acceptEdits')).toBe('plan');
+    expect(nextMode('plan')).toBe('default');
+    expect(nextMode('auto')).toBe('default');
+  });
+
+  it('turns a prompt into a worktree name', () => {
+    expect(worktreeSlug('Fix the login redirect after OAuth callback!')).toBe('fix-the-login-redirect-after-oauth');
+    expect(worktreeSlug('   ', Date.UTC(2026, 9, 5))).toBe('session-2026-10-05');
+  });
+});

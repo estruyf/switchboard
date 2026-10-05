@@ -7,3 +7,4 @@ export { messagePortTransport, type Transport, type WireMessage } from './wire.t
 export type * from './contract.ts';
 export * from './bridge.ts';
 export type * from './sessions.ts';
+export type * from './host.ts';

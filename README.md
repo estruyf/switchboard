@@ -17,6 +17,15 @@ npm run smoke      # build, launch, kill the engine once, verify it recovers
 npm run build      # production bundles in apps/desktop/out
 ```
 
+Tests that call the real Claude Code (a few cents of Haiku each) are opt-in and need a throwaway git repo:
+
+```bash
+SWITCHBOARD_LIVE_CWD=/path/to/throwaway-repo npx vitest run claude.live
+SWITCHBOARD_SMOKE_LIVE_CWD=/path/to/throwaway-repo npm run smoke
+```
+
+The live smoke step drives the real window: it starts a session in that folder, approves a permission prompt and waits for the reply. It refuses to submit if the folder field shows anything else.
+
 ## Layout
 
 | Path | What it is |
