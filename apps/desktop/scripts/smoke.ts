@@ -56,6 +56,8 @@ console.log(`${result.terminalOpened ? '✓' : '✗'} terminal panel opened a sh
 console.log(`${result.actionRan ? '✓' : '✗'} project action added through the editor and run in a terminal tab`);
 console.log(`${String(result.projectsResult).startsWith('ok') ? '✓' : '✗'} projects: ${result.projectsResult}`);
 if (!String(result.projectsResult).startsWith('ok')) process.exitCode = 1;
+console.log(`${String(result.profilesResult).startsWith('ok') ? '✓' : '✗'} profiles: ${result.profilesResult}`);
+if (!String(result.profilesResult).startsWith('ok')) process.exitCode = 1;
 console.log(`${result.highlighted ? '✓' : '✗'} syntax highlighting loaded and coloured a code block`);
 console.log(`${result.usageBand ? '✓' : '✗'} usage band above the composer: ${result.usageBand ?? 'not shown'}`);
 console.log(`  rendering on screen: ${JSON.stringify(result.rendering)}`);

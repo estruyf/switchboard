@@ -8,7 +8,7 @@ import type { AttentionEvent } from './attention.ts';
 import { Notifier } from './notifier.ts';
 import { PreferencesStore, windowBackground } from './preferences.ts';
 import { QuitGuard } from './quitGuard.ts';
-import { isTrashableRepoFile, isTrashableSessionPath } from './trashGuard.ts';
+import { isConfigDir, isTrashableRepoFile, isTrashableSessionPath } from './trashGuard.ts';
 
 const here = import.meta.dirname;
 const smokeOutDir = process.env.SWITCHBOARD_SMOKE_OUT;
@@ -59,9 +59,10 @@ function openSession(sessionId: string): void {
 }
 
 async function handleEngineRequest(message: unknown): Promise<unknown> {
-  const request = message as { type?: unknown; id?: unknown; paths?: unknown; repoRoot?: unknown } | null;
+  const request = message as { type?: unknown; id?: unknown; paths?: unknown; repoRoot?: unknown; configDir?: unknown } | null;
   if (request?.type !== 'trash' || typeof request.id !== 'number' || !Array.isArray(request.paths)) return undefined;
-  const configDir = process.env.CLAUDE_CONFIG_DIR || join(homedir(), '.claude');
+  // Each Claude profile has its own config folder; session files must be inside its projects folder.
+  const configDir = isConfigDir(request.configDir) ? request.configDir : process.env.CLAUDE_CONFIG_DIR || join(homedir(), '.claude');
   const paths = request.paths.filter((p): p is string => typeof p === 'string');
   // Session files, or (for a git revert) new files inside the repository being reverted.
   const repoRoot = typeof request.repoRoot === 'string' ? request.repoRoot : null;
@@ -473,6 +474,7 @@ let toolsResult = 'not run';
 let splitResult = 'not run';
 let settleResult = 'not run';
 let projectsResult = 'not run';
+let profilesResult = 'not run';
 let rendering: Record<string, number> = {};
 
 /** Adds a project action through the editor, runs it from the header and checks it opened a terminal tab. */
@@ -655,6 +657,53 @@ async function runProjectsStep(win: BrowserWindow): Promise<string> {
   if (!(await waitInPage(win, "document.querySelector('[data-no-projects]')", 3_000))) return 'the project was not removed';
   await click('[data-open-projects]');
   return `ok: ${known} folders offered; added one, its defaults reached New session, saved a change back, removed it`;
+}
+
+/**
+ * Claude profiles: with one, nothing about profiles shows outside Settings. Adding a second (a config
+ * folder inside the throwaway app profile, never a real one) marks sessions with their profile and
+ * offers a choice in New session; it becomes the default, then is removed again.
+ */
+async function runProfilesStep(win: BrowserWindow): Promise<string> {
+  const js = (code: string) => win.webContents.executeJavaScript(code);
+  const click = (selector: string) => js(`document.querySelector(${JSON.stringify(selector)}).click()`);
+  const folder = join(app.getPath('userData'), 'smoke-claude-work');
+  if (await js("!!document.querySelector('[data-profile-badge]')")) return 'profile badges shown with a single profile';
+  await click('[data-open-settings]');
+  if (!(await waitInPage(win, "document.querySelectorAll('[data-profiles] [data-profile]').length === 1", 3_000))) return 'Settings did not list the built-in profile';
+  await click('[data-add-profile]');
+  if (!(await waitInPage(win, "document.querySelector('[data-new-profile-folder]')", 3_000))) return 'the add profile form did not open';
+  await setFieldValue(win, '[data-new-profile-name]', 'Smoke work');
+  await setFieldValue(win, '[data-new-profile-folder]', folder);
+  await click('[data-add-profile-submit]');
+  if (!(await waitInPage(win, "document.querySelectorAll('[data-profiles] [data-profile]').length === 2", 5_000))) {
+    return `the profile was not added (${String(await js("document.querySelector('[data-add-profile-form]')?.innerText ?? ''"))})`;
+  }
+  const id = (await js("document.querySelectorAll('[data-profiles] [data-profile]')[1].dataset.profile")) as string;
+  const card = `[data-profile=${JSON.stringify(id)}]`;
+  if (!(await js(`document.querySelector(${JSON.stringify(card)}).innerText.includes(${JSON.stringify(folder)})`))) return 'the sign-in command does not name the folder';
+  await new Promise((resolve) => setTimeout(resolve, 300));
+  await shot(win, 'profiles.png');
+  if (!(await waitInPage(win, "document.querySelector('[data-session-id] [data-profile-badge]')", 3_000))) return 'sessions do not show their profile with two profiles';
+
+  await click(`[data-profile-default=${JSON.stringify(id)}]`);
+  await click('[data-new-session]');
+  if (!(await waitInPage(win, `document.querySelector('[data-profile-select]')?.value === ${JSON.stringify(id)} && document.querySelectorAll('[data-profile-select] option').length === 2`, 5_000))) {
+    return 'New session did not offer the profiles with the new default chosen';
+  }
+
+  await click('[data-open-settings]');
+  if (!(await waitInPage(win, `document.querySelector(${JSON.stringify(`${card} [data-remove-profile]`)})`, 3_000))) return 'no way to remove the profile';
+  await click(`${card} [data-remove-profile]`);
+  if (!(await waitInPage(win, "document.querySelector('[data-confirm]')", 3_000))) return 'no confirmation before removing';
+  await click('[data-confirm]');
+  if (!(await waitInPage(win, "document.querySelectorAll('[data-profiles] [data-profile]').length === 1 && !document.querySelector('[data-session-id] [data-profile-badge]')", 5_000))) {
+    return 'the profile was not removed';
+  }
+  const builtinDefault = await js("document.querySelector('[data-profile-default=\"default\"]').checked");
+  await click('[data-open-settings]');
+  if (!builtinDefault) return 'the built-in profile did not become the default again';
+  return 'ok: added a second profile, sessions and New session showed it, made it the default, removed it';
 }
 
 /** Tool calls are summarised by default: open the last finished group and count its steps. */
@@ -910,6 +959,7 @@ async function runSmokeStep(win: BrowserWindow | null): Promise<void> {
     terminalOpened = await runTerminalStep(win);
     actionRan = await runActionStep(win);
     projectsResult = await runProjectsStep(win).catch((error: Error) => `failed: ${error.message}`);
+    profilesResult = await runProfilesStep(win).catch((error: Error) => `failed: ${error.message}`);
     // Diagnostics renders a sample through Shiki, which loads in its own chunks on first use.
     await win.webContents.executeJavaScript("[...document.querySelectorAll('footer button')].find((b) => b.title === 'Diagnostics')?.click()");
     highlighted = await waitInPage(win, "document.querySelector('[data-rendering-check] .shiki span[style*=\"--shiki\"]')", 5_000);
@@ -949,6 +999,7 @@ async function runSmokeStep(win: BrowserWindow | null): Promise<void> {
         settingsResult,
         actionRan,
         projectsResult,
+        profilesResult,
         highlighted,
         usageBand,
         rendering,

@@ -41,6 +41,8 @@ export const SessionSummary = z.object({
   unread: z.boolean(),
   /** Started, forked or continued in Switchboard (the default sidebar shows only these). */
   inApp: z.boolean(),
+  /** The Claude profile whose config folder holds the transcript (resume and fork use it). */
+  profileId: z.string(),
 });
 export type SessionSummary = z.infer<typeof SessionSummary>;
 
@@ -88,6 +90,8 @@ export const ProjectInfo = z.object({
   /** Position in the user's project list (null: after the ordered ones). */
   order: z.number().nullable(),
   defaults: ProjectDefaults,
+  /** The Claude profile new sessions here use (null: the default profile). */
+  profileId: z.string().nullable(),
   /** Claude Code sessions in this folder (from every app) and when the newest one was active. */
   sessionCount: z.number(),
   lastActivity: z.number().nullable(),
@@ -110,6 +114,8 @@ export const LiveSession = z.object({
   origin: SessionOrigin,
   startedAt: z.number().nullable(),
   updatedAt: z.number().nullable(),
+  /** The profile whose config folder registered this process. */
+  profileId: z.string(),
 });
 export type LiveSession = z.infer<typeof LiveSession>;
 

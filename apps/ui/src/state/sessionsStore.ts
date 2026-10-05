@@ -118,6 +118,8 @@ export interface SessionRowData {
   inApp: boolean;
   /** The last run in this app failed. */
   error: boolean;
+  /** The Claude profile the session belongs to. */
+  profileId: string;
 }
 
 export function toRows(
@@ -148,6 +150,7 @@ export function toRows(
       unread: s.unread,
       inApp: s.inApp || l?.origin === 'app',
       error: hosts.get(s.id)?.state === 'error',
+      profileId: s.profileId,
     });
   }
   // Running sessions that have not written a transcript yet still deserve a row.
@@ -176,6 +179,7 @@ export function toRows(
       unread: false,
       inApp: l.origin === 'app',
       error: false,
+      profileId: l.profileId,
     });
   }
   return rows;

@@ -123,7 +123,7 @@ const until = async (check: () => boolean, timeoutMs = 2000) => {
   }
 };
 
-function setup(opts: { openElsewhere?: string[]; cwds?: Record<string, string> } = {}) {
+function setup(opts: { openElsewhere?: string[]; cwds?: Record<string, string>; profiles?: Record<string, string> } = {}) {
   const queries: FakeQuery[] = [];
   const infos: SessionHostInfo[] = [];
   const streams: StreamDelta[] = [];
@@ -149,10 +149,12 @@ function setup(opts: { openElsewhere?: string[]; cwds?: Record<string, string> }
   };
   const manager = new HostManager({
     sdk: async () => sdk,
-    env: async () => ({ PATH: '/usr/bin' }),
+    // Each profile's processes get its config folder.
+    env: async (profileId) => ({ PATH: '/usr/bin', ...(profileId === 'default' ? {} : { CLAUDE_CONFIG_DIR: `/config/${profileId}` }) }),
     claudePath: async () => '/usr/local/bin/claude',
     isOpenElsewhere: (id) => (opts.openElsewhere ?? []).includes(id),
     sessionCwd: (id) => opts.cwds?.[id] ?? null,
+    sessionProfile: (id) => opts.profiles?.[id] ?? 'default',
     onInfo: (i) => infos.push(i),
     onStream: (d) => streams.push(d),
     onMessages: (id, m) => messages.push({ id, messages: m }),
@@ -164,7 +166,7 @@ function setup(opts: { openElsewhere?: string[]; cwds?: Record<string, string> }
   return { manager, queries, infos, streams, messages, permissions, resolved, created };
 }
 
-const base = { attachments: [], model: null, permissionMode: 'default' as const, effort: null, worktree: null };
+const base = { attachments: [], model: null, permissionMode: 'default' as const, effort: null, worktree: null, profileId: 'default' };
 const lastState = (infos: SessionHostInfo[], id: string) => infos.filter((i) => i.sessionId === id).at(-1)?.state;
 
 describe('HostManager', () => {
@@ -179,7 +181,7 @@ describe('HostManager', () => {
     expect(t.streams.filter((s) => s.kind === 'text').map((s) => s.text).join('')).toBe('Hello');
     expect(t.messages.flatMap((m) => m.messages.map((x) => x.uuid))).toContain('a-Hello');
     expect(t.infos.at(-1)).toMatchObject({ model: 'fake-model', costUsd: 0.01, contextPercent: 12 });
-    await expect(t.manager.commands(id, undefined)).resolves.toEqual([{ name: 'review', description: 'Review the diff', argumentHint: '' }]);
+    await expect(t.manager.commands(id, undefined, 'default')).resolves.toEqual([{ name: 'review', description: 'Review the diff', argumentHint: '' }]);
     t.manager.closeAll();
   });
 
@@ -241,7 +243,7 @@ describe('HostManager', () => {
 
   it('adopts a pre-warmed process for a new session in the same folder', async () => {
     const t = setup();
-    await t.manager.prewarm('/work/app');
+    await t.manager.prewarm('/work/app', 'default');
     const id = await t.manager.create({ ...base, cwd: '/work/app', prompt: 'Say hi', permissionMode: 'plan' });
     await until(() => lastState(t.infos, id) === 'idle');
     expect(t.queries).toHaveLength(1);
@@ -274,12 +276,32 @@ describe('HostManager', () => {
 
   it('lists commands for a folder without starting a session, once', async () => {
     const t = setup();
-    const first = await t.manager.commands(undefined, '/projects/web');
+    const first = await t.manager.commands(undefined, '/projects/web', 'default');
     expect(first.map((c) => c.name)).toEqual(['review']);
     expect(t.queries).toHaveLength(1);
     expect(t.queries[0]!.closed).toBe(true);
-    await t.manager.commands(undefined, '/projects/web');
+    await t.manager.commands(undefined, '/projects/web', 'default');
     expect(t.queries).toHaveLength(1);
+    // Another profile has its own user commands, skills and plugins.
+    await t.manager.commands(undefined, '/projects/web', 'work');
+    expect(t.queries).toHaveLength(2);
+    expect(t.queries[1]!.options.env).toMatchObject({ CLAUDE_CONFIG_DIR: '/config/work' });
+    t.manager.closeAll();
+  });
+
+  it('runs each session with its profile, and resumes with the profile it was created with', async () => {
+    const t = setup({ cwds: { old: '/work/app' }, profiles: { old: 'work' } });
+    await t.manager.prewarm('/work/app', 'default');
+    const id = await t.manager.create({ ...base, cwd: '/work/app', prompt: 'hi', profileId: 'work' });
+    await until(() => lastState(t.infos, id) === 'idle');
+    // The process pre-warmed for the default profile is not adopted by a session of another one.
+    expect(t.queries).toHaveLength(1);
+    expect(t.queries[0]!.options.env).toMatchObject({ CLAUDE_CONFIG_DIR: '/config/work' });
+    expect(t.infos.at(-1)).toMatchObject({ sessionId: id, profileId: 'work' });
+
+    await t.manager.send({ sessionId: 'old', text: 'continue', attachments: [], fork: false });
+    await until(() => t.queries.length === 2);
+    expect(t.queries[1]!.options).toMatchObject({ resume: 'old', env: { CLAUDE_CONFIG_DIR: '/config/work' } });
     t.manager.closeAll();
   });
 
@@ -297,6 +319,7 @@ describe('buildOptions', () => {
   const config: HostConfig = {
     sessionId: 's1',
     cwd: '/repo',
+    profileId: 'default',
     mode: 'new',
     model: 'opus',
     permissionMode: 'acceptEdits',

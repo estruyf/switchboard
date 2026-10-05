@@ -4,12 +4,14 @@ import type { ProjectDefaults, ProjectInfo } from '@switchboard/protocol/client'
 import { useEngineConnection } from '../../engine/useEngine.ts';
 import { guessHome, shortAge, tildify } from '../../lib/format.ts';
 import { addedProjects, moveRoot } from '../../state/projectList.ts';
+import { useProfiles } from '../../state/profilesStore.ts';
 import { useProjects } from '../../state/projectsStore.ts';
 import { useSessions } from '../../state/sessionsStore.ts';
 import { ActionEditor } from '../actions/ActionEditor.tsx';
 import { useProjectActionList } from '../actions/useActions.ts';
 import { ConfirmDialog } from '../ConfirmDialog.tsx';
 import { Menu, type MenuEntry } from '../Menu.tsx';
+import { ProfileBadge } from '../profiles/ProfileBadge.tsx';
 import { ProjectIcon } from '../ProjectIcon.tsx';
 import { useProjectActions, useProjectIconEntries } from '../sidebar/ProjectMenu.tsx';
 import { ProjectDefaultsEditor } from './ProjectDefaultsEditor.tsx';
@@ -32,6 +34,35 @@ function describeDefaults(d: ProjectDefaults): string {
 function activeAgo(at: number): string {
   const age = shortAge(at);
   return age === 'now' ? 'now' : /^\d+[mhd]$/.test(age) ? `${age} ago` : `on ${age}`;
+}
+
+/** Which Claude profile (account) new sessions in the project use; shown once there is more than one. */
+function ProfilePicker({ project }: { project: ProjectInfo }) {
+  const profiles = useProfiles((s) => s.profiles);
+  const actions = useProjectActions();
+  if (profiles.length < 2) return null;
+  const fallback = profiles.find((p) => p.isDefault);
+  return (
+    <label className="grid grid-cols-[110px_minmax(0,1fr)] items-center gap-3 @max-[560px]:grid-cols-1 @max-[560px]:gap-1">
+      <span className="text-[12px] text-muted">Claude profile</span>
+      <span className="flex min-w-0 items-center gap-2">
+        <select
+          className="h-7 min-w-0 rounded-md border border-border bg-bg px-2 text-[12px] text-text outline-none focus:border-accent-ink/60"
+          value={project.profileId ?? ''}
+          onChange={(e) => void actions.setProfile(project.root, e.target.value || null)}
+          data-project-profile
+        >
+          <option value="">Default{fallback ? ` (${fallback.name})` : ''}</option>
+          {profiles.map((p) => (
+            <option key={p.id} value={p.id}>
+              {p.name}
+              {p.account?.email ? ` · ${p.account.email}` : ''}
+            </option>
+          ))}
+        </select>
+      </span>
+    </label>
+  );
 }
 
 /** The project's actions editor, opened from its row. */
@@ -113,10 +144,13 @@ function ProjectRow({
             )}
             <span className="truncate">{tildify(project.root, home)}</span>
           </span>
-          <span className="truncate text-[11.5px] text-muted @max-[560px]:hidden">
-            <span data-defaults-summary>{describeDefaults(project.defaults)}</span>
-            {project.sessionCount > 0 && ` · ${project.sessionCount} ${project.sessionCount === 1 ? 'session' : 'sessions'}`}
-            {project.lastActivity !== null && `, active ${activeAgo(project.lastActivity)}`}
+          <span className="flex min-w-0 items-center gap-1.5 text-[11.5px] text-muted @max-[560px]:hidden">
+            <ProfileBadge profileId={project.profileId} />
+            <span className="min-w-0 truncate">
+              <span data-defaults-summary>{describeDefaults(project.defaults)}</span>
+              {project.sessionCount > 0 && ` · ${project.sessionCount} ${project.sessionCount === 1 ? 'session' : 'sessions'}`}
+              {project.lastActivity !== null && `, active ${activeAgo(project.lastActivity)}`}
+            </span>
           </span>
         </button>
         <div className="flex shrink-0 items-center gap-0.5">
@@ -140,6 +174,7 @@ function ProjectRow({
       {open && (
         <div className="grid gap-3 border-t border-border px-3 py-3">
           <p className="text-[12px] text-muted">New sessions in {project.name} start with these. The New session view can still change them for one session.</p>
+          <ProfilePicker project={project} />
           <ProjectDefaultsEditor root={project.root} defaults={project.defaults} isGitRepo={isGitRepo} onSave={(d) => void save(d)} />
           {error && <p className="text-[12px] text-error">{error}</p>}
           <div className="flex flex-wrap gap-2">

@@ -16,6 +16,7 @@ const host = (state: SessionHostInfo['state'], extra: Partial<SessionHostInfo> =
   error: null,
   startedAt: 0,
   queued: 0,
+  profileId: 'default',
   ...extra,
 });
 
@@ -45,6 +46,7 @@ const live = (sessionId: string, status: LiveSession['status'], origin: LiveSess
   origin,
   startedAt: null,
   updatedAt: null,
+  profileId: 'default',
 });
 
 describe('Attention', () => {

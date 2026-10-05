@@ -5,10 +5,12 @@ import { FolderPicker } from './FolderPicker.tsx';
 import { basename, guessHome } from '../../lib/format.ts';
 import { MODE_CHOICES, MODE_LABEL, worktreeSlug } from '../../lib/modes.ts';
 import { useHosts } from '../../state/hostsStore.ts';
+import { useProfiles } from '../../state/profilesStore.ts';
 import { addedProjects } from '../../state/projectList.ts';
 import { useProjects } from '../../state/projectsStore.ts';
 import { useSessions } from '../../state/sessionsStore.ts';
 import { Composer } from '../composer/Composer.tsx';
+import { PROFILE_DOT } from '../profiles/ProfileBadge.tsx';
 import { UsageBand } from '../UsageBand.tsx';
 import { globalPatch, INITIAL_CHOICES, readGlobals, sameDefaults, startingChoices, toProjectDefaults, type Choices, type GlobalChoices } from './choices.ts';
 
@@ -57,6 +59,10 @@ export function NewSessionView() {
   const [draftPrompt, setDraftPrompt] = useState('');
   const [addAsProject, setAddAsProject] = useState(true);
   const [savedNote, setSavedNote] = useState<string | null>(null);
+  /** A profile chosen for this session only (null: the project's, else the default). */
+  const [profileOverride, setProfileOverride] = useState<string | null>(null);
+  const profiles = useProfiles((s) => s.profiles);
+  const defaultProfile = useProfiles((s) => s.defaultId);
   /** The folder the user changed options for: until the folder changes, late-arriving defaults never override their choices. */
   const touchedFor = useRef<string | null>(null);
 
@@ -71,6 +77,9 @@ export function NewSessionView() {
   const isProject = project?.added ?? false;
   const projectDefaults = isProject ? project!.defaults : null;
   const defaultsKey = JSON.stringify(projectDefaults);
+  const projectProfile = project?.profileId && profiles.some((p) => p.id === project.profileId) ? project.profileId : null;
+  const profileId = (profileOverride && profiles.some((p) => p.id === profileOverride) ? profileOverride : null) ?? projectProfile ?? defaultProfile;
+  const profile = profiles.find((p) => p.id === profileId);
 
   // Restore the last folder and global choices.
   useEffect(() => {
@@ -107,7 +116,7 @@ export function NewSessionView() {
     setBranches({ current: null, branches: [] });
     setSavedNote(null);
     void client.call('projects.inspect', { path: cwd }).then((r) => !cancelled && setInspection(r));
-    void client.call('session.commands', { cwd }).then((r) => !cancelled && setCommands(r.commands));
+    void client.call('session.commands', { cwd, profileId }).then((r) => !cancelled && setCommands(r.commands));
     client.call('git.branches', { cwd }).then(
       (r) => !cancelled && setBranches(r),
       () => {},
@@ -115,10 +124,10 @@ export function NewSessionView() {
     return () => {
       cancelled = true;
     };
-  }, [client, cwd]);
+  }, [client, cwd, profileId]);
   useEffect(() => {
-    if (client && cwd && d.workspace === 'current' && !d.branch) void client.call('session.prewarm', { cwd });
-  }, [client, cwd, d.workspace, d.branch]);
+    if (client && cwd && d.workspace === 'current' && !d.branch) void client.call('session.prewarm', { cwd, profileId });
+  }, [client, cwd, d.workspace, d.branch, profileId]);
 
   const persist = (next: GlobalChoices, folder: string | null) => void client?.call('appState.set', { key: DEFAULTS_KEY, value: { ...next, cwd: folder } });
 
@@ -138,6 +147,7 @@ export function NewSessionView() {
   };
   const changeFolder = (folder: string) => {
     touchedFor.current = null;
+    setProfileOverride(null);
     setCwd(folder);
     setAddAsProject(true);
     persist(globals, folder);
@@ -174,6 +184,7 @@ export function NewSessionView() {
       effort: d.effort || null,
       worktree: useWorktree ? { name: effectiveName || worktreeSlug(text), baseRef: d.baseRef } : null,
       checkoutBranch,
+      profileId,
     });
     if (!isProject && addAsProject && inspection?.exists) {
       await client.call('projects.add', { path: cwd }).then(reloadProjects, () => {});
@@ -271,6 +282,25 @@ export function NewSessionView() {
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
+            {profiles.length > 1 && (
+              <label className={`${field} flex items-center gap-1.5 pr-0`} title={profile?.account?.email ? `Signed in as ${profile.account.email}` : 'Claude profile'}>
+                {profile && <span className={`size-2 shrink-0 rounded-full ${PROFILE_DOT[profile.color]}`} aria-hidden />}
+                <select
+                  className="h-full min-w-0 bg-transparent pr-1 outline-none"
+                  value={profileId}
+                  onChange={(e) => setProfileOverride(e.target.value)}
+                  aria-label="Claude profile"
+                  data-profile-select
+                >
+                  {profiles.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.name}
+                      {p.id === (projectProfile ?? defaultProfile) ? (projectProfile ? ' (project)' : ' (default)') : ''}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
             <select data-model-select className={field} value={d.model} onChange={(e) => update({ model: e.target.value })} title="Model">
               <option value="">Default model</option>
               {models
@@ -315,7 +345,7 @@ export function NewSessionView() {
             </div>
           )}
 
-          <UsageBand />
+          <UsageBand profileId={profileId} />
           <div onInput={(e) => setDraftPrompt((e.target as HTMLTextAreaElement).value ?? '')}>
             <Composer
               cwd={cwd}

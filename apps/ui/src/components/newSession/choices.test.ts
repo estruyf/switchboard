@@ -46,6 +46,7 @@ const project = (root: string, extra: Partial<ProjectInfo>): ProjectInfo => ({
   exists: true,
   order: null,
   defaults: unset,
+  profileId: null,
   sessionCount: 0,
   lastActivity: null,
   ...extra,

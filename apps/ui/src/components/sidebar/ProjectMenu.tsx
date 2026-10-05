@@ -2,11 +2,13 @@ import { useState } from 'react';
 import { Check, FolderCog, FolderOpen, FolderPlus, Image, Layers, RotateCcw, Smile, Type, X } from 'lucide-react';
 import type { ProjectIconChoice } from '@switchboard/protocol/client';
 import { useEngineConnection } from '../../engine/useEngine.ts';
+import { useProfiles } from '../../state/profilesStore.ts';
 import { addedProjects } from '../../state/projectList.ts';
 import { useProjects } from '../../state/projectsStore.ts';
 import { useSessions } from '../../state/sessionsStore.ts';
 import { Menu, type MenuEntry } from '../Menu.tsx';
 import { useOpenIn } from '../OpenInButton.tsx';
+import { ProfileDot } from '../profiles/ProfileBadge.tsx';
 import { ProjectIcon } from '../ProjectIcon.tsx';
 
 const SUGGESTED = ['🚀', '🧪', '📦', '🛠️', '🌐', '📱', '🎨', '📝', '🤖', '⚡️', '🔥', '🧩', '📊', '🎬', '🚲', '☁️'];
@@ -39,6 +41,12 @@ export function useProjectActions() {
       await client.call('projects.add', { path });
       reload();
       return path;
+    },
+    /** Links a project to a Claude profile (null: the default). */
+    setProfile: async (root: string, profileId: string | null) => {
+      if (!client) return;
+      await client.call('projects.setProfile', { root, profileId });
+      reload();
     },
     remove: async (root: string) => {
       if (!client) return;
@@ -99,12 +107,32 @@ export function manage(root: string | null = null): void {
 export function useProjectIconEntries() {
   const actions = useProjectActions();
   const projects = useProjects((s) => s.projects);
+  const profiles = useProfiles((s) => s.profiles);
+  const defaultProfile = profiles.find((p) => p.isDefault);
   const openIn = useOpenIn();
   const [emojiFor, setEmojiFor] = useState<{ root: string; x: number; y: number } | null>(null);
 
   const entries = (root: string, at: { x: number; y: number }): MenuEntry[] => {
     const project = projects.get(root);
+    const linked = project?.profileId ?? null;
+    // Which account new sessions here use; only worth asking once there is more than one.
+    const profileEntries: MenuEntry[] =
+      profiles.length > 1 && root.startsWith('/')
+        ? [
+            { heading: 'Claude profile' },
+            {
+              label: `Default${defaultProfile ? ` (${defaultProfile.name})` : ''}`,
+              hint: linked === null ? '✓' : undefined,
+              onSelect: () => void actions.setProfile(root, null),
+            },
+            ...profiles.map(
+              (p): MenuEntry => ({ label: p.name, icon: <ProfileDot color={p.color} />, hint: linked === p.id ? '✓' : undefined, onSelect: () => void actions.setProfile(root, p.id) }),
+            ),
+            'separator',
+          ]
+        : [];
     return [
+      ...profileEntries,
       { heading: 'Project icon' },
       { label: 'Choose image…', icon: <Image size={13} />, onSelect: () => void actions.chooseImage(root) },
       { label: 'Use emoji…', icon: <Smile size={13} />, onSelect: () => setEmojiFor({ root, ...at }) },

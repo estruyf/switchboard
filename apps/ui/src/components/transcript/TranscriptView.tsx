@@ -24,6 +24,7 @@ import { OpenInButton } from '../OpenInButton.tsx';
 import { ProjectIcon } from '../ProjectIcon.tsx';
 import { PermissionCard } from '../session/PermissionCard.tsx';
 import { StatusBar } from '../session/StatusBar.tsx';
+import { ProfileBadge } from '../profiles/ProfileBadge.tsx';
 import { UsageBand } from '../UsageBand.tsx';
 import { liveLabel, StatusDot } from '../StatusDot.tsx';
 import { formatDuration, useTicker, WorkingDots } from './ActivityGroup.tsx';
@@ -164,6 +165,8 @@ export function TranscriptView({ sessionId, pane = null, active = true }: { sess
   const openElsewhere = !activeHost && registryLive !== null;
   const cwd = activeHost?.cwd ?? summary?.cwd ?? registryLive?.cwd ?? null;
   const running = activeHost?.state === 'running' || activeHost?.state === 'needs-you';
+  /** The Claude profile (account) the session bills to. */
+  const profileId = activeHost?.profileId ?? summary?.profileId ?? registryLive?.profileId ?? null;
 
   // The Changes panel (⌘⇧D): the checkout's git diff, with stage and revert.
   const changesOpen = useOverlay((s) => s.changesOpen);
@@ -337,6 +340,7 @@ export function TranscriptView({ sessionId, pane = null, active = true }: { sess
           <h1 className="truncate text-[13px] font-semibold">{summary?.title ?? registryLive?.name ?? 'New session'}</h1>
           <p className="truncate text-[11px] text-faint">{meta.join('  ·  ')}</p>
         </div>
+        <ProfileBadge profileId={profileId} className="rounded-full border border-border px-2 py-0.5 text-[11px] @max-[860px]:hidden" />
         {live && (
           <span className="flex shrink-0 items-center gap-1.5 rounded-full border border-border px-2 py-0.5 text-[11px] text-muted">
             <StatusDot live={live} />
@@ -432,7 +436,7 @@ export function TranscriptView({ sessionId, pane = null, active = true }: { sess
             </div>
           </MessageActionsContext.Provider>
 
-          {toolsOpen && cwd && <CapabilitiesDialog sessionId={sessionId} cwd={cwd} onClose={() => useOverlay.getState().close()} />}
+          {toolsOpen && cwd && <CapabilitiesDialog sessionId={sessionId} cwd={cwd} profileId={profileId} onClose={() => useOverlay.getState().close()} />}
       {rewinding && (
             <ConfirmDialog
               title="Undo file changes since this message?"
@@ -505,7 +509,7 @@ export function TranscriptView({ sessionId, pane = null, active = true }: { sess
                   <strong className="font-medium text-text">fork</strong>: a new session that continues from this conversation, leaving the original untouched.
                 </p>
               )}
-              <UsageBand />
+              <UsageBand profileId={profileId} />
               {actionError && (
                 <p className="flex items-start gap-2 rounded-lg border border-error/40 bg-error/5 px-3 py-2 text-[12px] text-error" role="alert">
                   <span className="min-w-0 flex-1">{actionError}</span>
