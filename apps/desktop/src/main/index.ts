@@ -176,6 +176,23 @@ async function runLiveSessionStep(win: BrowserWindow, cwd: string): Promise<stri
   await new Promise((resolve) => setTimeout(resolve, 800));
   await shot('session.png');
 
+  // Open the same session in the Claude Code TUI: it runs here, so the panel offers to stop it first.
+  const js = (code: string) => win.webContents.executeJavaScript(code);
+  await js("document.querySelector('[data-toggle-terminal]')?.click()");
+  if (!(await waitInPage(win, "document.querySelector('[data-open-claude-tui]')", 3_000))) return 'no terminal panel';
+  await js("document.querySelector('[data-open-claude-tui]').click()");
+  if (!(await waitInPage(win, "[...document.querySelectorAll('[data-terminal-panel] button')].some((b) => b.innerText === 'Stop it here and open')", 5_000))) {
+    return 'expected the stop-and-open choice for a session running here';
+  }
+  await js("[...document.querySelectorAll('[data-terminal-panel] button')].find((b) => b.innerText === 'Stop it here and open').click()");
+  if (!(await waitInPage(win, "document.querySelector('[data-terminal] textarea')", 10_000))) return 'Claude TUI did not open';
+  await new Promise((resolve) => setTimeout(resolve, 5_000));
+  await shot('claude-tui.png');
+  // Close the TUI and give its process time to leave the registry, or delete would (rightly) refuse.
+  await js("document.querySelector('[data-terminal-panel] [aria-label^=\"Close\"]')?.click()");
+  await js("document.querySelector('[data-toggle-terminal]')?.click()");
+  await new Promise((resolve) => setTimeout(resolve, 3_000));
+
   // Delete it again through the context menu; the transcript must land in the Trash.
   const sessionId = await win.webContents.executeJavaScript("document.querySelector('[data-current-session]')?.getAttribute('data-current-session')");
   if (!sessionId) return 'could not find the new session row';
@@ -205,6 +222,27 @@ async function runLiveSessionStep(win: BrowserWindow, cwd: string): Promise<stri
 let crashedAt = 0;
 let transcriptOpened = false;
 let liveSession: string | null = null;
+let terminalOpened = false;
+
+/** Opens the terminal panel on the open session, runs a harmless command and screenshots it. */
+async function runTerminalStep(win: BrowserWindow): Promise<boolean> {
+  const js = (code: string) => win.webContents.executeJavaScript(code);
+  await js("document.querySelector('[data-toggle-terminal]')?.click()");
+  if (!(await waitInPage(win, "document.querySelector('[data-terminal-panel]')", 3_000))) return false;
+  await js("document.querySelector('[data-new-terminal]')?.click()");
+  if (!(await waitInPage(win, "document.querySelector('[data-terminal] textarea')", 5_000))) return false;
+  await new Promise((resolve) => setTimeout(resolve, 1_000));
+  await js("document.querySelector('[data-terminal] textarea').focus()");
+  await win.webContents.insertText('echo "terminal works: $TERM_PROGRAM" && pwd');
+  win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Return' });
+  win.webContents.sendInputEvent({ type: 'char', keyCode: '\r' });
+  win.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Return' });
+  await new Promise((resolve) => setTimeout(resolve, 1_500));
+  writeFileSync(join(smokeOutDir!, 'terminal.png'), (await win.webContents.capturePage()).toPNG());
+  // Leave the next run's panel closed again.
+  await js("document.querySelector('[data-toggle-terminal]')?.click()");
+  return true;
+}
 async function runSmokeStep(win: BrowserWindow | null): Promise<void> {
   if (!smokeOutDir || !win) return;
   mkdirSync(smokeOutDir, { recursive: true });
@@ -220,6 +258,7 @@ async function runSmokeStep(win: BrowserWindow | null): Promise<void> {
     // Give the virtualiser a frame to measure and scroll to the end before capturing.
     await new Promise((resolve) => setTimeout(resolve, 300));
     writeFileSync(join(smokeOutDir, 'transcript.png'), (await win.webContents.capturePage()).toPNG());
+    terminalOpened = await runTerminalStep(win);
     const liveCwd = process.env.SWITCHBOARD_SMOKE_LIVE_CWD;
     if (liveCwd) liveSession = await runLiveSessionStep(win, liveCwd).catch((error: Error) => `failed: ${error.message}`);
     crashedAt = performance.now();
@@ -237,6 +276,7 @@ async function runSmokeStep(win: BrowserWindow | null): Promise<void> {
         sessionCount: readyReports[0]!.sessionCount,
         transcriptOpened,
         liveSession,
+        terminalOpened,
         reports: readyReports,
         versions: { electron: process.versions.electron, chrome: process.versions.chrome, node: process.versions.node },
       },

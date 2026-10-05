@@ -8,17 +8,23 @@ import { useReadyReport } from './engine/useReadyReport.ts';
 import { isActiveHost, useHosts } from './state/hostsStore.ts';
 import { useSessions } from './state/sessionsStore.ts';
 import { useProjectsSync } from './state/projectsStore.ts';
+import { useTerminals, useTerminalsSync } from './state/terminalsStore.ts';
 import { useHostsSync } from './state/useHostsSync.ts';
 import { useSessionsSync } from './state/useSessionsSync.ts';
 
-/** ⌘N new session, ⌘O open the current session's folder in the default editor. */
+/** ⌘N new session, ⌘O open the current session's folder in the default editor, ⌘J toggle the terminal. */
 function useShortcuts() {
   const openIn = useOpenIn();
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (!event.metaKey || event.shiftKey || event.altKey) return;
       const key = event.key.toLowerCase();
-      if (key === 'n') {
+      if (key === 'j') {
+        if (useSessions.getState().view === 'session') {
+          event.preventDefault();
+          useTerminals.getState().togglePanel();
+        }
+      } else if (key === 'n') {
         event.preventDefault();
         useSessions.getState().setView('new');
       } else if (key === 'o') {
@@ -57,6 +63,7 @@ export function App() {
   useSessionsSync();
   useHostsSync();
   useProjectsSync();
+  useTerminalsSync();
   useReadyReport();
   useShortcuts();
   const view = useSessions((s) => s.view);

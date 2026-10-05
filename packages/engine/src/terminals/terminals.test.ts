@@ -1,0 +1,137 @@
+import { mkdtempSync, realpathSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { afterEach, describe, expect, it } from 'vitest';
+import type { TerminalInfo } from '@switchboard/protocol';
+import { REPLAY_LIMIT, TerminalManager, type Pty, type SpawnPty } from './terminalManager.ts';
+
+const dirs: string[] = [];
+const managers: TerminalManager[] = [];
+afterEach(() => {
+  managers.splice(0).forEach((m) => m.closeAll());
+  dirs.splice(0).forEach((d) => rmSync(d, { recursive: true, force: true }));
+});
+const tempDir = () => {
+  const dir = realpathSync(mkdtempSync(join(tmpdir(), 'switchboard-term-')));
+  dirs.push(dir);
+  return dir;
+};
+const until = async (check: () => boolean, timeoutMs = 5000) => {
+  const start = Date.now();
+  while (!check()) {
+    if (Date.now() - start > timeoutMs) throw new Error('timed out');
+    await new Promise((r) => setTimeout(r, 10));
+  }
+};
+
+function setup(spawn?: SpawnPty, env: Record<string, string> = { PATH: process.env.PATH ?? '', SHELL: '/bin/sh' }) {
+  const output = new Map<string, string>();
+  const changes: TerminalInfo[][] = [];
+  const manager = new TerminalManager({
+    ...(spawn ? { spawn: async () => spawn } : {}),
+    env: async () => env,
+    claudePath: async () => '/usr/local/bin/claude',
+    onData: (id, data) => output.set(id, (output.get(id) ?? '') + data),
+    onChange: (list) => changes.push(list),
+    log: () => {},
+  });
+  managers.push(manager);
+  return { manager, output, changes };
+}
+
+describe('TerminalManager with a real pty', () => {
+  it('runs a login shell in the folder, streams output, takes input and reports the exit', async () => {
+    const cwd = tempDir();
+    const { manager, output, changes } = setup();
+    const info = await manager.open({ sessionId: 's1', cwd, kind: 'shell', cols: 80, rows: 24, fork: false });
+    expect(info).toMatchObject({ sessionId: 's1', kind: 'shell', cwd, exitCode: null });
+    manager.write(info.id, 'pwd; echo "TERM=$TERM"; exit 7\n');
+    await until(() => manager.list()[0]?.exitCode !== null);
+    const text = output.get(info.id) ?? '';
+    expect(text).toContain(cwd);
+    expect(text).toContain('TERM=xterm-256color');
+    expect(manager.list()[0]!.exitCode).toBe(7);
+    expect(manager.replay(info.id).replay).toBe(text);
+    expect(changes.at(-1)![0]!.exitCode).toBe(7);
+    manager.close(info.id);
+    expect(manager.list()).toEqual([]);
+  });
+});
+
+describe('TerminalManager', () => {
+  function fakeSpawn() {
+    const calls: Array<{ file: string; args: string[]; env: Record<string, string> }> = [];
+    let emit: (data: string) => void = () => {};
+    const pty: Pty & { resized: number[][]; killed: boolean } = {
+      pid: 4242,
+      resized: [],
+      killed: false,
+      onData: (l) => ((emit = l), { dispose() {} }),
+      onExit: () => ({ dispose() {} }),
+      write: () => {},
+      resize(cols, rows) {
+        this.resized.push([cols, rows]);
+      },
+      kill() {
+        this.killed = true;
+      },
+    };
+    const spawn: SpawnPty = (file, args, options) => {
+      calls.push({ file, args, env: options.env });
+      return pty;
+    };
+    return { spawn, calls, pty, emit: (d: string) => emit(d) };
+  }
+
+  it('runs the Claude Code TUI on the session, or a fork of it', async () => {
+    const fake = fakeSpawn();
+    const { manager } = setup(fake.spawn);
+    await manager.open({ sessionId: 's1', cwd: tempDir(), kind: 'claude', cols: 80, rows: 24, fork: false });
+    await manager.open({ sessionId: 's1', cwd: tempDir(), kind: 'claude', cols: 80, rows: 24, fork: true });
+    expect(fake.calls.map((c) => [c.file, c.args])).toEqual([
+      ['/usr/local/bin/claude', ['--resume', 's1']],
+      ['/usr/local/bin/claude', ['--resume', 's1', '--fork-session']],
+    ]);
+  });
+
+  it('keeps an enclosing Claude Code out of the environment', async () => {
+    const fake = fakeSpawn();
+    const { manager } = setup(fake.spawn, { PATH: '/bin', CLAUDECODE: '1', CLAUDE_CODE_ENTRYPOINT: 'cli', CLAUDE_CODE_USE_BEDROCK: '1', SHELL: '/bin/zsh' });
+    await manager.open({ sessionId: null, cwd: tempDir(), kind: 'shell', cols: 80, rows: 24, fork: false });
+    expect(fake.calls[0]!.file).toBe('/bin/zsh');
+    expect(fake.calls[0]!.env).toMatchObject({ PATH: '/bin', CLAUDE_CODE_USE_BEDROCK: '1', TERM_PROGRAM: 'Switchboard' });
+    expect(fake.calls[0]!.env).not.toHaveProperty('CLAUDECODE');
+    expect(fake.calls[0]!.env).not.toHaveProperty('CLAUDE_CODE_ENTRYPOINT');
+  });
+
+  it('batches output, caps the replay buffer, skips no-op resizes and kills on close', async () => {
+    const fake = fakeSpawn();
+    const { manager, output } = setup(fake.spawn);
+    const info = await manager.open({ sessionId: null, cwd: tempDir(), kind: 'shell', cols: 80, rows: 24, fork: false });
+    for (let i = 0; i < 100; i++) fake.emit('x');
+    await until(() => (output.get(info.id) ?? '').length === 100);
+    const chunk = 'y'.repeat(100_000);
+    for (let i = 0; i < 6; i++) {
+      fake.emit(chunk);
+      manager.replay(info.id);
+    }
+    expect(manager.replay(info.id).replay.length).toBeLessThanOrEqual(REPLAY_LIMIT);
+    manager.resize(info.id, 80, 24);
+    manager.resize(info.id, 120, 40);
+    expect(fake.pty.resized).toEqual([[120, 40]]);
+    manager.close(info.id);
+    expect(fake.pty.killed).toBe(true);
+    await expect(manager.open({ sessionId: null, cwd: join(tempDir(), 'missing'), kind: 'shell', cols: 80, rows: 24, fork: false })).rejects.toThrow(/Folder not found/);
+  });
+});
+
+describe('terminal font detection', async () => {
+  const { ghosttyFont, vscodeTerminalFont } = await import('../system/terminalFont.ts');
+  it('reads Ghostty and VS Code settings', () => {
+    expect(ghosttyFont('theme = dark\nfont-family = "SauceCodePro Nerd Font Mono"\nfont-size = 13\n')).toBe('SauceCodePro Nerd Font Mono');
+    expect(ghosttyFont('font-family = JetBrains Mono\n')).toBe('JetBrains Mono');
+    expect(ghosttyFont('font-size = 13\n')).toBeNull();
+    expect(vscodeTerminalFont('{\n  // comment\n  "terminal.integrated.fontFamily": "MesloLGS NF",\n}')).toBe('MesloLGS NF');
+    expect(vscodeTerminalFont('{ "editor.fontFamily": "X" }')).toBeNull();
+  });
+});

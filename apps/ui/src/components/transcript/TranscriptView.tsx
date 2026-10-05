@@ -1,4 +1,5 @@
 import { useVirtualizer } from '@tanstack/react-virtual';
+import { SquareTerminal } from 'lucide-react';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { ImageAttachment, SlashCommand } from '@switchboard/protocol/client';
 import { useEngineConnection } from '../../engine/useEngine.ts';
@@ -7,6 +8,8 @@ import { nextMode } from '../../lib/modes.ts';
 import { hostAsLive, isActiveHost, useHosts } from '../../state/hostsStore.ts';
 import { useProjects } from '../../state/projectsStore.ts';
 import { realBranch, useSessions } from '../../state/sessionsStore.ts';
+import { useTerminals } from '../../state/terminalsStore.ts';
+import { TerminalPanel } from '../terminal/TerminalPanel.tsx';
 import { Composer } from '../composer/Composer.tsx';
 import { OpenInButton } from '../OpenInButton.tsx';
 import { ProjectIcon } from '../ProjectIcon.tsx';
@@ -54,6 +57,9 @@ export function TranscriptView({ sessionId }: { sessionId: string }) {
   const permissions = useMemo(() => [...permissionMap.values()].filter((p) => p.sessionId === sessionId), [permissionMap, sessionId]);
   const home = useSessions((s) => guessHome([...s.sessions.values()].slice(0, 20).flatMap((x) => (x.cwd ? [x.cwd] : []))));
   const { status, messages } = useTranscript(sessionId);
+  const panelOpen = useTerminals((s) => s.panelOpen);
+  const togglePanel = useTerminals((s) => s.togglePanel);
+  const terminalCount = useTerminals((s) => [...s.terminals.values()].filter((t) => t.sessionId === sessionId && t.exitCode === null).length);
   const items = useMemo(() => buildDisplayItems(messages), [messages]);
   const [commands, setCommands] = useState<SlashCommand[]>([]);
 
@@ -133,6 +139,16 @@ export function TranscriptView({ sessionId }: { sessionId: string }) {
             {liveLabel(live)}
           </span>
         )}
+        <button
+          type="button"
+          data-toggle-terminal
+          onClick={() => togglePanel()}
+          title="Terminal (⌘J)"
+          className={`no-drag relative flex size-7 shrink-0 items-center justify-center rounded-md border border-border hover:bg-border/50 ${panelOpen ? 'bg-accent/15 text-text' : 'text-muted'}`}
+        >
+          <SquareTerminal size={14} />
+          {terminalCount > 0 && <span className="absolute -top-1 -right-1 size-2 rounded-full bg-ok" title={`${terminalCount} running`} />}
+        </button>
         <OpenInButton path={cwd} />
       </header>
 
@@ -194,6 +210,7 @@ export function TranscriptView({ sessionId }: { sessionId: string }) {
           )}
         </div>
       </div>
+      {panelOpen && <TerminalPanel sessionId={sessionId} cwd={cwd} />}
     </div>
   );
 }

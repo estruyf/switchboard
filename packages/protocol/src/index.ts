@@ -4,3 +4,4 @@ export * from './contract.ts';
 export * from './bridge.ts';
 export * from './sessions.ts';
 export * from './host.ts';
+export * from './terminal.ts';

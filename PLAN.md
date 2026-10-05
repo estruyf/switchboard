@@ -214,7 +214,7 @@ Personal overrides shared, which overrides global. **Safety:** commands from a r
 - **"Open PR"** appears when the transcript has a `pr-link` record (seen in the spike data), and opens the PR in the browser.
 
 ### v0.2: power features
-- **Embedded terminal** per session (xterm.js), plus a raw `claude` TUI tab for anything the GUI doesn't cover. This reuses the PtyHost built for project actions.
+- ✅ **Embedded terminal** per session (xterm.js on node-pty), plus a raw `claude` TUI tab for anything the GUI doesn't cover (including mods). Built ahead of schedule; project actions will reuse it.
 - **Diff panel:** the session's git diff against its starting point, with stage, revert and **rewind to message** (`rewindFiles`).
 - **Worktree finishing actions:** when a worktree session is done, offer merge into the base branch, open a PR (via `gh`), or keep or discard the worktree.
 - **Global search** (⌘⇧F) across all transcripts using FTS5.
@@ -267,7 +267,7 @@ Mods such as [claude-stats-mod](https://github.com/estruyf/claude-stats-mod) dra
 | **1 · Foundation** ✅ done | Monorepo, Electron shell, engine utilityProcess, MessagePort RPC, SQLite cache | Window opens, engine responds over typed RPC. Verified by `npm run smoke`: UI talking to the engine in ~230 ms warm, 0.1 ms round trip, automatic recovery from an engine crash |
 | **2 · Discovery** ✅ done | Indexer, sessions registry watcher, sidebar, read-only transcript viewer, live tail of external sessions | All existing sessions browsable; running CLI sessions show as live. Transcript formats are read through the SDK (`listSessions`, `getSessionInfo`, `getSessionMessages`), so the app parses only the registry and the `entrypoint` field itself. Full-text search indexing moves to Phase 5 with global search |
 | **3 · Owned sessions** ✅ done | Create (current folder or worktree), resume, stream, composer, permissions, interrupt, status bar, **Open in editor**. Also: cache the login-shell environment (about 0.5 s per engine start today) | Verified against real Claude Code by `claude.live.test.ts` and the live smoke step: permission prompt in about 3 s, streaming, follow-up, stop/resume, interrupt, fork when open elsewhere. Only `PATH` is cached from the login shell, never the full environment | Can do a full day's work in the app instead of the terminal |
-| **4 · Rich rendering + actions** | Tool cards, diffs, todos, subagents, plan mode, AskUserQuestion, notifications, clickable file links; **PtyHost + project actions** (shell and prompt types, toolbar, palette, shortcuts, `runOnWorktreeCreate`, `.switchboard.json`) | Visual parity with CLI for common flows; Commit/Publish from one click |
+| **4 · Rich rendering + actions** (terminal ✅ done first) | Tool cards, diffs, todos, subagents, plan mode, AskUserQuestion, notifications, clickable file links; **PtyHost + project actions** (shell and prompt types, toolbar, palette, shortcuts, `runOnWorktreeCreate`, `.switchboard.json`) | Visual parity with CLI for common flows; Commit/Publish from one click |
 | **5 · Power** | Free-form terminal tab, diff panel and rewind, worktree finishing actions, search, fork, MCP/skills panels, palette | v0.2 feature list |
 | **6 · Ship** | Perf CI, code signing and notarization, auto-update, crash reporting (opt-in) | Signed DMG and auto-updates |
 

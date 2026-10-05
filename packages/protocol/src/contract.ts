@@ -23,6 +23,7 @@ import {
   TranscriptMessage,
   TranscriptUpdate,
 } from './sessions.ts';
+import { TerminalInfo, TerminalKind } from './terminal.ts';
 
 export const ClaudeInstall = z.object({
   path: z.string(),
@@ -192,6 +193,36 @@ export const contract = {
       result: z.object({}),
     },
     'editors.setDefault': { params: z.object({ editorId: z.string() }), result: z.object({}) },
+
+    // --- Terminals ---------------------------------------------------------------------------
+    /**
+     * Starts a terminal. `claude` runs `claude --resume <session>` (or `--fork-session` with `fork`);
+     * it refuses with SESSION_RUNNING_HERE / SESSION_BUSY_ELSEWHERE when the session is open in a process already.
+     */
+    'terminal.open': {
+      params: z.object({
+        sessionId: SessionId.nullable(),
+        cwd: AbsolutePath,
+        kind: TerminalKind,
+        cols: z.number().int().min(2).max(1000),
+        rows: z.number().int().min(1).max(500),
+        fork: z.boolean().default(false),
+      }),
+      result: TerminalInfo,
+    },
+    'terminal.list': { params: z.object({}), result: z.object({ terminals: z.array(TerminalInfo) }) },
+    /** The font the user's own terminal uses (Ghostty, VS Code), so prompts with Nerd Font glyphs render. */
+    'terminal.font': { params: z.object({}), result: z.object({ fontFamily: z.string().nullable(), source: z.string().nullable() }) },
+    /** Streams this terminal's output to the caller; returns recent output to replay first. */
+    'terminal.attach': { params: z.object({ id: z.string() }), result: z.object({ info: TerminalInfo, replay: z.string() }) },
+    'terminal.detach': { params: z.object({ id: z.string() }), result: z.object({}) },
+    'terminal.write': { params: z.object({ id: z.string(), data: z.string().max(1_000_000) }), result: z.object({}) },
+    'terminal.resize': {
+      params: z.object({ id: z.string(), cols: z.number().int().min(2).max(1000), rows: z.number().int().min(1).max(500) }),
+      result: z.object({}),
+    },
+    /** Kills the process (if still running) and forgets the terminal. */
+    'terminal.close': { params: z.object({ id: z.string() }), result: z.object({}) },
   },
   events: {
     'engine.log': LogEntry,
@@ -203,6 +234,10 @@ export const contract = {
     'session.stream': StreamDelta,
     'session.permission': PermissionRequest,
     'session.permissionResolved': z.object({ requestId: z.string(), sessionId: z.string() }),
+    /** Output for an attached terminal (batched). */
+    'terminal.data': z.object({ id: z.string(), data: z.string() }),
+    /** Full list whenever terminals start, exit or close. */
+    'terminals.changed': z.object({ terminals: z.array(TerminalInfo) }),
   },
 } as const satisfies ContractShape;
 

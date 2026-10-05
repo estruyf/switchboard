@@ -23,10 +23,12 @@ import { createAppStateStore } from './db/appState.ts';
 import { openCacheDatabase } from './db/database.ts';
 import { findClaude } from './system/claudeBinary.ts';
 import { SessionIndex } from './sessions/sessionIndex.ts';
+import { TerminalManager, type SpawnPty } from './terminals/terminalManager.ts';
 import { TranscriptHub } from './sessions/transcriptHub.ts';
 import { detectEditors, openInEditor } from './system/editors.ts';
 import { FileIndex } from './system/files.ts';
 import { ShellEnvironment } from './system/shellEnvironment.ts';
+import { detectTerminalFont } from './system/terminalFont.ts';
 import type { ShellEnv } from './system/shellEnv.ts';
 import pkg from '../package.json' with { type: 'json' };
 
@@ -52,6 +54,8 @@ export interface EngineOptions {
    * shell.trashItem; without it, deleted sessions are removed permanently.
    */
   trash?: (paths: string[]) => Promise<void>;
+  /** Pseudo-terminal factory. Defaults to node-pty. */
+  spawnPty?: () => Promise<SpawnPty>;
 }
 
 export interface Engine {
@@ -155,6 +159,31 @@ export function createEngine(options: EngineOptions): Engine {
     },
     log,
   });
+
+  /** Windows attached to each terminal's output. */
+  const terminalViewers = new Map<string, Set<HandlerContext<Contract>>>();
+  const terminals = new TerminalManager({
+    ...(options.spawnPty ? { spawn: options.spawnPty } : {}),
+    env: async () => (await shell.ready).env,
+    claudePath: async () => (await claude)?.path,
+    onData: (id, data) => {
+      for (const viewer of terminalViewers.get(id) ?? []) viewer.emit('terminal.data', { id, data });
+    },
+    onChange: (list) => broadcast('terminals.changed', { terminals: list }),
+    log,
+  });
+  const viewTerminal = (id: string, context: HandlerContext<Contract>, attach: boolean) => {
+    let viewers = terminalViewers.get(id);
+    if (attach) {
+      if (!viewers) terminalViewers.set(id, (viewers = new Set()));
+      if (!viewers.has(context)) {
+        viewers.add(context);
+        context.onDispose(() => terminalViewers.get(id)?.delete(context));
+      }
+    } else {
+      viewers?.delete(context);
+    }
+  };
 
   const defaultEditorKey = 'editor.default';
   const editorEnv = () => shell.forLookup();
@@ -301,6 +330,49 @@ export function createEngine(options: EngineOptions): Engine {
       appState.set(defaultEditorKey, editorId);
       return {};
     },
+
+    'terminal.open': async (params) => {
+      if (params.kind === 'claude' && params.sessionId && !params.fork) {
+        if (hosts.has(params.sessionId)) {
+          throw new RpcError('SESSION_RUNNING_HERE', 'This session is running in Switchboard. Stop it there first, or open a fork in the terminal.');
+        }
+        if (registry.list().some((l) => l.sessionId === params.sessionId)) {
+          throw new RpcError('SESSION_BUSY_ELSEWHERE', 'This session is open in another Claude Code window. Close it there first, or open a fork.');
+        }
+      }
+      try {
+        return await terminals.open(params);
+      } catch (error) {
+        throw new RpcError('TERMINAL_FAILED', (error as Error).message);
+      }
+    },
+    'terminal.list': () => ({ terminals: terminals.list() }),
+    'terminal.font': () => {
+      const font = detectTerminalFont();
+      return { fontFamily: font?.fontFamily ?? null, source: font?.source ?? null };
+    },
+    'terminal.attach': ({ id }, context) => {
+      const result = terminals.replay(id);
+      viewTerminal(id, context, true);
+      return result;
+    },
+    'terminal.detach': ({ id }, context) => {
+      viewTerminal(id, context, false);
+      return {};
+    },
+    'terminal.write': ({ id, data }) => {
+      terminals.write(id, data);
+      return {};
+    },
+    'terminal.resize': ({ id, cols, rows }) => {
+      terminals.resize(id, cols, rows);
+      return {};
+    },
+    'terminal.close': ({ id }) => {
+      terminals.close(id);
+      terminalViewers.delete(id);
+      return {};
+    },
   };
 
   return {
@@ -320,6 +392,7 @@ export function createEngine(options: EngineOptions): Engine {
       for (const server of servers) server.dispose();
       servers.clear();
       hosts.closeAll();
+      terminals.closeAll();
       sessions.stop();
       registry.stop();
       transcripts.stop();

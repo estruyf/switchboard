@@ -8,3 +8,4 @@ export type * from './contract.ts';
 export * from './bridge.ts';
 export type * from './sessions.ts';
 export type * from './host.ts';
+export type * from './terminal.ts';
