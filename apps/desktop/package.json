@@ -1,0 +1,23 @@
+{
+  "name": "@switchboard/desktop",
+  "productName": "Switchboard",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./out/main/index.js",
+  "scripts": {
+    "dev": "electron-vite dev",
+    "build": "electron-vite build",
+    "start": "electron-vite preview",
+    "smoke": "electron-vite build && node scripts/smoke.ts",
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@switchboard/engine": "*",
+    "@switchboard/protocol": "*"
+  },
+  "devDependencies": {
+    "electron": "^44.5.1",
+    "electron-vite": "^5.0.0"
+  }
+}

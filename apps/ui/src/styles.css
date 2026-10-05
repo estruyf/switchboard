@@ -1,0 +1,78 @@
+@import 'tailwindcss';
+
+:root {
+  --sb-bg: #fbfbfa;
+  --sb-sidebar: #f2f2ef;
+  --sb-card: #ffffff;
+  --sb-border: #e4e3de;
+  --sb-text: #1c1c1e;
+  --sb-muted: #6c6c72;
+  --sb-faint: #9b9ba1;
+  --sb-accent: #c96442;
+  --sb-ok: #2f9e44;
+  --sb-warn: #d08700;
+  --sb-error: #d6336c;
+  color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --sb-bg: #151517;
+    --sb-sidebar: #1b1b1e;
+    --sb-card: #1f1f23;
+    --sb-border: #2c2c31;
+    --sb-text: #ececef;
+    --sb-muted: #a0a0a8;
+    --sb-faint: #6e6e76;
+    --sb-accent: #e08a6a;
+    --sb-ok: #51cf66;
+    --sb-warn: #fcc419;
+    --sb-error: #f06595;
+    color-scheme: dark;
+  }
+}
+
+@theme inline {
+  --color-bg: var(--sb-bg);
+  --color-sidebar: var(--sb-sidebar);
+  --color-card: var(--sb-card);
+  --color-border: var(--sb-border);
+  --color-text: var(--sb-text);
+  --color-muted: var(--sb-muted);
+  --color-faint: var(--sb-faint);
+  --color-accent: var(--sb-accent);
+  --color-ok: var(--sb-ok);
+  --color-warn: var(--sb-warn);
+  --color-error: var(--sb-error);
+  --font-sans: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Inter', system-ui, sans-serif;
+  --font-mono: 'SF Mono', ui-monospace, Menlo, monospace;
+}
+
+/* Frameless-window drag regions (macOS hiddenInset title bar). */
+@utility drag {
+  -webkit-app-region: drag;
+}
+@utility no-drag {
+  -webkit-app-region: no-drag;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--sb-bg);
+  color: var(--sb-text);
+  font-family: var(--font-sans);
+  font-size: 13px;
+  -webkit-font-smoothing: antialiased;
+  user-select: none;
+  cursor: default;
+}
+
+::selection {
+  background: color-mix(in srgb, var(--sb-accent) 30%, transparent);
+}

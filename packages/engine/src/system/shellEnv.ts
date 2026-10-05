@@ -1,0 +1,68 @@
+import { execFile } from 'node:child_process';
+
+export interface ShellEnv {
+  shell: string;
+  env: Record<string, string>;
+  /** False when the login shell could not be read and process.env was used instead. */
+  resolved: boolean;
+  durationMs: number;
+}
+
+const MARKER = '__SWITCHBOARD_ENV__';
+
+/** Extracts NUL-separated `env -0` output from between two markers (shell rc files may print noise). */
+export function parseEnvOutput(output: string): Record<string, string> | null {
+  const start = output.indexOf(MARKER);
+  const end = output.lastIndexOf(MARKER);
+  if (start === -1 || end <= start) return null;
+  const body = output.slice(start + MARKER.length, end);
+  const env: Record<string, string> = {};
+  for (const entry of body.split('\0')) {
+    const eq = entry.indexOf('=');
+    if (eq <= 0) continue;
+    env[entry.slice(0, eq)] = entry.slice(eq + 1);
+  }
+  return Object.keys(env).length > 0 ? env : null;
+}
+
+function processEnv(): Record<string, string> {
+  return Object.fromEntries(Object.entries(process.env).filter((e): e is [string, string] => e[1] !== undefined));
+}
+
+/**
+ * Reads the environment of the user's interactive login shell.
+ *
+ * Apps launched from Finder or the Dock get a minimal PATH, so without this
+ * `claude`, nvm-managed node and project-action commands would not be found.
+ */
+export function resolveShellEnv(timeoutMs = 5000): Promise<ShellEnv> {
+  const shell = process.env.SHELL || '/bin/zsh';
+  const started = performance.now();
+  const fallback = (): ShellEnv => ({
+    shell,
+    env: processEnv(),
+    resolved: false,
+    durationMs: Math.round(performance.now() - started),
+  });
+
+  if (process.platform === 'win32') return Promise.resolve(fallback());
+
+  return new Promise((resolve) => {
+    execFile(
+      shell,
+      ['-ilc', `printf '%s' '${MARKER}'; /usr/bin/env -0; printf '%s' '${MARKER}'`],
+      {
+        timeout: timeoutMs,
+        maxBuffer: 4 * 1024 * 1024,
+        // Keep oh-my-zsh & co. from prompting or auto-updating in a non-interactive read.
+        env: { ...process.env, DISABLE_AUTO_UPDATE: 'true', ZSH_DISABLE_COMPFIX: 'true' },
+      },
+      (error, stdout) => {
+        const env = parseEnvOutput(stdout ?? '');
+        if (error && !env) return resolve(fallback());
+        if (!env) return resolve(fallback());
+        resolve({ shell, env, resolved: true, durationMs: Math.round(performance.now() - started) });
+      },
+    );
+  });
+}
