@@ -64,18 +64,27 @@ The configuration is in [`apps/desktop/electron-builder.yml`](../apps/desktop/el
 - `node-pty` is unpacked from the asar archive, because its native helper must be executable.
 - Electron is pinned to an exact version, which electron-builder needs.
 
-## Building in GitHub Actions
+## Releasing (automated in GitHub Actions)
 
-[`.github/workflows/release.yml`](../.github/workflows/release.yml) builds the app on an Apple Silicon runner:
+[`.github/workflows/release.yml`](../.github/workflows/release.yml) runs when a release is published on GitHub. To release:
 
-- **Push a tag** such as `v0.2.0`: it builds and attaches the `.dmg` to a GitHub release for that tag (creating the release with generated notes if needed).
-- **Run it by hand** (Actions → Release → Run workflow): it builds and keeps the `.dmg` as a workflow artifact.
+1. Add a `## [X.Y.Z] - YYYY-MM-DD` section to [`CHANGELOG.md`](../CHANGELOG.md), written for people using the app, and push it.
+2. On GitHub, create a release with a new tag `vX.Y.Z` (Releases → Draft a new release) and publish it. You can leave the notes empty.
 
-It runs the typecheck and unit tests first. Bump `version` in `apps/desktop/package.json` before tagging, since the `.dmg` is named after it.
+The workflow then:
 
-### Signing in CI
+1. runs the typecheck and unit tests;
+2. builds the app on an Apple Silicon runner, with the version taken from the tag;
+3. signs it with your Developer ID, and notarises and staples it;
+4. checks the signature and that Gatekeeper accepts it as notarised;
+5. attaches `Switchboard-X.Y.Z-arm64.dmg` to the release;
+6. fills in the release notes from the CHANGELOG section, if you left them empty.
 
-Without secrets the build is unsigned (the workflow warns). To sign and notarise, add these repository secrets (Settings → Secrets and variables → Actions):
+Nothing is attached unsigned: without the secrets below the run fails. To retry, re-run the failed workflow run from the Actions tab.
+
+### Signing secrets
+
+Add these repository secrets (Settings → Secrets and variables → Actions):
 
 | Secret | What it is |
 |---|---|
@@ -85,7 +94,7 @@ Without secrets the build is unsigned (the workflow warns). To sign and notarise
 | `APPLE_APP_SPECIFIC_PASSWORD` | An app-specific password for it ([account.apple.com](https://account.apple.com) → Sign-In and Security → App-Specific Passwords) |
 | `APPLE_TEAM_ID` | Your team ID (the 10 characters in brackets after your name in the certificate) |
 
-With the certificate secrets the app is signed; with the Apple ID secrets as well, electron-builder notarises and staples it. The workflow then checks the signature with `codesign` and `spctl`.
+`MAC_CERTIFICATE_PASSWORD` may be left out only if the `.p12` was exported without a password.
 
 ### Testing the packaged app
 

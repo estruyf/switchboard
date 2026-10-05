@@ -77,9 +77,12 @@ SWITCHBOARD_SMOKE_LIVE_CWD=/path/to/throwaway-repo npm run smoke
 
 ## Releases
 
-1. Set `version` in `apps/desktop/package.json` (the `.dmg` is named after it), and add the release to `CHANGELOG.md`, written for people using the app. Its section is also the GitHub release notes.
-2. Build locally with `npm run dist:notarized` (signed with the Developer ID and notarised; needs the `switchboard-notary` keychain profile), or let CI build.
-3. Tag `vX.Y.Z` and push. `.github/workflows/release.yml` builds on an Apple Silicon runner, and attaches the `.dmg` to the GitHub release (signed and notarised when the signing secrets are set; see `docs/building-and-signing.md`). If the release already has a `.dmg` and CI has no signing secrets, CI leaves it alone, so a locally notarised build isn't replaced by an unsigned one.
+Releases are built by `.github/workflows/release.yml`, which runs when a release is published on GitHub:
+
+1. Add a `## [X.Y.Z] - YYYY-MM-DD` section to `CHANGELOG.md`, written for people using the app, and set `version` in `apps/desktop/package.json` to match.
+2. Publish a GitHub release with tag `vX.Y.Z` (only when the user asks). The notes may be left empty; the workflow fills them from the CHANGELOG section.
+
+The workflow builds with the version from the tag, signs and notarises the app, checks Gatekeeper accepts it, and attaches the `.dmg` to the release. It never attaches an unsigned build. `npm run dist:notarized` is for checking a signed build locally.
 
 ## Safety
 

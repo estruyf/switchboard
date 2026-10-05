@@ -1,38 +1,49 @@
-# Builds Switchboard for Apple Silicon and publishes the .dmg.
+# Builds Switchboard for a GitHub release.
 #
-# - Push a tag like v0.2.0: builds, then attaches the .dmg to a GitHub release for that tag.
-# - Run it by hand (Actions → Release → Run workflow): builds and keeps the .dmg as a workflow artifact.
+# Runs when a release is published on GitHub (for a tag like v0.2.0): builds the app on an Apple
+# Silicon runner, signs and notarises it, and attaches the .dmg to that release. The version comes
+# from the tag. When the release has no notes, the matching CHANGELOG.md section is used.
 #
-# With the signing secrets set, the app is signed with your Developer ID and notarised; without
-# them the build is unsigned. See docs/building-and-signing.md for the secrets.
+# Nothing is ever attached unsigned: without the signing secrets the run fails.
+# See docs/building-and-signing.md for the secrets.
 name: Release
 
 on:
-  push:
-    tags: ['v*']
-  workflow_dispatch:
+  release:
+    types: [published]
 
 permissions:
   contents: write
 
 concurrency:
-  group: release-${{ github.ref }}
+  group: release-${{ github.event.release.tag_name }}
   cancel-in-progress: false
 
 jobs:
   mac:
-    name: macOS (Apple Silicon)
+    name: Build, sign, notarise and attach the .dmg
     runs-on: macos-15
-    timeout-minutes: 45
+    timeout-minutes: 60
     env:
-      SIGNED: ${{ secrets.MAC_CERTIFICATE_P12_BASE64 != '' }}
+      TAG: ${{ github.event.release.tag_name }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.release.tag_name }}
 
       - uses: actions/setup-node@v4
         with:
           node-version: 24
           cache: npm
+
+      - name: Version from the tag
+        run: |
+          version="${TAG#v}"
+          if ! [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+            echo "::error::The release tag '$TAG' is not a version like v1.2.3."
+            exit 1
+          fi
+          echo "VERSION=$version" >> "$GITHUB_ENV"
 
       - name: Install
         run: npm ci
@@ -44,48 +55,50 @@ jobs:
         env:
           # Developer ID Application certificate and its private key, exported as .p12 and base64-encoded.
           CSC_LINK: ${{ secrets.MAC_CERTIFICATE_P12_BASE64 }}
-          # Optional: an unset secret is an empty string, which is right for a .p12 without a password.
           CSC_KEY_PASSWORD: ${{ secrets.MAC_CERTIFICATE_PASSWORD }}
           # Notarisation with an app-specific password (electron-builder notarises when these are set).
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
-          if [ -z "$CSC_LINK" ]; then
-            echo "::warning::No signing certificate configured; building an unsigned app."
-            export CSC_IDENTITY_AUTO_DISCOVERY=false
+          if [ -z "$CSC_LINK" ] || [ -z "$APPLE_ID" ] || [ -z "$APPLE_APP_SPECIFIC_PASSWORD" ] || [ -z "$APPLE_TEAM_ID" ]; then
+            echo "::error::Signing secrets are missing, and nothing is attached unsigned. See docs/building-and-signing.md."
+            exit 1
           fi
-          if [ -z "$APPLE_ID" ]; then
-            unset APPLE_ID APPLE_APP_SPECIFIC_PASSWORD APPLE_TEAM_ID
-          fi
+          # The app's version (About panel, .dmg name) is the release's.
+          npm pkg set version="$VERSION" -w @switchboard/desktop
           npm run dist
 
-      - name: Check the signature
-        if: env.SIGNED == 'true'
+      - name: Check the signature and notarisation
         run: |
-          codesign --verify --deep --strict --verbose=2 apps/desktop/dist/mac-arm64/Switchboard.app
-          spctl -a -vv apps/desktop/dist/mac-arm64/Switchboard.app || true
+          app=apps/desktop/dist/mac-arm64/Switchboard.app
+          codesign --verify --deep --strict --verbose=2 "$app"
+          xcrun stapler validate "$app"
+          spctl -a -vv "$app" 2>&1 | tee spctl.txt
+          grep -q "source=Notarized Developer ID" spctl.txt
 
-      - name: Keep the .dmg
-        uses: actions/upload-artifact@v4
-        with:
-          name: Switchboard-${{ github.ref_name }}-arm64
-          path: apps/desktop/dist/*.dmg
-          if-no-files-found: error
-
-      - name: Publish the release
-        if: startsWith(github.ref, 'refs/tags/v')
+      - name: Attach the .dmg to the release
         env:
           GH_TOKEN: ${{ github.token }}
+        run: gh release upload "$TAG" apps/desktop/dist/*.dmg --clobber --repo "$GITHUB_REPOSITORY"
+
+      - name: Fill in empty release notes from the changelog
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BODY: ${{ github.event.release.body }}
         run: |
-          tag="${GITHUB_REF_NAME}"
-          if gh release view "$tag" >/dev/null 2>&1; then
-            # A release made by hand may already carry a locally notarised .dmg: an unsigned CI build never replaces it.
-            if [ "$SIGNED" != "true" ] && gh release view "$tag" --json assets -q '.assets[].name' | grep -q '\.dmg$'; then
-              echo "The release already has a .dmg and this build is unsigned; keeping the existing one."
-              exit 0
-            fi
-            gh release upload "$tag" apps/desktop/dist/*.dmg --clobber
+          if [ -n "$(echo "$BODY" | tr -d '[:space:]')" ]; then
+            echo "The release has notes; leaving them."
+            exit 0
+          fi
+          # This version's CHANGELOG section, without the link definitions.
+          awk -v v="$VERSION" '
+            index($0, "## [" v "]") == 1 { on = 1; next }
+            on && /^## \[/ { exit }
+            on && !/^\[[^]]+\]: / { print }
+          ' CHANGELOG.md > notes.md
+          if [ -s notes.md ]; then
+            gh release edit "$TAG" --notes-file notes.md --repo "$GITHUB_REPOSITORY"
           else
-            gh release create "$tag" apps/desktop/dist/*.dmg --title "Switchboard ${tag#v}" --generate-notes
+            echo "::warning::CHANGELOG.md has no section for $VERSION; the release notes stay empty."
           fi
