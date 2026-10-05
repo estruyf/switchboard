@@ -188,6 +188,13 @@ export class HostManager {
     }
   }
 
+  /** Stops a session this app runs (if it does) and waits for its process to leave the registry. */
+  async release(sessionId: string): Promise<void> {
+    if (!this.has(sessionId)) return;
+    this.close(sessionId);
+    await this.waitForExit(sessionId);
+  }
+
   respond(requestId: string, decision: PermissionDecision): void {
     const pending = this.pending.get(requestId);
     if (!pending) throw new RpcError('NOT_FOUND', 'This request was already answered or cancelled');

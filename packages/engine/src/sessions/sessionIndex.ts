@@ -89,6 +89,7 @@ export class SessionIndex {
           entrypoint = excluded.entrypoint, summary_json = excluded.summary_json`),
       remove: db.prepare('DELETE FROM sessions WHERE id = ?'),
       flagsAll: db.prepare('SELECT id, pinned, settled_at, viewed_at FROM session_flags'),
+      flagsDelete: db.prepare('DELETE FROM session_flags WHERE id = ?'),
       flagsUpsert: db.prepare(`
         INSERT INTO session_flags (id, pinned, settled_at, viewed_at) VALUES (?, ?, ?, ?)
         ON CONFLICT (id) DO UPDATE SET pinned = excluded.pinned, settled_at = excluded.settled_at, viewed_at = excluded.viewed_at`),
@@ -129,6 +130,18 @@ export class SessionIndex {
     const flags = this.flags.get(raw.id) ?? NO_FLAGS;
     const seen = flags.viewedAt ?? this.options.baseline;
     return { ...raw, ...flags, unread: raw.updatedAt > seen + UNREAD_SLACK_MS };
+  }
+
+  /** The transcript file behind a session, when known. */
+  pathFor(sessionId: string): string | null {
+    return this.entries.get(sessionId)?.path ?? null;
+  }
+
+  /** Drops a deleted session from the index and its flags, and tells every window. */
+  forget(sessionId: string): void {
+    this.flags.delete(sessionId);
+    this.statements.flagsDelete.run(sessionId);
+    if (this.entries.has(sessionId)) this.apply([], [sessionId]);
   }
 
   /** Pins, or settles/unsettles, a session and tells every window. */

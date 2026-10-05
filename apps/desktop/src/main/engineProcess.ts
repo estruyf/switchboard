@@ -5,6 +5,8 @@ export interface EngineProcessOptions {
   dataDir: string;
   /** Called after an unexpected exit, once the replacement process is running. */
   onRestarted: () => void;
+  /** Requests from the engine that need the main process (e.g. moving files to the Trash). Returns the reply. */
+  onRequest?: (message: unknown) => Promise<unknown> | undefined;
 }
 
 /** Owns the engine utilityProcess and restarts it with backoff if it dies. */
@@ -24,6 +26,11 @@ export class EngineProcess {
     });
     this.child = child;
     for (const port of this.queued.splice(0)) child.postMessage({ type: 'connect' }, [port]);
+    child.on('message', (message: unknown) => {
+      void this.options.onRequest?.(message)?.then((reply) => {
+        if (reply !== undefined && this.child === child) child.postMessage(reply);
+      });
+    });
 
     // A process that stays up for a minute resets the backoff.
     this.stableTimer = setTimeout(() => (this.consecutiveCrashes = 0), 60_000);

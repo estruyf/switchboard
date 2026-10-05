@@ -3,10 +3,11 @@ import { Activity, ChevronRight, GitBranch, Pin, Search, SquarePen } from 'lucid
 import { memo, useEffect, useMemo, useRef, useState, type KeyboardEvent, type MouseEvent } from 'react';
 import { useEngineConnection } from '../../engine/useEngine.ts';
 import { shortAge } from '../../lib/format.ts';
-import { useHosts } from '../../state/hostsStore.ts';
+import { isActiveHost, useHosts } from '../../state/hostsStore.ts';
 import { useProjects } from '../../state/projectsStore.ts';
 import { toRows, useSessions, type SessionRowData } from '../../state/sessionsStore.ts';
 import { buildSessionList, isActive, rowStatus } from '../../state/sidebarRows.ts';
+import { ConfirmDialog } from '../ConfirmDialog.tsx';
 import { Menu, type MenuEntry } from '../Menu.tsx';
 import { useOpenIn } from '../OpenInButton.tsx';
 import { ProjectIcon } from '../ProjectIcon.tsx';
@@ -96,6 +97,7 @@ export function Sidebar() {
   const openIn = useOpenIn();
   const projectIcons = useProjectIconEntries();
   const [menu, setMenu] = useState<{ x: number; y: number; entries: MenuEntry[] } | null>(null);
+  const [deleting, setDeleting] = useState<SessionRowData | null>(null);
   const now = useNow();
 
   const all = useMemo(() => toRows(sessions, live, hosts), [sessions, live, hosts]);
@@ -128,8 +130,16 @@ export function Sidebar() {
     overscan: 10,
   });
 
-  // ↑/↓ moves through visible sessions, like a native source list.
+  // ↑/↓ moves through visible sessions, like a native source list; ⌘⌫ deletes the selected one.
   const onKeyDown = (event: KeyboardEvent) => {
+    if (event.key === 'Backspace' && event.metaKey) {
+      const selected = rows.find((r) => r.kind === 'session' && r.data.id === selectedId);
+      if (selected?.kind === 'session' && selected.data.summary) {
+        event.preventDefault();
+        setDeleting(selected.data);
+      }
+      return;
+    }
     if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return;
     event.preventDefault();
     const ids = rows.flatMap((r, index) => (r.kind === 'session' ? [{ id: r.data.id, index }] : []));
@@ -157,6 +167,8 @@ export function Sidebar() {
         { label: 'Copy session ID', onSelect: () => void navigator.clipboard.writeText(data.id) },
         'separator',
         ...projectIcons.entries(data.projectRoot, at),
+        'separator',
+        { label: 'Delete session…', hint: '⌘⌫', danger: true, disabled: !data.summary, onSelect: () => setDeleting(data) },
       ],
     });
   };
@@ -243,6 +255,38 @@ export function Sidebar() {
       </footer>
 
       {menu && <Menu x={menu.x} y={menu.y} entries={menu.entries} onClose={() => setMenu(null)} />}
+      {deleting && (
+        <ConfirmDialog
+          title={`Delete “${deleting.title.length > 60 ? `${deleting.title.slice(0, 59)}…` : deleting.title}”?`}
+          danger
+          confirmLabel="Move to Trash"
+          blockedReason={
+            deleting.live && !isActiveHost(hosts.get(deleting.id))
+              ? 'This session is open in another Claude Code window. Close it there first.'
+              : null
+          }
+          body={
+            <>
+              The conversation and any subagent transcripts move to the Trash, so you can restore them from Finder. Files Claude changed in your
+              project are not touched.
+              {isActiveHost(hosts.get(deleting.id)) && ' It is running in Switchboard and will be stopped first.'}
+            </>
+          }
+          onConfirm={async () => {
+            if (!client) throw new Error('Not connected to the engine');
+            // Keep the cursor in the list: select the next session (or the previous one at the end).
+            const ids = rows.flatMap((r) => (r.kind === 'session' ? [r.data.id] : []));
+            const index = ids.indexOf(deleting.id);
+            await client.call('session.delete', { sessionId: deleting.id });
+            if (selectedId === deleting.id) {
+              const next = ids[index + 1] ?? ids[index - 1] ?? null;
+              if (next) select(next);
+              else setView('session');
+            }
+          }}
+          onClose={() => setDeleting(null)}
+        />
+      )}
       {projectIcons.picker}
     </aside>
   );

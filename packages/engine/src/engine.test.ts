@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { MessageChannel, type MessagePort } from 'node:worker_threads';
@@ -23,9 +23,15 @@ const asDomPort = (port: MessagePort) => port as unknown as DomLikePort;
 const cleanups: Array<() => void> = [];
 afterEach(() => cleanups.splice(0).forEach((fn) => fn()));
 
-function connect() {
+function connect(extra: { trashed?: string[][] } = {}) {
   const dataDir = mkdtempSync(join(tmpdir(), 'switchboard-engine-'));
+  // A real transcript file, so the index knows where the session lives.
+  const projectDir = join(dataDir, 'claude', 'projects', '-work-parser');
+  mkdirSync(projectDir, { recursive: true });
+  writeFileSync(join(projectDir, `${SESSION_ID}.jsonl`), '{"entrypoint":"cli"}\n');
+  mkdirSync(join(projectDir, SESSION_ID, 'subagents'), { recursive: true });
   const engine = createEngine({
+    trash: async (paths) => void extra.trashed?.push(paths),
     dataDir,
     claudeConfigDir: join(dataDir, 'claude'),
     // No login shell and an empty PATH, so the test never depends on the machine.
@@ -44,7 +50,7 @@ function connect() {
     port2.close();
     rmSync(dataDir, { recursive: true, force: true });
   });
-  return { engine, client, dataDir };
+  return { engine, client, dataDir, projectDir };
 }
 
 describe('engine over a MessagePort', () => {
@@ -101,5 +107,28 @@ describe('engine over a MessagePort', () => {
       { type: 'text', text: 'Done.' },
     ]);
     await client.call('transcript.unwatch', { sessionId: SESSION_ID });
+  });
+
+  it('moves a deleted session and its subagent folder to the Trash and forgets it', async () => {
+    const trashed: string[][] = [];
+    const { client, projectDir } = connect({ trashed });
+    await new Promise((resolve) => client.on('sessions.changed', resolve));
+    await client.call('sessions.setFlags', { sessionId: SESSION_ID, pinned: true });
+    await client.call('session.delete', { sessionId: SESSION_ID });
+    expect(trashed).toEqual([[join(projectDir, `${SESSION_ID}.jsonl`), join(projectDir, SESSION_ID)]]);
+    expect((await client.call('sessions.list', {})).sessions).toEqual([]);
+    await expect(client.call('session.delete', { sessionId: SESSION_ID })).rejects.toMatchObject({ code: 'NOT_FOUND' });
+  });
+
+  it('refuses to delete a session another Claude Code window has open', async () => {
+    const trashed: string[][] = [];
+    const { client, dataDir } = connect({ trashed });
+    await new Promise((resolve) => client.on('sessions.changed', resolve));
+    const registry = join(dataDir, 'claude', 'sessions');
+    mkdirSync(registry, { recursive: true });
+    writeFileSync(join(registry, `${process.pid}.json`), JSON.stringify({ pid: process.pid, sessionId: SESSION_ID, status: 'idle' }));
+    await client.call('sessions.refresh', {});
+    await expect(client.call('session.delete', { sessionId: SESSION_ID })).rejects.toMatchObject({ code: 'SESSION_BUSY_ELSEWHERE' });
+    expect(trashed).toEqual([]);
   });
 });

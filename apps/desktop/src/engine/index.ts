@@ -16,8 +16,19 @@ if (!dataDir) {
   process.exit(1);
 }
 
+/** Moving files to the Trash needs Electron's shell, which lives in the main process. */
+let nextTrashId = 1;
+const pendingTrash = new Map<number, { resolve: () => void; reject: (error: Error) => void }>();
+const trash = (paths: string[]) =>
+  new Promise<void>((resolve, reject) => {
+    const id = nextTrashId++;
+    pendingTrash.set(id, { resolve, reject });
+    process.parentPort.postMessage({ type: 'trash', id, paths });
+  });
+
 const engine = createEngine({
   dataDir,
+  trash,
   onLog: (entry) => console.error(`[engine] ${entry.level}: ${entry.message}`),
 });
 
@@ -28,6 +39,14 @@ process.on('unhandledRejection', (reason) =>
 );
 
 process.parentPort.on('message', (event) => {
+  const data = event.data as { type?: unknown; id?: number; error?: string } | null;
+  if (data?.type === 'trash-result' && typeof data.id === 'number') {
+    const pending = pendingTrash.get(data.id);
+    pendingTrash.delete(data.id);
+    if (data.error) pending?.reject(new Error(data.error));
+    else pending?.resolve();
+    return;
+  }
   const port = event.ports[0];
   if ((event.data as { type?: unknown } | null)?.type !== 'connect' || !port) return;
   const detach = engine.attach(mainPortTransport(port));

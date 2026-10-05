@@ -120,7 +120,7 @@ export function TranscriptView({ sessionId }: { sessionId: string }) {
   ].filter(Boolean);
 
   return (
-    <div className="flex h-full min-h-0 flex-col">
+    <div className="flex h-full min-h-0 flex-col" data-current-session={sessionId}>
       <header className="drag flex h-13 shrink-0 items-center gap-3 border-b border-border px-6">
         {projectRoot && <ProjectIcon project={project} root={projectRoot} size={22} />}
         <div className="min-w-0 flex-1">

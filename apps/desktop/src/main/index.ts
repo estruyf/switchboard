@@ -1,9 +1,10 @@
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { app, BrowserWindow, dialog, ipcMain, MessageChannelMain, nativeTheme, shell } from 'electron';
 import { IpcChannel, type RendererReadyReport } from '@switchboard/protocol/bridge';
 import { EngineProcess } from './engineProcess.ts';
+import { isTrashableSessionPath } from './trashGuard.ts';
 
 const here = import.meta.dirname;
 const smokeOutDir = process.env.SWITCHBOARD_SMOKE_OUT;
@@ -14,6 +15,23 @@ if (smokeOutDir) app.setPath('userData', mkdtempSync(join(tmpdir(), 'switchboard
 if (!app.requestSingleInstanceLock()) app.quit();
 
 let engine: EngineProcess;
+
+async function handleEngineRequest(message: unknown): Promise<unknown> {
+  const request = message as { type?: unknown; id?: unknown; paths?: unknown } | null;
+  if (request?.type !== 'trash' || typeof request.id !== 'number' || !Array.isArray(request.paths)) return undefined;
+  const configDir = process.env.CLAUDE_CONFIG_DIR || join(homedir(), '.claude');
+  const paths = request.paths.filter((p): p is string => typeof p === 'string');
+  const refused = paths.filter((p) => !isTrashableSessionPath(p, configDir));
+  if (refused.length > 0 || paths.length !== request.paths.length) {
+    return { type: 'trash-result', id: request.id, error: `Refusing to move files outside Claude Code's projects folder: ${refused.join(', ')}` };
+  }
+  try {
+    for (const path of paths) await shell.trashItem(path);
+    return { type: 'trash-result', id: request.id };
+  } catch (error) {
+    return { type: 'trash-result', id: request.id, error: (error as Error).message };
+  }
+}
 
 function createWindow(): BrowserWindow {
   const win = new BrowserWindow({
@@ -157,7 +175,26 @@ async function runLiveSessionStep(win: BrowserWindow, cwd: string): Promise<stri
   if (!(await waitInPage(win, replied, 60_000))) return 'no reply';
   await new Promise((resolve) => setTimeout(resolve, 800));
   await shot('session.png');
-  return 'ok';
+
+  // Delete it again through the context menu; the transcript must land in the Trash.
+  const sessionId = await win.webContents.executeJavaScript("document.querySelector('[data-current-session]')?.getAttribute('data-current-session')");
+  if (!sessionId) return 'could not find the new session row';
+  await win.webContents.executeJavaScript(`(() => {
+    const row = document.querySelector('[data-session-id="${sessionId}"]');
+    const r = row.getBoundingClientRect();
+    row.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, clientX: r.left + 40, clientY: r.top + 20 }));
+  })()`);
+  if (!(await waitInPage(win, "[...document.querySelectorAll('[role=menuitem]')].some((b) => b.innerText.startsWith('Delete session'))", 5_000))) return 'no delete menu item';
+  await win.webContents.executeJavaScript("[...document.querySelectorAll('[role=menuitem]')].find((b) => b.innerText.startsWith('Delete session')).click()");
+  if (!(await waitInPage(win, "document.querySelector('[data-confirm]')", 5_000))) return 'no confirmation dialog';
+  await shot('delete-confirm.png');
+  await win.webContents.executeJavaScript("document.querySelector('[data-confirm]').click()");
+  if (!(await waitInPage(win, `!document.querySelector('[data-session-id="${sessionId}"]') && !document.querySelector('[role=alertdialog]')`, 15_000))) {
+    const message = await win.webContents.executeJavaScript("document.querySelector('[role=alertdialog]')?.innerText ?? ''");
+    return `session row still there after delete ${message}`;
+  }
+  const trashed = existsSync(join(homedir(), '.Trash', `${sessionId}.jsonl`));
+  return trashed ? 'ok' : 'deleted, but the transcript is not in ~/.Trash';
 }
 
 /**
@@ -214,6 +251,7 @@ app.whenReady().then(() => {
   engine = new EngineProcess({
     entry: join(here, 'engine.js'),
     dataDir: app.getPath('userData'),
+    onRequest: handleEngineRequest,
     onRestarted: () => {
       for (const win of BrowserWindow.getAllWindows()) win.webContents.send(IpcChannel.engineRestarted);
     },

@@ -222,6 +222,16 @@ Personal overrides shared, which overrides global. **Safety:** commands from a r
 - **Panels** for MCP servers (status, toggle, reconnect), skills, plugins and agents.
 - **Multi-pane:** two sessions side by side.
 
+### Mods (Claude Code function-hook plugins)
+
+Mods such as [claude-stats-mod](https://github.com/estruyf/claude-stats-mod) draw UI through `on("ui.render", { component: "AbovePrompt" | "StatusLine" | … })` and return element trees (`Box`, `Text`, `Svg`) per surface (`terminal`, `desktop`, `mobile`, `vscode`). Investigated 2026-10-05 against Claude Code 2.1.285 and SDK 0.3.288:
+
+- **Claude Code has a host protocol for it**, used by its desktop app, mobile app and VS Code extension. A host joins with the `ui_attach` control request, asks for a component with `ui_render` (surface, component, instance id, props, viewport), and sends input back with `ui_press`, `ui_input` and `ui_select`. Claude Code pushes `ui_invalidate`, `ui_status`, `ui_toast`, `ui_panes`, `ui_log` and `ui_scroll` as system messages.
+- **It is all marked `@internal`**, and the public Agent SDK exposes none of it: no `ui_*` methods and no generic control-request call. The UI messages are only emitted once a surface has attached.
+- **Options:**
+  1. Wait for SDK support. Meanwhile mods render in their terminal form in the embedded `claude` terminal (Phase 5).
+  2. Talk stream-json to `claude` directly for the control channel, attach as the `desktop` surface, and render `Box`/`Text`/`Svg` trees in React. This works today but depends on an internal protocol that can change between Claude Code releases.
+
 ### Later
 - Sending messages into externally running sessions, if the peer-messaging channel turns out to be usable.
 - Usage dashboards across sessions and projects.

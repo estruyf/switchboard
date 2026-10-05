@@ -101,6 +101,11 @@ export const contract = {
       params: z.object({ sessionId: SessionId, pinned: z.boolean().optional(), settled: z.boolean().optional() }),
       result: z.object({}),
     },
+    /**
+     * Moves a session's transcript (and its subagent transcripts) to the Trash.
+     * Stops it first when it runs in this app; refuses (SESSION_BUSY_ELSEWHERE) when another window has it open.
+     */
+    'session.delete': { params: z.object({ sessionId: SessionId }), result: z.object({}) },
     /** The user is looking at this session now; clears its unread state. */
     'sessions.markViewed': { params: z.object({ sessionId: SessionId }), result: z.object({}) },
     'projects.list': { params: z.object({}), result: z.object({ projects: z.array(ProjectInfo) }) },

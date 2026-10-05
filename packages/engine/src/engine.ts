@@ -1,4 +1,4 @@
-import { existsSync } from 'node:fs';
+import { existsSync, rmSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import {
@@ -47,6 +47,11 @@ export interface EngineOptions {
   watchSessions?: boolean;
   /** Claude Code itself. Defaults to the Agent SDK (tests pass a fake). */
   sdk?: () => Promise<SdkRuntime>;
+  /**
+   * Moves files to the Trash. The desktop app routes this to Electron's
+   * shell.trashItem; without it, deleted sessions are removed permanently.
+   */
+  trash?: (paths: string[]) => Promise<void>;
 }
 
 export interface Engine {
@@ -82,6 +87,8 @@ export function createEngine(options: EngineOptions): Engine {
     (cache.db.prepare('SELECT id FROM owned_sessions').all() as Array<{ id: string }>).map((r) => r.id),
   );
   const markOwned = cache.db.prepare('INSERT OR IGNORE INTO owned_sessions (id, created_at) VALUES (?, ?)');
+  const unmarkOwned = cache.db.prepare('DELETE FROM owned_sessions WHERE id = ?');
+  const trash = options.trash ?? (async (paths: string[]) => paths.forEach((p) => rmSync(p, { recursive: true, force: true })));
   const storedBaseline = appState.get('sessions.baseline');
   const baseline = typeof storedBaseline === 'number' ? storedBaseline : Date.now();
   if (typeof storedBaseline !== 'number') appState.set('sessions.baseline', baseline);
@@ -177,6 +184,22 @@ export function createEngine(options: EngineOptions): Engine {
     'sessions.list': () => ({ ...sessions.snapshot(), live: registry.list() }),
     'sessions.setFlags': ({ sessionId, pinned, settled }) => {
       sessions.setFlags(sessionId, { ...(pinned !== undefined ? { pinned } : {}), ...(settled !== undefined ? { settled } : {}) });
+      return {};
+    },
+    'session.delete': async ({ sessionId }) => {
+      if (!hosts.has(sessionId) && registry.list().some((l) => l.sessionId === sessionId)) {
+        throw new RpcError('SESSION_BUSY_ELSEWHERE', 'This session is open in another Claude Code window. Close it there first.');
+      }
+      await hosts.release(sessionId);
+      const transcript = sessions.pathFor(sessionId);
+      if (!transcript) throw new RpcError('NOT_FOUND', 'No transcript found for this session');
+      // The same files Claude Code's own deleteSession removes: the transcript and its subagent folder.
+      const paths = [transcript, transcript.replace(/\.jsonl$/, '')].filter((p) => existsSync(p));
+      await trash(paths);
+      sessions.forget(sessionId);
+      owned.delete(sessionId);
+      unmarkOwned.run(sessionId);
+      log('info', `Moved session ${sessionId} to the Trash`);
       return {};
     },
     'sessions.markViewed': ({ sessionId }) => {
