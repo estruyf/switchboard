@@ -92,7 +92,8 @@ const quitGuard = new QuitGuard({
       win.webContents.send(IpcChannel.quitRequested);
       return;
     }
-    // No window to ask in (all closed, or still loading): ask natively.
+    // No window to ask in (all closed, or still loading): ask natively. This is the one prompt that stays
+    // system UI on purpose, since there is no renderer to draw the themed one in.
     void dialog
       .showMessageBox({ type: 'question', message: 'Quit Switchboard?', detail: 'Sessions running in Switchboard will stop.', buttons: ['Quit', 'Cancel'], defaultId: 0, cancelId: 1 })
       .then(({ response }) => quitGuard.answer(response === 0 ? 'quit' : 'cancel'));
@@ -283,6 +284,16 @@ function setFieldValue(win: BrowserWindow, selector: string, value: string): Pro
   })()`);
 }
 
+/** Picks an option in one of the app's `Select` dropdowns by clicking, like a user (smoke test only). */
+async function chooseOption(win: BrowserWindow, selector: string, value: string): Promise<boolean> {
+  const js = (code: string) => win.webContents.executeJavaScript(code);
+  await js(`document.querySelector(${JSON.stringify(selector)}).click()`);
+  const option = `document.querySelector('[data-select-list] [data-option-value=${JSON.stringify(JSON.stringify(value)).slice(1, -1)}]')`;
+  if (!(await waitInPage(win, option, 3_000))) return false;
+  await js(`${option}.click()`);
+  return waitInPage(win, `!document.querySelector('[data-select-list]') && document.querySelector(${JSON.stringify(selector)}).dataset.value === ${JSON.stringify(value)}`, 3_000);
+}
+
 /**
  * Optional live step (SWITCHBOARD_SMOKE_LIVE_CWD): starts a real Haiku session
  * through the UI, approves its permission prompt and waits for the reply.
@@ -298,7 +309,7 @@ async function runLiveSessionStep(win: BrowserWindow, cwd: string): Promise<stri
   if (!(await waitInPage(win, `document.querySelector('[data-folder-option=${JSON.stringify(JSON.stringify(cwd)).slice(1, -1)}]')`, 5_000))) return 'folder not offered';
   await shot('folder-picker.png');
   await win.webContents.executeJavaScript(`document.querySelector('[data-folder-option=${JSON.stringify(JSON.stringify(cwd)).slice(1, -1)}]').click()`);
-  await setFieldValue(win, '[data-model-select]', 'haiku');
+  if (!(await chooseOption(win, '[data-model-select]', 'haiku'))) return 'could not pick Haiku in the model dropdown';
   // Attach a red square through the attach button's file input, like picking a file.
   await win.webContents.executeJavaScript(`(async () => {
     const canvas = document.createElement('canvas');
@@ -383,9 +394,8 @@ async function runLiveSessionStep(win: BrowserWindow, cwd: string): Promise<stri
   await waitInPage(win, "!document.querySelector('[data-capabilities]')", 2_000);
 
   // Effort can change mid-session, and the context meter opens a breakdown like /context.
-  await setFieldValue(win, '[data-effort-select]', 'low');
-  if (!(await waitInPage(win, "document.querySelector('[data-effort-select]').value === 'low'", 5_000))) return 'effort did not change';
-  await setFieldValue(win, '[data-effort-select]', '');
+  if (!(await chooseOption(win, '[data-effort-select]', 'low'))) return 'effort did not change';
+  await chooseOption(win, '[data-effort-select]', '');
   if (!(await waitInPage(win, "document.querySelector('[data-context-meter] button')", 15_000))) return 'no context meter for the running session';
   const contextLabel = ((await js("document.querySelector('[data-context-meter] button').innerText")) as string).trim();
   await js("document.querySelector('[data-context-meter] button').click()");
@@ -396,7 +406,7 @@ async function runLiveSessionStep(win: BrowserWindow, cwd: string): Promise<stri
   console.log(`[smoke] effort changed to low and back; context ${JSON.stringify(contextLabel)} with ${categories - 1} categories`);
 
   // Undo file changes since the prompt: the preview answers (Bash's touch isn't a tracked edit).
-  await js("document.querySelector('[data-item-kind=\"user\"] [data-message-actions] button[title^=\"Undo file changes\"]').click()");
+  await js("document.querySelector('[data-item-kind=\"user\"] [data-message-actions] button[aria-label^=\"Undo file changes\"]').click()");
   if (!(await waitInPage(win, "document.querySelector('[role=alertdialog]') && !document.querySelector('[role=alertdialog]').innerText.includes('Checking what changed')", 20_000))) return 'rewind preview did not answer';
   const rewindPreview = ((await js("document.querySelector('[role=alertdialog]').innerText")) as string).replace(/\s+/g, ' ').slice(0, 120);
   await shot('rewind.png');
@@ -472,6 +482,7 @@ let paletteResult = 'not run';
 let toolsResult = 'not run';
 let splitResult = 'not run';
 let settleResult = 'not run';
+let controlsResult = 'not run';
 let rendering: Record<string, number> = {};
 
 /** Adds a project action through the editor, runs it from the header and checks it opened a terminal tab. */
@@ -736,6 +747,82 @@ async function runSplitStep(win: BrowserWindow): Promise<string> {
 }
 
 /**
+ * The app's own controls: drag the sidebar edge (clamped at both ends, double-click resets), a themed
+ * dropdown that opens, moves with the keyboard and closes on Escape, a themed tooltip on hover, and
+ * the pointer cursor on buttons. Only the throwaway profile's state changes, and it is put back.
+ */
+async function runControlsStep(win: BrowserWindow): Promise<string> {
+  const js = (code: string) => win.webContents.executeJavaScript(code);
+  const pause = (ms = 200) => new Promise((resolve) => setTimeout(resolve, ms));
+  const center = async (selector: string) => (await js(`(() => { const r = document.querySelector(${JSON.stringify(selector)}).getBoundingClientRect(); return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) }; })()`)) as { x: number; y: number };
+  const width = () => js("Math.round(document.querySelector('[data-sidebar]').getBoundingClientRect().width)") as Promise<number>;
+  const drag = async (dx: number) => {
+    const { x, y } = await center('[data-sidebar-resize]');
+    win.webContents.sendInputEvent({ type: 'mouseDown', x, y, button: 'left', clickCount: 1 });
+    for (let i = 1; i <= 5; i++) win.webContents.sendInputEvent({ type: 'mouseMove', x: x + Math.round((dx * i) / 5), y, button: 'left' });
+    win.webContents.sendInputEvent({ type: 'mouseUp', x: x + dx, y, button: 'left', clickCount: 1 });
+    await pause();
+  };
+
+  // Sidebar: wider, clamped at 520, narrower, clamped at 240, double-click back to 320.
+  const start = await width();
+  await drag(400);
+  const widest = await width();
+  await drag(-600);
+  const narrowest = await width();
+  // At the narrowest width, rows truncate instead of sticking out.
+  const overflowing = (await js("(() => { const edge = document.querySelector('[data-sidebar]').getBoundingClientRect().right + 1; return [...document.querySelectorAll('[data-session-id]')].filter((row) => row.getBoundingClientRect().right > edge).length; })()")) as number;
+  await shot(win, 'sidebar-narrow.png');
+  const { x, y } = await center('[data-sidebar-resize]');
+  win.webContents.sendInputEvent({ type: 'mouseDown', x, y, button: 'left', clickCount: 1 });
+  win.webContents.sendInputEvent({ type: 'mouseUp', x, y, button: 'left', clickCount: 1 });
+  win.webContents.sendInputEvent({ type: 'mouseDown', x, y, button: 'left', clickCount: 2 });
+  win.webContents.sendInputEvent({ type: 'mouseUp', x, y, button: 'left', clickCount: 2 });
+  await pause();
+  const reset = await width();
+  if (widest !== 520 || narrowest !== 240) return `sidebar resize not clamped: ${start} → ${widest} → ${narrowest}`;
+  if (overflowing) return `${overflowing} sidebar rows stick out at the minimum width`;
+  if (reset !== 320) return `double-click did not reset the sidebar (${reset}px)`;
+
+  // Buttons show the pointer; the resize handle keeps its own cursor.
+  const cursors = (await js("({ button: getComputedStyle(document.querySelector('[data-new-session]')).cursor, handle: getComputedStyle(document.querySelector('[data-sidebar-resize]')).cursor })")) as { button: string; handle: string };
+  if (cursors.button !== 'pointer' || cursors.handle !== 'col-resize') return `cursors: ${JSON.stringify(cursors)}`;
+
+  // Tooltip on hover.
+  const tip = await center('[data-new-session]');
+  win.webContents.sendInputEvent({ type: 'mouseMove', x: tip.x, y: tip.y });
+  const tooltip = await waitInPage(win, "document.querySelector('[data-tooltip-layer]')?.innerText.includes('New session')", 2_000);
+  win.webContents.sendInputEvent({ type: 'mouseMove', x: tip.x + 400, y: tip.y + 300 });
+  if (!tooltip) return 'no themed tooltip on the New session button';
+
+  // Dropdown: open with a click, ↓ moves, Escape closes and focus returns; then pick an option and put it back.
+  await js("document.querySelector('[data-new-session]').click()");
+  if (!(await waitInPage(win, "document.querySelector('[data-model-select]')", 3_000))) return 'new session view did not open';
+  const original = (await js("document.querySelector('[data-model-select]').dataset.value")) as string;
+  await js("document.querySelector('[data-model-select]').click()");
+  if (!(await waitInPage(win, "document.querySelectorAll('[data-select-list] [role=option]').length > 1 && document.querySelector('[data-model-select]').getAttribute('aria-expanded') === 'true'", 3_000))) return 'model dropdown did not open';
+  const before = (await js("document.querySelector('[data-select-list]').getAttribute('aria-activedescendant')")) as string;
+  win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Down' });
+  await pause(100);
+  const after = (await js("document.querySelector('[data-select-list]').getAttribute('aria-activedescendant')")) as string;
+  await shot(win, 'select.png');
+  win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Escape' });
+  if (!(await waitInPage(win, "!document.querySelector('[data-select-list]') && document.activeElement?.matches('[data-model-select]')", 2_000))) return 'Escape did not close the dropdown';
+  if (before === after) return '↓ did not move in the dropdown';
+  await js("document.querySelector('[data-model-select]').click()");
+  await waitInPage(win, "document.querySelector('[data-select-list]')", 2_000);
+  const next = (await js(`[...document.querySelectorAll('[data-select-list] [role=option]')].map((o) => o.dataset.optionValue).find((v) => v !== ${JSON.stringify(original)}) ?? null`)) as string | null;
+  win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Escape' });
+  await waitInPage(win, "!document.querySelector('[data-select-list]')", 2_000);
+  if (next !== null) {
+    if (!(await chooseOption(win, '[data-model-select]', next))) return 'could not pick a model';
+    if (!(await chooseOption(win, '[data-model-select]', original))) return 'could not put the model back';
+  }
+  if (smokeSessionId) await js(`document.querySelector('[data-session-id="${smokeSessionId}"]')?.click()`);
+  return `ok: sidebar ${start} → ${widest} → ${narrowest} → ${reset}px, pointer cursors, themed tooltip, dropdown keyboard and Escape`;
+}
+
+/**
  * Right-click → Settle moves a session out of the main list, even one that's working (its updates
  * used to bring it straight back); "Move back" returns it. Flags live in the throwaway profile.
  */
@@ -848,6 +935,7 @@ async function runSmokeStep(win: BrowserWindow | null): Promise<void> {
     toolsResult = await runToolsStep(win).catch((error: Error) => `failed: ${error.message}`);
     splitResult = await runSplitStep(win).catch((error: Error) => `failed: ${error.message}`);
     settleResult = await runSettleStep(win).catch((error: Error) => `failed: ${error.message}`);
+    controlsResult = await runControlsStep(win).catch((error: Error) => `failed: ${error.message}`);
     usageBand = (await waitInPage(win, "document.querySelector('[data-usage-band]')", 15_000))
       ? await win.webContents.executeJavaScript("document.querySelector('[data-usage-band]').innerText.replace(/\\s+/g, ' ')")
       : null;
@@ -857,10 +945,10 @@ async function runSmokeStep(win: BrowserWindow | null): Promise<void> {
     terminalOpened = await runTerminalStep(win);
     actionRan = await runActionStep(win);
     // Diagnostics renders a sample through Shiki, which loads in its own chunks on first use.
-    await win.webContents.executeJavaScript("[...document.querySelectorAll('footer button')].find((b) => b.title === 'Diagnostics')?.click()");
+    await win.webContents.executeJavaScript("[...document.querySelectorAll('footer button')].find((b) => b.getAttribute('aria-label') === 'Diagnostics')?.click()");
     highlighted = await waitInPage(win, "document.querySelector('[data-rendering-check] .shiki span[style*=\"--shiki\"]')", 5_000);
     await shot(win, 'diagnostics.png');
-    await win.webContents.executeJavaScript("[...document.querySelectorAll('footer button')].find((b) => b.title === 'Diagnostics')?.click()");
+    await win.webContents.executeJavaScript("[...document.querySelectorAll('footer button')].find((b) => b.getAttribute('aria-label') === 'Diagnostics')?.click()");
     rendering = await win.webContents.executeJavaScript(
       "({ diffs: document.querySelectorAll('[data-diff]').length, highlighted: document.querySelectorAll('.shiki').length, codeBlocks: document.querySelectorAll('.code-block').length, todos: document.querySelectorAll('[data-todos]').length, images: document.querySelectorAll('[data-transcript-image] img').length })",
     );
@@ -889,6 +977,7 @@ async function runSmokeStep(win: BrowserWindow | null): Promise<void> {
         toolsResult,
         splitResult,
         settleResult,
+        controlsResult,
         liveSession,
         terminalOpened,
         quitGuarded,

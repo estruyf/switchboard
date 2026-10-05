@@ -1,6 +1,9 @@
 import type { ReactNode } from 'react';
 import type { ColorScheme, SidebarStyle, ToolActivity } from '@switchboard/protocol/bridge';
 import { usePreferences } from '../state/preferencesStore.ts';
+import { Choice } from './ui/Choice.tsx';
+import { RadioGroup } from './ui/Radio.tsx';
+import { Toggle } from './ui/Toggle.tsx';
 
 /** The Demo Time palettes, fixed here so each preview shows its own theme whatever is active. */
 const PALETTE = {
@@ -95,38 +98,6 @@ function ActivityPreview({ mode }: { mode: ToolActivity }) {
   );
 }
 
-function Choice<T extends string>({ value, current, label, attr, onSelect, children }: { value: T; current: T; label: string; attr: string; onSelect(value: T): void; children: ReactNode }) {
-  const selected = value === current;
-  return (
-    <button type="button" role="radio" aria-checked={selected} {...{ [attr]: value }} onClick={() => onSelect(value)} className="group flex flex-col gap-2 text-left">
-      <span className={`relative block h-24 overflow-hidden rounded-lg border ${selected ? 'border-accent-ink ring-2 ring-accent/60' : 'border-border group-hover:border-faint'}`}>{children}</span>
-      <span className={`text-[12px] ${selected ? 'font-semibold text-text' : 'text-muted'}`}>{label}</span>
-    </button>
-  );
-}
-
-/** A labelled on/off switch. `attr` is the data- hook the smoke test clicks. */
-function Toggle({ label, detail, checked, attr, onChange }: { label: string; detail: string; checked: boolean; attr: string; onChange(checked: boolean): void }) {
-  return (
-    <label className="flex cursor-pointer items-center justify-between gap-4">
-      <span>
-        <span className="block text-[12.5px]">{label}</span>
-        <span className="block text-[12px] text-muted">{detail}</span>
-      </span>
-      <button
-        type="button"
-        role="switch"
-        aria-checked={checked}
-        {...{ [attr]: true }}
-        onClick={() => onChange(!checked)}
-        className={`relative h-5 w-9 shrink-0 rounded-full transition-colors ${checked ? 'bg-accent' : 'bg-border'}`}
-      >
-        <span className={`absolute top-0.5 left-0.5 size-4 rounded-full bg-white shadow transition-transform ${checked ? 'translate-x-4' : ''}`} />
-      </button>
-    </label>
-  );
-}
-
 function Section({ title, description, children }: { title: string; description?: string; children: ReactNode }) {
   return (
     <section className="grid gap-3 border-b border-border py-6 last:border-b-0">
@@ -168,7 +139,7 @@ export function SettingsView() {
       <div className="min-h-0 flex-1 overflow-y-auto">
         <div className="mx-auto max-w-2xl px-6">
           <Section title="Theme" description="Colours from the Demo Time theme. Match System follows macOS.">
-            <div role="radiogroup" aria-label="Theme" className="grid grid-cols-3 gap-4">
+            <RadioGroup label="Theme" className="grid grid-cols-3 gap-4">
               {SCHEMES.map(({ value, label }) => (
                 <Choice key={value} value={value} current={prefs.colorScheme} label={label} attr="data-color-scheme" onSelect={(colorScheme) => update({ colorScheme })}>
                   {value === 'system' ? (
@@ -183,17 +154,17 @@ export function SettingsView() {
                   )}
                 </Choice>
               ))}
-            </div>
+            </RadioGroup>
           </Section>
 
           <Section title="Sidebar" description="How sessions are listed. Large icons makes each session's project easy to spot.">
-            <div role="radiogroup" aria-label="Sidebar style" className="grid grid-cols-3 gap-4">
+            <RadioGroup label="Sidebar style" className="grid grid-cols-3 gap-4">
               {STYLES.map(({ value, label }) => (
                 <Choice key={value} value={value} current={prefs.sidebarStyle} label={label} attr="data-sidebar-style" onSelect={(sidebarStyle) => update({ sidebarStyle })}>
                   <RowPreview style={value} />
                 </Choice>
               ))}
-            </div>
+            </RadioGroup>
             <Toggle
               label="Show sessions from other apps"
               detail="Also list sessions from Terminal, Claude desktop and your editor. Off shows only sessions you started or continued in Switchboard."
@@ -207,13 +178,13 @@ export function SettingsView() {
             title="Conversation"
             description="Summarised shows each run of tool calls as one line, like Claude Code: what Claude is doing, or what it did. Click it to see the steps."
           >
-            <div role="radiogroup" aria-label="Tool activity" className="grid grid-cols-3 gap-4">
+            <RadioGroup label="Tool activity" className="grid grid-cols-3 gap-4">
               {ACTIVITY.map(({ value, label }) => (
                 <Choice key={value} value={value} current={prefs.toolActivity} label={label} attr="data-tool-activity" onSelect={(toolActivity) => update({ toolActivity })}>
                   <ActivityPreview mode={value} />
                 </Choice>
               ))}
-            </div>
+            </RadioGroup>
           </Section>
 
           <Section title="Quitting">

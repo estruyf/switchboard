@@ -66,7 +66,7 @@ export function ContextMeter({ sessionId, live, messages }: { sessionId: string;
     const tokens = lastTurnTokens(messages);
     if (tokens === null) return null;
     return (
-      <span className="flex shrink-0 items-center gap-1 whitespace-nowrap tabular-nums" title="Context used at the end of the last turn" data-context-meter>
+      <span className="flex shrink-0 items-center gap-1 whitespace-nowrap tabular-nums" data-tooltip="Context used at the end of the last turn" data-context-meter>
         ≈{compactTokens(tokens)} context
       </span>
     );
@@ -78,7 +78,7 @@ export function ContextMeter({ sessionId, live, messages }: { sessionId: string;
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
-        title="Context window: click for what fills it"
+        data-tooltip="Context window: click for what fills it"
         className={`flex h-6 shrink-0 items-center gap-1.5 rounded-md px-1.5 whitespace-nowrap tabular-nums hover:bg-border/50 hover:text-text ${live.percent >= 75 ? 'text-warn' : ''}`}
       >
         <Ring percent={live.percent} />
@@ -97,7 +97,7 @@ export function ContextMeter({ sessionId, live, messages }: { sessionId: string;
               {/* One bar, each category its own colour, like /context. */}
               <div className="mt-2.5 flex h-2 overflow-hidden rounded-full bg-border">
                 {used.map((c, i) => (
-                  <span key={c.name} style={{ width: `${(c.tokens / breakdown.maxTokens) * 100}%`, background: colorFor(c.color, i) }} title={c.name} />
+                  <span key={c.name} style={{ width: `${(c.tokens / breakdown.maxTokens) * 100}%`, background: colorFor(c.color, i) }} data-tooltip={c.name} />
                 ))}
               </div>
               <ul className="mt-2.5 grid gap-1">

@@ -141,7 +141,7 @@ export function ProjectFilter({ counts }: { counts: Map<string, { total: number;
       </button>
       <button
         type="button"
-        title="Add a project folder"
+        data-tooltip="Add a project folder" aria-label="Add a project folder"
         onClick={() => void actions.add().then((root) => root && setFilter(root))}
         className="no-drag flex size-7 items-center justify-center rounded-md text-muted hover:bg-border/50 hover:text-text"
       >
@@ -183,7 +183,7 @@ function DismissLayer({ onDismiss }: { onDismiss(): void }) {
 
 function FilterRow(props: { selected: boolean; onSelect(): void; onMore?(x: number, y: number): void; icon: React.ReactNode; label: string; title?: string; count?: number }) {
   return (
-    <div className="group flex items-center pr-1 hover:bg-accent/10" title={props.title}>
+    <div className="group flex items-center pr-1 hover:bg-accent/10" data-tooltip={props.title}>
       <button type="button" onClick={props.onSelect} className="flex min-w-0 flex-1 items-center gap-2 px-3 py-1.5 text-left text-[12px]">
         {props.icon}
         <span className="min-w-0 flex-1 truncate">{props.label}</span>
@@ -196,7 +196,7 @@ function FilterRow(props: { selected: boolean; onSelect(): void; onMore?(x: numb
           onClick={(e) => props.onMore!(e.clientX, e.clientY)}
           className="rounded px-1 text-[13px] text-faint opacity-0 group-hover:opacity-100 hover:text-text"
           aria-label="Project options"
-          title="Icon and options"
+          data-tooltip="Icon and options"
         >
           ⋯
         </button>

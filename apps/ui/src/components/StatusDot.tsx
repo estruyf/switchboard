@@ -13,7 +13,7 @@ export function StatusDot({ live, className = '' }: { live: LiveSession | null; 
   return (
     <span
       className={`inline-block size-2 shrink-0 rounded-full ${tone} ${className}`}
-      title={`${label[live.status]} (${live.rawStatus})`}
+      data-tooltip={`${label[live.status]} (${live.rawStatus})`}
       aria-label={label[live.status]}
     />
   );

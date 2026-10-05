@@ -67,7 +67,7 @@ export function UsageBand() {
         <div
           key={`${limit.kind}:${limit.scope ?? ''}`}
           className="flex h-7 items-center gap-1.5 rounded-full border border-border bg-card px-2.5 text-[12px]"
-          title={limit.resetsAt ? `Resets ${new Date(limit.resetsAt).toLocaleString(undefined, { weekday: 'short', hour: 'numeric', minute: '2-digit' })}` : undefined}
+          data-tooltip={limit.resetsAt ? `Resets ${new Date(limit.resetsAt).toLocaleString(undefined, { weekday: 'short', hour: 'numeric', minute: '2-digit' })}` : undefined}
         >
           <Ring percent={limit.percent} severity={limit.severity} />
           <span className="font-semibold tabular-nums">{Math.round(limit.percent)}%</span>

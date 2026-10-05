@@ -70,7 +70,7 @@ export function AgentsButton({ items, sessionId, cwd, sessionOpen }: { items: re
         type="button"
         data-agents-button
         onClick={() => setOpen(true)}
-        title="Agents running in this session"
+        data-tooltip="Agents running in this session"
         className="no-drag flex h-7 shrink-0 items-center gap-1.5 rounded-full border border-accent-ink/40 bg-accent/10 px-2.5 text-[11.5px] text-text hover:bg-accent/20"
       >
         <Bot size={13} className="text-accent-ink" />
@@ -85,7 +85,7 @@ export function AgentsButton({ items, sessionId, cwd, sessionOpen }: { items: re
               <span className="flex-1 text-[11.5px] text-faint">
                 {running.length} running{agents.length > running.length ? ` · ${agents.length - running.length} finished` : ''}
               </span>
-              <button type="button" title="Close" onClick={() => setOpen(false)} className="flex size-6 items-center justify-center rounded text-faint hover:bg-border/60 hover:text-text">
+              <button type="button" data-tooltip="Close" aria-label="Close" onClick={() => setOpen(false)} className="flex size-6 items-center justify-center rounded text-faint hover:bg-border/60 hover:text-text">
                 <X size={13} />
               </button>
             </div>

@@ -8,6 +8,7 @@ import { useHosts } from '../../state/hostsStore.ts';
 import { useProjects } from '../../state/projectsStore.ts';
 import { useSessions } from '../../state/sessionsStore.ts';
 import { Composer } from '../composer/Composer.tsx';
+import { Select } from '../ui/Select.tsx';
 import { UsageBand } from '../UsageBand.tsx';
 
 const DEFAULTS_KEY = 'newSession.defaults';
@@ -33,7 +34,7 @@ function Segmented<T extends string>({ value, options, onChange, disabled }: { v
         <button
           key={o.value}
           type="button"
-          title={o.title}
+          data-tooltip={o.title}
           disabled={disabled}
           onClick={() => onChange(o.value)}
           className={`rounded px-2.5 py-0.5 text-[12px] disabled:opacity-50 ${value === o.value ? 'bg-accent/15 text-text' : 'text-muted hover:text-text'}`}
@@ -185,7 +186,7 @@ export function NewSessionView() {
                       setNameTouched(true);
                       setWorktreeName(e.target.value.replace(/[^A-Za-z0-9._-]/g, '-'));
                     }}
-                    title={`Branch worktree-${effectiveName} in .claude/worktrees/${effectiveName}`}
+                    data-tooltip={`Branch worktree-${effectiveName} in .claude/worktrees/${effectiveName}`}
                   />
                   <Segmented
                     value={d.baseRef}
@@ -201,31 +202,22 @@ export function NewSessionView() {
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
-            <select data-model-select className={field} value={d.model} onChange={(e) => update({ model: e.target.value })} title="Model">
-              <option value="">Default model</option>
-              {models
-                .filter((m) => m.value !== 'default')
-                .map((m) => (
-                  <option key={m.value} value={m.value}>
-                    {m.displayName}
-                  </option>
-                ))}
-            </select>
-            <select className={field} value={d.permissionMode} onChange={(e) => update({ permissionMode: e.target.value as PermissionMode })} title="Permission mode">
-              {MODE_CHOICES.map((m) => (
-                <option key={m} value={m}>
-                  {MODE_LABEL[m]}
-                </option>
-              ))}
-            </select>
-            <select className={field} value={d.effort} onChange={(e) => update({ effort: e.target.value as Effort | '' })} title="Effort">
-              <option value="">Default effort</option>
-              {EFFORTS.map((e) => (
-                <option key={e} value={e}>
-                  {e} effort
-                </option>
-              ))}
-            </select>
+            <Select
+              label="Model"
+              className={field}
+              value={d.model}
+              onChange={(model) => update({ model })}
+              options={[{ value: '', label: 'Default model' }, ...models.filter((m) => m.value !== 'default').map((m) => ({ value: m.value, label: m.displayName }))]}
+              dataAttrs={{ 'data-model-select': true }}
+            />
+            <Select label="Permission mode" className={field} value={d.permissionMode} onChange={(permissionMode) => update({ permissionMode })} options={MODE_CHOICES.map((m) => ({ value: m, label: MODE_LABEL[m] }))} />
+            <Select
+              label="Effort"
+              className={field}
+              value={d.effort}
+              onChange={(effort) => update({ effort })}
+              options={[{ value: '' as const, label: 'Default effort' }, ...EFFORTS.map((e) => ({ value: e, label: `${e} effort` }))]}
+            />
           </div>
 
           <UsageBand />

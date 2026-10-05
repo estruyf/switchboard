@@ -68,7 +68,7 @@ export function TerminalPanel({ sessionId, cwd }: { sessionId: string; cwd: stri
 
   return (
     <section className="flex shrink-0 flex-col border-t border-border bg-sidebar" style={{ height }} data-terminal-panel>
-      <div onPointerDown={startResize} className="h-1 shrink-0 cursor-row-resize hover:bg-accent/40" title="Drag to resize" />
+      <div onPointerDown={startResize} className="h-1 shrink-0 cursor-row-resize hover:bg-accent/40" data-tooltip="Drag to resize" />
       <div className="flex h-8 shrink-0 items-center gap-1 px-2">
         <div className="flex min-w-0 flex-1 items-center gap-0.5 overflow-x-auto">
           {terminals.map((t) => (
@@ -86,20 +86,20 @@ export function TerminalPanel({ sessionId, cwd }: { sessionId: string; cwd: stri
               </button>
             </div>
           ))}
-          <button type="button" data-new-terminal onClick={() => void open('shell')} title="New terminal" className="ml-1 rounded-md p-1 text-muted hover:bg-border/50 hover:text-text">
+          <button type="button" data-new-terminal onClick={() => void open('shell')} data-tooltip="New terminal" aria-label="New terminal" className="ml-1 rounded-md p-1 text-muted hover:bg-border/50 hover:text-text">
             <Plus size={13} />
           </button>
           <button
             type="button"
             data-open-claude-tui
             onClick={() => void open('claude')}
-            title="Open this session in the Claude Code terminal UI (mods, statusline and every CLI feature)"
+            data-tooltip="Open this session in the Claude Code terminal UI (mods, statusline and every CLI feature)"
             className="flex items-center gap-1 rounded-md px-1.5 py-1 text-[12px] text-muted hover:bg-border/50 hover:text-text"
           >
             <Sparkles size={12} /> Claude TUI
           </button>
         </div>
-        <button type="button" onClick={() => togglePanel(false)} title="Hide terminal (⌘J)" className="rounded-md p-1 text-muted hover:bg-border/50 hover:text-text">
+        <button type="button" onClick={() => togglePanel(false)} data-tooltip="Hide terminal (⌘J)" aria-label="Hide terminal (⌘J)" className="rounded-md p-1 text-muted hover:bg-border/50 hover:text-text">
           <X size={13} />
         </button>
       </div>

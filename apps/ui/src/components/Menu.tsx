@@ -1,4 +1,5 @@
-import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
+import { Popover } from './ui/Popover.tsx';
 
 export interface MenuItem {
   label: string;
@@ -12,40 +13,8 @@ export type MenuEntry = MenuItem | 'separator' | { heading: string };
 
 /** A small popup menu at a screen position (context menus and dropdowns). Closes on outside click or Esc. `above` puts its bottom edge at y. */
 export function Menu({ x, y, entries, onClose, width = 220, above = false }: { x: number; y: number; entries: MenuEntry[]; onClose(): void; width?: number; above?: boolean }) {
-  const ref = useRef<HTMLDivElement>(null);
-  const [position, setPosition] = useState({ left: x, top: y });
-
-  // Keep the menu on screen.
-  useLayoutEffect(() => {
-    const el = ref.current;
-    if (!el) return;
-    const { innerWidth, innerHeight } = window;
-    const top = above ? y - el.offsetHeight : y;
-    setPosition({ left: Math.min(x, innerWidth - el.offsetWidth - 8), top: Math.max(8, Math.min(top, innerHeight - el.offsetHeight - 8)) });
-  }, [x, y, above]);
-
-  useEffect(() => {
-    const onDown = (event: MouseEvent) => {
-      if (!ref.current?.contains(event.target as Node)) onClose();
-    };
-    const onKey = (event: KeyboardEvent) => event.key === 'Escape' && onClose();
-    window.addEventListener('mousedown', onDown);
-    window.addEventListener('keydown', onKey);
-    window.addEventListener('blur', onClose);
-    return () => {
-      window.removeEventListener('mousedown', onDown);
-      window.removeEventListener('keydown', onKey);
-      window.removeEventListener('blur', onClose);
-    };
-  }, [onClose]);
-
   return (
-    <div
-      ref={ref}
-      role="menu"
-      style={{ left: position.left, top: position.top, width }}
-      className="no-drag fixed z-50 max-h-[70vh] overflow-y-auto rounded-lg border border-border bg-card py-1 shadow-xl"
-    >
+    <Popover x={x} y={y} width={width} above={above} onClose={onClose} role="menu">
       {entries.map((entry, i) =>
         entry === 'separator' ? (
           <div key={i} className="my-1 border-t border-border" />
@@ -71,7 +40,7 @@ export function Menu({ x, y, entries, onClose, width = 220, above = false }: { x
           </button>
         ),
       )}
-    </div>
+    </Popover>
   );
 }
 
