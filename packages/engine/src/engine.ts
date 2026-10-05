@@ -4,6 +4,7 @@ import {
   contract,
   serveRpc,
   type Contract,
+  type HandlerContext,
   type Handlers,
   type LogEntry,
   type LogLevel,
@@ -11,9 +12,14 @@ import {
   type SystemInfo,
   type Transport,
 } from '@switchboard/protocol';
+import { LiveRegistry } from './claude/liveRegistry.ts';
+import { createProjectResolver } from './claude/projectResolver.ts';
+import { sdkSessionSource, type SessionSource } from './claude/sessionSource.ts';
 import { createAppStateStore } from './db/appState.ts';
 import { openCacheDatabase } from './db/database.ts';
 import { findClaude } from './system/claudeBinary.ts';
+import { SessionIndex } from './sessions/sessionIndex.ts';
+import { TranscriptHub } from './sessions/transcriptHub.ts';
 import { resolveShellEnv, type ShellEnv } from './system/shellEnv.ts';
 import pkg from '../package.json' with { type: 'json' };
 
@@ -28,6 +34,10 @@ export interface EngineOptions {
   shellEnv?: Promise<ShellEnv>;
   /** Mirror of every log entry, e.g. to write it to stderr. */
   onLog?: (entry: LogEntry) => void;
+  /** Where sessions are read from. Defaults to the Claude Agent SDK (tests pass a fake). */
+  sessionSource?: SessionSource;
+  /** Start watching ~/.claude immediately. Defaults to true. */
+  watchSessions?: boolean;
 }
 
 export interface Engine {
@@ -48,6 +58,50 @@ export function createEngine(options: EngineOptions): Engine {
     const entry: LogEntry = { level, message, at: Date.now() };
     options.onLog?.(entry);
     for (const server of servers) server.emit('engine.log', entry);
+  };
+
+  const broadcast: RpcServer<Contract>['emit'] = (name, payload) => {
+    for (const server of servers) server.emit(name, payload);
+  };
+
+  // The SDK reads CLAUDE_CONFIG_DIR itself; keep it pointed at the same folder we watch.
+  if (options.claudeConfigDir && !options.sessionSource) process.env.CLAUDE_CONFIG_DIR = options.claudeConfigDir;
+  const source = options.sessionSource ?? sdkSessionSource();
+  const resolver = createProjectResolver();
+  const transcripts = new TranscriptHub(source, log);
+  const sessions = new SessionIndex({
+    db: cache.db,
+    source,
+    projectsDir: join(claudeConfigDir, 'projects'),
+    resolver,
+    log,
+    onChange: (change) => broadcast('sessions.changed', change),
+    onTranscriptChanged: (id) => transcripts.changed(id),
+  });
+  const registry = new LiveRegistry({
+    dir: join(claudeConfigDir, 'sessions'),
+    resolveRoot: (cwd) => resolver.resolve(cwd).root,
+    onChange: (live) => broadcast('sessions.live', { live }),
+  });
+  if (options.watchSessions !== false) {
+    sessions.start();
+    registry.start();
+  }
+
+  /** Transcript subscriptions per connection, so `transcript.unwatch` and disconnects can clean up. */
+  const subscriptions = new WeakMap<HandlerContext<Contract>, Map<string, () => void>>();
+  const subscriptionsFor = (context: HandlerContext<Contract>) => {
+    let map = subscriptions.get(context);
+    if (!map) {
+      const created = new Map<string, () => void>();
+      subscriptions.set(context, created);
+      context.onDispose(() => {
+        for (const stop of created.values()) stop();
+        created.clear();
+      });
+      map = created;
+    }
+    return map;
   };
 
   if (cache.recovered) log('warn', 'Cache database was unreadable and has been rebuilt');
@@ -78,6 +132,26 @@ export function createEngine(options: EngineOptions): Engine {
       appState.set(key, value);
       return {};
     },
+    'sessions.list': () => ({ ...sessions.snapshot(), live: registry.list() }),
+    'sessions.refresh': async () => {
+      await sessions.refresh();
+      registry.scan();
+      return {};
+    },
+    'transcript.get': async ({ sessionId }) => ({ sessionId, messages: await transcripts.read(sessionId) }),
+    'transcript.watch': ({ sessionId }, context) => {
+      const map = subscriptionsFor(context);
+      if (!map.has(sessionId)) {
+        map.set(sessionId, transcripts.watch(sessionId, (update) => context.emit('transcript.updated', update)));
+      }
+      return {};
+    },
+    'transcript.unwatch': ({ sessionId }, context) => {
+      const map = subscriptionsFor(context);
+      map.get(sessionId)?.();
+      map.delete(sessionId);
+      return {};
+    },
   };
 
   return {
@@ -96,6 +170,9 @@ export function createEngine(options: EngineOptions): Engine {
     close() {
       for (const server of servers) server.dispose();
       servers.clear();
+      sessions.stop();
+      registry.stop();
+      transcripts.stop();
       cache.close();
     },
   };

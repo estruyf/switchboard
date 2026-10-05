@@ -72,4 +72,22 @@ export const migrations: readonly string[] = [
     value TEXT NOT NULL
   );
   `,
+
+  // v2: sessions become a cache of SessionSummary JSON keyed by transcript file (Phase 2).
+  // Safe to drop: everything in it is rebuilt from ~/.claude on the next scan.
+  `
+  DROP TABLE sessions;
+  CREATE TABLE sessions (
+    id           TEXT PRIMARY KEY,
+    project_root TEXT NOT NULL,
+    updated_at   INTEGER NOT NULL,
+    jsonl_path   TEXT,
+    jsonl_mtime  INTEGER,
+    entrypoint   TEXT,
+    summary_json TEXT NOT NULL,
+    pinned       INTEGER NOT NULL DEFAULT 0,
+    archived     INTEGER NOT NULL DEFAULT 0
+  );
+  CREATE INDEX sessions_project_updated ON sessions (project_root, updated_at DESC);
+  `,
 ];

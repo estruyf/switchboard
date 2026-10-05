@@ -14,6 +14,7 @@ const testContract = {
     crash: { params: z.object({}), result: z.object({}) },
     bad: { params: z.object({}), result: z.object({ n: z.number() }) },
     slow: { params: z.object({}), result: z.object({}) },
+    subscribe: { params: z.object({}), result: z.object({}) },
   },
   events: {
     tick: z.object({ n: z.number() }),
@@ -28,6 +29,7 @@ afterEach(() => cleanups.splice(0).forEach((fn) => fn()));
 function setup(timeoutMs?: number) {
   const { port1, port2 } = new MessageChannel();
   const unexpected: string[] = [];
+  const disposed: string[] = [];
   const server = serveRpc(
     testContract,
     messagePortTransport(asDomPort(port1)),
@@ -41,6 +43,11 @@ function setup(timeoutMs?: number) {
       },
       bad: () => ({ n: 'not a number' }) as unknown as { n: number },
       slow: () => new Promise<Record<string, never>>(() => {}),
+      subscribe: (_params, context) => {
+        context.emit('tick', { n: 42 });
+        context.onDispose(() => disposed.push('subscription'));
+        return {};
+      },
     },
     { onUnexpectedError: (method) => unexpected.push(method) },
   );
@@ -54,7 +61,7 @@ function setup(timeoutMs?: number) {
     port1.close();
     port2.close();
   });
-  return { server, client, unexpected };
+  return { server, client, unexpected, disposed };
 }
 
 describe('rpc', () => {
@@ -127,5 +134,16 @@ describe('rpc', () => {
     server.emit('tick', { n: 2 });
     await client.call('add', { a: 0, b: 0 });
     expect(seen).toEqual([1]);
+  });
+
+  it('lets handlers emit to the caller and clean up when the connection is disposed', async () => {
+    const { client, server, disposed } = setup();
+    const seen: number[] = [];
+    client.on('tick', ({ n }) => seen.push(n));
+    await client.call('subscribe', {});
+    expect(seen).toEqual([42]);
+    expect(disposed).toEqual([]);
+    server.dispose();
+    expect(disposed).toEqual(['subscription']);
   });
 });

@@ -13,9 +13,18 @@ export type ParamsOf<C extends ContractShape, M extends MethodName<C>> = z.input
 export type ResultOf<C extends ContractShape, M extends MethodName<C>> = z.output<C['requests'][M]['result']>;
 export type EventPayload<C extends ContractShape, E extends EventName<C>> = z.output<C['events'][E]>;
 
+/** Per-connection context passed to every handler, e.g. to push events only to the caller. */
+export interface HandlerContext<C extends ContractShape> {
+  /** Sends an event to this connection only. */
+  emit: RpcServer<C>['emit'];
+  /** Runs `cleanup` when this connection goes away (window closed, engine detached). */
+  onDispose(cleanup: () => void): void;
+}
+
 export type Handlers<C extends ContractShape> = {
   [M in MethodName<C>]: (
     params: z.output<C['requests'][M]['params']>,
+    context: HandlerContext<C>,
   ) => Promise<z.input<C['requests'][M]['result']>> | z.input<C['requests'][M]['result']>;
 };
 
@@ -62,16 +71,27 @@ export function serveRpc<C extends ContractShape>(
   options: ServeOptions = {},
 ): RpcServer<C> {
   let disposed = false;
+  const cleanups: Array<() => void> = [];
 
   const reply = (message: WireMessage) => {
     if (!disposed) transport.send(message);
+  };
+
+  const context: HandlerContext<C> = {
+    emit: (name, payload) => reply({ kind: 'event', name, payload }),
+    onDispose: (cleanup) => {
+      if (disposed) cleanup();
+      else cleanups.push(cleanup);
+    },
   };
 
   const unsubscribe = transport.onMessage(async (message) => {
     if (message.kind !== 'request') return;
     const { id, method } = message;
     const spec = Object.hasOwn(contract.requests, method) ? contract.requests[method] : undefined;
-    const handler = spec ? (handlers as Record<string, (p: unknown) => unknown>)[method] : undefined;
+    const handler = spec
+      ? (handlers as Record<string, (p: unknown, c: HandlerContext<C>) => unknown>)[method]
+      : undefined;
     if (!spec || !handler) {
       reply({ kind: 'response', id, ok: false, error: { code: 'METHOD_NOT_FOUND', message: `Unknown method: ${method}` } });
       return;
@@ -89,7 +109,7 @@ export function serveRpc<C extends ContractShape>(
     }
 
     try {
-      const raw = await handler(params.data);
+      const raw = await handler(params.data, context);
       const result = spec.result.safeParse(raw);
       if (!result.success) {
         reply({
@@ -117,12 +137,18 @@ export function serveRpc<C extends ContractShape>(
   });
 
   return {
-    emit(name, payload) {
-      reply({ kind: 'event', name, payload });
-    },
+    emit: context.emit,
     dispose() {
+      if (disposed) return;
       disposed = true;
       unsubscribe();
+      for (const cleanup of cleanups.splice(0)) {
+        try {
+          cleanup();
+        } catch (error) {
+          options.onUnexpectedError?.('dispose', error);
+        }
+      }
     },
   };
 }

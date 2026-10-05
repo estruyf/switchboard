@@ -21,6 +21,8 @@ export interface RendererReadyReport {
   engineVersion: string;
   claudeVersion: string | null;
   pingMs: number;
+  /** Sessions in the first `sessions.list` answer (from cache or scan). */
+  sessionCount: number;
 }
 
 export interface SwitchboardBridge {

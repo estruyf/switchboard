@@ -6,3 +6,4 @@ export { createRpcClient, RpcError, type RpcClient, type ClientOptions, type Eve
 export { messagePortTransport, type Transport, type WireMessage } from './wire.ts';
 export type * from './contract.ts';
 export * from './bridge.ts';
+export type * from './sessions.ts';

@@ -84,17 +84,34 @@ ipcMain.on(IpcChannel.rendererReady, (event, report: RendererReadyReport) => {
   if (smokeOutDir) void runSmokeStep(BrowserWindow.fromWebContents(event.sender));
 });
 
+/** Polls a condition in the renderer (smoke test only). */
+async function waitInPage(win: BrowserWindow, expression: string, timeoutMs = 10_000): Promise<boolean> {
+  const started = performance.now();
+  while (performance.now() - started < timeoutMs) {
+    if (await win.webContents.executeJavaScript(`Boolean(${expression})`)) return true;
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  return false;
+}
+
 /**
- * Smoke test: first ready → screenshot, then kill the engine; second ready
- * (after the automatic restart + reconnect) → write results and quit.
+ * Smoke test: first ready → screenshot, open the newest session and screenshot
+ * its transcript, then kill the engine; second ready (after the automatic
+ * restart + reconnect) → write results and quit.
  */
 let crashedAt = 0;
+let transcriptOpened = false;
 async function runSmokeStep(win: BrowserWindow | null): Promise<void> {
   if (!smokeOutDir || !win) return;
   mkdirSync(smokeOutDir, { recursive: true });
   if (readyReports.length === 1) {
-    const image = await win.webContents.capturePage();
-    writeFileSync(join(smokeOutDir, 'window.png'), image.toPNG());
+    await waitInPage(win, "document.querySelector('[data-session-id]')", 5_000);
+    writeFileSync(join(smokeOutDir, 'window.png'), (await win.webContents.capturePage()).toPNG());
+    await win.webContents.executeJavaScript("document.querySelector('[data-session-id]')?.click()");
+    transcriptOpened = await waitInPage(win, "document.querySelector('[data-transcript-item]')");
+    // Give the virtualiser a frame to measure and scroll to the end before capturing.
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    writeFileSync(join(smokeOutDir, 'transcript.png'), (await win.webContents.capturePage()).toPNG());
     crashedAt = performance.now();
     engine.crash();
     return;
@@ -107,6 +124,8 @@ async function runSmokeStep(win: BrowserWindow | null): Promise<void> {
         connectedMs: readyReports[0]!.connectedMs,
         loadedMs: readyReports[0]!.loadedMs,
         restartRecoveryMs: Math.round(performance.now() - crashedAt),
+        sessionCount: readyReports[0]!.sessionCount,
+        transcriptOpened,
         reports: readyReports,
         versions: { electron: process.versions.electron, chrome: process.versions.chrome, node: process.versions.node },
       },

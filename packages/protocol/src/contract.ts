@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import type { ContractShape } from './rpc.ts';
+import { LiveSession, SessionsChanged, SessionsSnapshot, TranscriptMessage, TranscriptUpdate } from './sessions.ts';
 
 export const ClaudeInstall = z.object({
   path: z.string(),
@@ -43,6 +44,7 @@ export const LogEntry = z.object({
 export type LogEntry = z.infer<typeof LogEntry>;
 
 const AppStateKey = z.string().min(1).max(200);
+const SessionId = z.string().min(1).max(200);
 
 /** Every request the UI can make and every event the engine can push. */
 export const contract = {
@@ -63,9 +65,36 @@ export const contract = {
       params: z.object({ key: AppStateKey, value: z.json() }),
       result: z.object({}),
     },
+    /** Sidebar data. Answers from the cache immediately; `sessions.changed` follows when the scan finishes. */
+    'sessions.list': {
+      params: z.object({}),
+      result: SessionsSnapshot,
+    },
+    /** Forces a full rescan of ~/.claude/projects. */
+    'sessions.refresh': {
+      params: z.object({}),
+      result: z.object({}),
+    },
+    'transcript.get': {
+      params: z.object({ sessionId: SessionId }),
+      result: z.object({ sessionId: z.string(), messages: z.array(TranscriptMessage) }),
+    },
+    /** Subscribes this window to `transcript.updated` for one session until unwatched or disconnected. */
+    'transcript.watch': {
+      params: z.object({ sessionId: SessionId }),
+      result: z.object({}),
+    },
+    'transcript.unwatch': {
+      params: z.object({ sessionId: SessionId }),
+      result: z.object({}),
+    },
   },
   events: {
     'engine.log': LogEntry,
+    'sessions.changed': SessionsChanged,
+    /** Full replacement of the live-session list whenever the registry changes. */
+    'sessions.live': z.object({ live: z.array(LiveSession) }),
+    'transcript.updated': TranscriptUpdate,
   },
 } as const satisfies ContractShape;
 
