@@ -2,6 +2,7 @@ import { ChevronDown, Settings2 } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import type { ListedAction } from '@switchboard/protocol/client';
 import { useEngineConnection } from '../../engine/useEngine.ts';
+import { useOverlay } from '../../state/overlayStore.ts';
 import { useTerminals } from '../../state/terminalsStore.ts';
 import { ConfirmDialog } from '../ConfirmDialog.tsx';
 import { Menu, type MenuEntry } from '../Menu.tsx';
@@ -44,6 +45,15 @@ export function ActionsBar({ sessionId, projectRoot, cwd }: { sessionId: string;
     else if (action.confirm) setPending({ action, reason: 'confirm' });
     else void execute(action);
   };
+
+  // The command palette asks for an action by id.
+  const actionRequest = useOverlay((s) => s.actionRequest);
+  useEffect(() => {
+    if (!actionRequest) return;
+    const action = actions.find((a) => a.id === actionRequest.id);
+    useOverlay.getState().requestAction(null);
+    if (action) runRef.current(action);
+  }, [actionRequest, actions]);
 
   // Action shortcuts while this session is on screen.
   const runRef = useRef(run);
@@ -88,7 +98,7 @@ export function ActionsBar({ sessionId, projectRoot, cwd }: { sessionId: string;
             className={`flex h-7 items-center gap-1.5 rounded-md border px-2 text-[12px] hover:bg-border/50 ${error ? 'border-error/50' : 'border-border'}`}
           >
             <Icon size={13} className="text-muted" />
-            {action.name}
+            <span className="@max-[860px]:hidden">{action.name}</span>
           </button>
         );
       })}

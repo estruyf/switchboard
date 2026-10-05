@@ -9,6 +9,8 @@ import {
   PermissionMode,
   PermissionRequest,
   ProjectInspection,
+  RewindResult,
+  ContextUsage,
   SessionHostInfo,
   SlashCommand,
   StreamDelta,
@@ -18,6 +20,7 @@ import {
   LiveSession,
   ProjectIconChoice,
   ProjectInfo,
+  SearchHit,
   SessionsChanged,
   SessionsSnapshot,
   TranscriptMessage,
@@ -26,6 +29,8 @@ import {
 import { TerminalInfo, TerminalKind } from './terminal.ts';
 import { UsageSnapshot } from './usage.ts';
 import { ActionRunResult, ActionSuggestion, ListedAction, ProjectAction } from './actions.ts';
+import { ChangesBase, GitChanges, WorktreeStatus } from './git.ts';
+import { Capabilities } from './capabilities.ts';
 
 export const ClaudeInstall = z.object({
   path: z.string(),
@@ -177,8 +182,22 @@ export const contract = {
       result: z.object({ sessionId: z.string(), messageUuid: z.string() }),
     },
     'session.interrupt': { params: z.object({ sessionId: SessionId }), result: z.object({}) },
+    /** A new session with this one's conversation up to and including `messageUuid`. */
+    'session.forkAt': { params: z.object({ sessionId: SessionId, messageUuid: z.string() }), result: z.object({ sessionId: z.string() }) },
+    /**
+     * Restores the files Claude changed to how they were before one of your messages
+     * (`dryRun` reports what would change). The conversation itself is untouched.
+     */
+    'session.rewind': {
+      params: z.object({ sessionId: SessionId, messageUuid: z.string(), dryRun: z.boolean().default(false) }),
+      result: RewindResult,
+    },
     'session.setPermissionMode': { params: z.object({ sessionId: SessionId, mode: PermissionMode }), result: z.object({}) },
     'session.setModel': { params: z.object({ sessionId: SessionId, model: z.string().max(200).nullable() }), result: z.object({}) },
+    /** Changes how hard Claude thinks, for this session only (null: back to the default). */
+    'session.setEffort': { params: z.object({ sessionId: SessionId, effort: Effort.nullable() }), result: z.object({}) },
+    /** What fills a running session's context window, by category. */
+    'session.context': { params: z.object({ sessionId: SessionId }), result: ContextUsage },
     /** Stops the Claude Code process behind a session (the transcript stays; sending resumes it). */
     'session.close': { params: z.object({ sessionId: SessionId }), result: z.object({}) },
     'session.respond': { params: z.object({ requestId: z.string(), decision: PermissionDecision }), result: z.object({}) },
@@ -186,6 +205,16 @@ export const contract = {
     'session.commands': {
       params: z.object({ sessionId: SessionId.optional(), cwd: AbsolutePath.optional() }),
       result: z.object({ commands: z.array(SlashCommand) }),
+    },
+    /** MCP servers, agents, skills and commands, and plugins for a session (live when it runs here) or a folder. */
+    'session.capabilities': {
+      params: z.object({ sessionId: SessionId.optional(), cwd: AbsolutePath, refresh: z.boolean().default(false) }),
+      result: Capabilities,
+    },
+    /** Turns an MCP server on or off, or reconnects it, in a session running in this app. */
+    'session.mcp': {
+      params: z.object({ sessionId: SessionId, server: z.string().max(200), action: z.enum(['enable', 'disable', 'reconnect']) }),
+      result: z.object({}),
     },
     /** Starts a Claude Code process for a folder ahead of time so the first message answers faster. */
     'session.prewarm': { params: z.object({ cwd: AbsolutePath }), result: z.object({}) },
@@ -234,6 +263,38 @@ export const contract = {
     'actions.run': {
       params: z.object({ sessionId: SessionId, projectRoot: AbsolutePath, cwd: AbsolutePath, id: z.string() }),
       result: ActionRunResult,
+    },
+
+    /**
+     * Full-text search over your prompts and Claude's replies in every session, best matches first.
+     * `indexing` reports background progress while transcripts are still being indexed.
+     */
+    'search.query': {
+      params: z.object({ query: z.string().max(500), limit: z.number().int().min(1).max(500).default(200) }),
+      result: z.object({ hits: z.array(SearchHit), indexing: z.object({ indexed: z.number(), total: z.number() }) }),
+    },
+
+    // --- Git -----------------------------------------------------------------------------------
+    /** What changed in the checkout a session works in (see ChangesBase). */
+    'git.changes': { params: z.object({ cwd: AbsolutePath, base: ChangesBase }), result: GitChanges },
+    'git.diff': {
+      params: z.object({ cwd: AbsolutePath, base: ChangesBase, path: z.string().max(4096) }),
+      result: z.object({ diff: z.string(), truncated: z.boolean() }),
+    },
+    'git.stage': { params: z.object({ cwd: AbsolutePath, paths: z.array(z.string().max(4096)).max(5000), staged: z.boolean() }), result: z.object({}) },
+    /** Puts files back to HEAD. New files go to the Trash. */
+    'git.revert': { params: z.object({ cwd: AbsolutePath, paths: z.array(z.string().max(4096)).min(1).max(5000) }), result: z.object({}) },
+
+    /** Where a session's worktree stands: ahead/behind its base, uncommitted, pushed. */
+    'worktree.status': { params: z.object({ cwd: AbsolutePath }), result: WorktreeStatus },
+    /**
+     * Finishes a worktree. `merge` merges its branch into the main checkout (which must be on the
+     * base branch and clean) and `pr` pushes and opens a pull request with gh, both in a terminal tab.
+     * `remove` stops the session here and removes the worktree (refused with uncommitted changes).
+     */
+    'worktree.finish': {
+      params: z.object({ sessionId: SessionId, cwd: AbsolutePath, action: z.enum(['merge', 'pr', 'remove']), deleteBranch: z.boolean().default(false) }),
+      result: z.object({ terminalId: z.string().nullable() }),
     },
 
     // --- Terminals ---------------------------------------------------------------------------

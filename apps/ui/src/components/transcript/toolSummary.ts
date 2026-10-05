@@ -95,12 +95,14 @@ export function activitySummary(items: ReadonlyArray<{ kind: string; name?: stri
   let thoughts = 0;
   let todos = false;
   let other = 0;
+  let reports = 0;
   const edited = new Set<string>();
   const read = new Set<string>();
   const services = new Set<string>();
   const skills = new Set<string>();
   for (const item of items) {
     if (item.kind === 'thinking') thoughts++;
+    if (item.kind === 'agent-report') reports++;
     if (item.kind !== 'tool' || !item.name) continue;
     const input = (item.input ?? {}) as Record<string, unknown>;
     const path = String(input.file_path ?? input.notebook_path ?? '');
@@ -123,6 +125,7 @@ export function activitySummary(items: ReadonlyArray<{ kind: string; name?: stri
     searches && `searched the code${searches > 1 ? ` ${searches} times` : ''}`,
     web && `looked something up on the web${web > 1 ? ` ${web} times` : ''}`,
     agents && `ran ${count(agents, 'an agent', 'agents')}`,
+    reports && (reports === 1 ? 'an agent reported back' : `${reports} agents reported back`),
     skills.size && `used ${[...skills].join(', ')}`,
     services.size && `used ${[...services].join(', ')}`,
     todos && 'updated the to-do list',
@@ -133,8 +136,11 @@ export function activitySummary(items: ReadonlyArray<{ kind: string; name?: stri
   return sentence.charAt(0).toUpperCase() + sentence.slice(1);
 }
 
-/** Verbs that double their last letter: run → running, stop → stopping. */
-const DOUBLING = new Set(['run', 'set', 'get', 'put', 'cut', 'tag', 'pin', 'zip', 'log', 'dig', 'nag', 'rip', 'stop', 'plan', 'ship', 'drop', 'skip', 'swap', 'trim', 'wrap', 'grab', 'step', 'scan', 'spin', 'split', 'commit', 'submit', 'admit', 'begin', 'forget']);
+/** Longer verbs that double their last letter, which the one-syllable rule below doesn't catch. */
+const DOUBLING = new Set(['commit', 'submit', 'admit', 'begin', 'forget', 'quit', 'equip', 'refer', 'prefer', 'occur', 'control', 'compel']);
+/** One syllable ending in one vowel and one consonant doubles it: run, let, stop, plan (not fix, show, say). */
+const SHORT_CVC = /^[^aeiou]*[aeiou][^aeiouwxy]$/;
+const doubles = (word: string) => DOUBLING.has(word) || SHORT_CVC.test(word);
 
 /** run → running, use → using, read → reading, fix → fixing. Keeps the word's capitalisation. */
 export function gerund(verb: string): string {
@@ -143,7 +149,8 @@ export function gerund(verb: string): string {
   if (lower.endsWith('ing')) return verb;
   if (lower.endsWith('ie')) ing = `${lower.slice(0, -2)}ying`;
   else if (lower.endsWith('e') && !/(ee|ye|oe)$/.test(lower) && lower.length > 2) ing = `${lower.slice(0, -1)}ing`;
-  else if (DOUBLING.has(lower) || (lower.startsWith('re') && DOUBLING.has(lower.slice(2)))) ing = `${lower}${lower.at(-1)}ing`;
+  // rerun → rerunning, reset → resetting (but read is not re + ad).
+  else if (doubles(lower) || (lower.startsWith('re') && lower.length >= 5 && doubles(lower.slice(2)))) ing = `${lower}${lower.at(-1)}ing`;
   else ing = `${lower}ing`;
   return verb[0] === verb[0]!.toUpperCase() ? ing.charAt(0).toUpperCase() + ing.slice(1) : ing;
 }
@@ -175,6 +182,7 @@ const short = (text: string, max = 80) => (text.length > max ? `${text.slice(0, 
 
 export function stepLabel(item: { kind: string; name?: string; input?: unknown; text?: string }, cwd: string | null): StepLabel {
   if (item.kind === 'thinking') return { past: 'Thought', present: 'Thinking' };
+  if (item.kind === 'agent-report') return { past: short((item as { title?: string }).title ?? 'Agent report'), present: 'Reading the agent’s report' };
   if (item.kind === 'text' || item.kind === 'user') return { past: `Agent: ${short((item.text ?? '').split('\n')[0] ?? '')}`, present: 'Working with an agent' };
   const i = (item.input && typeof item.input === 'object' ? item.input : {}) as Record<string, unknown>;
   const file = str(i.file_path) ?? str(i.notebook_path);

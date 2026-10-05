@@ -20,6 +20,8 @@ export interface SessionSource {
   info(sessionId: string): Promise<RawSessionInfo | undefined>;
   messages(sessionId: string): Promise<RawSessionMessage[]>;
   subagentMessages?(sessionId: string, agentId: string): Promise<RawSessionMessage[]>;
+  /** Copies a session up to and including `upToMessageId` into a new one; returns its id. */
+  fork?(sessionId: string, upToMessageId: string): Promise<string>;
 }
 
 type Sdk = typeof import('@anthropic-ai/claude-agent-sdk');
@@ -36,5 +38,6 @@ export function sdkSessionSource(): SessionSource {
     info: async (id) => (await load()).getSessionInfo(id),
     messages: async (id) => (await (await load()).getSessionMessages(id)) as RawSessionMessage[],
     subagentMessages: async (id, agentId) => (await (await load()).getSubagentMessages(id, agentId)) as RawSessionMessage[],
+    fork: async (id, upToMessageId) => (await (await load()).forkSession(id, { upToMessageId })).sessionId,
   };
 }

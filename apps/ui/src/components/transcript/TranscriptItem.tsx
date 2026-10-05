@@ -5,6 +5,7 @@ import { DiffView } from './DiffView.tsx';
 import { ActivityGroupView } from './ActivityGroup.tsx';
 import type { RenderItem } from './displayItems.ts';
 import { Markdown } from './Markdown.tsx';
+import { MessageToolbar } from './messageActions.tsx';
 import { ToolDetails, ToolImages, type ToolItem } from './ToolDetails.tsx';
 import { TranscriptImage } from './TranscriptImage.tsx';
 import { parseTodos, TodoList } from './TodoList.tsx';
@@ -102,6 +103,24 @@ function PlanCard({ item }: { item: ToolItem }) {
   );
 }
 
+/** A background agent's final report (Every step mode; summarised, it's a step in the group). */
+function AgentReport({ title, text, failed }: { title: string; text: string; failed: boolean }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="rounded-md border border-border bg-card/60 px-3 py-1.5" data-agent-report>
+      <Disclosure open={open} onToggle={() => setOpen((o) => !o)}>
+        <Bot size={13} className="shrink-0 text-accent-ink" />
+        <span className={`min-w-0 flex-1 truncate text-[12px] ${failed ? 'text-error' : 'text-muted'}`}>{title}</span>
+      </Disclosure>
+      {open && (
+        <div className="mt-2 pb-1">
+          <Markdown text={text} />
+        </div>
+      )}
+    </div>
+  );
+}
+
 function Thinking({ text }: { text: string }) {
   const [open, setOpen] = useState(false);
   return (
@@ -134,8 +153,14 @@ export const TranscriptItem = memo(function TranscriptItem({
   switch (item.kind) {
     case 'user':
       return (
-        <div className="rounded-lg border border-border bg-card px-3.5 py-2.5">
-          {item.text && <p className="text-[13.5px] leading-relaxed whitespace-pre-wrap select-text">{item.text}</p>}
+        <div className="group/message relative rounded-lg border border-border bg-card px-3.5 py-2.5">
+          {!item.subagent && <MessageToolbar itemKey={item.key} kind="user" text={item.text} />}
+          {/* Your prompts render as Markdown too, so code and code blocks are styled. */}
+          {item.text && (
+            <div className="text-[13.5px] leading-relaxed [&_p]:whitespace-pre-wrap [&_p:first-child]:mt-0 [&_p:last-child]:mb-0">
+              <Markdown text={item.text} />
+            </div>
+          )}
           {item.images.length > 0 && (
             <div className={`flex flex-wrap gap-2 ${item.text ? 'mt-2' : ''}`}>
               {item.images.map((image) => (
@@ -154,7 +179,8 @@ export const TranscriptItem = memo(function TranscriptItem({
       );
     case 'text':
       return (
-        <div className={indent}>
+        <div className={`group/message relative ${indent}`}>
+          {!item.subagent && <MessageToolbar itemKey={item.key} kind="text" text={item.text} />}
           <Markdown text={item.text} />
         </div>
       );
@@ -174,6 +200,8 @@ export const TranscriptItem = memo(function TranscriptItem({
           <ToolCard item={item} cwd={cwd} sessionId={sessionId} />
         </div>
       );
+    case 'agent-report':
+      return <AgentReport title={item.title} text={item.text} failed={item.status !== 'completed'} />;
     case 'notice':
       return <p className="text-center text-[11px] whitespace-pre-wrap text-faint">{item.text}</p>;
   }

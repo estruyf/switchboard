@@ -26,7 +26,12 @@ export type DisplayItem =
       result: ToolResultView | null;
       subagent: boolean;
     }
-  | { kind: 'notice'; key: string; at: number | null; text: string };
+  | { kind: 'notice'; key: string; at: number | null; text: string }
+  /**
+   * A background agent or task finishing: its report, handed back to the session. `toolUseId`
+   * ties it to the call that started it (task notifications carry it; agent hand-backs don't).
+   */
+  | { kind: 'agent-report'; key: string; at: number | null; agentId: string; toolUseId: string | null; status: string; title: string; text: string };
 
 const SYSTEM_REMINDER = /<system-reminder>[\s\S]*?<\/system-reminder>/g;
 const tag = (text: string, name: string) => new RegExp(`<${name}>([\\s\\S]*?)</${name}>`).exec(text)?.[1]?.trim() ?? null;
@@ -36,8 +41,37 @@ const NOTICE_LABELS: Record<string, string> = {
   informational: 'Information',
 };
 
-/** Recognises the markup Claude Code writes into user turns (slash commands, command output, interrupts). */
+const AGENT_MESSAGE = /<agent-message from="([^"]+)">([\s\S]*?)<\/agent-message>/;
+
+type Report = { agentId: string; toolUseId: string | null; status: string; title: string; text: string };
+
+/**
+ * A background agent or task reporting back, in either of Claude Code's forms: an agent hand-back
+ * (`<agent-message from="…">`, desktop and terminal sessions) or a `<task-notification>` (SDK sessions,
+ * also used for background commands).
+ */
+export function agentReport(text: string): Report | null {
+  const trimmed = text.trimStart();
+  if (trimmed.startsWith('<task-notification>')) {
+    const field = (name: string) => new RegExp(`<${name}>([\\s\\S]*?)</${name}>`).exec(trimmed)?.[1]?.trim() ?? null;
+    const taskId = field('task-id');
+    if (!taskId) return null;
+    const summary = field('summary') ?? 'Background task finished';
+    return { agentId: taskId, toolUseId: field('tool-use-id'), status: field('status') ?? 'completed', title: summary, text: field('result') ?? summary };
+  }
+  if (!/^Another Claude session sent a message:/.test(trimmed)) return null;
+  const match = AGENT_MESSAGE.exec(trimmed);
+  if (!match) return null;
+  const body = match[2]!;
+  const start = body.indexOf('The report follows:');
+  const report = (start === -1 ? body : body.slice(start + 'The report follows:'.length)).replace(/^\n/, '').replace(/^ {2}/gm, '').trim();
+  return { agentId: match[1]!, toolUseId: null, status: 'completed', title: report.split('\n')[0] ?? 'Agent report', text: report };
+}
+
+/** Recognises the markup Claude Code writes into user turns (slash commands, command output, interrupts, agent reports). */
 function userTextItem(text: string, key: string, at: number | null, subagent: boolean, images: ImageRef[]): DisplayItem | null {
+  const report = agentReport(text);
+  if (report) return { kind: 'agent-report', key, at, ...report };
   const name = tag(text, 'command-name');
   if (name) return { kind: 'command', key, at, name: name.startsWith('/') ? name : `/${name}`, args: tag(text, 'command-args') ?? '' };
   const stdout = tag(text, 'local-command-stdout');
@@ -121,7 +155,8 @@ export type RenderItem = DisplayItem | ActivityGroup;
 
 /** Plans stay visible; everything else Claude does between messages can be summarised. */
 const isActivity = (item: DisplayItem) =>
-  item.kind === 'thinking' || (item.kind === 'tool' && item.name !== 'ExitPlanMode') || ((item.kind === 'text' || item.kind === 'user') && item.subagent);
+  item.kind === 'thinking' ||
+  item.kind === 'agent-report' || (item.kind === 'tool' && item.name !== 'ExitPlanMode') || ((item.kind === 'text' || item.kind === 'user') && item.subagent);
 
 /**
  * Collapses each run of activity (tool calls, thinking, subagent output) into one

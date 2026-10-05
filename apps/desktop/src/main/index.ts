@@ -8,7 +8,7 @@ import type { AttentionEvent } from './attention.ts';
 import { Notifier } from './notifier.ts';
 import { PreferencesStore, windowBackground } from './preferences.ts';
 import { QuitGuard } from './quitGuard.ts';
-import { isTrashableSessionPath } from './trashGuard.ts';
+import { isTrashableRepoFile, isTrashableSessionPath } from './trashGuard.ts';
 
 const here = import.meta.dirname;
 const smokeOutDir = process.env.SWITCHBOARD_SMOKE_OUT;
@@ -57,13 +57,16 @@ function openSession(sessionId: string): void {
 }
 
 async function handleEngineRequest(message: unknown): Promise<unknown> {
-  const request = message as { type?: unknown; id?: unknown; paths?: unknown } | null;
+  const request = message as { type?: unknown; id?: unknown; paths?: unknown; repoRoot?: unknown } | null;
   if (request?.type !== 'trash' || typeof request.id !== 'number' || !Array.isArray(request.paths)) return undefined;
   const configDir = process.env.CLAUDE_CONFIG_DIR || join(homedir(), '.claude');
   const paths = request.paths.filter((p): p is string => typeof p === 'string');
-  const refused = paths.filter((p) => !isTrashableSessionPath(p, configDir));
+  // Session files, or (for a git revert) new files inside the repository being reverted.
+  const repoRoot = typeof request.repoRoot === 'string' ? request.repoRoot : null;
+  const refused = paths.filter((p) => (repoRoot ? !isTrashableRepoFile(p, repoRoot) : !isTrashableSessionPath(p, configDir)));
   if (refused.length > 0 || paths.length !== request.paths.length) {
-    return { type: 'trash-result', id: request.id, error: `Refusing to move files outside Claude Code's projects folder: ${refused.join(', ')}` };
+    const where = repoRoot ? `the repository ${repoRoot}` : "Claude Code's projects folder";
+    return { type: 'trash-result', id: request.id, error: `Refusing to move files outside ${where}: ${refused.join(', ')}` };
   }
   try {
     for (const path of paths) await shell.trashItem(path);
@@ -286,10 +289,13 @@ async function runLiveSessionStep(win: BrowserWindow, cwd: string): Promise<stri
   const click = (selector: string) => win.webContents.executeJavaScript(`document.querySelector(${JSON.stringify(selector)}).click()`);
   const shot = async (name: string) => writeFileSync(join(smokeOutDir!, name), (await win.webContents.capturePage()).toPNG());
   await click('[data-new-session]');
-  if (!(await waitInPage(win, `[...document.querySelectorAll('[data-folder-select] option')].some((o) => o.value === ${JSON.stringify(cwd)})`))) {
-    return 'folder not offered';
-  }
-  await setFieldValue(win, '[data-folder-select]', cwd);
+  // Pick the sandbox in the folder picker: open it, filter by the path, choose the match.
+  await click('[data-folder-select]');
+  if (!(await waitInPage(win, "document.querySelector('[data-folder-list] input')", 3_000))) return 'folder picker did not open';
+  await setFieldValue(win, '[data-folder-list] input', cwd);
+  if (!(await waitInPage(win, `document.querySelector('[data-folder-option=${JSON.stringify(JSON.stringify(cwd)).slice(1, -1)}]')`, 5_000))) return 'folder not offered';
+  await shot('folder-picker.png');
+  await win.webContents.executeJavaScript(`document.querySelector('[data-folder-option=${JSON.stringify(JSON.stringify(cwd)).slice(1, -1)}]').click()`);
   await setFieldValue(win, '[data-model-select]', 'haiku');
   // Attach a red square through the attach button's file input, like picking a file.
   await win.webContents.executeJavaScript(`(async () => {
@@ -310,7 +316,7 @@ async function runLiveSessionStep(win: BrowserWindow, cwd: string): Promise<stri
   if (!(await waitInPage(win, "!document.querySelector('[data-composer-submit]').disabled"))) return 'submit stayed disabled';
   // Never start a session anywhere but the requested sandbox folder.
   await new Promise((resolve) => setTimeout(resolve, 300));
-  const chosen = await win.webContents.executeJavaScript("document.querySelector('[data-folder-select]').value");
+  const chosen = await win.webContents.executeJavaScript("document.querySelector('[data-folder-select]').dataset.value");
   if (chosen !== cwd) return `aborted: folder field shows ${chosen}, not the sandbox`;
   await shot('new-session.png');
   await click('[data-composer-submit]');
@@ -348,9 +354,62 @@ async function runLiveSessionStep(win: BrowserWindow, cwd: string): Promise<stri
   console.log(`[smoke] palette showed ${paletteCount} commands; /context output rendered`);
   await new Promise((resolve) => setTimeout(resolve, 500));
   await shot('slash-command.png');
+  const js = (code: string) => win.webContents.executeJavaScript(code);
+  const liveId = (await js("document.querySelector('[data-current-session]').dataset.currentSession")) as string;
+
+  // An agent: the header shows "1 agent" while it runs, and the dialog shows what it's doing.
+  // The prompt has inline code, so the user bubble must render it as code.
+  await setFieldValue(win, '[data-composer]', 'Use the Agent tool (subagent_type `general-purpose`) to list the files in this folder with the Glob tool and count them. Then reply with exactly: AGENT OK');
+  await js("document.querySelector('[data-composer-submit]').click()");
+  if (!(await waitInPage(win, "[...document.querySelectorAll('[data-item-kind=\"user\"] code')].some((c) => c.innerText === 'general-purpose')", 10_000))) return 'inline code in your message is not styled';
+  if (!(await waitInPage(win, "document.querySelector('[data-agents-button]')", 60_000))) return 'no agents pill while the agent ran';
+  const pill = ((await js("document.querySelector('[data-agents-button]').innerText")) as string).trim();
+  await js("document.querySelector('[data-agents-button]').click()");
+  if (!(await waitInPage(win, "document.querySelector('[data-agents] [data-agent-run]')", 5_000))) return 'agents dialog empty';
+  await new Promise((resolve) => setTimeout(resolve, 2_000));
+  await shot('agents.png');
+  win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Escape' });
+  if (!(await waitInPage(win, "[...document.querySelectorAll('[data-item-kind=\"text\"]')].some((el) => el.innerText.includes('AGENT OK'))", 90_000))) return 'no reply after the agent';
+  if (!(await waitInPage(win, "!document.querySelector('[data-agents-button]')", 5_000))) return 'the agents pill stayed after the agent finished';
+  console.log(`[smoke] agents pill showed ${JSON.stringify(pill)} and its run; your inline code was styled`);
+
+  // Tools, live: the session runs here, so its MCP servers can be switched.
+  await js("document.querySelector('[data-open-tools]').click()");
+  if (!(await waitInPage(win, "document.querySelector('[data-capabilities]')?.innerText.includes('Live from this session')", 20_000))) return 'Tools did not answer live';
+  const switches = await js("document.querySelectorAll('[data-capabilities] [role=switch]').length");
+  win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Escape' });
+  await waitInPage(win, "!document.querySelector('[data-capabilities]')", 2_000);
+
+  // Effort can change mid-session, and the context meter opens a breakdown like /context.
+  await setFieldValue(win, '[data-effort-select]', 'low');
+  if (!(await waitInPage(win, "document.querySelector('[data-effort-select]').value === 'low'", 5_000))) return 'effort did not change';
+  await setFieldValue(win, '[data-effort-select]', '');
+  if (!(await waitInPage(win, "document.querySelector('[data-context-meter] button')", 15_000))) return 'no context meter for the running session';
+  const contextLabel = ((await js("document.querySelector('[data-context-meter] button').innerText")) as string).trim();
+  await js("document.querySelector('[data-context-meter] button').click()");
+  if (!(await waitInPage(win, "document.querySelectorAll('[data-context-breakdown] li').length > 1", 15_000))) return 'context breakdown did not load';
+  const categories = (await js("document.querySelectorAll('[data-context-breakdown] li').length")) as number;
+  await shot('context.png');
+  await js("document.querySelector('[data-context-meter] button').click()");
+  console.log(`[smoke] effort changed to low and back; context ${JSON.stringify(contextLabel)} with ${categories - 1} categories`);
+
+  // Undo file changes since the prompt: the preview answers (Bash's touch isn't a tracked edit).
+  await js("document.querySelector('[data-item-kind=\"user\"] [data-message-actions] button[title^=\"Undo file changes\"]').click()");
+  if (!(await waitInPage(win, "document.querySelector('[role=alertdialog]') && !document.querySelector('[role=alertdialog]').innerText.includes('Checking what changed')", 20_000))) return 'rewind preview did not answer';
+  const rewindPreview = ((await js("document.querySelector('[role=alertdialog]').innerText")) as string).replace(/\s+/g, ' ').slice(0, 120);
+  await shot('rewind.png');
+  await js("[...document.querySelectorAll('[role=alertdialog] button')].find((b) => b.innerText === 'Cancel').click()");
+
+  // Fork from Claude's reply: a new session opens with the conversation up to there.
+  await js("[...document.querySelectorAll('[data-item-kind=\"text\"]')].find((el) => el.innerText.includes('SMOKE OK')).querySelector('[data-message-actions] button').click()");
+  if (!(await waitInPage(win, `document.querySelector('[data-current-session]') && document.querySelector('[data-current-session]').dataset.currentSession !== '${liveId}' && [...document.querySelectorAll('[data-item-kind=\"text\"]')].some((el) => el.innerText.includes('SMOKE OK'))`, 20_000))) {
+    return 'fork from the reply did not open a new session with the conversation';
+  }
+  console.log(`[smoke] live tools: ${switches} MCP switches; rewind preview: ${JSON.stringify(rewindPreview)}; forked from the reply`);
+  await js(`document.querySelector('[data-session-id="${liveId}"]').click()`);
+  if (!(await waitInPage(win, `document.querySelector('[data-current-session="${liveId}"]')`, 5_000))) return 'could not return to the session after forking';
 
   // Open the same session in the Claude Code TUI: it runs here, so the panel offers to stop it first.
-  const js = (code: string) => win.webContents.executeJavaScript(code);
   await js("document.querySelector('[data-toggle-terminal]')?.click()");
   if (!(await waitInPage(win, "document.querySelector('[data-open-claude-tui]')", 3_000))) return 'no terminal panel';
   await js("document.querySelector('[data-open-claude-tui]').click()");
@@ -394,6 +453,8 @@ async function runLiveSessionStep(win: BrowserWindow, cwd: string): Promise<stri
  */
 let crashedAt = 0;
 let transcriptOpened = false;
+/** The session the smoke steps work in (the newest one with messages). */
+let smokeSessionId: string | null = null;
 let liveSession: string | null = null;
 let terminalOpened = false;
 let actionRan = false;
@@ -403,6 +464,12 @@ let quitGuarded = false;
 let settingsResult = 'not run';
 let transcriptAtBottom: number | null = null;
 let activity: { groups: number; steps: number; label: string } | null = null;
+let changesPanel: string = 'not run';
+let searchResult = 'not run';
+let paletteResult = 'not run';
+let toolsResult = 'not run';
+let splitResult = 'not run';
+let settleResult = 'not run';
 let rendering: Record<string, number> = {};
 
 /** Adds a project action through the editor, runs it from the header and checks it opened a terminal tab. */
@@ -534,7 +601,8 @@ async function runActivityStep(win: BrowserWindow): Promise<{ groups: number; st
   const js = (code: string) => win.webContents.executeJavaScript(code);
   const groups = (await js("document.querySelectorAll('[data-activity]').length")) as number;
   if (groups === 0) return null;
-  const group = "[...document.querySelectorAll('[data-activity=\"done\"]')].at(-1)";
+  // The last finished group, or the live one when Claude is still on its first.
+  const group = "([...document.querySelectorAll('[data-activity=\"done\"]')].at(-1) ?? [...document.querySelectorAll('[data-activity]')].at(-1))";
   const label = (await js(`${group}?.querySelector('button')?.innerText.replace(/\\s+/g, ' ') ?? ''`)) as string;
   await js(`${group}?.querySelector('button')?.click()`);
   await waitInPage(win, `${group}?.querySelector('[data-steps]')`, 2_000);
@@ -547,6 +615,164 @@ async function runActivityStep(win: BrowserWindow): Promise<{ groups: number; st
   return { groups, steps, label };
 }
 
+/**
+ * Read-only: opens the Changes panel on the session's real checkout, expands the first file's
+ * diff and closes it again. Never stages or reverts (this is the user's own project).
+ */
+async function runChangesStep(win: BrowserWindow): Promise<string> {
+  const js = (code: string) => win.webContents.executeJavaScript(code);
+  if (!(await waitInPage(win, "document.querySelector('[data-toggle-changes]')", 5_000))) return 'no Changes button (not a git checkout?)';
+  const wasOpen = (await js("!!document.querySelector('[data-changes-panel]')")) as boolean;
+  if (!wasOpen) await js("document.querySelector('[data-toggle-changes]').click()");
+  if (!(await waitInPage(win, "document.querySelector('[data-changes-panel]') && !document.querySelector('[data-changes-panel]').innerText.includes('Loading')", 5_000))) return 'panel did not load';
+  const files = (await js("document.querySelectorAll('[data-changed-file]').length")) as number;
+  if (files > 0) {
+    await js("document.querySelector('[data-file-toggle]').click()");
+    if (!(await waitInPage(win, "document.querySelector('[data-file-diff] div')", 5_000))) return `${files} files, but the diff did not load`;
+  }
+  await new Promise((resolve) => setTimeout(resolve, 300));
+  await shot(win, 'changes.png');
+  const messageActions = (await js("document.querySelectorAll('[data-message-actions]').length")) as number;
+  if (!wasOpen) await js("document.querySelector('[data-toggle-changes]').click()");
+  return `ok: ${files} changed files${files ? ', first diff shown' : ''}; ${messageActions} messages with fork/rewind actions`;
+}
+
+/** ⌘⇧F, type a word, open the first hit: the session opens with that message highlighted. */
+async function runSearchStep(win: BrowserWindow): Promise<string> {
+  const js = (code: string) => win.webContents.executeJavaScript(code);
+  win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'F', modifiers: ['meta', 'shift'] });
+  if (!(await waitInPage(win, "document.querySelector('[data-search] input')", 3_000))) return '⌘⇧F did not open search';
+  await setFieldValue(win, '[data-search] input', 'session');
+  // The index is built in the background from a fresh profile; hits fill in as it goes.
+  if (!(await waitInPage(win, "document.querySelector('[data-search-hit]')", 30_000))) {
+    const footer = await js("document.querySelector('[data-search]').innerText.slice(-80)");
+    win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Escape' });
+    return `no hits after 30 s (${JSON.stringify(footer)})`;
+  }
+  const groups = (await js("document.querySelectorAll('[data-search-group]').length")) as number;
+  const indexing = (await js("document.querySelector('[data-search]').innerText.match(/Indexing \\d+ of \\d+/)?.[0] ?? 'index complete'")) as string;
+  await shot(win, 'search.png');
+  await js("document.querySelector('[data-search-hit]').click()");
+  if (!(await waitInPage(win, "!document.querySelector('[data-search]') && document.querySelector('.search-highlight')", 8_000))) return `${groups} sessions matched, but opening the hit did not highlight it`;
+  await shot(win, 'search-opened.png');
+  // Back to the session under test: the steps after this one work in its folder.
+  await js(`document.querySelector('[data-session-id="${smokeSessionId}"]').click()`);
+  await waitInPage(win, "document.querySelector('[data-transcript-item]')", 5_000);
+  return `ok: ${groups} sessions matched (${indexing}); opened and highlighted the first`;
+}
+
+/** ⌘K, type "tog chan", Enter: the Changes panel toggles; again to put it back. */
+async function runPaletteStep(win: BrowserWindow): Promise<string> {
+  const js = (code: string) => win.webContents.executeJavaScript(code);
+  const panelOpen = () => js("!!document.querySelector('[data-changes-panel]')") as Promise<boolean>;
+  const before = await panelOpen();
+  const runCommand = async (text: string) => {
+    win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'K', modifiers: ['meta'] });
+    if (!(await waitInPage(win, "document.querySelector('[data-palette] input')", 3_000))) return false;
+    await setFieldValue(win, '[data-palette] input', text);
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    const first = await js("document.querySelector('[data-palette-item]')?.dataset.paletteItem ?? null");
+    win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Return' });
+    await waitInPage(win, "!document.querySelector('[data-palette]')", 2_000);
+    return first;
+  };
+  const first = await runCommand('tog chan');
+  if (first !== 'changes') return `"tog chan" ranked ${String(first)} first`;
+  if (!(await waitInPage(win, before ? "!document.querySelector('[data-changes-panel]')" : "!!document.querySelector('[data-changes-panel]')", 2_000))) return 'Toggle changes did nothing';
+  await runCommand('tog chan');
+  if ((await panelOpen()) !== before) return 'could not toggle the panel back';
+  return 'ok: "tog chan" found Toggle changes, and Enter ran it';
+}
+
+/** The Tools window: MCP servers, skills, agents and plugins for the session's folder (a prompt-less helper answers). */
+async function runToolsStep(win: BrowserWindow): Promise<string> {
+  const js = (code: string) => win.webContents.executeJavaScript(code);
+  await js("document.querySelector('[data-open-tools]').click()");
+  if (!(await waitInPage(win, "document.querySelector('[data-capabilities]') && !document.querySelector('[data-capabilities]').innerText.includes('Asking Claude Code')", 30_000))) {
+    return 'the Tools window did not load';
+  }
+  const counts = (await js(
+    "Object.fromEntries([...document.querySelectorAll('[data-capabilities-tab]')].map((t) => [t.dataset.capabilitiesTab, Number(t.querySelector('span')?.innerText ?? 0)]))",
+  )) as Record<string, number>;
+  await shot(win, 'tools.png');
+  await js("document.querySelector('[data-capabilities-tab=\"commands\"]').click()");
+  await new Promise((resolve) => setTimeout(resolve, 200));
+  await shot(win, 'tools-commands.png');
+  win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Escape' });
+  await waitInPage(win, "!document.querySelector('[data-capabilities]')", 2_000);
+  return `ok: ${counts.mcp} MCP servers, ${counts.commands} skills and commands, ${counts.agents} agents, ${counts.plugins} plugins`;
+}
+
+/** ⌥-click a second session: two panes; clicking one makes it active; closing one leaves the other. */
+async function runSplitStep(win: BrowserWindow): Promise<string> {
+  const js = (code: string) => win.webContents.executeJavaScript(code);
+  const active = () => js("document.querySelector('[data-pane-active=\"true\"]')?.dataset.pane ?? null") as Promise<string | null>;
+  await js(
+    `[...document.querySelectorAll('[data-session-id]')].find((row) => row.dataset.sessionId !== '${smokeSessionId}').dispatchEvent(new MouseEvent('click', { bubbles: true, altKey: true }))`,
+  );
+  if (!(await waitInPage(win, "document.querySelectorAll('[data-pane]').length === 2", 5_000))) return '⌥-click did not open a second pane';
+  if ((await active()) !== 'split') return 'the new pane is not the active one';
+  await waitInPage(win, "document.querySelectorAll('[data-transcript-item]').length > 0", 5_000);
+  await new Promise((resolve) => setTimeout(resolve, 300));
+  await shot(win, 'split.png');
+  await js("document.querySelector('[data-pane=\"main\"]').dispatchEvent(new MouseEvent('mousedown', { bubbles: true }))");
+  if (!(await waitInPage(win, "document.querySelector('[data-pane-active=\"true\"]')?.dataset.pane === 'main'", 2_000))) return 'clicking the left pane did not make it active';
+  await js("document.querySelector('[data-pane=\"split\"] [data-close-pane]').click()");
+  if (!(await waitInPage(win, "!document.querySelector('[data-split]') && document.querySelector('[data-current-session]')", 2_000))) return 'closing the pane did not go back to one';
+  return 'ok: ⌥-click opened a second pane, focus follows clicks, closing returns to one';
+}
+
+/**
+ * Right-click → Settle moves a session out of the main list, even one that's working (its updates
+ * used to bring it straight back); "Move back" returns it. Flags live in the throwaway profile.
+ */
+async function runSettleStep(win: BrowserWindow): Promise<string> {
+  const js = (code: string) => win.webContents.executeJavaScript(code);
+  // Prefer a session that's working right now: that's the case that used to do nothing.
+  const id = (await js(
+    "(() => { const rows = [...document.querySelectorAll('[data-session-id]')]; const busy = rows.find((r) => r.querySelector('[aria-label=\"Claude is working\"]')); return (busy ?? rows[0])?.dataset.sessionId ?? null; })()",
+  )) as string | null;
+  if (!id) return 'no session to settle';
+  const working = (await js(`!!document.querySelector('[data-session-id="${id}"] [aria-label="Claude is working"]')`)) as boolean;
+  const menu = async (label: string) => {
+    const opened = await js(
+      `(() => { const row = document.querySelector('[data-session-id="${id}"]'); if (!row) return false; const r = row.getBoundingClientRect(); row.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, clientX: r.left + 40, clientY: r.top + 20 })); return true; })()`,
+    );
+    if (!opened) return false;
+    if (!(await waitInPage(win, `[...document.querySelectorAll('[role=menuitem]')].some((b) => b.innerText.startsWith(${JSON.stringify(label)}))`, 3_000))) return false;
+    await js(`[...document.querySelectorAll('[role=menuitem]')].find((b) => b.innerText.startsWith(${JSON.stringify(label)})).click()`);
+    return true;
+  };
+  // In the main list: rendered and above the "Settled" header. The list is virtualised, so check from the top.
+  const toTop = "document.querySelector('[data-session-list]').scrollTop = 0";
+  const inMainList = `(() => { const row = document.querySelector('[data-session-id="${id}"]'); if (!row) return false; const header = document.querySelector('[data-settled-toggle]'); return !header || row.getBoundingClientRect().top < header.getBoundingClientRect().top; })()`;
+  if (!(await menu('Settle'))) return 'no Settle item';
+  await js(toTop);
+  if (!(await waitInPage(win, `!${inMainList}`, 3_000))) return `settling did nothing${working ? ' (a working session)' : ''}`;
+  // Open the Settled section (scroll down until its header renders) and move it back.
+  for (let i = 0; i < 40 && !(await js("!!document.querySelector('[data-settled-toggle]')")); i++) {
+    await js("document.querySelector('[data-session-list]').scrollTop += 400");
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+  if ((await js("document.querySelector('[data-settled-toggle]')?.dataset.open ?? 'missing'")) === 'false') await js("document.querySelector('[data-settled-toggle]').click()");
+  // Settled rows render as they scroll into view: keep scrolling until this one appears.
+  for (let i = 0; i < 60 && !(await js(`!!document.querySelector('[data-session-id="${id}"]')`)); i++) {
+    await js("document.querySelector('[data-session-list]').scrollTop += 300");
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+  await js(`document.querySelector('[data-session-id="${id}"]')?.scrollIntoView({ block: 'center' })`);
+  if (!(await waitInPage(win, `!!document.querySelector('[data-session-id="${id}"]')`, 3_000))) {
+    const seen = await js(
+      `JSON.stringify({ header: document.querySelector('[data-settled-toggle]')?.innerText, open: document.querySelector('[data-settled-toggle]')?.dataset.open, rows: document.querySelectorAll('[data-session-id]').length, scroll: document.querySelector('[data-settled-toggle]')?.closest('.overflow-y-auto')?.scrollTop })`,
+    );
+    return `settled session not found under Settled: ${seen}`;
+  }
+  if (!(await menu('Move back'))) return 'no "Move back" item';
+  await js(toTop);
+  if (!(await waitInPage(win, inMainList, 3_000))) return 'moving back did nothing';
+  return `ok: settled ${working ? 'a working session' : 'a session'} and moved it back`;
+}
+
 async function runSmokeStep(win: BrowserWindow | null): Promise<void> {
   if (!smokeOutDir || !win) return;
   mkdirSync(smokeOutDir, { recursive: true });
@@ -557,17 +783,58 @@ async function runSmokeStep(win: BrowserWindow | null): Promise<void> {
     await new Promise((resolve) => setTimeout(resolve, 300));
     writeFileSync(join(smokeOutDir, 'projects.png'), (await win.webContents.capturePage()).toPNG());
     await win.webContents.executeJavaScript("document.querySelector('[data-project-filter]')?.click()");
-    await win.webContents.executeJavaScript("document.querySelector('[data-session-id]')?.click()");
-    transcriptOpened = await waitInPage(win, "document.querySelector('[data-transcript-item]')");
+    // The newest session with messages and tool activity (a brand-new or chat-only one has less to check);
+    // failing that, the newest with messages.
+    let fallback: string | null = null;
+    for (let i = 0; i < 8 && !transcriptOpened; i++) {
+      const id = (await win.webContents.executeJavaScript(
+        `(() => { const row = document.querySelectorAll('[data-session-id]')[${i}]; row?.click(); return row?.dataset.sessionId ?? null; })()`,
+      )) as string | null;
+      if (!id || !(await waitInPage(win, "document.querySelector('[data-transcript-item]')", 5_000))) continue;
+      fallback ??= id;
+      if (await waitInPage(win, "document.querySelector('[data-activity], [data-tool]')", 1_000)) {
+        smokeSessionId = id;
+        transcriptOpened = true;
+      }
+    }
+    if (!transcriptOpened && fallback) {
+      smokeSessionId = fallback;
+      await win.webContents.executeJavaScript(`document.querySelector('[data-session-id="${fallback}"]').click()`);
+      transcriptOpened = await waitInPage(win, "document.querySelector('[data-transcript-item]')", 5_000);
+    }
     // It must open scrolled to the very end, with space between the last message and the composer.
     const atBottom = "(() => { const el = document.querySelector('[data-transcript]'); return el.scrollHeight - el.scrollTop - el.clientHeight < 2; })()";
     const bottomGap =
       "(() => { const el = document.querySelector('[data-transcript]'); const rows = [...el.querySelectorAll('[data-transcript-item]')]; const last = Math.max(...rows.map((r) => r.getBoundingClientRect().bottom)); return Math.round(el.getBoundingClientRect().bottom - last); })()";
-    transcriptAtBottom = transcriptOpened && (await waitInPage(win, atBottom, 3_000)) ? ((await win.webContents.executeJavaScript(bottomGap)) as number) : null;
-    activity = await runActivityStep(win);
+    // Images in the last rows load after they're first measured, and a live session keeps growing:
+    // read the position and the gap together, and give the view up to 4 s to settle at the end.
+    if (transcriptOpened) {
+      const deadline = Date.now() + 4_000;
+      let reading: { atEnd: boolean; gap: number } = { atEnd: false, gap: 0 };
+      do {
+        reading = (await win.webContents.executeJavaScript(`({ atEnd: ${atBottom}, gap: ${bottomGap} })`)) as typeof reading;
+        if (reading.atEnd && reading.gap >= 16 && reading.gap <= 60) break;
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      } while (Date.now() < deadline);
+      transcriptAtBottom = reading.atEnd ? reading.gap : null;
+    }
+    if (transcriptAtBottom === null || transcriptAtBottom < 16 || transcriptAtBottom > 60) {
+      console.log(
+        `[smoke] transcript scroll: ${await win.webContents.executeJavaScript(
+          "(() => { const el = document.querySelector('[data-transcript]'); const list = el.firstElementChild; return JSON.stringify({ scrollHeight: el.scrollHeight, scrollTop: Math.round(el.scrollTop), clientHeight: el.clientHeight, listHeight: list?.offsetHeight, streaming: !!el.querySelector('[data-streaming]'), lastKind: [...el.querySelectorAll('[data-transcript-item]')].at(-1)?.dataset.itemKind, gap: " + bottomGap + " }); })()",
+        )}`,
+      );
+    }
     // Give the virtualiser a frame to measure and scroll to the end before capturing.
     await new Promise((resolve) => setTimeout(resolve, 300));
     writeFileSync(join(smokeOutDir, 'transcript.png'), (await win.webContents.capturePage()).toPNG());
+    activity = await runActivityStep(win);
+    changesPanel = await runChangesStep(win);
+    searchResult = await runSearchStep(win).catch((error: Error) => `failed: ${error.message}`);
+    paletteResult = await runPaletteStep(win).catch((error: Error) => `failed: ${error.message}`);
+    toolsResult = await runToolsStep(win).catch((error: Error) => `failed: ${error.message}`);
+    splitResult = await runSplitStep(win).catch((error: Error) => `failed: ${error.message}`);
+    settleResult = await runSettleStep(win).catch((error: Error) => `failed: ${error.message}`);
     usageBand = (await waitInPage(win, "document.querySelector('[data-usage-band]')", 15_000))
       ? await win.webContents.executeJavaScript("document.querySelector('[data-usage-band]').innerText.replace(/\\s+/g, ' ')")
       : null;
@@ -603,6 +870,12 @@ async function runSmokeStep(win: BrowserWindow | null): Promise<void> {
         transcriptOpened,
         transcriptAtBottom,
         activity,
+        changesPanel,
+        searchResult,
+        paletteResult,
+        toolsResult,
+        splitResult,
+        settleResult,
         liveSession,
         terminalOpened,
         quitGuarded,

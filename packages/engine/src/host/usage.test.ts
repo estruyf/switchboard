@@ -68,4 +68,45 @@ describe('UsageMonitor', () => {
     expect(calls).toHaveLength(1);
     monitor.stop();
   });
+
+  it('keeps the last good numbers when a fetch comes back empty, and retries soon', async () => {
+    let answer: unknown = REPORT;
+    let fetches = 0;
+    const changes: Array<UsageSnapshot | null> = [];
+    const sdk: SdkRuntime = {
+      query: ({ prompt }) =>
+        ({
+          async *[Symbol.asyncIterator]() {
+            for await (const _ of prompt) {
+              fetches++;
+              yield { type: 'assistant', message: { content: [] }, usage_report: answer };
+              yield { type: 'result', subtype: 'success' };
+              return;
+            }
+          },
+          close: () => {},
+        }) as never,
+      startup: async () => ({}) as never,
+    };
+    const monitor = new UsageMonitor({
+      sdk: async () => sdk,
+      env: async () => ({}),
+      claudePath: async () => '/bin/claude',
+      onChange: (u) => changes.push(u),
+      log: () => {},
+      ephemeral: { add: () => {}, delete: () => {} },
+      retryMs: 20,
+    });
+    expect((await monitor.get(false)).usage).not.toBeNull();
+    answer = null;
+    const missed = await monitor.get(true);
+    expect(missed.usage?.limits[0]).toMatchObject({ kind: 'session' });
+    expect(missed.error).toMatch(/No plan usage/);
+    expect(changes).toHaveLength(1);
+    // The retry fires shortly after the miss.
+    answer = REPORT;
+    await new Promise((resolve) => setTimeout(resolve, 80));
+    expect(fetches).toBe(3);
+    monitor.stop();
+  });
 });

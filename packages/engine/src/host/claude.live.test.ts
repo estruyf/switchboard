@@ -58,6 +58,7 @@ describe.skipIf(!cwd)('live Claude Code session', () => {
     port2.close();
     rmSync(dataDir, { recursive: true, force: true });
     if (cwd) rmSync(join(cwd, 'live-e2e.txt'), { force: true });
+    if (cwd) rmSync(join(cwd, 'rewind-e2e.txt'), { force: true });
   });
 
   it('creates, asks permission, streams, continues, resumes and interrupts', async () => {
@@ -175,4 +176,37 @@ describe.skipIf(!cwd)('live Claude Code session', () => {
     expect(image.mediaType).toMatch(/^image\//);
     expect(image.data.length).toBeGreaterThan(1000);
   });
+
+  it('rewinds the files Claude wrote, and forks from a message', async () => {
+    transcript = [];
+    const { sessionId } = await client.call('session.create', {
+      cwd: cwd!,
+      model: 'haiku',
+      permissionMode: 'acceptEdits',
+      prompt: 'Use the Write tool to create rewind-e2e.txt containing exactly: one — then reply with exactly the word WRITTEN.',
+    });
+    await client.call('transcript.watch', { sessionId });
+    await until('file written', () => state(sessionId) === 'idle' && texts(transcript).some((t) => t.includes('WRITTEN')));
+    expect(existsSync(join(cwd!, 'rewind-e2e.txt'))).toBe(true);
+
+    const prompt = transcript.find((m) => m.role === 'user' && m.blocks.some((b) => b.type === 'text'))!;
+    const preview = await client.call('session.rewind', { sessionId, messageUuid: prompt.uuid, dryRun: true });
+    console.log('rewind preview:', JSON.stringify(preview));
+    expect(preview.canRewind).toBe(true);
+    expect(preview.files.some((f) => f.endsWith('rewind-e2e.txt'))).toBe(true);
+    expect(existsSync(join(cwd!, 'rewind-e2e.txt'))).toBe(true);
+
+    const done = await client.call('session.rewind', { sessionId, messageUuid: prompt.uuid, dryRun: false });
+    expect(done.canRewind).toBe(true);
+    expect(existsSync(join(cwd!, 'rewind-e2e.txt'))).toBe(false);
+
+    // Fork from Claude's reply: the new session has the conversation up to there.
+    await client.call('session.close', { sessionId });
+    const reply = transcript.filter((m) => m.role === 'assistant').at(-1)!;
+    const fork = await client.call('session.forkAt', { sessionId, messageUuid: reply.uuid });
+    expect(fork.sessionId).not.toBe(sessionId);
+    const forked = await client.call('transcript.get', { sessionId: fork.sessionId });
+    console.log(`fork ${fork.sessionId}: ${forked.messages.length} messages`);
+    expect(texts(forked.messages).some((t) => t.includes('WRITTEN'))).toBe(true);
+   }, 180_000);
 });

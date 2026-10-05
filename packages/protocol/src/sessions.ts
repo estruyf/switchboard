@@ -136,8 +136,20 @@ export const TranscriptMessage = z.object({
   parentToolUseId: z.string().nullable(),
   model: z.string().nullable(),
   blocks: z.array(TranscriptBlock),
+  /** Token counts Claude reported for an assistant message (how full the context was then). */
+  usage: z.object({ input: z.number(), output: z.number(), cacheRead: z.number(), cacheCreation: z.number() }).nullable().optional(),
 });
 export type TranscriptMessage = z.infer<typeof TranscriptMessage>;
+
+/** One message matching a search. `snippet` marks matched words with \u0002 … \u0003. */
+export const SearchHit = z.object({
+  sessionId: z.string(),
+  messageUuid: z.string(),
+  role: z.enum(['user', 'assistant', 'system']),
+  at: z.number().nullable(),
+  snippet: z.string(),
+});
+export type SearchHit = z.infer<typeof SearchHit>;
 
 export const SessionsSnapshot = z.object({
   sessions: z.array(SessionSummary),

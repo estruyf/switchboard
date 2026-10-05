@@ -3,6 +3,12 @@ import type { LiveSession, SessionHostInfo, SessionsChanged, SessionsSnapshot, S
 import { hostAsLive, isActiveHost } from './hostsStore.ts';
 
 export type MainView = 'session' | 'new' | 'diagnostics' | 'settings';
+export type Pane = 'main' | 'split';
+
+const other = (pane: Pane): Pane => (pane === 'main' ? 'split' : 'main');
+type PaneState = { mainId: string | null; splitId: string | null; activePane: Pane };
+/** The pane fields plus `selectedId`, which always follows the active pane. */
+const panes = (next: PaneState) => ({ ...next, selectedId: next.activePane === 'split' ? next.splitId : next.mainId });
 
 interface SessionsState {
   sessions: Map<string, SessionSummary>;
@@ -11,14 +17,25 @@ interface SessionsState {
   /** True once the engine finished its first scan of ~/.claude (until then the list is from cache). */
   complete: boolean;
   loaded: boolean;
+  /** The session in the active pane (what ⌘O, the palette and notifications act on). */
   selectedId: string | null;
+  /** Two sessions side by side: the left (main) pane, the optional right (split) pane, and which is active. */
+  mainId: string | null;
+  splitId: string | null;
+  activePane: Pane;
   view: MainView;
   filter: string;
 
   applySnapshot(snapshot: SessionsSnapshot): void;
   applyChanged(change: SessionsChanged): void;
   setLive(live: LiveSession[]): void;
+  /** Shows a session in the active pane (or focuses the pane already showing it). */
   select(id: string | null): void;
+  /** Shows a session in the other pane, opening the split if needed. */
+  openBeside(id: string): void;
+  /** Closes one pane (default: the right one); the other takes the full width. */
+  closePane(pane?: Pane): void;
+  focusPane(pane: Pane): void;
   setView(view: MainView): void;
   setFilter(filter: string): void;
 }
@@ -32,6 +49,9 @@ export const useSessions = create<SessionsState>()((set) => ({
   complete: false,
   loaded: false,
   selectedId: null,
+  mainId: null,
+  splitId: null,
+  activePane: 'main',
   view: 'session',
   filter: '',
 
@@ -50,7 +70,33 @@ export const useSessions = create<SessionsState>()((set) => ({
       return { sessions, complete: change.complete };
     }),
   setLive: (live) => set({ live: new Map(live.map((l) => [l.sessionId, l])) }),
-  select: (id) => set({ selectedId: id, view: 'session' }),
+  select: (id) =>
+    set((s) => {
+      if (id && s.splitId) {
+        if (id === s.mainId) return { ...panes({ ...s, activePane: 'main' }), view: 'session' };
+        if (id === s.splitId) return { ...panes({ ...s, activePane: 'split' }), view: 'session' };
+      }
+      const next = { mainId: s.mainId, splitId: s.splitId, activePane: s.splitId ? s.activePane : ('main' as Pane) };
+      if (next.activePane === 'split') next.splitId = id;
+      else next.mainId = id;
+      return { ...panes(next), view: 'session' };
+    }),
+  openBeside: (id) =>
+    set((s) => {
+      if (!s.mainId) return { ...panes({ mainId: id, splitId: null, activePane: 'main' }), view: 'session' };
+      if (id === s.mainId || id === s.splitId) return { ...panes({ ...s, activePane: id === s.mainId ? 'main' : 'split' }), view: 'session' };
+      const target = s.splitId ? other(s.activePane) : 'split';
+      const next = { mainId: s.mainId, splitId: s.splitId, activePane: target };
+      if (target === 'split') next.splitId = id;
+      else next.mainId = id;
+      return { ...panes(next), view: 'session' };
+    }),
+  closePane: (pane = 'split') =>
+    set((s) => {
+      if (!s.splitId) return {};
+      return panes({ mainId: pane === 'main' ? s.splitId : s.mainId, splitId: null, activePane: 'main' });
+    }),
+  focusPane: (pane) => set((s) => (s.activePane === pane || (pane === 'split' && !s.splitId) ? {} : panes({ ...s, activePane: pane }))),
   setView: (view) => set({ view }),
   setFilter: (filter) => set({ filter }),
 }));
@@ -108,6 +154,9 @@ export function toRows(
   ];
   for (const l of pending) {
     if (seen.has(l.sessionId)) continue;
+    // SDK processes without a conversation are helpers (command lists, usage, tools) or
+    // background workers, from this app or another; they aren't sessions to show.
+    if (l.origin === 'sdk') continue;
     seen.add(l.sessionId);
     rows.push({
       id: l.sessionId,

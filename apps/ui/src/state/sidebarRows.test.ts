@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { LiveSession, SessionHostInfo } from '@switchboard/protocol/client';
-import { toRows, type SessionRowData } from './sessionsStore.ts';
+import { toRows, useSessions, type SessionRowData } from './sessionsStore.ts';
 import { buildSessionList, isActive, RECENT_MS, rowStatus } from './sidebarRows.ts';
 
 const NOW = Date.UTC(2026, 9, 5, 12);
@@ -64,6 +64,9 @@ describe('isActive', () => {
     expect(isActive(row('a', { settledAt: NOW - 2 * HOUR }), NOW)).toBe(true);
     expect(isActive(row('a', { settledAt: NOW, live: live('idle') }), NOW)).toBe(false);
     expect(isActive(row('a', { settledAt: NOW, live: live('needs-you') }), NOW)).toBe(true);
+    // Settling a session that's working hides it until it finishes, despite its updates.
+    expect(isActive(row('a', { settledAt: NOW - HOUR, updatedAt: NOW, live: live('running') }), NOW)).toBe(false);
+    expect(isActive(row('a', { settledAt: NOW - HOUR, updatedAt: NOW, live: live('idle') }), NOW)).toBe(true);
   });
 });
 
@@ -96,10 +99,36 @@ describe('toRows', () => {
   });
 
   it('prefers the state of sessions running in this app and flags failed runs', () => {
-    const host: SessionHostInfo = { sessionId: 'mine', cwd: '/p/a/.claude/worktrees/wt', state: 'needs-you', model: null, permissionMode: 'default', effort: null, costUsd: 0, contextPercent: null, error: null, startedAt: 5, queued: 0 };
+    const host: SessionHostInfo = { sessionId: 'mine', cwd: '/p/a/.claude/worktrees/wt', state: 'needs-you', model: null, permissionMode: 'default', effort: null, costUsd: 0, contextPercent: null, contextTokens: null, contextMax: null, error: null, startedAt: 5, queued: 0 };
     const closed: SessionHostInfo = { ...host, sessionId: 'old', state: 'closed' };
     const rows = toRows(new Map(), new Map(), new Map([['mine', host], ['old', closed]]));
     expect(rows).toHaveLength(1);
     expect(rows[0]).toMatchObject({ id: 'mine', projectRoot: '/p/a', live: { status: 'needs-you', origin: 'app' } });
+  });
+});
+
+describe('panes', () => {
+  const reset = () => useSessions.setState({ selectedId: null, mainId: null, splitId: null, activePane: 'main', view: 'session' });
+  const state = () => {
+    const s = useSessions.getState();
+    return { main: s.mainId, split: s.splitId, active: s.activePane, selected: s.selectedId };
+  };
+
+  it('opens a session beside, selects into the active pane, and closes back to one', () => {
+    reset();
+    const s = useSessions.getState();
+    s.select('a');
+    expect(state()).toEqual({ main: 'a', split: null, active: 'main', selected: 'a' });
+    s.openBeside('b');
+    expect(state()).toEqual({ main: 'a', split: 'b', active: 'split', selected: 'b' });
+    s.select('c');
+    expect(state()).toEqual({ main: 'a', split: 'c', active: 'split', selected: 'c' });
+    // Selecting what the other pane shows just focuses it.
+    s.select('a');
+    expect(state()).toEqual({ main: 'a', split: 'c', active: 'main', selected: 'a' });
+    s.openBeside('d');
+    expect(state()).toEqual({ main: 'a', split: 'd', active: 'split', selected: 'd' });
+    s.closePane('main');
+    expect(state()).toEqual({ main: 'd', split: null, active: 'main', selected: 'd' });
   });
 });

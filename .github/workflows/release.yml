@@ -1,0 +1,91 @@
+# Builds Switchboard for Apple Silicon and publishes the .dmg.
+#
+# - Push a tag like v0.2.0: builds, then attaches the .dmg to a GitHub release for that tag.
+# - Run it by hand (Actions → Release → Run workflow): builds and keeps the .dmg as a workflow artifact.
+#
+# With the signing secrets set, the app is signed with your Developer ID and notarised; without
+# them the build is unsigned. See docs/building-and-signing.md for the secrets.
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  mac:
+    name: macOS (Apple Silicon)
+    runs-on: macos-15
+    timeout-minutes: 45
+    env:
+      SIGNED: ${{ secrets.MAC_CERTIFICATE_P12_BASE64 != '' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Typecheck and unit tests
+        run: npm run check
+
+      - name: Build, sign and notarise
+        env:
+          # Developer ID Application certificate and its private key, exported as .p12 and base64-encoded.
+          CSC_LINK: ${{ secrets.MAC_CERTIFICATE_P12_BASE64 }}
+          # Optional: an unset secret is an empty string, which is right for a .p12 without a password.
+          CSC_KEY_PASSWORD: ${{ secrets.MAC_CERTIFICATE_PASSWORD }}
+          # Notarisation with an app-specific password (electron-builder notarises when these are set).
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          if [ -z "$CSC_LINK" ]; then
+            echo "::warning::No signing certificate configured; building an unsigned app."
+            export CSC_IDENTITY_AUTO_DISCOVERY=false
+          fi
+          if [ -z "$APPLE_ID" ]; then
+            unset APPLE_ID APPLE_APP_SPECIFIC_PASSWORD APPLE_TEAM_ID
+          fi
+          npm run dist
+
+      - name: Check the signature
+        if: env.SIGNED == 'true'
+        run: |
+          codesign --verify --deep --strict --verbose=2 apps/desktop/dist/mac-arm64/Switchboard.app
+          spctl -a -vv apps/desktop/dist/mac-arm64/Switchboard.app || true
+
+      - name: Keep the .dmg
+        uses: actions/upload-artifact@v4
+        with:
+          name: Switchboard-${{ github.ref_name }}-arm64
+          path: apps/desktop/dist/*.dmg
+          if-no-files-found: error
+
+      - name: Publish the release
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="${GITHUB_REF_NAME}"
+          if gh release view "$tag" >/dev/null 2>&1; then
+            # A release made by hand may already carry a locally notarised .dmg: an unsigned CI build never replaces it.
+            if [ "$SIGNED" != "true" ] && gh release view "$tag" --json assets -q '.assets[].name' | grep -q '\.dmg$'; then
+              echo "The release already has a .dmg and this build is unsigned; keeping the existing one."
+              exit 0
+            fi
+            gh release upload "$tag" apps/desktop/dist/*.dmg --clobber
+          else
+            gh release create "$tag" apps/desktop/dist/*.dmg --title "Switchboard ${tag#v}" --generate-notes
+          fi

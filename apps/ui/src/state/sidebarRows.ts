@@ -21,10 +21,13 @@ export const RECENT_MS = 48 * 60 * 60 * 1000;
  * session until it has new activity; otherwise sessions settle after 48 h.
  */
 export function isActive(row: SessionRowData, now: number): boolean {
-  if (row.live?.status === 'running' || row.live?.status === 'needs-you' || row.error) return true;
+  // Anything that needs you always shows.
+  if (row.live?.status === 'needs-you' || row.error) return true;
   if (row.pinned) return true;
-  const settledByHand = row.settledAt !== null && row.settledAt >= row.updatedAt;
-  if (settledByHand) return false;
+  // Settled by hand: hidden until there's something new to see. A session that's still
+  // working stays settled (its constant updates aren't news); it comes back once it finishes.
+  if (row.settledAt !== null && (row.settledAt >= row.updatedAt || row.live?.status === 'running')) return false;
+  if (row.live?.status === 'running') return true;
   return row.live !== null || row.unread || now - row.updatedAt < RECENT_MS;
 }
 

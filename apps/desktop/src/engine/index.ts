@@ -19,11 +19,11 @@ if (!dataDir) {
 /** Moving files to the Trash needs Electron's shell, which lives in the main process. */
 let nextTrashId = 1;
 const pendingTrash = new Map<number, { resolve: () => void; reject: (error: Error) => void }>();
-const trash = (paths: string[]) =>
+const trash = (paths: string[], scope?: { repoRoot: string }) =>
   new Promise<void>((resolve, reject) => {
     const id = nextTrashId++;
     pendingTrash.set(id, { resolve, reject });
-    process.parentPort.postMessage({ type: 'trash', id, paths });
+    process.parentPort.postMessage({ type: 'trash', id, paths, ...(scope ? { repoRoot: scope.repoRoot } : {}) });
   });
 
 const engine = createEngine({

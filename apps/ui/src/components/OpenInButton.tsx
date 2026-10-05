@@ -62,7 +62,9 @@ export function OpenInButton({ path }: { path: string | null }) {
         className={`rounded-l-md border border-border px-2.5 py-1 text-[12px] hover:bg-border/50 ${error ? 'text-error' : 'text-text'}`}
         title={`Open ${path} in ${current.name} (⌘O)`}
       >
-        Open in {current.name}
+        {/* In a narrow pane (container query on the session view) only the app name stays. */}
+        <span className="@max-[860px]:hidden">Open in </span>
+        {current.name}
       </button>
       <button
         type="button"

@@ -13,7 +13,7 @@ npm install
 npm run dist
 ```
 
-This builds `apps/desktop/dist/mac-arm64/Switchboard.app` and `apps/desktop/dist/Switchboard-0.1.0-arm64.dmg`. Open the `.dmg` and drag Switchboard to Applications.
+This builds `apps/desktop/dist/mac-arm64/Switchboard.app` and `apps/desktop/dist/Switchboard-<version>-arm64.dmg`. Open the `.dmg` and drag Switchboard to Applications.
 
 Switchboard uses your installed Claude Code (`claude` on your PATH) and its login; it doesn't ship its own copy.
 
@@ -63,6 +63,29 @@ The configuration is in [`apps/desktop/electron-builder.yml`](../apps/desktop/el
 - The Agent SDK's bundled `claude` binary is left out; the user's own `claude` is used.
 - `node-pty` is unpacked from the asar archive, because its native helper must be executable.
 - Electron is pinned to an exact version, which electron-builder needs.
+
+## Building in GitHub Actions
+
+[`.github/workflows/release.yml`](../.github/workflows/release.yml) builds the app on an Apple Silicon runner:
+
+- **Push a tag** such as `v0.2.0`: it builds and attaches the `.dmg` to a GitHub release for that tag (creating the release with generated notes if needed).
+- **Run it by hand** (Actions → Release → Run workflow): it builds and keeps the `.dmg` as a workflow artifact.
+
+It runs the typecheck and unit tests first. Bump `version` in `apps/desktop/package.json` before tagging, since the `.dmg` is named after it.
+
+### Signing in CI
+
+Without secrets the build is unsigned (the workflow warns). To sign and notarise, add these repository secrets (Settings → Secrets and variables → Actions):
+
+| Secret | What it is |
+|---|---|
+| `MAC_CERTIFICATE_P12_BASE64` | Your *Developer ID Application* certificate **with its private key**, exported from Keychain Access as a `.p12`, then base64-encoded: `base64 -i DeveloperID.p12 \| pbcopy` |
+| `MAC_CERTIFICATE_PASSWORD` | The password you gave the `.p12` when exporting it. Leave it out if the `.p12` has no password |
+| `APPLE_ID` | The Apple ID of your developer account |
+| `APPLE_APP_SPECIFIC_PASSWORD` | An app-specific password for it ([account.apple.com](https://account.apple.com) → Sign-In and Security → App-Specific Passwords) |
+| `APPLE_TEAM_ID` | Your team ID (the 10 characters in brackets after your name in the certificate) |
+
+With the certificate secrets the app is signed; with the Apple ID secrets as well, electron-builder notarises and staples it. The workflow then checks the signature with `codesign` and `spctl`.
 
 ### Testing the packaged app
 

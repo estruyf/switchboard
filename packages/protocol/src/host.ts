@@ -11,6 +11,26 @@ export type Effort = z.infer<typeof Effort>;
 export const HostState = z.enum(['starting', 'running', 'needs-you', 'idle', 'closed', 'error']);
 export type HostState = z.infer<typeof HostState>;
 
+/** The context window's contents, as Claude Code's /context counts them. */
+export const ContextUsage = z.object({
+  totalTokens: z.number(),
+  maxTokens: z.number(),
+  percentage: z.number(),
+  model: z.string(),
+  categories: z.array(z.object({ name: z.string(), tokens: z.number(), color: z.string(), kind: z.string() })),
+});
+export type ContextUsage = z.infer<typeof ContextUsage>;
+
+/** What rewinding files to a message changes (or would change, for a dry run). */
+export const RewindResult = z.object({
+  canRewind: z.boolean(),
+  error: z.string().nullable(),
+  files: z.array(z.string()),
+  insertions: z.number(),
+  deletions: z.number(),
+});
+export type RewindResult = z.infer<typeof RewindResult>;
+
 export const SessionHostInfo = z.object({
   sessionId: z.string(),
   /** The session's working directory (the worktree path for worktree sessions, once known). */
@@ -22,6 +42,9 @@ export const SessionHostInfo = z.object({
   /** Cost reported by Claude Code for this process so far. */
   costUsd: z.number(),
   contextPercent: z.number().nullable(),
+  /** Tokens in the context window now, and its size (from Claude Code, once it has started). */
+  contextTokens: z.number().nullable(),
+  contextMax: z.number().nullable(),
   error: z.string().nullable(),
   startedAt: z.number(),
   /** User messages accepted but not answered yet (sent while Claude was busy). */

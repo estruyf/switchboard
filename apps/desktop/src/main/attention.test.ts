@@ -11,6 +11,8 @@ const host = (state: SessionHostInfo['state'], extra: Partial<SessionHostInfo> =
   effort: null,
   costUsd: 0,
   contextPercent: null,
+  contextTokens: null,
+  contextMax: null,
   error: null,
   startedAt: 0,
   queued: 0,

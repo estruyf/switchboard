@@ -33,7 +33,8 @@ Packaging and signing are covered in [Building, signing and notarisation](buildi
 
 - startup time and the first session list
 - the transcript, and that it opens scrolled to the end
-- the ⌘Q prompt, Settings (theme, sidebar style, quit prompt), the terminal, project actions and syntax highlighting
+- summarised tool activity, the Changes panel (read-only), search (⌘⇧F), the ⌘K palette, the Tools window and two panes side by side
+- the ⌘Q prompt, Settings (theme, sidebar style, tool activity, quit prompt), the terminal, project actions and syntax highlighting
 - the usage band
 - recovery after the engine process is killed
 
@@ -46,7 +47,7 @@ SWITCHBOARD_LIVE_CWD=/path/to/throwaway-repo npx vitest run claude.live
 SWITCHBOARD_SMOKE_LIVE_CWD=/path/to/throwaway-repo npm run smoke
 ```
 
-The live smoke step drives the real window. It starts a session in that folder, attaches an image, approves a permission prompt, waits for the reply, runs a `/` command, opens the Claude TUI tab and deletes the session. It refuses to submit if the folder field shows anything else.
+The live smoke step drives the real window. It starts a session in that folder, attaches an image, approves a permission prompt, waits for the reply, runs a `/` command, checks the live Tools window, previews undoing file changes, forks from the reply, opens the Claude TUI tab and deletes the session. It refuses to submit if the folder field shows anything else.
 
 ## Layout
 
@@ -54,7 +55,7 @@ The live smoke step drives the real window. It starts a session in that folder, 
 |---|---|
 | `apps/desktop` | Electron main process, preload, and the engine utilityProcess entry |
 | `apps/ui` | React 19 renderer |
-| `packages/engine` | The engine: plain Node, no Electron imports. Cache DB, Claude Code sessions, terminals, project actions, usage |
+| `packages/engine` | The engine: plain Node, no Electron imports. Cache DB and search index, Claude Code sessions, git, terminals, project actions, usage |
 | `packages/protocol` | zod contract + typed RPC over MessagePorts, shared by engine and UI |
 | `spike/` | Phase 0 throwaway experiments against the Agent SDK |
 | `docs/` | These pages |

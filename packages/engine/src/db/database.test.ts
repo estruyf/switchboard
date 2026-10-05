@@ -19,7 +19,7 @@ describe('cache database', () => {
     const cache = openCacheDatabase(join(tempDir(), 'cache.sqlite'));
     expect(schemaVersion(cache.db)).toBe(migrations.length);
     const tables = (cache.db.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all() as { name: string }[]).map((r) => r.name);
-    expect(tables).toEqual(expect.arrayContaining(['projects', 'sessions', 'messages_fts', 'project_actions', 'trusted_commands', 'app_state']));
+    expect(tables).toEqual(expect.arrayContaining(['projects', 'sessions', 'transcript_fts', 'transcript_indexed', 'project_actions', 'trusted_commands', 'app_state']));
     expect(cache.recovered).toBe(false);
     cache.close();
   });
@@ -48,8 +48,8 @@ describe('cache database', () => {
 
   it('supports full-text search', () => {
     const cache = openCacheDatabase(join(tempDir(), 'cache.sqlite'));
-    cache.db.prepare('INSERT INTO messages_fts (session_id, uuid, role, text) VALUES (?, ?, ?, ?)').run('s1', 'u1', 'user', 'Please rewind the worktree changes');
-    const hits = cache.db.prepare("SELECT session_id FROM messages_fts WHERE messages_fts MATCH 'rewinding'").all();
+    cache.db.prepare('INSERT INTO transcript_fts (session_id, uuid, role, at, text) VALUES (?, ?, ?, ?, ?)').run('s1', 'u1', 'user', null, 'Please rewind the worktree changes');
+    const hits = cache.db.prepare("SELECT session_id FROM transcript_fts WHERE transcript_fts MATCH 'rewinding'").all();
     expect(hits).toEqual([{ session_id: 's1' }]);
     cache.close();
   });

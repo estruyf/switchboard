@@ -141,6 +141,8 @@ export function normaliseMessage(raw: RawSessionMessage, sink?: ImageSink): Tran
     const subtype = (raw.message as { subtype?: unknown } | null)?.subtype;
     blocks = [{ type: 'unknown', kind: typeof subtype === 'string' ? subtype : 'system' }];
   }
+  const usage = (raw.message as { usage?: Record<string, unknown> } | null)?.usage;
+  const count = (key: string) => (typeof usage?.[key] === 'number' ? (usage[key] as number) : 0);
   return {
     uuid: raw.uuid,
     role: raw.type,
@@ -148,5 +150,9 @@ export function normaliseMessage(raw: RawSessionMessage, sink?: ImageSink): Tran
     parentToolUseId: raw.parent_tool_use_id ?? null,
     model: typeof model === 'string' ? model : null,
     blocks,
+    usage:
+      raw.type === 'assistant' && usage
+        ? { input: count('input_tokens'), output: count('output_tokens'), cacheRead: count('cache_read_input_tokens'), cacheCreation: count('cache_creation_input_tokens') }
+        : null,
   };
 }

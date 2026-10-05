@@ -76,6 +76,8 @@ body,
 
 body {
   margin: 0;
+  /* The app lays out to the window; only panels inside it scroll. */
+  overflow: hidden;
   background: var(--sb-bg);
   color: var(--sb-text);
   font-family: var(--font-sans);
@@ -96,6 +98,15 @@ body {
 html[data-keyboard-nav] :is(button, a, summary, [role='menuitem'], [role='option'], [tabindex]):focus-visible {
   outline: 2px solid color-mix(in srgb, var(--sb-accent-ink) 55%, transparent);
   outline-offset: 1px;
+}
+
+/* Scrollbars in the theme's colours: a thin thumb on a transparent track (no grey system gutter). */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--sb-text) 22%, transparent) transparent;
+}
+*:hover {
+  scrollbar-color: color-mix(in srgb, var(--sb-text) 34%, transparent) transparent;
 }
 
 ::selection {
@@ -150,5 +161,21 @@ html[data-keyboard-nav] :is(button, a, summary, [role='menuitem'], [role='option
   .working-dots span {
     animation: none;
     opacity: 0.8;
+  }
+}
+
+/* A message search jumped to: a soft accent glow that fades out. */
+.search-highlight > * {
+  animation: search-highlight 2.5s ease-out;
+  border-radius: 0.5rem;
+}
+@keyframes search-highlight {
+  0%,
+  40% {
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--sb-accent) 55%, transparent);
+    background-color: color-mix(in srgb, var(--sb-accent) 10%, transparent);
+  }
+  100% {
+    box-shadow: 0 0 0 3px transparent;
   }
 }

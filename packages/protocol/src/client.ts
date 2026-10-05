@@ -8,6 +8,8 @@ export type * from './contract.ts';
 export * from './bridge.ts';
 export type * from './sessions.ts';
 export type * from './host.ts';
+export type * from './git.ts';
+export type * from './capabilities.ts';
 export type * from './terminal.ts';
 export type * from './actions.ts';
 export { ACTION_ICONS, type ActionIcon } from './actionIcons.ts';

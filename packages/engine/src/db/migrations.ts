@@ -135,4 +135,22 @@ export const migrations: readonly string[] = [
   -- project_id NULL means a global action; COALESCE keeps ids unique per scope.
   CREATE UNIQUE INDEX project_actions_scope_id ON project_actions (COALESCE(project_id, ''), id);
   `,
+
+  // v6: full-text search over transcripts (Phase 5). Derived from ~/.claude, rebuilt as needed.
+  `
+  DROP TABLE IF EXISTS messages_fts;
+  CREATE VIRTUAL TABLE transcript_fts USING fts5 (
+    session_id UNINDEXED,
+    uuid UNINDEXED,
+    role UNINDEXED,
+    at UNINDEXED,
+    text,
+    tokenize = 'porter unicode61 remove_diacritics 2'
+  );
+  -- What was indexed per session, so only changed transcripts are read again.
+  CREATE TABLE transcript_indexed (
+    session_id TEXT PRIMARY KEY,
+    version    TEXT NOT NULL
+  );
+  `,
 ];

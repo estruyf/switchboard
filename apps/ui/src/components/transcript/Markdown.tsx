@@ -16,7 +16,8 @@ const components: Components = {
     const text = String(children ?? '');
     const language = /language-([\w+#-]+)/.exec(className ?? '')?.[1];
     if (language || text.includes('\n')) return <CodeBlock code={text.replace(/\n$/, '')} language={language} />;
-    return <code className="rounded bg-border/60 px-1 py-px font-mono text-[0.9em]">{children}</code>;
+    // Long inline code (URLs, paths) wraps instead of pushing the pane wider.
+    return <code className="rounded bg-border/60 px-1 py-px font-mono text-[0.9em] [overflow-wrap:anywhere]">{children}</code>;
   },
   table: ({ children }) => (
     <div className="my-2 overflow-x-auto">

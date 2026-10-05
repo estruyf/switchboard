@@ -13,26 +13,43 @@ It uses the Claude Code you already have installed, with your login, settings, c
 ## What you can do
 
 **Keep track of every session**
-- One list of all your sessions, newest first, across every project. Sessions you haven't touched for a while move to **Settled**, out of the way.
+- One list of all your sessions, newest first, across every project. Sessions you haven't touched for a while move to **Settled**, out of the way. You can settle one yourself too, even while it works: it comes back when it needs you or has finished.
 - See at a glance which sessions are **working**, **waiting for you**, **finished** or **unread**.
-- Filter by project, search by title, and pin the sessions you keep coming back to.
+- Filter by project, filter by title, and pin the sessions you keep coming back to.
+- **Search every conversation** (⌘⇧F): your prompts and Claude's replies across all sessions, with the matching words highlighted. Pick a result to jump straight to that message.
 - Give each project an icon. Switchboard picks one up from the repo when it can (a logo or favicon).
 - Sessions running in your terminal show up too, live.
 
 **Work with Claude**
-- Start a session in a folder (⌘N), either on the current branch or in a **new worktree**, just like `claude --worktree`.
+- Start a session in a folder (⌘N): pick a project by typing a few letters, then work on the current branch or in a **new worktree**, just like `claude --worktree`.
 - Chat as you would in the terminal. You get streaming replies, `/` commands (your own commands and skills included), `@` file mentions, and images you paste or attach.
 - Approve or deny permission requests, answer Claude's questions and review plans in the conversation.
 - Follow what Claude does without the noise: each run of tool calls is one line ("Reading src/app.ts…", then "Ran 3 commands and edited 2 files"), and a click shows every step, with diffs, command output, to-do lists and subagent runs.
 - Images Claude reads or you attach are shown in the conversation.
 - Press **Esc** to stop Claude, **⇧Tab** to switch permission mode, and keep typing while it works (messages queue up).
+- Change the model, permission mode and **effort** while a session runs, and see how full the **context window** is. Click it for what fills it, like `/context`.
+- **Agents** Claude starts, background ones included, show as "1 agent" in the session header; click it to watch what each one is doing.
 - Continue any past session. If it's still open in a terminal, Switchboard offers to **fork** it instead, leaving the original untouched.
+- Hover over a message to go back in time:
+  - **Undo file changes** since one of your prompts. You see which files would change first.
+  - **Edit and resend** a prompt, in a new session.
+  - **Fork** from any of Claude's replies.
 
 **Stay on top of things**
 - A notification and Dock badge when a session needs you or finishes, so you can leave it running in the background.
 - Your plan usage above the message box: how much of your 5-hour and weekly limits you've used, and when they reset.
 
+**Review and finish the work**
+- A **Changes** panel (⌘⇧D) with the session's git diff: what's uncommitted, or the whole branch compared with `main`. Stage, unstage or revert files, and open any diff inline. Reverted new files go to the Trash.
+- **Finish a worktree** from its **Worktree** menu:
+  - Commit with Claude.
+  - Merge into the base branch, or push and open a pull request.
+  - Remove the worktree, optionally with its branch. Switchboard warns you before you lose commits that aren't merged or pushed.
+
 **Everything in one place**
+- A **command palette** (⌘K) for every command, your project actions, and jumping to any session by typing a few letters.
+- **Two sessions side by side**: ⌥-click a session (or choose *Open beside*) to open it next to the current one.
+- **Tools** (below the message box): the session's MCP servers, with their status and tools (turn them on or off, or reconnect, while the session runs in Switchboard), plus its skills, commands, agents and plugins.
 - A built-in terminal per session (⌘J), with a tab for your shell and one for the full Claude Code terminal interface.
 - **Project actions**: one-click buttons for things like *Commit*, *Test* or *Publish*, running a command or sending Claude a prompt. See [Project actions](docs/project-actions.md).
 - **Open in** your editor, terminal or Finder (⌘O), and click any file path in the conversation to open it at that line.
@@ -45,14 +62,16 @@ It uses the Claude Code you already have installed, with your login, settings, c
 
 ## Install
 
-There's no download yet; you build the app from this repository, which takes a couple of minutes. You need Node 24 or later.
+Download the `.dmg` from the [latest release](https://github.com/estruyf/switchboard/releases/latest), open it and drag Switchboard to Applications.
+
+Or build it from this repository, which takes a couple of minutes. You need Node 24 or later.
 
 ```bash
 npm install
 npm run dist
 ```
 
-Then open `apps/desktop/dist/Switchboard-0.1.0-arm64.dmg` and drag Switchboard to Applications.
+Then open `apps/desktop/dist/Switchboard-<version>-arm64.dmg` and drag Switchboard to Applications.
 
 If macOS blocks the app the first time you open it, see [Building, signing and notarisation](docs/building-and-signing.md).
 
@@ -68,17 +87,22 @@ If macOS blocks the app the first time you open it, see [Building, signing and n
 | Shortcut | What it does |
 |---|---|
 | ⌘N | New session |
+| ⌘K | Command palette (⌥↩ opens a session beside the current one) |
+| ⌘⇧F | Search all conversations |
 | ↑ ↓ | Move through sessions in the sidebar |
 | ⌘⌫ | Delete the selected session (to the Trash) |
 | ⌘O | Open the session's folder in your editor |
 | ⌘J | Show or hide the terminal |
+| ⌘⇧D | Show or hide the Changes panel |
+| ⌥-click | Open a session beside the current one |
+| ⌘\\ | Close the other pane |
 | ⌘, | Settings |
 | Esc | Stop Claude while it's working |
 | ⇧Tab | Switch permission mode |
 | `/` and `@` | Commands and file mentions in the message box |
 | ⌘Q | Quit (Switchboard asks first; press ⌘Q again to quit) |
 
-Right-click a session for more: pin, settle, open its folder, copy its ID, or delete it.
+Right-click a session for more: open it beside, pin, settle, open its folder, copy its ID, or delete it.
 
 ## Settings
 

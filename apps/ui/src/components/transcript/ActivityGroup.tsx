@@ -68,7 +68,7 @@ function Step({ item, cwd, sessionId }: { item: DisplayItem; cwd: string | null;
             <ToolDetails item={item} cwd={cwd} sessionId={sessionId} withDiffAndImages />
           ) : item.kind === 'thinking' ? (
             <p className="text-[12px] whitespace-pre-wrap text-muted italic select-text">{item.text}</p>
-          ) : item.kind === 'text' || item.kind === 'user' ? (
+          ) : item.kind === 'text' || item.kind === 'user' || item.kind === 'agent-report' ? (
             <Markdown text={item.text} />
           ) : null}
         </div>

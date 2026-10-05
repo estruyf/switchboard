@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Effort, ImageAttachment, PermissionMode, ProjectInspection, SlashCommand } from '@switchboard/protocol/client';
 import { useEngineConnection } from '../../engine/useEngine.ts';
+import { FolderPicker } from './FolderPicker.tsx';
 import { basename, guessHome, tildify } from '../../lib/format.ts';
 import { MODE_CHOICES, MODE_LABEL, worktreeSlug } from '../../lib/modes.ts';
 import { useHosts } from '../../state/hostsStore.ts';
@@ -147,18 +148,7 @@ export function NewSessionView() {
           <div className="grid gap-1.5">
             <label className="text-[11px] tracking-wide text-faint uppercase">Folder</label>
             <div className="flex min-w-0 gap-2">
-              <select data-folder-select className={`${field} w-0 min-w-0 flex-1 truncate`} value={d.cwd ?? ''} onChange={(e) => update({ cwd: e.target.value || null })}>
-                {!d.cwd && <option value="">Choose a folder…</option>}
-                {d.cwd && !recent.includes(d.cwd) && <option value={d.cwd}>{tildify(d.cwd, home)}</option>}
-                {recent.map((root) => (
-                  <option key={root} value={root}>
-                    {basename(root)}  —  {tildify(root, home)}
-                  </option>
-                ))}
-              </select>
-              <button type="button" onClick={() => void chooseFolder()} className={`${field} hover:bg-border/50`}>
-                Choose…
-              </button>
+              <FolderPicker value={d.cwd} folders={recent} home={home} onChange={(cwd) => update({ cwd })} onChooseOther={() => void chooseFolder()} />
             </div>
             <p className="text-[11px] text-faint">
               {!d.cwd

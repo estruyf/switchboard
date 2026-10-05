@@ -63,6 +63,8 @@ export interface UsageMonitorOptions {
   /** Helper processes register in the live registry while they run; tell the engine to ignore them. */
   ephemeral: { add(sessionId: string): void; delete(sessionId: string): void };
   refreshMs?: number;
+  /** Retry after a failed fetch (default 30 s). */
+  retryMs?: number;
 }
 
 const STALE_MS = 60_000;
@@ -101,6 +103,18 @@ export class UsageMonitor {
   stop(): void {
     if (this.interval) clearInterval(this.interval);
     if (this.nudgeTimer) clearTimeout(this.nudgeTimer);
+    if (this.retryTimer) clearTimeout(this.retryTimer);
+  }
+
+  private retryTimer: ReturnType<typeof setTimeout> | undefined;
+  /** After a failed fetch: once more in 30 s rather than waiting for the next 5-minute refresh. */
+  private retrySoon(): void {
+    if (this.retryTimer) return;
+    this.retryTimer = setTimeout(() => {
+      this.retryTimer = undefined;
+      void this.fetch();
+    }, this.options.retryMs ?? 30_000);
+    this.retryTimer.unref?.();
   }
 
   private start(): void {
@@ -139,15 +153,19 @@ export class UsageMonitor {
       clearTimeout(deadline);
       const next = toUsageSnapshot(report);
       this.error = next ? null : 'No plan usage available (API key sign-in, or the usage endpoint is unreachable)';
-      if (JSON.stringify(next?.limits) !== JSON.stringify(this.snapshot?.limits) || !this.snapshot) {
+      if (!next) {
+        // A miss (the endpoint can be briefly unavailable): keep the last good numbers, try again soon.
+        this.retrySoon();
+      } else if (JSON.stringify(next.limits) !== JSON.stringify(this.snapshot?.limits) || !this.snapshot) {
         this.snapshot = next;
         this.options.onChange(next);
-      } else if (next) {
+      } else {
         this.snapshot = next;
       }
     } catch (error) {
       this.error = (error as Error).message;
       this.options.log('debug', `Usage fetch failed: ${this.error}`);
+      this.retrySoon();
     } finally {
       query?.close();
       // Let the helper leave the live registry before we stop hiding it.

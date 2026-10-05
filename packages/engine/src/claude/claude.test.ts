@@ -18,7 +18,17 @@ const tempDir = () => {
 describe('normaliseMessage', () => {
   it('turns a plain user prompt into a text block', () => {
     const m = normaliseMessage({ type: 'user', uuid: 'u1', parent_tool_use_id: null, timestamp: '2026-10-05T10:00:00.000Z', message: { role: 'user', content: 'Fix the bug' } });
-    expect(m).toEqual({ uuid: 'u1', role: 'user', timestamp: Date.parse('2026-10-05T10:00:00.000Z'), parentToolUseId: null, model: null, blocks: [{ type: 'text', text: 'Fix the bug' }] });
+    expect(m).toEqual({ uuid: 'u1', role: 'user', timestamp: Date.parse('2026-10-05T10:00:00.000Z'), parentToolUseId: null, model: null, blocks: [{ type: 'text', text: 'Fix the bug' }], usage: null });
+  });
+
+  it('keeps the token counts Claude reported on assistant messages', () => {
+    const m = normaliseMessage({
+      type: 'assistant',
+      uuid: 'a1',
+      parent_tool_use_id: null,
+      message: { role: 'assistant', content: [], usage: { input_tokens: 3, output_tokens: 40, cache_read_input_tokens: 45_000, cache_creation_input_tokens: 1_200 } },
+    });
+    expect(m.usage).toEqual({ input: 3, output: 40, cacheRead: 45_000, cacheCreation: 1_200 });
   });
 
   it('keeps assistant text, thinking and tool calls, and clips long tool input', () => {

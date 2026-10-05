@@ -35,12 +35,15 @@ function useNow(intervalMs = 60_000): number {
 const SessionRow = memo(function SessionRow({
   data,
   selected,
+  beside = false,
   settled,
   now,
   onContextMenu,
 }: {
   data: SessionRowData;
   selected: boolean;
+  /** Shown in the other (inactive) pane. */
+  beside?: boolean;
   settled: boolean;
   now: number;
   onContextMenu(event: MouseEvent, data: SessionRowData): void;
@@ -58,11 +61,12 @@ const SessionRow = memo(function SessionRow({
   const common = {
     type: 'button' as const,
     'data-session-id': data.id,
-    onClick: () => select(data.id),
+    // ⌥-click opens the session in the other pane.
+    onClick: (e: MouseEvent) => (e.altKey ? useSessions.getState().openBeside(data.id) : select(data.id)),
     onContextMenu: (e: MouseEvent) => onContextMenu(e, data),
     title: [data.title, style === 'compact' ? projectName : null, data.summary?.cwd].filter(Boolean).join('\n'),
   };
-  const surface = selected ? 'bg-accent/15' : 'hover:bg-border/45';
+  const surface = selected ? 'bg-accent/15' : beside ? 'bg-border/45 ring-1 ring-inset ring-border' : 'hover:bg-border/45';
 
   if (style === 'compact') {
     return (
@@ -122,6 +126,8 @@ export function Sidebar() {
   const waiting = useHosts((s) => s.permissions.size);
   const search = useSessions((s) => s.filter);
   const selectedId = useSessions((s) => s.selectedId);
+  const mainId = useSessions((s) => s.mainId);
+  const splitId = useSessions((s) => s.splitId);
   const complete = useSessions((s) => s.complete);
   const loaded = useSessions((s) => s.loaded);
   const view = useSessions((s) => s.view);
@@ -201,6 +207,7 @@ export function Sidebar() {
         settledNow
           ? { label: 'Move back to the main list', onSelect: () => flag({ settled: false }), disabled: !data.summary }
           : { label: 'Settle', hint: 'until new activity', onSelect: () => flag({ settled: true, pinned: false }), disabled: !data.summary },
+        { label: 'Open beside', hint: '⌥-click', onSelect: () => useSessions.getState().openBeside(data.id) },
         { label: 'Open folder in editor', onSelect: () => cwd && void openIn(cwd).catch(() => {}), disabled: !cwd },
         { label: 'Copy session ID', onSelect: () => void navigator.clipboard.writeText(data.id) },
         'separator',
@@ -246,7 +253,7 @@ export function Sidebar() {
 
       <ProjectFilter counts={counts} />
 
-      <div ref={scrollRef} tabIndex={0} onKeyDown={onKeyDown} className="min-h-0 flex-1 overflow-y-auto px-2 pb-2 outline-none">
+      <div ref={scrollRef} tabIndex={0} onKeyDown={onKeyDown} className="min-h-0 flex-1 overflow-y-auto px-2 pb-2 outline-none" data-session-list>
         {loaded && rows.length === 0 ? (
           <p className="px-2 py-4 text-[12px] text-muted">
             {search ? 'No sessions match your search.' : projectFilter ? 'No sessions in this project yet.' : 'No Claude Code sessions found yet.'}
@@ -258,11 +265,19 @@ export function Sidebar() {
               return (
                 <div key={item.key} style={{ position: 'absolute', top: 0, left: 0, right: 0, height: item.size, transform: `translateY(${item.start}px)` }}>
                   {row.kind === 'session' ? (
-                    <SessionRow data={row.data} settled={row.settled} selected={view === 'session' && row.data.id === selectedId} now={now} onContextMenu={sessionMenu} />
+                    <SessionRow
+                      data={row.data}
+                      settled={row.settled}
+                      selected={view === 'session' && row.data.id === selectedId}
+                      beside={view === 'session' && splitId !== null && row.data.id !== selectedId && (row.data.id === mainId || row.data.id === splitId)}
+                      now={now}
+                      onContextMenu={sessionMenu}
+                    />
                   ) : (
                     <button
                       type="button"
                       data-settled-toggle
+                      data-open={row.open}
                       onClick={toggleSettled}
                       className="mt-1 flex h-[30px] w-full items-center gap-1.5 rounded-md px-2.5 text-[12px] text-faint hover:text-muted"
                     >
@@ -326,7 +341,11 @@ export function Sidebar() {
             const ids = rows.flatMap((r) => (r.kind === 'session' ? [r.data.id] : []));
             const index = ids.indexOf(deleting.id);
             await client.call('session.delete', { sessionId: deleting.id });
-            if (selectedId === deleting.id) {
+            const panes = useSessions.getState();
+            if (panes.splitId && (deleting.id === panes.mainId || deleting.id === panes.splitId)) {
+              // Two panes: the other one takes the full width.
+              panes.closePane(deleting.id === panes.mainId ? 'main' : 'split');
+            } else if (selectedId === deleting.id) {
               const next = ids[index + 1] ?? ids[index - 1] ?? null;
               if (next) select(next);
               else setView('session');

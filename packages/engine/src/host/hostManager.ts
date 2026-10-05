@@ -2,6 +2,8 @@ import { randomUUID } from 'node:crypto';
 import type { CanUseTool, Options, PermissionResult, PermissionUpdate, Query, SDKUserMessage, WarmQuery } from '@anthropic-ai/claude-agent-sdk';
 import {
   RpcError,
+  type Capabilities,
+  type ContextUsage,
   type Effort,
   type ImageAttachment,
   type LogLevel,
@@ -9,6 +11,8 @@ import {
   type PermissionDecision,
   type PermissionMode,
   type PermissionRequest,
+  type PluginInfo,
+  type RewindResult,
   type SessionHostInfo,
   type SlashCommand,
   type StreamDelta,
@@ -17,6 +21,7 @@ import {
 import { clipJson } from '../claude/transcript.ts';
 import type { RawSessionMessage } from '../claude/transcript.ts';
 import { describeSuggestions } from './permissions.ts';
+import { readCapabilities } from './capabilities.ts';
 import { buildOptions, SessionHost, type HostConfig, type StartQuery } from './sessionHost.ts';
 
 /** The two SDK entry points the manager needs; injected so tests can fake Claude Code. */
@@ -52,6 +57,8 @@ export interface HostManagerDeps {
   onUsageHint?: () => void;
   /** Helper processes register in the live registry while they run; the engine hides them. */
   ephemeral?: { add(sessionId: string): void; delete(sessionId: string): void };
+  /** Installed plugins, for sessions that aren't running (their own list comes from Claude Code). */
+  installedPlugins?: () => PluginInfo[];
   /** Persisted command lists per folder, so the palette is instant after a restart. */
   commandCache?: { get(cwd: string): SlashCommand[] | null; set(cwd: string, commands: SlashCommand[]): void };
 }
@@ -157,32 +164,42 @@ export class HostManager {
     return sessionId;
   }
 
-  async send(params: { sessionId: string; text: string; attachments: ImageAttachment[]; fork: boolean }): Promise<{ sessionId: string; messageUuid: string }> {
-    let host = params.fork ? undefined : this.hosts.get(params.sessionId);
-    if (!host?.active) {
-      if (!params.fork && this.deps.isOpenElsewhere(params.sessionId) && this.recentlyClosed(params.sessionId)) {
-        await this.waitForExit(params.sessionId);
-      }
-      if (!params.fork && this.deps.isOpenElsewhere(params.sessionId)) {
-        throw new RpcError('SESSION_BUSY_ELSEWHERE', 'This session is open in another Claude Code window. Fork it to continue here.');
-      }
-      const cwd = this.deps.sessionCwd(params.sessionId);
-      if (!cwd) throw new RpcError('NOT_FOUND', 'Unknown session, or its folder is not recorded');
-      host = await this.spawn({
-        sessionId: params.sessionId,
-        cwd,
-        mode: params.fork ? 'fork' : 'resume',
-        model: null,
-        permissionMode: 'default',
-        effort: null,
-        worktree: null,
-      });
+  /** The running host for a session, resuming it (or starting a fork) when it isn't running here. */
+  private async ensureHost(sessionId: string, fork: boolean, busyMessage: string): Promise<SessionHost> {
+    const running = fork ? undefined : this.hosts.get(sessionId);
+    if (running?.active) return running;
+    if (!fork && this.deps.isOpenElsewhere(sessionId) && this.recentlyClosed(sessionId)) {
+      await this.waitForExit(sessionId);
     }
+    if (!fork && this.deps.isOpenElsewhere(sessionId)) throw new RpcError('SESSION_BUSY_ELSEWHERE', busyMessage);
+    const cwd = this.deps.sessionCwd(sessionId);
+    if (!cwd) throw new RpcError('NOT_FOUND', 'Unknown session, or its folder is not recorded');
+    return this.spawn({ sessionId, cwd, mode: fork ? 'fork' : 'resume', model: null, permissionMode: 'default', effort: null, worktree: null });
+  }
+
+  async send(params: { sessionId: string; text: string; attachments: ImageAttachment[]; fork: boolean }): Promise<{ sessionId: string; messageUuid: string }> {
+    const host = await this.ensureHost(params.sessionId, params.fork, 'This session is open in another Claude Code window. Fork it to continue here.');
     const messageUuid = host.send(params.text, params.attachments);
     // A fork only learns its new id once Claude Code has started.
     const sessionId = params.fork ? await host.initialized : host.sessionId;
     if (params.fork) this.deps.onCreated(sessionId);
     return { sessionId, messageUuid };
+  }
+
+  /**
+   * Restores files to how they were before one of your messages. `dryRun` only reports what would change.
+   * Needs the session's process, so it is resumed here if it isn't running (not while open elsewhere).
+   */
+  async rewind(sessionId: string, userMessageId: string, dryRun: boolean): Promise<RewindResult> {
+    const host = await this.ensureHost(sessionId, false, 'This session is open in another Claude Code window. Close it there to rewind its files.');
+    if (host.info.state === 'running' || host.info.state === 'needs-you') {
+      throw new RpcError('SESSION_BUSY', 'Claude is working in this session. Stop it first, then rewind.');
+    }
+    try {
+      return await host.rewindFiles(userMessageId, dryRun);
+    } catch (error) {
+      throw new RpcError('REWIND_FAILED', (error as Error).message);
+    }
   }
 
   async interrupt(sessionId: string): Promise<void> {
@@ -195,6 +212,19 @@ export class HostManager {
 
   setPermissionMode(sessionId: string, mode: PermissionMode): Promise<void> {
     return this.require(sessionId).setPermissionMode(mode);
+  }
+
+  setEffort(sessionId: string, effort: Effort | null): Promise<void> {
+    return this.require(sessionId).setEffort(effort);
+  }
+
+  async context(sessionId: string): Promise<ContextUsage> {
+    try {
+      return await this.require(sessionId).contextUsage();
+    } catch (error) {
+      if (error instanceof RpcError) throw error;
+      throw new RpcError('CONTEXT_FAILED', (error as Error).message);
+    }
   }
 
   setModel(sessionId: string, model: string | null): Promise<void> {
@@ -271,7 +301,46 @@ export class HostManager {
     return pending;
   }
 
-  private async listCommands(cwd: string): Promise<SlashCommand[]> {
+  private listCommands(cwd: string): Promise<SlashCommand[]> {
+    return this.withHelper(cwd, async (query) =>
+      (await query.supportedCommands()).map((c) => ({ name: c.name, description: c.description, argumentHint: c.argumentHint })),
+    );
+  }
+
+  private readonly capabilityCache = new Map<string, { at: number; value: Promise<Capabilities> }>();
+
+  /**
+   * What a session can use. A session running here answers live (and its MCP servers can be
+   * toggled); otherwise a helper process for the folder answers, cached for a minute.
+   */
+  async capabilities(sessionId: string | undefined, cwd: string, refresh: boolean): Promise<Capabilities> {
+    const host = sessionId ? this.hosts.get(sessionId) : undefined;
+    const plugins = () => this.deps.installedPlugins?.() ?? [];
+    if (host?.active) return host.capabilities(plugins);
+    const cached = this.capabilityCache.get(cwd);
+    if (cached && !refresh && Date.now() - cached.at < 60_000) return cached.value;
+    // A fresh helper has every MCP server pending; give them up to 5 s to connect.
+    const value = this.withHelper(cwd, (query) => readCapabilities(query, plugins(), false, 5_000));
+    this.capabilityCache.set(cwd, { at: Date.now(), value });
+    value.catch(() => this.capabilityCache.delete(cwd));
+    return value;
+  }
+
+  async mcp(sessionId: string, server: string, action: 'enable' | 'disable' | 'reconnect'): Promise<void> {
+    const host = this.hosts.get(sessionId);
+    if (!host?.active) throw new RpcError('NOT_RUNNING', 'Start the session in Switchboard to change its MCP servers.');
+    try {
+      await host.mcp(server, action);
+    } catch (error) {
+      throw new RpcError('MCP_FAILED', (error as Error).message);
+    }
+  }
+
+  /**
+   * Runs `ask` against a short-lived Claude Code process for `cwd` that never gets a prompt,
+   * so no session is written. It answers control requests (commands, agents, MCP) and is closed after.
+   */
+  private async withHelper<T>(cwd: string, ask: (query: Query) => Promise<T>): Promise<T> {
     const [env, claudePath, sdk] = await Promise.all([this.deps.env(), this.deps.claudePath(), this.deps.sdk()]);
     // A prompt that never yields: Claude Code starts, answers the question, and no session is written.
     const idle: AsyncIterable<SDKUserMessage> = { [Symbol.asyncIterator]: () => ({ next: () => new Promise(() => {}) }) };
@@ -291,11 +360,7 @@ export class HostManager {
       },
     });
     try {
-      const commands = await Promise.race([
-        query.supportedCommands(),
-        new Promise<never>((_, reject) => setTimeout(() => reject(new Error('timed out')), 20_000)),
-      ]);
-      return commands.map((c) => ({ name: c.name, description: c.description, argumentHint: c.argumentHint }));
+      return await Promise.race([ask(query), new Promise<never>((_, reject) => setTimeout(() => reject(new Error('timed out')), 20_000))]);
     } finally {
       query.close();
     }

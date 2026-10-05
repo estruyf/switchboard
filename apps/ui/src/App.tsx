@@ -3,6 +3,8 @@ import { EngineDiagnostics } from './components/EngineDiagnostics.tsx';
 import { NewSessionView } from './components/newSession/NewSessionView.tsx';
 import { useOpenIn } from './components/OpenInButton.tsx';
 import { QuitPrompt } from './components/QuitPrompt.tsx';
+import { CommandPalette } from './components/palette/CommandPalette.tsx';
+import { SearchDialog } from './components/search/SearchDialog.tsx';
 import { SettingsView } from './components/SettingsView.tsx';
 import { useUsageSync } from './components/UsageBand.tsx';
 import { Sidebar } from './components/sidebar/Sidebar.tsx';
@@ -10,20 +12,44 @@ import { TranscriptView } from './components/transcript/TranscriptView.tsx';
 import { useReadyReport } from './engine/useReadyReport.ts';
 import { isActiveHost, useHosts } from './state/hostsStore.ts';
 import { useSessions } from './state/sessionsStore.ts';
+import { useOverlay } from './state/overlayStore.ts';
 import { usePreferencesSync } from './state/preferencesStore.ts';
 import { useProjectsSync } from './state/projectsStore.ts';
 import { useTerminals, useTerminalsSync } from './state/terminalsStore.ts';
 import { useHostsSync } from './state/useHostsSync.ts';
 import { useSessionsSync } from './state/useSessionsSync.ts';
 
-/** ⌘N new session, ⌘O open the current session's folder in the default editor, ⌘J toggle the terminal. */
+/** ⌘N new session, ⌘O open the current session's folder in the default editor, ⌘J toggle the terminal, ⌘K palette, ⌘⇧F search. */
 function useShortcuts() {
   const openIn = useOpenIn();
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
+      if (event.metaKey && event.shiftKey && !event.altKey && event.key.toLowerCase() === 'f') {
+        event.preventDefault();
+        const overlay = useOverlay.getState();
+        if (overlay.open === 'search') overlay.close();
+        else overlay.show('search');
+        return;
+      }
       if (!event.metaKey || event.shiftKey || event.altKey) return;
       const key = event.key.toLowerCase();
-      if (key === 'j') {
+      if (key === '\\') {
+        // ⌘\ closes the other pane.
+        const { splitId, activePane, closePane } = useSessions.getState();
+        if (splitId) {
+          event.preventDefault();
+          closePane(activePane === 'main' ? 'split' : 'main');
+        }
+        return;
+      }
+      if (key === 'k') {
+        // In the terminal, ⌘K clears the screen as usual.
+        if ((event.target as HTMLElement | null)?.closest?.('.xterm')) return;
+        event.preventDefault();
+        const overlay = useOverlay.getState();
+        if (overlay.open === 'palette') overlay.close();
+        else overlay.show('palette');
+      } else if (key === 'j') {
         if (useSessions.getState().view === 'session') {
           event.preventDefault();
           useTerminals.getState().togglePanel();
@@ -86,12 +112,15 @@ export function App() {
   useShortcuts();
   useWindowFocus();
   const view = useSessions((s) => s.view);
-  const selectedId = useSessions((s) => s.selectedId);
+  const mainId = useSessions((s) => s.mainId);
+  const splitId = useSessions((s) => s.splitId);
+  const activePane = useSessions((s) => s.activePane);
+  const overlay = useOverlay((s) => s.open);
 
   return (
     <div className="flex h-full">
       <Sidebar />
-      <main className="flex min-w-0 flex-1 flex-col">
+      <main className="flex min-w-0 flex-1 flex-col overflow-hidden">
         {view === 'diagnostics' ? (
           <>
             <header className="drag flex h-13 shrink-0 items-center border-b border-border px-6">
@@ -105,13 +134,25 @@ export function App() {
           <SettingsView />
         ) : view === 'new' ? (
           <NewSessionView />
-        ) : selectedId ? (
-          <TranscriptView key={selectedId} sessionId={selectedId} />
+        ) : mainId && splitId ? (
+          // Two sessions side by side; clicking in a pane makes it the active one.
+          <div className="flex min-h-0 flex-1" data-split>
+            <div className="flex min-w-0 flex-1 flex-col" onMouseDownCapture={() => useSessions.getState().focusPane('main')}>
+              <TranscriptView key={`main:${mainId}`} sessionId={mainId} pane="main" active={activePane === 'main'} />
+            </div>
+            <div className="flex min-w-0 flex-1 flex-col border-l border-border" onMouseDownCapture={() => useSessions.getState().focusPane('split')}>
+              <TranscriptView key={`split:${splitId}`} sessionId={splitId} pane="split" active={activePane === 'split'} />
+            </div>
+          </div>
+        ) : mainId ? (
+          <TranscriptView key={mainId} sessionId={mainId} />
         ) : (
           <EmptyState />
         )}
       </main>
       <QuitPrompt />
+      {overlay === 'search' && <SearchDialog />}
+      {overlay === 'palette' && <CommandPalette />}
     </div>
   );
 }

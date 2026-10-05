@@ -18,7 +18,10 @@ import {
 import { LiveRegistry } from './claude/liveRegistry.ts';
 import { createProjectResolver } from './claude/projectResolver.ts';
 import { sdkSessionSource, type SessionSource } from './claude/sessionSource.ts';
-import { ActionStore, expandCommand, suggestActions } from './actions/actionStore.ts';
+import { fileDiff, listChanges, removeWorktree, revert, stage, worktreeStatus } from './git/gitChanges.ts';
+import { SearchIndex } from './sessions/searchIndex.ts';
+import { installedPlugins } from './host/capabilities.ts';
+import { ActionStore, expandCommand, shellQuote, suggestActions } from './actions/actionStore.ts';
 import { HostManager, type SdkRuntime } from './host/hostManager.ts';
 import { UsageMonitor } from './host/usageMonitor.ts';
 import { ProjectRegistry } from './projects/projectRegistry.ts';
@@ -57,7 +60,7 @@ export interface EngineOptions {
    * Moves files to the Trash. The desktop app routes this to Electron's
    * shell.trashItem; without it, deleted sessions are removed permanently.
    */
-  trash?: (paths: string[]) => Promise<void>;
+  trash?: (paths: string[], scope?: { repoRoot: string }) => Promise<void>;
   /** Pseudo-terminal factory. Defaults to node-pty. */
   spawnPty?: () => Promise<SpawnPty>;
 }
@@ -96,7 +99,7 @@ export function createEngine(options: EngineOptions): Engine {
   );
   const markOwned = cache.db.prepare('INSERT OR IGNORE INTO owned_sessions (id, created_at) VALUES (?, ?)');
   const unmarkOwned = cache.db.prepare('DELETE FROM owned_sessions WHERE id = ?');
-  const trash = options.trash ?? (async (paths: string[]) => paths.forEach((p) => rmSync(p, { recursive: true, force: true })));
+  const trash = options.trash ?? (async (paths: string[], _scope?: { repoRoot: string }) => paths.forEach((p) => rmSync(p, { recursive: true, force: true })));
   const storedBaseline = appState.get('sessions.baseline');
   const baseline = typeof storedBaseline === 'number' ? storedBaseline : Date.now();
   if (typeof storedBaseline !== 'number') appState.set('sessions.baseline', baseline);
@@ -109,9 +112,29 @@ export function createEngine(options: EngineOptions): Engine {
     projectsDir: join(claudeConfigDir, 'projects'),
     resolver,
     log,
-    onChange: (change) => broadcast('sessions.changed', change),
+    onChange: (change) => {
+      broadcast('sessions.changed', change);
+      scheduleSearchSync();
+    },
     onTranscriptChanged: (id) => transcripts.changed(id),
   });
+  // Full-text search: indexed in the background, a little after anything changes.
+  const search = new SearchIndex(
+    cache.db,
+    source,
+    () => sessions.snapshot().sessions.map((s) => ({ id: s.id, version: `${s.updatedAt}:${s.fileSize ?? ''}` })),
+    log,
+  );
+  // A fixed delay, not a debounce: busy sessions change every second and must not keep pushing it back.
+  let searchTimer: ReturnType<typeof setTimeout> | undefined;
+  function scheduleSearchSync(delayMs = 3_000) {
+    if (searchTimer) return;
+    searchTimer = setTimeout(() => {
+      searchTimer = undefined;
+      void search.sync();
+    }, delayMs);
+    searchTimer.unref?.();
+  }
   /** The engine's own short-lived helper processes (usage, command lists): never shown as live sessions. */
   const ephemeral = new Set<string>();
   const registry = new LiveRegistry({
@@ -175,6 +198,7 @@ export function createEngine(options: EngineOptions): Engine {
       owned.add(id);
       markOwned.run(id, Date.now());
     },
+    installedPlugins: () => installedPlugins(claudeConfigDir),
     commandCache: {
       // Persisted for an hour; Claude Code reports fresh lists from every running session anyway.
       get: (cwd) => {
@@ -366,6 +390,20 @@ export function createEngine(options: EngineOptions): Engine {
       return { sessionId: await hosts.create({ ...params, ...(setup ? { beforeFirstMessage: setup } : {}) }) };
     },
     'session.send': (params) => hosts.send(params),
+    'session.forkAt': async ({ sessionId, messageUuid }) => {
+      if (!source.fork) throw new RpcError('UNSUPPORTED', 'Forking is not available');
+      let forked: string;
+      try {
+        forked = await source.fork(sessionId, messageUuid);
+      } catch (error) {
+        throw new RpcError('FORK_FAILED', (error as Error).message);
+      }
+      owned.add(forked);
+      markOwned.run(forked, Date.now());
+      await sessions.refresh();
+      return { sessionId: forked };
+    },
+    'session.rewind': ({ sessionId, messageUuid, dryRun }) => hosts.rewind(sessionId, messageUuid, dryRun),
     'session.interrupt': async ({ sessionId }) => {
       await hosts.interrupt(sessionId);
       return {};
@@ -374,6 +412,11 @@ export function createEngine(options: EngineOptions): Engine {
       await hosts.setPermissionMode(sessionId, mode);
       return {};
     },
+    'session.setEffort': async ({ sessionId, effort }) => {
+      await hosts.setEffort(sessionId, effort);
+      return {};
+    },
+    'session.context': ({ sessionId }) => hosts.context(sessionId),
     'session.setModel': async ({ sessionId, model }) => {
       await hosts.setModel(sessionId, model);
       return {};
@@ -387,6 +430,11 @@ export function createEngine(options: EngineOptions): Engine {
       return {};
     },
     'session.commands': async ({ sessionId, cwd }) => ({ commands: await hosts.commands(sessionId, cwd) }),
+    'session.capabilities': ({ sessionId, cwd, refresh }) => hosts.capabilities(sessionId, cwd, refresh),
+    'session.mcp': async ({ sessionId, server, action }) => {
+      await hosts.mcp(sessionId, server, action);
+      return {};
+    },
     'session.prewarm': ({ cwd }) => {
       if (existsSync(cwd)) void hosts.prewarm(cwd).catch((error: Error) => log('debug', `Pre-warm failed: ${error.message}`));
       return {};
@@ -457,6 +505,72 @@ export function createEngine(options: EngineOptions): Engine {
       const runIn = action.cwd === 'project-root' ? projectRoot : cwd;
       return { kind: 'terminal' as const, terminalId: await runShellAction(sessionId, runIn, action.name, expandCommand(action.command, vars, true)) };
     },
+    'search.query': async ({ query, limit }) => ({ hits: search.search(query, limit), indexing: { ...search.progress } }),
+    'git.changes': async ({ cwd, base }) => {
+      try {
+        return await listChanges(cwd, base);
+      } catch (error) {
+        throw new RpcError('GIT_FAILED', (error as Error).message);
+      }
+    },
+    'git.diff': async ({ cwd, base, path }) => {
+      try {
+        return await fileDiff(cwd, base, path);
+      } catch (error) {
+        throw new RpcError('GIT_FAILED', (error as Error).message);
+      }
+    },
+    'git.stage': async ({ cwd, paths, staged }) => {
+      try {
+        await stage(cwd, paths, staged);
+      } catch (error) {
+        throw new RpcError('GIT_FAILED', (error as Error).message);
+      }
+      return {};
+    },
+    'git.revert': async ({ cwd, paths }) => {
+      try {
+        const { root, untracked } = await revert(cwd, paths);
+        if (untracked.length) await trash(untracked, { repoRoot: root });
+      } catch (error) {
+        throw new RpcError('GIT_FAILED', (error as Error).message);
+      }
+      return {};
+    },
+    'worktree.status': async ({ cwd }) => {
+      try {
+        return await worktreeStatus(cwd);
+      } catch (error) {
+        throw new RpcError('GIT_FAILED', (error as Error).message);
+      }
+    },
+    'worktree.finish': async ({ sessionId, cwd, action, deleteBranch }) => {
+      const status = await worktreeStatus(cwd).catch((error: Error) => {
+        throw new RpcError('GIT_FAILED', error.message);
+      });
+      if (!status.isWorktree || !status.branch) throw new RpcError('NOT_A_WORKTREE', 'This session is not in a worktree');
+      const branch = shellQuote(status.branch);
+      if (action === 'merge') {
+        if (status.uncommitted > 0) throw new RpcError('UNCOMMITTED', 'Commit or revert the uncommitted changes first; a merge only takes commits.');
+        if (!status.baseBranch || status.mainCheckout.branch !== status.baseBranch) {
+          throw new RpcError('WRONG_BRANCH', `The main checkout is on ${status.mainCheckout.branch ?? 'a detached HEAD'}, not ${status.baseBranch ?? 'the base branch'}.`);
+        }
+        if (status.mainCheckout.dirty) throw new RpcError('MAIN_DIRTY', 'The main checkout has uncommitted changes. Commit or stash them there first.');
+        return { terminalId: await runShellAction(sessionId, status.root, `Merge ${status.branch}`, `git merge --no-edit ${branch}`) };
+      }
+      if (action === 'pr') {
+        if (!status.hasRemote) throw new RpcError('NO_REMOTE', 'This repository has no remote to push to.');
+        return { terminalId: await runShellAction(sessionId, status.path, 'Pull request', `git push -u origin ${branch} && gh pr create --fill --web`) };
+      }
+      if (status.uncommitted > 0) throw new RpcError('UNCOMMITTED', 'The worktree has uncommitted changes. Commit or revert them first.');
+      await hosts.release(sessionId);
+      try {
+        await removeWorktree(status, deleteBranch);
+      } catch (error) {
+        throw new RpcError('GIT_FAILED', (error as Error).message);
+      }
+      return { terminalId: null };
+    },
     'terminal.open': async (params) => {
       if (params.kind === 'claude' && params.sessionId && !params.fork) {
         if (hosts.has(params.sessionId)) {
@@ -520,6 +634,7 @@ export function createEngine(options: EngineOptions): Engine {
       hosts.closeAll();
       usage.stop();
       terminals.closeAll();
+      clearTimeout(searchTimer);
       sessions.stop();
       registry.stop();
       transcripts.stop();

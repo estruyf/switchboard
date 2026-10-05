@@ -17,6 +17,8 @@ interface Palette {
 }
 
 export interface ComposerProps {
+  /** Text to start with (Edit and resend). */
+  initialText?: string;
   cwd: string | null;
   commands: SlashCommand[];
   placeholder: string;
@@ -47,7 +49,7 @@ function readImage(file: File): Promise<ImageAttachment | null> {
 export function Composer(props: ComposerProps) {
   const connection = useEngineConnection();
   const client = connection.status === 'connected' ? connection.client : null;
-  const [text, setText] = useState('');
+  const [text, setText] = useState(props.initialText ?? '');
   const [attachments, setAttachments] = useState<ImageAttachment[]>([]);
   const [palette, setPalette] = useState<Palette | null>(null);
   const [sending, setSending] = useState(false);
@@ -146,6 +148,8 @@ export function Composer(props: ComposerProps) {
       event.preventDefault();
       void submit();
     } else if (event.key === 'Escape' && props.running) {
+      // With a dialog, menu or popover open, Escape closes that; it must never also stop Claude.
+      if (document.querySelector('[role=dialog], [role=alertdialog], [role=menu], [data-context-breakdown]')) return;
       event.preventDefault();
       props.onInterrupt?.();
     } else if (event.key === 'Tab' && event.shiftKey && props.onCycleMode) {

@@ -7,12 +7,17 @@ import type {
   LogLevel,
   ModelOption,
   PermissionMode,
+  Capabilities,
+  PluginInfo,
+  RewindResult,
+  ContextUsage,
   SessionHostInfo,
   SlashCommand,
   StreamDelta,
   WorktreeRequest,
 } from '@switchboard/protocol';
 import type { RawSessionMessage } from '../claude/transcript.ts';
+import { pluginsFromInit, readCapabilities } from './capabilities.ts';
 import { InputQueue } from './inputQueue.ts';
 
 /** Starts the Claude Code process for a host. Real hosts use the SDK's `query()` (or a pre-warmed one). */
@@ -100,6 +105,8 @@ export class SessionHost {
   private streamBuffer: StreamDelta | null = null;
   private streamTimer: ReturnType<typeof setTimeout> | undefined;
   commands: SlashCommand[] = [];
+  /** Plugins from Claude Code's startup message (null until it has started a turn). */
+  plugins: PluginInfo[] | null = null;
   /** Commands that only work in the terminal UI (reported by Claude Code at init). */
   terminalOnly: string[] = [];
   models: ModelOption[] = [];
@@ -122,6 +129,8 @@ export class SessionHost {
       effort: config.effort,
       costUsd: 0,
       contextPercent: null,
+      contextTokens: null,
+      contextMax: null,
       error: null,
       startedAt: Date.now(),
       queued: 0,
@@ -174,6 +183,33 @@ export class SessionHost {
     return uuid;
   }
 
+  async capabilities(fallbackPlugins: () => PluginInfo[]): Promise<Capabilities> {
+    const query = await this.query;
+    if (!query) throw new Error('This session is not running');
+    return readCapabilities(query, this.plugins ?? fallbackPlugins(), true);
+  }
+
+  async mcp(server: string, action: 'enable' | 'disable' | 'reconnect'): Promise<void> {
+    const query = await this.query;
+    if (!query) throw new Error('This session is not running');
+    if (action === 'reconnect') await query.reconnectMcpServer(server);
+    else await query.toggleMcpServer(server, action === 'enable');
+  }
+
+  /** Restores the files Claude changed to how they were before `userMessageId` (Claude Code's own checkpoints). */
+  async rewindFiles(userMessageId: string, dryRun: boolean): Promise<RewindResult> {
+    const query = await this.query;
+    if (!query) throw new Error('This session is not running');
+    const result = await query.rewindFiles(userMessageId, { dryRun });
+    return {
+      canRewind: result.canRewind,
+      error: result.error ?? null,
+      files: result.filesChanged ?? [],
+      insertions: result.insertions ?? 0,
+      deletions: result.deletions ?? 0,
+    };
+  }
+
   async interrupt(): Promise<void> {
     await (await this.query)?.interrupt();
   }
@@ -181,6 +217,24 @@ export class SessionHost {
   async setPermissionMode(mode: PermissionMode): Promise<void> {
     await (await this.query)?.setPermissionMode(mode);
     this.update({ permissionMode: mode });
+  }
+
+  async setEffort(effort: Effort | null): Promise<void> {
+    await (await this.query)?.applyFlagSettings({ effortLevel: effort });
+    this.update({ effort });
+  }
+
+  async contextUsage(): Promise<ContextUsage> {
+    const query = await this.query;
+    if (!query) throw new Error('This session is not running');
+    const usage = await query.getContextUsage({ detail: 'summary' });
+    return {
+      totalTokens: usage.totalTokens,
+      maxTokens: usage.maxTokens,
+      percentage: usage.percentage,
+      model: usage.model,
+      categories: usage.categories.map((c) => ({ name: c.name, tokens: c.tokens, color: c.color, kind: c.kind })),
+    };
   }
 
   async setModel(model: string | null): Promise<void> {
@@ -279,8 +333,12 @@ export class SessionHost {
       });
       const terminalOnly = (init as { terminal_slash_commands?: unknown }).terminal_slash_commands;
       if (Array.isArray(terminalOnly)) this.terminalOnly = terminalOnly.filter((c): c is string => typeof c === 'string');
+      this.plugins = pluginsFromInit((init as { plugins?: unknown }).plugins);
       this.initResolve(init.session_id);
-      if (first) void this.loadCatalogs();
+      if (first) {
+        void this.loadCatalogs();
+        void this.refreshContext();
+      }
       return;
     }
     if (message.subtype === 'session_state_changed') {
@@ -343,8 +401,9 @@ export class SessionHost {
 
   private async refreshContext(): Promise<void> {
     try {
-      const usage = await (await this.query)?.getContextUsage();
-      if (usage) this.update({ contextPercent: Math.round(usage.percentage) });
+      // `summary` answers from the last response and local estimates, without extra API calls.
+      const usage = await (await this.query)?.getContextUsage({ detail: 'summary' });
+      if (usage) this.update({ contextPercent: Math.round(usage.percentage), contextTokens: usage.totalTokens, contextMax: usage.maxTokens });
     } catch {
       // Context usage is informational only.
     }

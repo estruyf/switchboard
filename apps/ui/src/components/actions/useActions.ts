@@ -29,9 +29,16 @@ export function useProjectActionList(projectRoot: string | null) {
   const [version, setVersion] = useState(0);
 
   useEffect(() => {
-    if (!client || !projectRoot) return;
+    // Sessions without a recorded folder have no project to hold actions.
+    if (!client || !projectRoot?.startsWith('/')) {
+      setState({ actions: [], sharedFile: null, errors: [] });
+      return;
+    }
     let cancelled = false;
-    void client.call('actions.list', { projectRoot }).then((r) => !cancelled && setState(r));
+    client.call('actions.list', { projectRoot }).then(
+      (r) => !cancelled && setState(r),
+      () => !cancelled && setState({ actions: [], sharedFile: null, errors: [] }),
+    );
     return () => {
       cancelled = true;
     };
