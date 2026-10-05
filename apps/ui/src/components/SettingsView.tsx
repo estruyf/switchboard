@@ -105,6 +105,28 @@ function Choice<T extends string>({ value, current, label, attr, onSelect, child
   );
 }
 
+/** A labelled on/off switch. `attr` is the data- hook the smoke test clicks. */
+function Toggle({ label, detail, checked, attr, onChange }: { label: string; detail: string; checked: boolean; attr: string; onChange(checked: boolean): void }) {
+  return (
+    <label className="flex cursor-pointer items-center justify-between gap-4">
+      <span>
+        <span className="block text-[12.5px]">{label}</span>
+        <span className="block text-[12px] text-muted">{detail}</span>
+      </span>
+      <button
+        type="button"
+        role="switch"
+        aria-checked={checked}
+        {...{ [attr]: true }}
+        onClick={() => onChange(!checked)}
+        className={`relative h-5 w-9 shrink-0 rounded-full transition-colors ${checked ? 'bg-accent' : 'bg-border'}`}
+      >
+        <span className={`absolute top-0.5 left-0.5 size-4 rounded-full bg-white shadow transition-transform ${checked ? 'translate-x-4' : ''}`} />
+      </button>
+    </label>
+  );
+}
+
 function Section({ title, description, children }: { title: string; description?: string; children: ReactNode }) {
   return (
     <section className="grid gap-3 border-b border-border py-6 last:border-b-0">
@@ -172,6 +194,13 @@ export function SettingsView() {
                 </Choice>
               ))}
             </div>
+            <Toggle
+              label="Show sessions from other apps"
+              detail="Also list sessions from Terminal, Claude desktop and your editor. Off shows only sessions you started or continued in Switchboard."
+              checked={prefs.sessionScope === 'all'}
+              attr="data-session-scope"
+              onChange={(all) => update({ sessionScope: all ? 'all' : 'switchboard' })}
+            />
           </Section>
 
           <Section
@@ -188,22 +217,13 @@ export function SettingsView() {
           </Section>
 
           <Section title="Quitting">
-            <label className="flex cursor-pointer items-center justify-between gap-4">
-              <span>
-                <span className="block text-[12.5px]">Ask before quitting</span>
-                <span className="block text-[12px] text-muted">⌘Q shows a prompt first; pressing ⌘Q again quits.</span>
-              </span>
-              <button
-                type="button"
-                role="switch"
-                aria-checked={prefs.confirmQuit}
-                data-confirm-quit
-                onClick={() => update({ confirmQuit: !prefs.confirmQuit })}
-                className={`relative h-5 w-9 shrink-0 rounded-full transition-colors ${prefs.confirmQuit ? 'bg-accent' : 'bg-border'}`}
-              >
-                <span className={`absolute top-0.5 left-0.5 size-4 rounded-full bg-white shadow transition-transform ${prefs.confirmQuit ? 'translate-x-4' : ''}`} />
-              </button>
-            </label>
+            <Toggle
+              label="Ask before quitting"
+              detail="⌘Q shows a prompt first; pressing ⌘Q again quits."
+              checked={prefs.confirmQuit}
+              attr="data-confirm-quit"
+              onChange={(confirmQuit) => update({ confirmQuit })}
+            />
           </Section>
         </div>
       </div>

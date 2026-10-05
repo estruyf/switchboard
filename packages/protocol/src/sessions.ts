@@ -38,6 +38,8 @@ export const SessionSummary = z.object({
   viewedAt: z.number().nullable(),
   /** Changed since the user last looked at it. */
   unread: z.boolean(),
+  /** Started, forked or continued in Switchboard (the default sidebar shows only these). */
+  inApp: z.boolean(),
 });
 export type SessionSummary = z.infer<typeof SessionSummary>;
 

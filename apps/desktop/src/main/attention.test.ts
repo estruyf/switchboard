@@ -85,6 +85,15 @@ describe('Attention', () => {
     expect(a.badge()).toBe(0);
   });
 
+  it('leaves terminal sessions alone when only Switchboard sessions are shown', () => {
+    let external = false;
+    const a = new Attention({ external: () => external });
+    expect(a.onLive([live('cli', 'needs-you')])).toEqual([]);
+    expect(a.badge()).toBe(0);
+    external = true;
+    expect(a.onLive([live('cli', 'needs-you')])).toMatchObject([{ kind: 'needs-you', sessionId: 'cli' }]);
+  });
+
   it('reports project actions that finish', () => {
     const a = new Attention();
     const term = (exitCode: number | null): TerminalInfo => ({ id: 't1', sessionId: 's1', kind: 'action', title: 'Publish', cwd: '/work/app', pid: 1, cols: 80, rows: 24, exitCode, startedAt: 0 });

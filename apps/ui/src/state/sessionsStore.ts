@@ -114,6 +114,8 @@ export interface SessionRowData {
   pinned: boolean;
   settledAt: number | null;
   unread: boolean;
+  /** Started, forked or continued in Switchboard, or running in it now. */
+  inApp: boolean;
   /** The last run in this app failed. */
   error: boolean;
 }
@@ -135,7 +137,8 @@ export function toRows(
       id: s.id,
       title: l?.name && !s.customTitle ? l.name : s.title,
       projectRoot: s.projectRoot,
-      updatedAt: Math.max(s.updatedAt, l?.updatedAt ?? 0),
+      // An idle process says nothing new happened (Claude Code reopening a session marks it idle "now").
+      updatedAt: Math.max(s.updatedAt, l && l.status !== 'idle' ? (l.updatedAt ?? 0) : 0),
       branch: s.worktree?.branch ?? realBranch(s.gitBranch),
       isWorktree: s.worktree !== null,
       live: l,
@@ -143,6 +146,7 @@ export function toRows(
       pinned: s.pinned,
       settledAt: s.settledAt,
       unread: s.unread,
+      inApp: s.inApp || l?.origin === 'app',
       error: hosts.get(s.id)?.state === 'error',
     });
   }
@@ -170,6 +174,7 @@ export function toRows(
       pinned: false,
       settledAt: null,
       unread: false,
+      inApp: l.origin === 'app',
       error: false,
     });
   }

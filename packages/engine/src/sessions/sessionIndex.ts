@@ -2,13 +2,13 @@ import { existsSync, readdirSync, statSync, watch, type FSWatcher } from 'node:f
 import { join } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 import type { LogLevel, SessionsChanged, SessionSummary } from '@switchboard/protocol';
-import { originFromEntrypoint, readEntrypoint } from '../claude/origin.ts';
+import { originFromEntrypoint, readEntrypoint, readLastActivity } from '../claude/origin.ts';
 import type { ProjectResolver } from '../claude/projectResolver.ts';
 import type { RawSessionInfo, SessionSource } from '../claude/sessionSource.ts';
 import { coalesce } from '../util/coalesce.ts';
 
 /** What the index derives from disk; user flags are added on the way out (see `decorate`). */
-type RawSummary = Omit<SessionSummary, 'pinned' | 'settledAt' | 'viewedAt' | 'unread'>;
+type RawSummary = Omit<SessionSummary, 'pinned' | 'settledAt' | 'viewedAt' | 'unread' | 'inApp'>;
 
 interface Flags {
   pinned: boolean;
@@ -49,6 +49,8 @@ export interface SessionIndexOptions {
   baseline: number;
   /** Sessions this app created; they get the `app` origin whatever Claude Code recorded. */
   isOwned?: (sessionId: string) => boolean;
+  /** Sessions started elsewhere that the user continued in this app. */
+  isContinued?: (sessionId: string) => boolean;
   /** Safety-net full rescan, in case file events were missed. */
   refreshIntervalMs?: number;
 }
@@ -129,7 +131,8 @@ export class SessionIndex {
   private decorate(raw: RawSummary): SessionSummary {
     const flags = this.flags.get(raw.id) ?? NO_FLAGS;
     const seen = flags.viewedAt ?? this.options.baseline;
-    return { ...raw, ...flags, unread: raw.updatedAt > seen + UNREAD_SLACK_MS };
+    const inApp = raw.origin === 'app' || (this.options.isContinued?.(raw.id) ?? false);
+    return { ...raw, ...flags, unread: raw.updatedAt > seen + UNREAD_SLACK_MS, inApp };
   }
 
   /** The transcript file behind a session, when known. */
@@ -162,6 +165,11 @@ export class SessionIndex {
   private writeFlags(sessionId: string, flags: Flags): void {
     this.flags.set(sessionId, flags);
     this.statements.flagsUpsert.run(sessionId, flags.pinned ? 1 : 0, flags.settledAt, flags.viewedAt);
+    this.republish(sessionId);
+  }
+
+  /** Sends a session again after something `decorate` reads changed (flags, continued). */
+  republish(sessionId: string): void {
     const entry = this.entries.get(sessionId);
     if (entry) this.options.onChange({ upserted: [this.decorate(entry.summary)], removed: [], complete: this.complete });
   }
@@ -255,6 +263,10 @@ export class SessionIndex {
     const cwd = info.cwd ?? null;
     const location = cwd ? this.options.resolver.resolve(cwd) : null;
     const title = oneLine(info.customTitle || info.summary || info.firstPrompt || 'Untitled session', TITLE_MAX);
+    // The SDK's lastModified is the file's mtime, which moves when Claude Code merely exits or
+    // reopens the session; use the last message instead. Read again only when the file changed.
+    const unchanged = previous && file && previous.mtime === file.mtime;
+    const updatedAt = unchanged ? previous.summary.updatedAt : ((file && readLastActivity(file.path)) ?? info.lastModified);
     const summary: RawSummary = {
       id: info.sessionId,
       title,
@@ -268,7 +280,7 @@ export class SessionIndex {
         : null,
       origin: this.options.isOwned?.(info.sessionId) ? 'app' : originFromEntrypoint(entrypoint),
       createdAt: info.createdAt ?? null,
-      updatedAt: info.lastModified,
+      updatedAt,
       fileSize: info.fileSize ?? null,
       tag: info.tag ?? null,
     };

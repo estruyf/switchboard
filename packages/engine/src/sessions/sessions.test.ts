@@ -122,6 +122,14 @@ describe('SessionIndex', () => {
     expect(again.index.get(ID_B)).toMatchObject({ unread: false });
   });
 
+  it('dates a session by its last message, so Claude Code exiting does not make it unread', async () => {
+    const { index, projectsDir } = setup([info(ID_A, { lastModified: 50_000 })]);
+    const file = join(projectsDir, '-repo', `${ID_A}.jsonl`);
+    writeFileSync(file, `${JSON.stringify({ type: 'user', entrypoint: 'cli', timestamp: new Date(1_000).toISOString() })}\n{"type":"last-prompt"}\n{"type":"cost-state"}\n`);
+    await index.refresh();
+    expect(index.get(ID_A)).toMatchObject({ updatedAt: 1_000, unread: false });
+  });
+
   it('follows transcript writes and deletions through the file watcher', async () => {
     const { index, changes, transcriptChanges, projectsDir, infos } = setup([]);
     index.start();

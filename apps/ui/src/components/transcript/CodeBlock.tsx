@@ -12,15 +12,19 @@ const idle = (fn: () => void) => {
 
 /**
  * A code block: plain text right away, syntax-highlighted once the browser is
- * idle. Only blocks on screen exist (the transcript is virtualised).
+ * idle (and once it stops changing, for a block Claude is still writing). Only
+ * blocks on screen exist (the transcript is virtualised).
  */
 export const CodeBlock = memo(function CodeBlock({ code, language }: { code: string; language: string | undefined }) {
-  const [html, setHtml] = useState<string | null>(null);
+  // Tagged with the code it was made from: while a block is still streaming, the
+  // highlight lags behind and showing it would hide the newest lines.
+  const [highlighted, setHighlighted] = useState<{ code: string; html: string | null } | null>(null);
+  const html = highlighted?.code === code ? highlighted.html : null;
 
   useEffect(() => {
     let cancelled = false;
     const cancelIdle = idle(() => {
-      void highlight(code, language).then((result) => !cancelled && setHtml(result));
+      void highlight(code, language).then((result) => !cancelled && setHighlighted({ code, html: result }));
     });
     return () => {
       cancelled = true;

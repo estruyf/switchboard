@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { LiveSession, SessionHostInfo } from '@switchboard/protocol/client';
 import { toRows, useSessions, type SessionRowData } from './sessionsStore.ts';
-import { buildSessionList, isActive, RECENT_MS, rowStatus } from './sidebarRows.ts';
+import { buildSessionList, inScope, isActive, RECENT_MS, rowStatus } from './sidebarRows.ts';
 
 const NOW = Date.UTC(2026, 9, 5, 12);
 const HOUR = 3_600_000;
@@ -18,6 +18,7 @@ const row = (id: string, overrides: Partial<SessionRowData> = {}): SessionRowDat
   pinned: false,
   settledAt: null,
   unread: false,
+  inApp: false,
   error: false,
   ...overrides,
 });
@@ -55,7 +56,9 @@ describe('isActive', () => {
     expect(isActive(row('a', { updatedAt: old }), NOW)).toBe(false);
     expect(isActive(row('a', { updatedAt: old, unread: true }), NOW)).toBe(true);
     expect(isActive(row('a', { updatedAt: old, pinned: true }), NOW)).toBe(true);
-    expect(isActive(row('a', { updatedAt: old, live: live('idle') }), NOW)).toBe(true);
+    expect(isActive(row('a', { updatedAt: old, live: { ...live('idle'), origin: 'app' } }), NOW)).toBe(true);
+    // Idle in another Claude Code window (e.g. Claude desktop reopening it at launch) isn't news.
+    expect(isActive(row('a', { updatedAt: old, live: live('idle') }), NOW)).toBe(false);
     expect(isActive(row('a', { updatedAt: old, error: true }), NOW)).toBe(true);
   });
 
@@ -85,6 +88,13 @@ describe('buildSessionList', () => {
     expect(ids(list.settled)).toEqual(['old', 'older']);
   });
 
+  it('lists only Switchboard sessions in that scope', () => {
+    const mixed = [row('mine', { inApp: true }), row('cli')];
+    expect(ids(buildSessionList(mixed, { search: '', project: null, now: NOW, scope: 'switchboard' }).active)).toEqual(['mine']);
+    expect(ids(buildSessionList(mixed, { search: '', project: null, now: NOW, scope: 'all' }).active)).toEqual(['mine', 'cli']);
+    expect(inScope(row('cli'), 'switchboard')).toBe(false);
+  });
+
   it('filters by project and by search', () => {
     expect(ids(buildSessionList(rows, { search: '', project: '/p/b', now: NOW }).active)).toEqual(['newest']);
     const found = buildSessionList(rows, { search: 'LOGIN', project: null, now: NOW });
@@ -95,7 +105,14 @@ describe('buildSessionList', () => {
 describe('toRows', () => {
   it('merges live state and adds rows for live sessions without a transcript yet', () => {
     const l = { ...live('running'), sessionId: 'new', cwd: '/p/a/sub', startedAt: 7 };
-    expect(toRows(new Map(), new Map([['new', l]]))).toMatchObject([{ id: 'new', title: 'New session', projectRoot: '/p/a', updatedAt: 7, live: l }]);
+    expect(toRows(new Map(), new Map([['new', l]]))).toMatchObject([{ id: 'new', title: 'New session', projectRoot: '/p/a', updatedAt: 7, live: l, inApp: false }]);
+  });
+
+  it('does not let an idle process move a session up', () => {
+    const summary = { id: 's', title: 's', firstPrompt: null, customTitle: null, cwd: '/p/a', projectRoot: '/p/a', gitBranch: null, worktree: null, origin: 'cli', createdAt: null, updatedAt: 1_000, fileSize: null, tag: null, pinned: false, settledAt: null, viewedAt: null, unread: false, inApp: false } as const;
+    const sessions = new Map([['s', summary]]);
+    expect(toRows(sessions, new Map([['s', { ...live('idle'), sessionId: 's', updatedAt: 9_000 }]]))[0]!.updatedAt).toBe(1_000);
+    expect(toRows(sessions, new Map([['s', { ...live('running'), sessionId: 's', updatedAt: 9_000 }]]))[0]!.updatedAt).toBe(9_000);
   });
 
   it('prefers the state of sessions running in this app and flags failed runs', () => {
@@ -103,7 +120,7 @@ describe('toRows', () => {
     const closed: SessionHostInfo = { ...host, sessionId: 'old', state: 'closed' };
     const rows = toRows(new Map(), new Map(), new Map([['mine', host], ['old', closed]]));
     expect(rows).toHaveLength(1);
-    expect(rows[0]).toMatchObject({ id: 'mine', projectRoot: '/p/a', live: { status: 'needs-you', origin: 'app' } });
+    expect(rows[0]).toMatchObject({ id: 'mine', projectRoot: '/p/a', live: { status: 'needs-you', origin: 'app' }, inApp: true });
   });
 });
 

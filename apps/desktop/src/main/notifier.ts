@@ -10,6 +10,8 @@ export interface NotifierOptions {
   /** The session the user is looking at (reported by the renderer). */
   focusedSession: () => string | null;
   openSession: (sessionId: string) => void;
+  /** Settings → Show sessions from other apps. */
+  showAllSessions: () => boolean;
   /** Smoke tests record events (and whether they'd be suppressed) instead of showing notifications. */
   record?: (event: AttentionEvent & { suppressed: boolean }) => void;
 }
@@ -20,11 +22,13 @@ export interface NotifierOptions {
  */
 export class Notifier {
   private client: RpcClient<Contract> | undefined;
-  private readonly attention = new Attention();
+  private readonly attention: Attention;
   /** Notifications must be referenced until closed, or macOS drops their click handlers. */
   private readonly shown = new Set<Notification>();
 
-  constructor(private readonly options: NotifierOptions) {}
+  constructor(private readonly options: NotifierOptions) {
+    this.attention = new Attention({ external: options.showAllSessions });
+  }
 
   /** (Re)connects; call again after the engine restarts. */
   connect(): void {

@@ -153,4 +153,15 @@ export const migrations: readonly string[] = [
     version    TEXT NOT NULL
   );
   `,
+
+  // v7: a session's updated_at is now its last message, not the file's mtime. Forgetting the
+  // cached mtimes makes the next scan read every transcript's tail once.
+  `
+  UPDATE sessions SET jsonl_mtime = NULL;
+  -- Sessions started elsewhere that the user continued in Switchboard. A user choice: keep it.
+  CREATE TABLE continued_sessions (
+    id         TEXT PRIMARY KEY,
+    created_at INTEGER NOT NULL
+  );
+  `,
 ];

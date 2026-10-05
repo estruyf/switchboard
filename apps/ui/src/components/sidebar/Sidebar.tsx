@@ -8,7 +8,7 @@ import { isActiveHost, useHosts } from '../../state/hostsStore.ts';
 import { useProjects } from '../../state/projectsStore.ts';
 import { toRows, useSessions, type SessionRowData } from '../../state/sessionsStore.ts';
 import { usePreferences } from '../../state/preferencesStore.ts';
-import { buildSessionList, isActive, rowStatus } from '../../state/sidebarRows.ts';
+import { buildSessionList, inScope, isActive, rowStatus } from '../../state/sidebarRows.ts';
 import { ConfirmDialog } from '../ConfirmDialog.tsx';
 import { Menu, type MenuEntry } from '../Menu.tsx';
 import { useOpenIn } from '../OpenInButton.tsx';
@@ -61,6 +61,7 @@ const SessionRow = memo(function SessionRow({
   const common = {
     type: 'button' as const,
     'data-session-id': data.id,
+    'data-in-app': data.inApp,
     // ⌥-click opens the session in the other pane.
     onClick: (e: MouseEvent) => (e.altKey ? useSessions.getState().openBeside(data.id) : select(data.id)),
     onContextMenu: (e: MouseEvent) => onContextMenu(e, data),
@@ -141,8 +142,10 @@ export function Sidebar() {
   const [deleting, setDeleting] = useState<SessionRowData | null>(null);
   const now = useNow();
   const sidebarStyle = usePreferences((s) => s.prefs.sidebarStyle);
+  const scope = usePreferences((s) => s.prefs.sessionScope);
+  const updatePrefs = usePreferences((s) => s.update);
 
-  const all = useMemo(() => toRows(sessions, live, hosts), [sessions, live, hosts]);
+  const all = useMemo(() => toRows(sessions, live, hosts).filter((row) => inScope(row, scope)), [sessions, live, hosts, scope]);
   const { active, settled } = useMemo(() => buildSessionList(all, { search, project: projectFilter, now }), [all, search, projectFilter, now]);
   const counts = useMemo(() => {
     const map = new Map<string, { total: number; active: number }>();
@@ -218,7 +221,7 @@ export function Sidebar() {
     });
   };
 
-  const liveCount = new Set([...live.keys(), ...[...hosts.values()].filter((h) => h.state !== 'closed' && h.state !== 'error').map((h) => h.sessionId)]).size;
+  const liveCount = all.filter((row) => row.live !== null).length;
 
   return (
     <aside className="flex w-80 shrink-0 flex-col border-r border-border bg-sidebar">
@@ -255,9 +258,22 @@ export function Sidebar() {
 
       <div ref={scrollRef} tabIndex={0} onKeyDown={onKeyDown} className="min-h-0 flex-1 overflow-y-auto px-2 pb-2 outline-none" data-session-list>
         {loaded && rows.length === 0 ? (
-          <p className="px-2 py-4 text-[12px] text-muted">
-            {search ? 'No sessions match your search.' : projectFilter ? 'No sessions in this project yet.' : 'No Claude Code sessions found yet.'}
-          </p>
+          <div className="grid justify-items-start gap-2 px-2 py-4 text-[12px] text-muted" data-empty-sidebar>
+            <p>
+              {search
+                ? 'No sessions match your search.'
+                : projectFilter
+                  ? 'No sessions in this project yet.'
+                  : scope === 'switchboard'
+                    ? 'Sessions you start or continue in Switchboard show up here.'
+                    : 'No Claude Code sessions found yet.'}
+            </p>
+            {scope === 'switchboard' && sessions.size > 0 && (
+              <button type="button" onClick={() => updatePrefs({ sessionScope: 'all' })} className="text-link hover:underline">
+                Show sessions from other apps
+              </button>
+            )}
+          </div>
         ) : (
           <div style={{ height: virtualizer.getTotalSize(), position: 'relative' }}>
             {virtualizer.getVirtualItems().map((item) => {
@@ -294,7 +310,7 @@ export function Sidebar() {
 
       <footer className="flex h-10 shrink-0 items-center gap-2 border-t border-border px-3 text-[11px] text-faint">
         <span className="min-w-0 flex-1 truncate">
-          {sessions.size} sessions{liveCount > 0 && ` · ${liveCount} open`}
+          {all.length} sessions{liveCount > 0 && ` · ${liveCount} open`}
           {waiting > 0 && <span className="text-warn">{` · ${waiting} waiting`}</span>}
           {!complete && loaded && ' · scanning…'}
         </span>

@@ -21,6 +21,8 @@ if (!app.requestSingleInstanceLock()) app.quit();
 // SWITCHBOARD_COLOR_SCHEME=light|dark forces a scheme without saving it (to check both in the smoke test).
 const forcedScheme = process.env.SWITCHBOARD_COLOR_SCHEME;
 const preferences = new PreferencesStore(join(app.getPath('userData'), 'preferences.json'), sanitizePreferences({ colorScheme: forcedScheme }).colorScheme);
+// The smoke steps need sessions to click; on the real ~/.claude most were started elsewhere.
+if (smokeOutDir) preferences.update({ sessionScope: 'all' });
 
 /** Applies a change from any window or the menu bar, and tells every window. */
 function updatePreferences(patch: unknown): void {
@@ -574,6 +576,10 @@ async function runSettingsStep(win: BrowserWindow): Promise<string> {
   if (!(await waitInPage(win, "document.querySelector('[data-settings]')", 3_000))) return 'settings view did not reopen';
   if (!everyStep) return 'Every step did not show the tool cards';
 
+  // Turning off "sessions from other apps" leaves only Switchboard's own in the sidebar.
+  await click('[data-session-scope]');
+  const scoped = await waitInPage(win, "!document.querySelector('[data-session-id][data-in-app=\"false\"]')", 2_000);
+
   await click('[data-confirm-quit]');
   await pause();
   Menu.getApplicationMenu()?.getMenuItemById('quit')?.click();
@@ -583,15 +589,17 @@ async function runSettingsStep(win: BrowserWindow): Promise<string> {
   const menuChecked = Menu.getApplicationMenu()?.getMenuItemById('scheme-dark')?.checked === true;
 
   await click('[data-confirm-quit]');
+  await click('[data-session-scope]');
   await click('[data-color-scheme="system"]');
   await click('[data-sidebar-style="standard"]');
   await click('[data-tool-activity="summary"]');
   await pause();
   const restored = preferences.get();
+  if (!scoped) return 'other apps\' sessions stayed in the sidebar with the setting off';
   if (!quitWithoutAsking) return '⌘Q still asked with the prompt turned off';
-  if (saved.colorScheme !== 'dark' || saved.sidebarStyle !== 'compact' || saved.toolActivity !== 'steps' || saved.confirmQuit !== false) return `not saved: ${JSON.stringify(saved)}`;
+  if (saved.colorScheme !== 'dark' || saved.sidebarStyle !== 'compact' || saved.toolActivity !== 'steps' || saved.confirmQuit !== false || saved.sessionScope !== 'switchboard') return `not saved: ${JSON.stringify(saved)}`;
   if (!menuChecked) return 'View → Appearance did not follow';
-  if (restored.colorScheme !== 'system' || restored.sidebarStyle !== 'standard' || restored.toolActivity !== 'summary' || !restored.confirmQuit) return 'could not restore the defaults';
+  if (restored.colorScheme !== 'system' || restored.sidebarStyle !== 'standard' || restored.toolActivity !== 'summary' || !restored.confirmQuit || restored.sessionScope !== 'all') return 'could not restore the defaults';
   await click('[data-open-settings]');
   return 'ok';
 }
@@ -715,6 +723,11 @@ async function runSplitStep(win: BrowserWindow): Promise<string> {
   await waitInPage(win, "document.querySelectorAll('[data-transcript-item]').length > 0", 5_000);
   await new Promise((resolve) => setTimeout(resolve, 300));
   await shot(win, 'split.png');
+  // Nothing may stick out past a pane's right edge (the composer and footer used to).
+  const overflow = (await js(
+    "[...document.querySelectorAll('[data-current-session]')].flatMap((pane) => { const edge = pane.getBoundingClientRect().right + 1; return [...pane.querySelectorAll('[data-composer-submit], [data-open-tools], [data-context-meter]')].filter((el) => el.getBoundingClientRect().right > edge).map((el) => el.dataset.composerSubmit !== undefined ? 'send' : el.dataset.openTools !== undefined ? 'tools' : 'context'); })",
+  )) as string[];
+  if (overflow.length) return `in split view these stick out of their pane: ${overflow.join(', ')}`;
   await js("document.querySelector('[data-pane=\"main\"]').dispatchEvent(new MouseEvent('mousedown', { bubbles: true }))");
   if (!(await waitInPage(win, "document.querySelector('[data-pane-active=\"true\"]')?.dataset.pane === 'main'", 2_000))) return 'clicking the left pane did not make it active';
   await js("document.querySelector('[data-pane=\"split\"] [data-close-pane]').click()");
@@ -914,6 +927,7 @@ app.whenReady().then(() => {
     window: () => BrowserWindow.getAllWindows()[0],
     focusedSession: () => focusedSession,
     openSession,
+    showAllSessions: () => preferences.get().sessionScope === 'all',
     ...(smokeOutDir ? { record: (event: AttentionEvent & { suppressed: boolean }) => void recordedNotifications.push(event) } : {}),
   });
   notifier.connect();

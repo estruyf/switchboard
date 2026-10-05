@@ -77,7 +77,7 @@ If macOS blocks the app the first time you open it, see [Building, signing and n
 
 ## Getting started
 
-1. **Open Switchboard.** Your existing Claude Code sessions appear in the sidebar straight away.
+1. **Open Switchboard.** The sidebar lists the sessions you start or continue in Switchboard. To see your sessions from the terminal, Claude desktop and your editor too, turn on *Show sessions from other apps* in Settings.
 2. **Pick a session** to read it, or type below it to continue.
 3. **Start something new** with ⌘N: choose a folder, and whether to work in the current folder or a new worktree.
 4. When a session needs you (a permission or a question), it's marked in the sidebar and you get a notification.
@@ -109,7 +109,7 @@ Right-click a session for more: open it beside, pin, settle, open its folder, co
 Open Settings with ⌘, or the gear at the bottom of the sidebar.
 
 - **Theme:** Match System, Light or Dark. The colours come from the [Demo Time theme](https://github.com/estruyf/vscode-demo-time-theme).
-- **Sidebar:** *Large icons* (easy to spot each project), *Standard*, or *Compact* (one line per session).
+- **Sidebar:** *Large icons* (easy to spot each project), *Standard*, or *Compact* (one line per session). *Show sessions from other apps* also lists sessions from the terminal, Claude desktop and your editor (off by default), and notifies you when a terminal session is waiting.
 - **Conversation:** *Summarised* (the default) shows each run of tool calls as one line, like Claude Code: what Claude is doing right now, or what it did, with how long it took. Click it to see the steps, and a step to see its details. *Every step* shows each tool call as its own card.
 - **Quitting:** turn off the "Ask before quitting" prompt.
 

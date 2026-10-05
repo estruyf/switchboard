@@ -48,6 +48,8 @@ export interface HostManagerDeps {
   onPermissionResolved: (requestId: string, sessionId: string) => void;
   /** A session this app created (for the "Switchboard" origin badge). */
   onCreated: (sessionId: string) => void;
+  /** You sent a message to an existing session from this app (it now counts as a Switchboard session). */
+  onContinued?: (sessionId: string) => void;
   log: (level: LogLevel, message: string) => void;
   /** Close processes idle for longer than this (default 30 min). The transcript stays; sending resumes. */
   idleTimeoutMs?: number;
@@ -183,6 +185,7 @@ export class HostManager {
     // A fork only learns its new id once Claude Code has started.
     const sessionId = params.fork ? await host.initialized : host.sessionId;
     if (params.fork) this.deps.onCreated(sessionId);
+    else this.deps.onContinued?.(sessionId);
     return { sessionId, messageUuid };
   }
 

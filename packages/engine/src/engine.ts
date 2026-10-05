@@ -99,6 +99,11 @@ export function createEngine(options: EngineOptions): Engine {
   );
   const markOwned = cache.db.prepare('INSERT OR IGNORE INTO owned_sessions (id, created_at) VALUES (?, ?)');
   const unmarkOwned = cache.db.prepare('DELETE FROM owned_sessions WHERE id = ?');
+  const continued = new Set(
+    (cache.db.prepare('SELECT id FROM continued_sessions').all() as Array<{ id: string }>).map((r) => r.id),
+  );
+  const markContinued = cache.db.prepare('INSERT OR IGNORE INTO continued_sessions (id, created_at) VALUES (?, ?)');
+  const unmarkContinued = cache.db.prepare('DELETE FROM continued_sessions WHERE id = ?');
   const trash = options.trash ?? (async (paths: string[], _scope?: { repoRoot: string }) => paths.forEach((p) => rmSync(p, { recursive: true, force: true })));
   const storedBaseline = appState.get('sessions.baseline');
   const baseline = typeof storedBaseline === 'number' ? storedBaseline : Date.now();
@@ -107,6 +112,7 @@ export function createEngine(options: EngineOptions): Engine {
   const sessions = new SessionIndex({
     baseline,
     isOwned: (id) => owned.has(id),
+    isContinued: (id) => continued.has(id),
     db: cache.db,
     source,
     projectsDir: join(claudeConfigDir, 'projects'),
@@ -197,6 +203,12 @@ export function createEngine(options: EngineOptions): Engine {
     onCreated: (id) => {
       owned.add(id);
       markOwned.run(id, Date.now());
+    },
+    onContinued: (id) => {
+      if (owned.has(id) || continued.has(id)) return;
+      continued.add(id);
+      markContinued.run(id, Date.now());
+      sessions.republish(id);
     },
     installedPlugins: () => installedPlugins(claudeConfigDir),
     commandCache: {
@@ -312,6 +324,8 @@ export function createEngine(options: EngineOptions): Engine {
       sessions.forget(sessionId);
       owned.delete(sessionId);
       unmarkOwned.run(sessionId);
+      continued.delete(sessionId);
+      unmarkContinued.run(sessionId);
       log('info', `Moved session ${sessionId} to the Trash`);
       return {};
     },

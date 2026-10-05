@@ -30,6 +30,8 @@ export type ColorScheme = 'system' | 'light' | 'dark';
 export type SidebarStyle = 'large' | 'standard' | 'compact';
 /** Tool calls in a conversation: one summary line per run (click for the steps), or every step. */
 export type ToolActivity = 'summary' | 'steps';
+/** Sessions in the sidebar: only those started or continued in Switchboard, or every Claude Code session. */
+export type SessionScope = 'switchboard' | 'all';
 
 /** App preferences, kept by main in the app's data folder. */
 export interface Preferences {
@@ -38,9 +40,10 @@ export interface Preferences {
   toolActivity: ToolActivity;
   /** ⌘Q asks first (a second ⌘Q quits). */
   confirmQuit: boolean;
+  sessionScope: SessionScope;
 }
 
-export const DEFAULT_PREFERENCES: Preferences = { colorScheme: 'system', sidebarStyle: 'standard', toolActivity: 'summary', confirmQuit: true };
+export const DEFAULT_PREFERENCES: Preferences = { colorScheme: 'system', sidebarStyle: 'standard', toolActivity: 'summary', confirmQuit: true, sessionScope: 'switchboard' };
 
 const oneOf = <T extends string>(values: readonly T[], value: unknown): value is T => values.includes(value as T);
 
@@ -52,6 +55,7 @@ export function sanitizePreferences(input: unknown): Partial<Preferences> {
   if (oneOf(['large', 'standard', 'compact'] as const, raw.sidebarStyle)) out.sidebarStyle = raw.sidebarStyle;
   if (oneOf(['summary', 'steps'] as const, raw.toolActivity)) out.toolActivity = raw.toolActivity;
   if (typeof raw.confirmQuit === 'boolean') out.confirmQuit = raw.confirmQuit;
+  if (oneOf(['switchboard', 'all'] as const, raw.sessionScope)) out.sessionScope = raw.sessionScope;
   return out;
 }
 

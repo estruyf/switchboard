@@ -2,6 +2,13 @@
 
 All notable changes to Switchboard are listed here. Each release is also on the [releases page](https://github.com/estruyf/switchboard/releases), with the `.dmg` to download.
 
+## [0.0.2] - 2026-10-05
+
+- The sidebar now lists only the sessions you start or continue in Switchboard. Turn on **Settings → Sidebar → Show sessions from other apps** to see your terminal, Claude desktop and editor sessions too.
+- Closing or reopening Claude Code elsewhere no longer marks sessions unread or reshuffles the sidebar: a session is dated by its last message, not by when its file was last touched.
+- Claude's reply is formatted as it streams in (headings, lists, code, bold), instead of as plain text until it finishes.
+- With two sessions side by side, the message box, its buttons and the context meter fit inside each pane instead of sticking out.
+
 ## [0.0.1] - 2026-10-05
 
 The first release of Switchboard, a Mac app for running and keeping track of your Claude Code sessions. It uses the Claude Code you already have installed, with your login, settings, commands and skills.

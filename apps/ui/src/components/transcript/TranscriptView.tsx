@@ -29,6 +29,7 @@ import { liveLabel, StatusDot } from '../StatusDot.tsx';
 import { formatDuration, useTicker, WorkingDots } from './ActivityGroup.tsx';
 import { AgentsButton } from './AgentsButton.tsx';
 import { buildDisplayItems, groupActivity, type RenderItem } from './displayItems.ts';
+import { StreamingMarkdown } from './Markdown.tsx';
 import { MessageActionsContext, messageUuid, pendingDrafts, type MessageActions } from './messageActions.tsx';
 import { parseTodos, TodoList } from './TodoList.tsx';
 import { TranscriptItem } from './TranscriptItem.tsx';
@@ -47,10 +48,8 @@ function StreamingBlock({ sessionId, since, showIndicator }: { sessionId: string
   if (block?.kind === 'text') {
     return (
       <div className="mx-auto max-w-3xl px-6 pt-3 pb-2" data-streaming>
-        <p className="text-[13.5px] leading-relaxed whitespace-pre-wrap select-text">
-          {block.text}
-          <span className="ml-0.5 inline-block h-3.5 w-1.5 animate-pulse bg-accent-ink align-middle" />
-        </p>
+        <StreamingMarkdown text={block.text} />
+        <span className="mt-0.5 block h-3.5 w-1.5 animate-pulse bg-accent-ink" />
       </div>
     );
   }
@@ -477,7 +476,8 @@ export function TranscriptView({ sessionId, pane = null, active = true }: { sess
           )}
 
           <div className="shrink-0 border-t border-border bg-bg">
-            <div className="mx-auto grid max-w-3xl gap-2 px-6 pt-3 pb-1.5">
+            {/* minmax(0,1fr): the column stays as wide as the pane, so long lines truncate instead of pushing it wider. */}
+            <div className="mx-auto grid max-w-3xl grid-cols-[minmax(0,1fr)] gap-2 px-6 pt-3 pb-1.5 @max-[860px]:px-4">
               {todos.some((t) => t.status !== 'completed') && (live || activeHost) && (
                 <div className="rounded-lg border border-border bg-card px-3 py-2" data-todo-strip>
                   <button type="button" onClick={() => setTodosOpen((o) => !o)} className="flex w-full items-center gap-2 text-left text-[11px] text-muted">
@@ -550,7 +550,7 @@ export function TranscriptView({ sessionId, pane = null, active = true }: { sess
                     className="flex h-6 shrink-0 items-center gap-1 rounded-md px-1.5 text-[11px] text-faint hover:bg-border/50 hover:text-text"
                   >
                     <Blocks size={12} />
-                    Tools
+                    <span className="@max-[860px]:hidden">Tools</span>
                   </button>
                 )}
               </div>

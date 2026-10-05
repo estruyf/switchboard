@@ -4,6 +4,7 @@ import type { SearchHit } from '@switchboard/protocol/client';
 import { useEngineConnection } from '../../engine/useEngine.ts';
 import { shortAge } from '../../lib/format.ts';
 import { useOverlay } from '../../state/overlayStore.ts';
+import { usePreferences } from '../../state/preferencesStore.ts';
 import { useProjects } from '../../state/projectsStore.ts';
 import { useSessions } from '../../state/sessionsStore.ts';
 import { ProjectIcon } from '../ProjectIcon.tsx';
@@ -42,6 +43,7 @@ export function SearchDialog() {
   const client = connection.status === 'connected' ? connection.client : null;
   const close = useOverlay((s) => s.close);
   const sessions = useSessions((s) => s.sessions);
+  const scope = usePreferences((s) => s.prefs.sessionScope);
   const projects = useProjects((s) => s.projects);
   const [query, setQuery] = useState('');
   const [hits, setHits] = useState<SearchHit[]>([]);
@@ -75,12 +77,14 @@ export function SearchDialog() {
   const groups = useMemo(() => {
     const bySession = new Map<string, SearchHit[]>();
     for (const hit of hits) {
+      // Same sessions as the sidebar: with "Switchboard sessions only", others aren't searched either.
+      if (scope === 'switchboard' && !sessions.get(hit.sessionId)?.inApp) continue;
       const list = bySession.get(hit.sessionId) ?? [];
       list.push(hit);
       bySession.set(hit.sessionId, list);
     }
     return [...bySession.entries()].map(([sessionId, list]) => ({ sessionId, hits: list.slice(0, HITS_PER_SESSION), more: Math.max(0, list.length - HITS_PER_SESSION) }));
-  }, [hits]);
+  }, [hits, scope, sessions]);
   const flat = useMemo(() => groups.flatMap((g) => g.hits), [groups]);
 
   const open = (hit: SearchHit) => {

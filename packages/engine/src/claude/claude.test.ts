@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { LiveRegistry, normaliseStatus, parseRegistryEntry } from './liveRegistry.ts';
-import { originFromEntrypoint, readEntrypoint } from './origin.ts';
+import { originFromEntrypoint, readEntrypoint, readLastActivity } from './origin.ts';
 import { createProjectResolver } from './projectResolver.ts';
 import { clipJson, LIMITS, normaliseMessage } from './transcript.ts';
 
@@ -147,6 +147,26 @@ describe('origin', () => {
     writeFileSync(file, '{"type":"queue-operation"}\n{"type":"user","entrypoint":"cli","cwd":"/x"}\n');
     expect(readEntrypoint(file)).toBe('cli');
     expect(readEntrypoint(join(tempDir(), 'missing.jsonl'))).toBeNull();
+  });
+
+  it('reads the last message time, ignoring what Claude Code appends on exit', () => {
+    const file = join(tempDir(), 's.jsonl');
+    const records = [
+      { type: 'user', timestamp: '2026-10-05T10:00:00.000Z', message: { content: 'hi' } },
+      { type: 'assistant', timestamp: '2026-10-05T10:00:05.000Z', message: { content: [{ type: 'text', text: 'hello' }] } },
+      { type: 'system', subtype: 'stop_hook_summary', timestamp: '2026-10-05T10:00:06.000Z' },
+      { type: 'pr-link', timestamp: '2026-10-05T11:00:00.000Z' },
+      { type: 'last-prompt', lastPrompt: 'hi' },
+      { type: 'cost-state', totalCostUSD: 0.01 },
+    ];
+    writeFileSync(file, `${records.map((r) => JSON.stringify(r)).join('\n')}\n`);
+    expect(readLastActivity(file)).toBe(Date.parse('2026-10-05T10:00:06.000Z'));
+    // A last record bigger than the first read is still found.
+    writeFileSync(file, `${JSON.stringify(records[0])}\n${JSON.stringify({ type: 'user', timestamp: '2026-10-05T12:00:00.000Z', text: 'x'.repeat(200_000) })}\n{"type":"cost-state"}\n`);
+    expect(readLastActivity(file)).toBe(Date.parse('2026-10-05T12:00:00.000Z'));
+    writeFileSync(file, '{"type":"cost-state"}\n');
+    expect(readLastActivity(file)).toBeNull();
+    expect(readLastActivity(join(tempDir(), 'missing.jsonl'))).toBeNull();
   });
 });
 

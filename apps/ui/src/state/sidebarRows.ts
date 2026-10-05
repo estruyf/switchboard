@@ -1,3 +1,4 @@
+import type { SessionScope } from '@switchboard/protocol/bridge';
 import type { SessionRowData } from './sessionsStore.ts';
 
 /** What the status icon on a row shows, most urgent first. */
@@ -15,9 +16,12 @@ export function rowStatus(row: SessionRowData): RowStatus {
 /** Sessions with activity in this window stay in the main list. */
 export const RECENT_MS = 48 * 60 * 60 * 1000;
 
+/** Whether the sidebar (and the palette) list a session under the chosen scope. */
+export const inScope = (row: SessionRowData, scope: SessionScope) => scope === 'all' || row.inApp;
+
 /**
  * Main list or "Settled"? Anything that wants attention (working, waiting,
- * failed, unread, open) or is pinned stays up. Settling by hand hides a
+ * failed, unread, open in Switchboard) or is pinned stays up. Settling by hand hides a
  * session until it has new activity; otherwise sessions settle after 48 h.
  */
 export function isActive(row: SessionRowData, now: number): boolean {
@@ -28,7 +32,9 @@ export function isActive(row: SessionRowData, now: number): boolean {
   // working stays settled (its constant updates aren't news); it comes back once it finishes.
   if (row.settledAt !== null && (row.settledAt >= row.updatedAt || row.live?.status === 'running')) return false;
   if (row.live?.status === 'running') return true;
-  return row.live !== null || row.unread || now - row.updatedAt < RECENT_MS;
+  // Open in Switchboard counts; a process idling elsewhere doesn't (Claude desktop reopens
+  // many old sessions at launch, and they shouldn't all come back).
+  return row.live?.origin === 'app' || row.unread || now - row.updatedAt < RECENT_MS;
 }
 
 export interface SessionListOptions {
@@ -36,6 +42,8 @@ export interface SessionListOptions {
   /** Only this project folder; null = all. */
   project: string | null;
   now: number;
+  /** Default: every session. */
+  scope?: SessionScope;
 }
 
 const matches = (row: SessionRowData, needle: string) =>
@@ -49,6 +57,7 @@ export function buildSessionList(rows: readonly SessionRowData[], options: Sessi
   const active: SessionRowData[] = [];
   const settled: SessionRowData[] = [];
   for (const row of rows) {
+    if (options.scope && !inScope(row, options.scope)) continue;
     if (options.project && row.projectRoot !== options.project) continue;
     if (needle && !matches(row, needle)) continue;
     (isActive(row, options.now) ? active : settled).push(row);

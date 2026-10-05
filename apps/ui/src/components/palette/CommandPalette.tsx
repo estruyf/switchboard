@@ -23,6 +23,7 @@ import { useOverlay } from '../../state/overlayStore.ts';
 import { usePreferences } from '../../state/preferencesStore.ts';
 import { useProjects } from '../../state/projectsStore.ts';
 import { toRows, useSessions } from '../../state/sessionsStore.ts';
+import { inScope } from '../../state/sidebarRows.ts';
 import { useTerminals } from '../../state/terminalsStore.ts';
 import { ACTION_ICON, formatShortcut, useProjectActionList } from '../actions/useActions.ts';
 import { useOpenIn } from '../OpenInButton.tsx';
@@ -55,6 +56,7 @@ export function CommandPalette() {
   const hosts = useHosts((s) => s.hosts);
   const projects = useProjects((s) => s.projects);
   const updatePrefs = usePreferences((s) => s.update);
+  const scope = usePreferences((s) => s.prefs.sessionScope);
   const openIn = useOpenIn();
   const [query, setQuery] = useState('');
   const [active, setActive] = useState(0);
@@ -100,6 +102,7 @@ export function CommandPalette() {
       return { id: `action:${a.id}`, group: 'Project actions', label: `Run: ${a.name}`, keywords: a.command, hint: a.shortcut ? formatShortcut(a.shortcut) : undefined, icon: <Icon size={14} />, run: () => useOverlay.getState().requestAction(a.id) };
     });
     const sessionItems: Item[] = toRows(sessions, live, hosts)
+      .filter((row) => inScope(row, scope))
       .sort((a, b) => b.updatedAt - a.updatedAt)
       .map((row) => {
         const project = projects.get(row.projectRoot);
@@ -115,7 +118,7 @@ export function CommandPalette() {
         };
       });
     return [...commands, ...projectActions, ...sessionItems];
-  }, [actions, client, current, cwd, hosts, live, openIn, projects, running, sessions, updatePrefs]);
+  }, [actions, client, current, cwd, hosts, live, openIn, projects, running, scope, sessions, updatePrefs]);
 
   // With nothing typed: commands, actions and the 8 most recent sessions. Otherwise the best matches.
   const results = useMemo(() => {

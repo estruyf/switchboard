@@ -14,8 +14,8 @@ const basename = (path: string) => path.replace(/\/+$/, '').split('/').pop() ?? 
  * without Electron; main turns events into notifications and the dock badge.
  *
  * - Sessions running in Switchboard: needs approval, turn finished, failed.
- * - Terminal (CLI) sessions waiting for you. Claude desktop and IDE sessions
- *   are skipped: they notify on their own.
+ * - Terminal (CLI) sessions waiting for you, when the sidebar lists sessions from
+ *   other apps. Claude desktop and IDE sessions are skipped: they notify on their own.
  * - Project actions that finish.
  */
 export class Attention {
@@ -24,6 +24,9 @@ export class Attention {
   private readonly cliWaiting = new Set<string>();
   private readonly terminalExit = new Map<string, number | null>();
   private readonly titles = new Map<string, string>();
+
+  /** `external`: whether sessions from other apps are shown (Settings); off, Terminal sessions are left alone. */
+  constructor(private readonly options: { external?: () => boolean } = {}) {}
 
   setTitle(sessionId: string, title: string): void {
     this.titles.set(sessionId, title);
@@ -60,7 +63,9 @@ export class Attention {
   onLive(live: LiveSession[]): AttentionEvent[] {
     const events: AttentionEvent[] = [];
     const now = new Set<string>();
+    const external = this.options.external?.() ?? true;
     for (const session of live) {
+      if (!external) break;
       if (session.origin !== 'cli' || session.status !== 'needs-you') continue;
       now.add(session.sessionId);
       if (!this.cliWaiting.has(session.sessionId)) {
