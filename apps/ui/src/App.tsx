@@ -2,11 +2,15 @@ import { useEffect } from 'react';
 import { EngineDiagnostics } from './components/EngineDiagnostics.tsx';
 import { NewSessionView } from './components/newSession/NewSessionView.tsx';
 import { useOpenIn } from './components/OpenInButton.tsx';
+import { QuitPrompt } from './components/QuitPrompt.tsx';
+import { SettingsView } from './components/SettingsView.tsx';
+import { useUsageSync } from './components/UsageBand.tsx';
 import { Sidebar } from './components/sidebar/Sidebar.tsx';
 import { TranscriptView } from './components/transcript/TranscriptView.tsx';
 import { useReadyReport } from './engine/useReadyReport.ts';
 import { isActiveHost, useHosts } from './state/hostsStore.ts';
 import { useSessions } from './state/sessionsStore.ts';
+import { usePreferencesSync } from './state/preferencesStore.ts';
 import { useProjectsSync } from './state/projectsStore.ts';
 import { useTerminals, useTerminalsSync } from './state/terminalsStore.ts';
 import { useHostsSync } from './state/useHostsSync.ts';
@@ -67,6 +71,8 @@ function useWindowFocus() {
     window.switchboard?.reportFocus(view === 'session' ? selectedId : null);
   }, [view, selectedId]);
   useEffect(() => window.switchboard?.onSelectSession((id) => useSessions.getState().select(id)), []);
+  // Switchboard → Settings… (⌘,) in the menu bar.
+  useEffect(() => window.switchboard?.onOpenSettings(() => useSessions.getState().setView('settings')), []);
 }
 
 export function App() {
@@ -74,6 +80,8 @@ export function App() {
   useHostsSync();
   useProjectsSync();
   useTerminalsSync();
+  useUsageSync();
+  usePreferencesSync();
   useReadyReport();
   useShortcuts();
   useWindowFocus();
@@ -93,6 +101,8 @@ export function App() {
               <EngineDiagnostics />
             </div>
           </>
+        ) : view === 'settings' ? (
+          <SettingsView />
         ) : view === 'new' ? (
           <NewSessionView />
         ) : selectedId ? (
@@ -101,6 +111,7 @@ export function App() {
           <EmptyState />
         )}
       </main>
+      <QuitPrompt />
     </div>
   );
 }

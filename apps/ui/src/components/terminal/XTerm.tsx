@@ -11,7 +11,19 @@ const FALLBACK_FONTS = '"SF Mono", ui-monospace, Menlo, "Symbols Nerd Font Mono"
 
 let userFont: Promise<string | null> | undefined;
 
-/** Terminal colours from the app's theme tokens, so it matches light and dark mode. */
+/** The Demo Time theme's terminal colours (github.com/estruyf/vscode-demo-time-theme). */
+const ANSI = {
+  dark: {
+    black: '#15181f', red: '#ff6b6b', green: '#51cf66', yellow: '#ffd43b', blue: '#74c0fc', magenta: '#d0bfff', cyan: '#66d9ef', white: '#d9dbe1',
+    brightBlack: '#6b7280', brightRed: '#ed217c', brightGreen: '#7ee787', brightYellow: '#e6be36', brightBlue: '#8bb3ff', brightMagenta: '#d2a8ff', brightCyan: '#56d4dd', brightWhite: '#ffffff',
+  },
+  light: {
+    black: '#24292e', red: '#d73a49', green: '#00b8a2', yellow: '#a08000', blue: '#005cc5', magenta: '#6f42c1', cyan: '#17a2b8', white: '#6a737d',
+    brightBlack: '#505869', brightRed: '#b73545', brightGreen: '#00b8a2', brightYellow: '#916c00', brightBlue: '#005cc5', brightMagenta: '#6f42c1', brightCyan: '#0891b2', brightWhite: '#9ba4b7',
+  },
+} satisfies Record<string, ITheme>;
+
+/** Terminal colours: the panel's background and text from the app's tokens, ANSI from the theme. */
 function themeFromCss(): ITheme {
   const css = getComputedStyle(document.documentElement);
   const v = (name: string) => css.getPropertyValue(name).trim();
@@ -19,19 +31,10 @@ function themeFromCss(): ITheme {
   return {
     background: v('--sb-sidebar'),
     foreground: v('--sb-text'),
-    cursor: v('--sb-accent'),
+    cursor: v('--sb-accent-ink'),
     cursorAccent: v('--sb-sidebar'),
-    selectionBackground: dark ? '#ffffff30' : '#00000025',
-    black: dark ? '#3a3a40' : '#1c1c1e',
-    brightBlack: v('--sb-faint'),
-    red: v('--sb-error'),
-    green: v('--sb-ok'),
-    yellow: v('--sb-warn'),
-    blue: dark ? '#74a7ff' : '#2f6fe0',
-    magenta: dark ? '#d18cff' : '#9b46d6',
-    cyan: dark ? '#5ed4e0' : '#0f8f9f',
-    white: dark ? '#e6e6ea' : '#6c6c72',
-    brightWhite: dark ? '#ffffff' : '#1c1c1e',
+    selectionBackground: dark ? '#ffd43b40' : '#ffd43b66',
+    ...(dark ? ANSI.dark : ANSI.light),
   };
 }
 

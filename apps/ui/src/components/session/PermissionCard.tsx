@@ -48,7 +48,7 @@ function DenyWithFeedback({ respond, busy, label = 'Deny' }: { respond: Respond;
         value={message}
         onChange={(e) => setMessage(e.target.value)}
         placeholder="Tell Claude what to do instead (optional)"
-        className="h-7 min-w-0 flex-1 rounded-md border border-border bg-bg px-2 text-[12px] outline-none focus:border-accent/60"
+        className="h-7 min-w-0 flex-1 rounded-md border border-border bg-bg px-2 text-[12px] outline-none focus:border-accent-ink/60"
       />
       <button type="submit" disabled={busy} className={`${button} border border-border text-text`}>
         {label}
@@ -81,7 +81,7 @@ function ToolPermission({ request, cwd }: { request: PermissionRequest; cwd: str
         </pre>
       )}
       <div className="flex flex-wrap items-center gap-1.5">
-        <button type="button" data-permission-allow disabled={busy} onClick={() => void respond({ behavior: 'allow' })} className={`${button} bg-accent text-white`} autoFocus>
+        <button type="button" data-permission-allow disabled={busy} onClick={() => void respond({ behavior: 'allow' })} className={`${button} bg-accent text-on-accent`} autoFocus>
           Allow
         </button>
         {request.alwaysLabel && (
@@ -144,7 +144,7 @@ function AskUserQuestion({ request }: { request: PermissionRequest }) {
           {q.options.map((option) => {
             const checked = (answers[q.question] ?? []).includes(option.label);
             return (
-              <label key={option.label} className={`flex cursor-pointer gap-2 rounded-md border px-2.5 py-1.5 ${checked ? 'border-accent/60 bg-accent/10' : 'border-border'}`}>
+              <label key={option.label} className={`flex cursor-pointer gap-2 rounded-md border px-2.5 py-1.5 ${checked ? 'border-accent-ink/60 bg-accent/10' : 'border-border'}`}>
                 <input type={q.multiSelect ? 'checkbox' : 'radio'} name={q.question} checked={checked} onChange={() => toggle(q, option.label)} className="mt-0.5 accent-[var(--sb-accent)]" />
                 <span>
                   <span className="text-[13px]">{option.label}</span>
@@ -157,12 +157,12 @@ function AskUserQuestion({ request }: { request: PermissionRequest }) {
             value={other[q.question] ?? ''}
             onChange={(e) => setOther((c) => ({ ...c, [q.question]: e.target.value }))}
             placeholder="Other answer"
-            className="h-7 rounded-md border border-border bg-bg px-2 text-[12px] outline-none focus:border-accent/60"
+            className="h-7 rounded-md border border-border bg-bg px-2 text-[12px] outline-none focus:border-accent-ink/60"
           />
         </fieldset>
       ))}
       <div className="flex items-center gap-1.5">
-        <button type="submit" disabled={busy || !complete} className={`${button} bg-accent text-white`}>
+        <button type="submit" disabled={busy || !complete} className={`${button} bg-accent text-on-accent`}>
           Answer
         </button>
         <DenyWithFeedback respond={respond} busy={busy} label="Skip" />
@@ -189,7 +189,7 @@ function PlanApproval({ request }: { request: PermissionRequest }) {
         <Markdown text={plan} />
       </div>
       <div className="flex flex-wrap items-center gap-1.5">
-        <button type="button" disabled={busy} onClick={() => void approveWithEdits()} className={`${button} bg-accent text-white`}>
+        <button type="button" disabled={busy} onClick={() => void approveWithEdits()} className={`${button} bg-accent text-on-accent`}>
           Approve and accept edits
         </button>
         <button type="button" disabled={busy} onClick={() => void respond({ behavior: 'allow' })} className={`${button} border border-border text-text`}>

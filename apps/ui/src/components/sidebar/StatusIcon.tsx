@@ -19,7 +19,7 @@ export function StatusIcon({ status }: { status: RowStatus }) {
   switch (status) {
     case 'running':
       return (
-        <span className="size-3.5 shrink-0 animate-spin rounded-full border-[1.5px] border-accent/25 border-t-accent" title={label} aria-label={label} />
+        <span className="size-3.5 shrink-0 animate-spin rounded-full border-[1.5px] border-accent-ink/25 border-t-accent-ink" title={label} aria-label={label} />
       );
     case 'needs-you':
       return (
@@ -37,7 +37,7 @@ export function StatusIcon({ status }: { status: RowStatus }) {
     case 'unread':
       return (
         <span className="flex size-3.5 shrink-0 items-center justify-center" title={label} aria-label={label}>
-          <span className="size-2 rounded-full bg-accent" />
+          <span className="size-2 rounded-full bg-accent-ink" />
         </span>
       );
     case 'idle':

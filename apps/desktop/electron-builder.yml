@@ -1,0 +1,40 @@
+# Packaging for the Switchboard desktop app: npm run dist
+appId: dev.switchboard.app
+productName: Switchboard
+copyright: Copyright © 2026 Elio Struyf
+directories:
+  output: dist
+  buildResources: build
+files:
+  - out/**
+  - package.json
+  # Switchboard runs the user's installed `claude`; the SDK's bundled copy (~220 MB) is not shipped.
+  - '!node_modules/@anthropic-ai/claude-agent-sdk-*/**'
+  # node-pty: only the JS and this platform's prebuilt binaries are needed at runtime.
+  - '!node_modules/node-pty/{deps,third_party,src,scripts,typings,binding.gyp}/**'
+  - '!node_modules/node-pty/prebuilds/win32-*/**'
+# Native modules must live outside the asar archive to be loaded and (spawn-helper) executed.
+asarUnpack:
+  - node_modules/node-pty/**
+# The UI is English-only; skip Chromium's other locales.
+electronLanguages: [en]
+# node-pty ships N-API prebuilds that work in Electron as-is; no rebuild needed.
+npmRebuild: false
+mac:
+  icon: build/icon.icns
+  category: public.app-category.developer-tools
+  target:
+    - target: dmg
+      arch: [arm64]
+    - target: dir
+      arch: [arm64]
+  darkModeSupport: true
+  # Signing: electron-builder finds your "Developer ID Application" identity in the keychain on its own;
+  # without one the app is built unsigned. Notarisation runs when APPLE_KEYCHAIN_PROFILE is set
+  # (see README → Signing and notarisation).
+  hardenedRuntime: true
+  gatekeeperAssess: false
+  entitlements: build/entitlements.mac.plist
+  entitlementsInherit: build/entitlements.mac.plist
+dmg:
+  title: Switchboard

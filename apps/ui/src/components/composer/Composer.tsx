@@ -200,7 +200,7 @@ export function Composer(props: ComposerProps) {
         </ul>
       )}
 
-      <div className={`rounded-xl border bg-card px-3 pt-2.5 pb-2 shadow-sm transition-colors ${disabled ? 'border-border opacity-60' : 'border-border focus-within:border-accent/60'}`}>
+      <div className={`rounded-xl border bg-card px-3 pt-2.5 pb-2 shadow-sm transition-colors ${disabled ? 'border-border opacity-60' : 'border-border focus-within:border-accent-ink/60'}`}>
         {attachments.length > 0 && (
           <div className="mb-2 flex flex-wrap gap-2">
             {attachments.map((a, i) => (
@@ -272,7 +272,7 @@ export function Composer(props: ComposerProps) {
               data-composer-submit
               onClick={() => void submit()}
               disabled={disabled || sending || (!text.trim() && attachments.length === 0)}
-              className="rounded-md bg-accent px-3 py-1 text-[12px] font-medium text-white disabled:opacity-40"
+              className="rounded-md bg-accent px-3 py-1 text-[12px] font-medium text-on-accent disabled:opacity-40"
             >
               {sending ? 'Sending…' : (props.submitLabel ?? (props.running ? 'Queue' : 'Send'))}
             </button>

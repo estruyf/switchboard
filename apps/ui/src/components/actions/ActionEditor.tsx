@@ -16,7 +16,7 @@ const slug = (name: string) =>
     .replace(/^-+|-+$/g, '')
     .slice(0, 40) || 'action';
 
-const field = 'h-7 rounded-md border border-border bg-bg px-2 text-[12px] text-text outline-none focus:border-accent/60';
+const field = 'h-7 rounded-md border border-border bg-bg px-2 text-[12px] text-text outline-none focus:border-accent-ink/60';
 const SCOPE_LABEL = { project: 'This project', global: 'All projects', shared: '.switchboard.json' } as const;
 
 function ShortcutInput({ value, onChange }: { value: string | null; onChange(value: string | null): void }) {
@@ -39,7 +39,7 @@ function ShortcutInput({ value, onChange }: { value: string | null; onChange(val
           onChange(shortcut);
           setRecording(false);
         }}
-        className={`${field} min-w-28 text-left ${recording ? 'border-accent/60 text-accent' : ''}`}
+        className={`${field} min-w-28 text-left ${recording ? 'border-accent-ink/60 text-accent-ink' : ''}`}
       >
         {recording ? 'Press keys…' : value ? formatShortcut(value) : 'None'}
       </button>
@@ -185,7 +185,7 @@ export function ActionEditor({
                             type="button"
                             title={s.command}
                             onClick={() => (setDraft({ ...EMPTY, name: s.name, command: s.command, type: s.type, icon: s.icon }), setEditingId(null))}
-                            className="flex items-center gap-1.5 rounded-full border border-border px-2.5 py-0.5 text-[12px] text-muted hover:border-accent/50 hover:text-text"
+                            className="flex items-center gap-1.5 rounded-full border border-border px-2.5 py-0.5 text-[12px] text-muted hover:border-accent-ink/50 hover:text-text"
                           >
                             <Icon size={12} /> {s.name}
                           </button>
@@ -271,7 +271,7 @@ export function ActionEditor({
                 <button type="button" onClick={() => (setDraft(null), setEditingId(null))} className="rounded-md border border-border px-3 py-1 text-[12px]">
                   Cancel
                 </button>
-                <button type="submit" data-save-action className="rounded-md bg-accent px-3 py-1 text-[12px] font-medium text-white">
+                <button type="submit" data-save-action className="rounded-md bg-accent px-3 py-1 text-[12px] font-medium text-on-accent">
                   Save
                 </button>
               </div>

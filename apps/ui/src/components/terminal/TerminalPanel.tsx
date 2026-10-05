@@ -77,7 +77,7 @@ export function TerminalPanel({ sessionId, cwd }: { sessionId: string; cwd: stri
               className={`group flex h-6 shrink-0 items-center gap-1.5 rounded-md pr-1 pl-2 text-[12px] ${t.id === active?.id ? 'bg-card text-text' : 'text-muted hover:text-text'}`}
             >
               <button type="button" onClick={() => setActive(sessionId, t.id)} className="flex items-center gap-1.5">
-                {t.kind === 'claude' ? <Sparkles size={12} className="text-accent" /> : <SquareTerminal size={12} />}
+                {t.kind === 'claude' ? <Sparkles size={12} className="text-accent-ink" /> : <SquareTerminal size={12} />}
                 {t.title}
                 {t.exitCode !== null && <span className={t.exitCode === 0 ? 'text-faint' : 'text-error'}>({t.exitCode})</span>}
               </button>
@@ -141,7 +141,7 @@ export function TerminalPanel({ sessionId, cwd }: { sessionId: string; cwd: stri
               {t.exitCode !== null && t.id === active?.id && (
                 <div className="absolute right-3 bottom-2 flex items-center gap-2 rounded-md border border-border bg-card px-2 py-1 text-[11px] text-muted shadow">
                   Exited with code {t.exitCode}
-                  <button type="button" onClick={() => (close(t), void open(t.kind))} className="text-accent hover:underline">
+                  <button type="button" onClick={() => (close(t), void open(t.kind))} className="text-accent-ink hover:underline">
                     Restart
                   </button>
                 </div>

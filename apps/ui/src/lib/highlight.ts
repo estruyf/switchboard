@@ -1,4 +1,4 @@
-import type { HighlighterCore } from 'shiki/core';
+import type { HighlighterCore, ThemeRegistration } from 'shiki/core';
 
 /** Fence names → Shiki grammar, loaded only when first needed. */
 const GRAMMARS: Record<string, () => Promise<unknown>> = {
@@ -79,10 +79,12 @@ function getHighlighter(): Promise<HighlighterCore> {
     const [{ createHighlighterCore }, { createJavaScriptRegexEngine }, light, dark] = await Promise.all([
       import('shiki/core'),
       import('shiki/engine/javascript'),
-      import('shiki/themes/github-light.mjs'),
-      import('shiki/themes/github-dark.mjs'),
+      // The Demo Time theme's syntax colours (github.com/estruyf/vscode-demo-time-theme), to match the app.
+      import('./themes/demotime-light.json'),
+      import('./themes/demotime-dark.json'),
     ]);
-    return createHighlighterCore({ themes: [light.default, dark.default], langs: [], engine: createJavaScriptRegexEngine() });
+    const themes = [light.default, dark.default] as unknown as ThemeRegistration[];
+    return createHighlighterCore({ themes, langs: [], engine: createJavaScriptRegexEngine() });
   })();
   return highlighter;
 }
@@ -103,7 +105,7 @@ export async function highlight(code: string, language: string | undefined): Pro
     await shiki.loadLanguage(module.default);
     loaded.add(grammar);
   }
-  const html = shiki.codeToHtml(code, { lang: grammar, themes: { light: 'github-light', dark: 'github-dark' }, defaultColor: false });
+  const html = shiki.codeToHtml(code, { lang: grammar, themes: { light: 'demotime-light', dark: 'demotime-dark' }, defaultColor: false });
   if (cache.size > 500) cache.clear();
   cache.set(key, html);
   return html;

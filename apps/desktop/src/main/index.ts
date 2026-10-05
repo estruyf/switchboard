@@ -1,11 +1,13 @@
-import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { app, BrowserWindow, dialog, ipcMain, MessageChannelMain, nativeTheme, shell } from 'electron';
-import { IpcChannel, type RendererReadyReport } from '@switchboard/protocol/bridge';
+import { app, BrowserWindow, dialog, ipcMain, Menu, MessageChannelMain, nativeTheme, shell, type MenuItemConstructorOptions } from 'electron';
+import { IpcChannel, sanitizePreferences, type RendererReadyReport } from '@switchboard/protocol/bridge';
 import { EngineProcess } from './engineProcess.ts';
 import type { AttentionEvent } from './attention.ts';
 import { Notifier } from './notifier.ts';
+import { PreferencesStore, windowBackground } from './preferences.ts';
+import { QuitGuard } from './quitGuard.ts';
 import { isTrashableSessionPath } from './trashGuard.ts';
 
 const here = import.meta.dirname;
@@ -15,6 +17,27 @@ const smokeOutDir = process.env.SWITCHBOARD_SMOKE_OUT;
 if (smokeOutDir) app.setPath('userData', mkdtempSync(join(tmpdir(), 'switchboard-smoke-')));
 
 if (!app.requestSingleInstanceLock()) app.quit();
+
+// SWITCHBOARD_COLOR_SCHEME=light|dark forces a scheme without saving it (to check both in the smoke test).
+const forcedScheme = process.env.SWITCHBOARD_COLOR_SCHEME;
+const preferences = new PreferencesStore(join(app.getPath('userData'), 'preferences.json'), sanitizePreferences({ colorScheme: forcedScheme }).colorScheme);
+
+/** Applies a change from any window or the menu bar, and tells every window. */
+function updatePreferences(patch: unknown): void {
+  const next = preferences.update(patch);
+  const item = Menu.getApplicationMenu()?.getMenuItemById(`scheme-${next.colorScheme}`);
+  if (item) item.checked = true;
+  for (const win of BrowserWindow.getAllWindows()) win.webContents.send(IpcChannel.preferencesChanged, next);
+}
+
+ipcMain.on(IpcChannel.getPreferences, (event) => {
+  event.returnValue = preferences.get();
+});
+ipcMain.on(IpcChannel.setPreferences, (_event, patch: unknown) => updatePreferences(patch));
+// Keep the area behind the page in step (resizing shows it briefly).
+nativeTheme.on('updated', () => {
+  for (const win of BrowserWindow.getAllWindows()) win.setBackgroundColor(windowBackground());
+});
 
 let engine: EngineProcess;
 let notifier: Notifier;
@@ -50,6 +73,94 @@ async function handleEngineRequest(message: unknown): Promise<unknown> {
   }
 }
 
+/** Windows whose renderer is up and can show the quit prompt. */
+const readyRenderers = new Set<number>();
+let quitRecorded = false;
+
+const quitGuard = new QuitGuard({
+  ask() {
+    const win = BrowserWindow.getAllWindows()[0];
+    if (win && readyRenderers.has(win.webContents.id)) {
+      if (win.isMinimized()) win.restore();
+      win.show();
+      win.focus();
+      win.webContents.send(IpcChannel.quitRequested);
+      return;
+    }
+    // No window to ask in (all closed, or still loading): ask natively.
+    void dialog
+      .showMessageBox({ type: 'question', message: 'Quit Switchboard?', detail: 'Sessions running in Switchboard will stop.', buttons: ['Quit', 'Cancel'], defaultId: 0, cancelId: 1 })
+      .then(({ response }) => quitGuard.answer(response === 0 ? 'quit' : 'cancel'));
+  },
+  quit: () => quitApp(),
+});
+
+ipcMain.on(IpcChannel.quitAnswer, (_event, answer: unknown) => {
+  if (answer === 'quit' || answer === 'cancel') quitGuard.answer(answer);
+});
+
+// The smoke test checks quitting without ending its own run.
+const quitApp = () => (smokeOutDir ? (quitRecorded = true) : app.quit());
+
+function openSettings(): void {
+  const win = BrowserWindow.getAllWindows()[0] ?? createWindow();
+  if (win.isMinimized()) win.restore();
+  win.show();
+  win.focus();
+  win.webContents.send(IpcChannel.openSettings);
+}
+
+/** The standard macOS menu, except that ⌘Q goes through the quit guard. */
+function installMenu(): void {
+  const template: MenuItemConstructorOptions[] = [
+    {
+      label: 'Switchboard',
+      submenu: [
+        { role: 'about' },
+        { type: 'separator' },
+        { label: 'Settings…', accelerator: 'CmdOrCtrl+,', click: () => openSettings() },
+        { type: 'separator' },
+        { role: 'services' },
+        { type: 'separator' },
+        { role: 'hide' },
+        { role: 'hideOthers' },
+        { role: 'unhide' },
+        { type: 'separator' },
+        { id: 'quit', label: 'Quit Switchboard', accelerator: 'CmdOrCtrl+Q', click: () => (preferences.get().confirmQuit ? quitGuard.request() : quitApp()) },
+      ],
+    },
+    { role: 'fileMenu' },
+    { role: 'editMenu' },
+    {
+      label: 'View',
+      submenu: [
+        { role: 'reload' },
+        { role: 'forceReload' },
+        { role: 'toggleDevTools' },
+        { type: 'separator' },
+        { role: 'resetZoom' },
+        { role: 'zoomIn' },
+        { role: 'zoomOut' },
+        { type: 'separator' },
+        {
+          label: 'Appearance',
+          submenu: (['system', 'light', 'dark'] as const).map((scheme) => ({
+            id: `scheme-${scheme}`,
+            label: scheme === 'system' ? 'Match System' : scheme === 'light' ? 'Light' : 'Dark',
+            type: 'radio' as const,
+            checked: preferences.get().colorScheme === scheme,
+            click: () => updatePreferences({ colorScheme: scheme }),
+          })),
+        },
+        { type: 'separator' },
+        { role: 'togglefullscreen' },
+      ],
+    },
+    { role: 'windowMenu' },
+  ];
+  Menu.setApplicationMenu(Menu.buildFromTemplate(template));
+}
+
 function createWindow(): BrowserWindow {
   const win = new BrowserWindow({
     width: 1280,
@@ -59,7 +170,7 @@ function createWindow(): BrowserWindow {
     show: false,
     titleBarStyle: 'hiddenInset',
     trafficLightPosition: { x: 16, y: 18 },
-    backgroundColor: nativeTheme.shouldUseDarkColors ? '#151517' : '#fbfbfa',
+    backgroundColor: windowBackground(),
     webPreferences: {
       preload: join(here, '../preload/index.cjs'),
       sandbox: true,
@@ -70,6 +181,10 @@ function createWindow(): BrowserWindow {
   });
 
   win.once('ready-to-show', () => win.show());
+  const contentsId = win.webContents.id;
+  win.webContents.on('did-start-loading', () => readyRenderers.delete(contentsId));
+  win.webContents.on('render-process-gone', () => readyRenderers.delete(contentsId));
+  win.on('closed', () => readyRenderers.delete(contentsId));
 
   // The renderer is a local app: links open in the browser, never inside the window.
   win.webContents.setWindowOpenHandler(({ url }) => {
@@ -136,6 +251,7 @@ ipcMain.on(IpcChannel.rendererReady, (event, report: RendererReadyReport) => {
     loadedMs: Math.round(performance.now()),
   };
   readyReports.push(timed);
+  readyRenderers.add(event.sender.id);
   if (readyReports.length === 1) {
     console.log(`[main] engine connected ${timed.connectedMs}ms, diagnostics loaded ${timed.loadedMs}ms after process start`);
   }
@@ -282,6 +398,11 @@ let liveSession: string | null = null;
 let terminalOpened = false;
 let actionRan = false;
 let highlighted = false;
+let usageBand: string | null = null;
+let quitGuarded = false;
+let settingsResult = 'not run';
+let transcriptAtBottom: number | null = null;
+let activity: { groups: number; steps: number; label: string } | null = null;
 let rendering: Record<string, number> = {};
 
 /** Adds a project action through the editor, runs it from the header and checks it opened a terminal tab. */
@@ -333,6 +454,99 @@ async function runTerminalStep(win: BrowserWindow): Promise<boolean> {
   await js("document.querySelector('[data-toggle-terminal]')?.click()");
   return true;
 }
+/** ⌘Q asks first; Cancel keeps the app open; a second ⌘Q while asking quits (recorded, not performed, in smoke mode). */
+async function runQuitStep(win: BrowserWindow): Promise<boolean> {
+  const pressQuit = () => Menu.getApplicationMenu()?.getMenuItemById('quit')?.click();
+  const prompt = "[...document.querySelectorAll('[role=alertdialog]')].find((el) => el.innerText.includes('Quit Switchboard'))";
+  pressQuit();
+  if (!(await waitInPage(win, prompt, 3_000))) return false;
+  await shot(win, 'quit.png');
+  await win.webContents.executeJavaScript(`[...${prompt}.querySelectorAll('button')].find((b) => b.innerText === 'Cancel').click()`);
+  if (!(await waitInPage(win, `!${prompt}`, 3_000)) || quitRecorded || quitGuard.asking) return false;
+  pressQuit();
+  if (!(await waitInPage(win, prompt, 3_000))) return false;
+  pressQuit();
+  const quitOnSecondPress = quitRecorded && !quitGuard.asking;
+  quitRecorded = false;
+  // A real second press ends the app; here the prompt is still up, so dismiss it (a late answer is ignored).
+  await win.webContents.executeJavaScript(`[...${prompt}.querySelectorAll('button')].find((b) => b.innerText === 'Cancel').click()`);
+  return quitOnSecondPress && !quitRecorded && (await waitInPage(win, `!${prompt}`, 3_000));
+}
+
+/**
+ * Drives the Settings view: theme (the page and the menu bar follow), sidebar style (row heights
+ * change), and turning off the quit prompt. Everything must be saved, then is put back.
+ */
+async function runSettingsStep(win: BrowserWindow): Promise<string> {
+  const js = (code: string) => win.webContents.executeJavaScript(code);
+  const click = (selector: string) => js(`document.querySelector(${JSON.stringify(selector)}).click()`);
+  const background = 'getComputedStyle(document.body).backgroundColor';
+  const rowHeight = "document.querySelector('[data-session-id]').offsetHeight";
+  const pause = () => new Promise((resolve) => setTimeout(resolve, 300));
+
+  await click('[data-open-settings]');
+  if (!(await waitInPage(win, "document.querySelector('[data-settings]')", 3_000))) return 'settings view did not open';
+  await click('[data-color-scheme="light"]');
+  if (!(await waitInPage(win, `${background} === 'rgb(255, 255, 255)'`, 2_000))) return 'Light did not apply';
+  await click('[data-sidebar-style="large"]');
+  if (!(await waitInPage(win, `${rowHeight} === 66 && [...document.querySelectorAll('[data-session-id] > *')].some((el) => el.offsetWidth === 34)`, 2_000))) return 'Large icons did not apply';
+  await pause();
+  await shot(win, 'settings-light.png');
+  await click('[data-color-scheme="dark"]');
+  if (!(await waitInPage(win, `${background} === 'rgb(21, 24, 31)'`, 2_000))) return 'Dark did not apply';
+  await click('[data-sidebar-style="compact"]');
+  if (!(await waitInPage(win, `${rowHeight} === 32`, 2_000))) return 'Compact did not apply';
+  await pause();
+  await shot(win, 'settings-dark.png');
+
+  await click('[data-tool-activity="steps"]');
+  await pause();
+  await click('[data-open-settings]');
+  const everyStep = await waitInPage(win, "!document.querySelector('[data-activity]') && document.querySelector('[data-tool]')", 3_000);
+  await click('[data-open-settings]');
+  if (!(await waitInPage(win, "document.querySelector('[data-settings]')", 3_000))) return 'settings view did not reopen';
+  if (!everyStep) return 'Every step did not show the tool cards';
+
+  await click('[data-confirm-quit]');
+  await pause();
+  Menu.getApplicationMenu()?.getMenuItemById('quit')?.click();
+  const quitWithoutAsking = quitRecorded && !quitGuard.asking;
+  quitRecorded = false;
+  const saved = JSON.parse(readFileSync(join(app.getPath('userData'), 'preferences.json'), 'utf8')) as Record<string, unknown>;
+  const menuChecked = Menu.getApplicationMenu()?.getMenuItemById('scheme-dark')?.checked === true;
+
+  await click('[data-confirm-quit]');
+  await click('[data-color-scheme="system"]');
+  await click('[data-sidebar-style="standard"]');
+  await click('[data-tool-activity="summary"]');
+  await pause();
+  const restored = preferences.get();
+  if (!quitWithoutAsking) return '⌘Q still asked with the prompt turned off';
+  if (saved.colorScheme !== 'dark' || saved.sidebarStyle !== 'compact' || saved.toolActivity !== 'steps' || saved.confirmQuit !== false) return `not saved: ${JSON.stringify(saved)}`;
+  if (!menuChecked) return 'View → Appearance did not follow';
+  if (restored.colorScheme !== 'system' || restored.sidebarStyle !== 'standard' || restored.toolActivity !== 'summary' || !restored.confirmQuit) return 'could not restore the defaults';
+  await click('[data-open-settings]');
+  return 'ok';
+}
+
+/** Tool calls are summarised by default: open the last finished group and count its steps. */
+async function runActivityStep(win: BrowserWindow): Promise<{ groups: number; steps: number; label: string } | null> {
+  const js = (code: string) => win.webContents.executeJavaScript(code);
+  const groups = (await js("document.querySelectorAll('[data-activity]').length")) as number;
+  if (groups === 0) return null;
+  const group = "[...document.querySelectorAll('[data-activity=\"done\"]')].at(-1)";
+  const label = (await js(`${group}?.querySelector('button')?.innerText.replace(/\\s+/g, ' ') ?? ''`)) as string;
+  await js(`${group}?.querySelector('button')?.click()`);
+  await waitInPage(win, `${group}?.querySelector('[data-steps]')`, 2_000);
+  await js(`${group}?.querySelector('[data-step] button')?.click()`);
+  await new Promise((resolve) => setTimeout(resolve, 300));
+  await shot(win, 'activity.png');
+  const steps = (await js(`${group}?.querySelectorAll('[data-step]').length ?? 0`)) as number;
+  await js(`${group}?.querySelector('[data-step] button')?.click()`);
+  await js(`${group}?.querySelector('button')?.click()`);
+  return { groups, steps, label };
+}
+
 async function runSmokeStep(win: BrowserWindow | null): Promise<void> {
   if (!smokeOutDir || !win) return;
   mkdirSync(smokeOutDir, { recursive: true });
@@ -345,9 +559,21 @@ async function runSmokeStep(win: BrowserWindow | null): Promise<void> {
     await win.webContents.executeJavaScript("document.querySelector('[data-project-filter]')?.click()");
     await win.webContents.executeJavaScript("document.querySelector('[data-session-id]')?.click()");
     transcriptOpened = await waitInPage(win, "document.querySelector('[data-transcript-item]')");
+    // It must open scrolled to the very end, with space between the last message and the composer.
+    const atBottom = "(() => { const el = document.querySelector('[data-transcript]'); return el.scrollHeight - el.scrollTop - el.clientHeight < 2; })()";
+    const bottomGap =
+      "(() => { const el = document.querySelector('[data-transcript]'); const rows = [...el.querySelectorAll('[data-transcript-item]')]; const last = Math.max(...rows.map((r) => r.getBoundingClientRect().bottom)); return Math.round(el.getBoundingClientRect().bottom - last); })()";
+    transcriptAtBottom = transcriptOpened && (await waitInPage(win, atBottom, 3_000)) ? ((await win.webContents.executeJavaScript(bottomGap)) as number) : null;
+    activity = await runActivityStep(win);
     // Give the virtualiser a frame to measure and scroll to the end before capturing.
     await new Promise((resolve) => setTimeout(resolve, 300));
     writeFileSync(join(smokeOutDir, 'transcript.png'), (await win.webContents.capturePage()).toPNG());
+    usageBand = (await waitInPage(win, "document.querySelector('[data-usage-band]')", 15_000))
+      ? await win.webContents.executeJavaScript("document.querySelector('[data-usage-band]').innerText.replace(/\\s+/g, ' ')")
+      : null;
+    if (usageBand) await shot(win, 'usage.png');
+    quitGuarded = await runQuitStep(win);
+    settingsResult = await runSettingsStep(win).catch((error: Error) => `failed: ${error.message}`);
     terminalOpened = await runTerminalStep(win);
     actionRan = await runActionStep(win);
     // Diagnostics renders a sample through Shiki, which loads in its own chunks on first use.
@@ -375,10 +601,15 @@ async function runSmokeStep(win: BrowserWindow | null): Promise<void> {
         sessionCount: readyReports[0]!.sessionCount,
         notifications: recordedNotifications,
         transcriptOpened,
+        transcriptAtBottom,
+        activity,
         liveSession,
         terminalOpened,
+        quitGuarded,
+        settingsResult,
         actionRan,
         highlighted,
+        usageBand,
         rendering,
         reports: readyReports,
         versions: { electron: process.versions.electron, chrome: process.versions.chrome, node: process.versions.node },
@@ -404,6 +635,7 @@ app.whenReady().then(() => {
     },
   });
   engine.start();
+  installMenu();
   notifier = new Notifier({
     engine,
     window: () => BrowserWindow.getAllWindows()[0],

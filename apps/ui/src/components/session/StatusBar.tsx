@@ -12,7 +12,7 @@ const STATE_LABEL: Record<SessionHostInfo['state'], string> = {
   error: 'Failed',
 };
 
-const select = 'h-6 rounded-md border border-transparent bg-transparent px-1 text-[11px] text-muted outline-none hover:border-border focus:border-accent/60';
+const select = 'h-6 rounded-md border border-transparent bg-transparent px-1 text-[11px] text-muted outline-none hover:border-border focus:border-accent-ink/60';
 
 /** Model, permission mode, context and cost for a session running in this app. */
 export function StatusBar({ host }: { host: SessionHostInfo }) {

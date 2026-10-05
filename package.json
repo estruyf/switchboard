@@ -15,7 +15,10 @@
     "smoke": "npm run smoke -w @switchboard/desktop",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "test": "vitest run",
-    "check": "npm run typecheck && npm run test"
+    "check": "npm run typecheck && npm run test",
+    "dist": "npm run dist -w @switchboard/desktop",
+    "smoke:packaged": "npm run smoke:packaged -w @switchboard/desktop",
+    "dist:notarized": "npm run dist:notarized -w @switchboard/desktop"
   },
   "devDependencies": {
     "@types/node": "^24.19.1",

@@ -24,6 +24,7 @@ import {
   TranscriptUpdate,
 } from './sessions.ts';
 import { TerminalInfo, TerminalKind } from './terminal.ts';
+import { UsageSnapshot } from './usage.ts';
 import { ActionRunResult, ActionSuggestion, ListedAction, ProjectAction } from './actions.ts';
 
 export const ClaudeInstall = z.object({
@@ -189,6 +190,14 @@ export const contract = {
     /** Starts a Claude Code process for a folder ahead of time so the first message answers faster. */
     'session.prewarm': { params: z.object({ cwd: AbsolutePath }), result: z.object({}) },
     'models.list': { params: z.object({}), result: z.object({ models: z.array(ModelOption) }) },
+    /**
+     * Plan usage (5-hour and weekly limits) from Claude Code's /usage report. Cached for a minute;
+     * `refresh` fetches now. `usage` is null without a claude.ai plan or before the first fetch.
+     */
+    'usage.get': {
+      params: z.object({ refresh: z.boolean().default(false) }),
+      result: z.object({ usage: UsageSnapshot.nullable(), error: z.string().nullable() }),
+    },
 
     // --- Folders, files and editors -----------------------------------------------------------
     'projects.inspect': { params: z.object({ path: AbsolutePath }), result: ProjectInspection },
@@ -269,6 +278,7 @@ export const contract = {
     'session.permissionResolved': z.object({ requestId: z.string(), sessionId: z.string() }),
     /** Output for an attached terminal (batched). */
     'terminal.data': z.object({ id: z.string(), data: z.string() }),
+    'usage.changed': z.object({ usage: UsageSnapshot.nullable() }),
     /** Full list whenever terminals start, exit or close. */
     'terminals.changed': z.object({ terminals: z.array(TerminalInfo) }),
   },

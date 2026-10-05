@@ -2,14 +2,13 @@ import { Bot, ClipboardList } from 'lucide-react';
 import { memo, useState, type ReactNode } from 'react';
 import { useOpenIn } from '../OpenInButton.tsx';
 import { DiffView } from './DiffView.tsx';
-import type { DisplayItem } from './displayItems.ts';
+import { ActivityGroupView } from './ActivityGroup.tsx';
+import type { RenderItem } from './displayItems.ts';
 import { Markdown } from './Markdown.tsx';
-import { SubagentRun } from './SubagentRun.tsx';
+import { ToolDetails, ToolImages, type ToolItem } from './ToolDetails.tsx';
 import { TranscriptImage } from './TranscriptImage.tsx';
 import { parseTodos, TodoList } from './TodoList.tsx';
 import { editHunks, toolSummary } from './toolSummary.ts';
-
-type ToolItem = Extract<DisplayItem, { kind: 'tool' }>;
 
 function Disclosure({ open, onToggle, children }: { open: boolean; onToggle: () => void; children: ReactNode }) {
   return (
@@ -53,10 +52,10 @@ function ToolCard({ item, cwd, sessionId }: { item: ToolItem; cwd: string | null
   return (
     <div className="rounded-md border border-border bg-card/60 px-3 py-1.5" data-tool={item.name}>
       <Disclosure open={open} onToggle={() => setOpen((o) => !o)}>
-        {isAgent ? <Bot size={13} className="shrink-0 text-accent" /> : <ResultDot item={item} />}
+        {isAgent ? <Bot size={13} className="shrink-0 text-accent-ink" /> : <ResultDot item={item} />}
         <span className="shrink-0 text-[12px] font-medium">{label}</span>
         <span className="min-w-0 flex-1 truncate font-mono text-[12px] text-muted">{detail}</span>
-        {isAgent && item.result === null && <span className="size-3 shrink-0 animate-spin rounded-full border-[1.5px] border-accent/25 border-t-accent" title="Running" />}
+        {isAgent && item.result === null && <span className="size-3 shrink-0 animate-spin rounded-full border-[1.5px] border-accent-ink/25 border-t-accent-ink" title="Running" />}
         {target && (
           <span
             role="link"
@@ -66,7 +65,7 @@ function ToolCard({ item, cwd, sessionId }: { item: ToolItem; cwd: string | null
               e.stopPropagation();
               void openIn(target.path, target.line ? { line: target.line } : {}).catch(() => {});
             }}
-            className="shrink-0 rounded px-1 text-[11px] text-faint hover:bg-border/60 hover:text-accent"
+            className="shrink-0 rounded px-1 text-[11px] text-faint hover:bg-border/60 hover:text-accent-ink"
           >
             Open ↗
           </span>
@@ -77,38 +76,11 @@ function ToolCard({ item, cwd, sessionId }: { item: ToolItem; cwd: string | null
       {hunks && !failed && <DiffView hunks={hunks} truncated={item.inputTruncated} />}
 
       {/* Images a tool returned (e.g. reading a screenshot) are shown right away. */}
-      {item.result && item.result.images.length > 0 && (
-        <div className="mt-1.5 flex flex-wrap gap-2">
-          {item.result.images.map((image) => (
-            <TranscriptImage key={image.imageId} sessionId={sessionId} image={image} />
-          ))}
-        </div>
-      )}
+      <ToolImages item={item} sessionId={sessionId} />
 
-      {open && isAgent && (
-        <div className="mt-2">
-          <SubagentRun sessionId={sessionId} toolUseId={item.id} running={item.result === null} cwd={cwd} />
-        </div>
-      )}
-
-      {open && !isAgent && (
-        <div className="mt-2 grid gap-2 pb-1 select-text">
-          {!hunks && (
-            <pre className="max-h-64 overflow-auto rounded bg-sidebar px-2 py-1.5 font-mono text-[11.5px] leading-relaxed whitespace-pre-wrap text-muted">
-              {JSON.stringify(item.input, null, 2)}
-              {item.inputTruncated && '\n… (long values shortened)'}
-            </pre>
-          )}
-          {item.result && (
-            <pre
-              className={`max-h-80 overflow-auto rounded px-2 py-1.5 font-mono text-[11.5px] leading-relaxed whitespace-pre-wrap ${
-                item.result.isError ? 'bg-error/10 text-error' : 'bg-sidebar text-text/85'
-              }`}
-            >
-              {item.result.text || '(no output)'}
-              {item.result.truncated && '\n… (output shortened)'}
-            </pre>
-          )}
+      {open && (
+        <div className="mt-2 pb-1">
+          <ToolDetails item={item} cwd={cwd} sessionId={sessionId} />
         </div>
       )}
       {!open && failed && item.result && <p className="mt-1 line-clamp-2 font-mono text-[11.5px] text-error">{item.result.text}</p>}
@@ -120,9 +92,9 @@ function PlanCard({ item }: { item: ToolItem }) {
   const plan = (item.input as { plan?: unknown }).plan;
   const verdict = item.result === null ? null : item.result.isError ? 'Not approved' : 'Approved';
   return (
-    <div className="rounded-lg border border-accent/30 bg-card px-4 py-3" data-plan>
+    <div className="rounded-lg border border-accent-ink/30 bg-card px-4 py-3" data-plan>
       <p className="mb-1 flex items-center gap-2 text-[12px] font-medium text-muted">
-        <ClipboardList size={14} className="text-accent" /> Plan
+        <ClipboardList size={14} className="text-accent-ink" /> Plan
         {verdict && <span className={`rounded px-1.5 text-[10px] ${verdict === 'Approved' ? 'bg-ok/15 text-ok' : 'bg-border text-muted'}`}>{verdict}</span>}
       </p>
       <Markdown text={typeof plan === 'string' ? plan : ''} />
@@ -143,7 +115,21 @@ function Thinking({ text }: { text: string }) {
 }
 
 /** One rendered transcript item. Memoised by item, since finished items never change. */
-export const TranscriptItem = memo(function TranscriptItem({ item, cwd, sessionId }: { item: DisplayItem; cwd: string | null; sessionId: string }) {
+export const TranscriptItem = memo(function TranscriptItem({
+  item,
+  cwd,
+  sessionId,
+  active = false,
+  activeLabel = null,
+}: {
+  item: RenderItem;
+  cwd: string | null;
+  sessionId: string;
+  /** For an activity group: Claude is working on it now. */
+  active?: boolean;
+  activeLabel?: string | null;
+}) {
+  if (item.kind === 'activity') return <ActivityGroupView group={item} cwd={cwd} sessionId={sessionId} active={active} activeLabel={activeLabel} />;
   const indent = 'subagent' in item && item.subagent ? 'ml-6 border-l border-border pl-3' : '';
   switch (item.kind) {
     case 'user':
@@ -162,7 +148,7 @@ export const TranscriptItem = memo(function TranscriptItem({ item, cwd, sessionI
     case 'command':
       return (
         <div className="flex items-center gap-2 font-mono text-[12px]">
-          <span className="rounded bg-accent/15 px-1.5 py-0.5 text-accent">{item.name}</span>
+          <span className="rounded bg-accent/15 px-1.5 py-0.5 text-accent-ink">{item.name}</span>
           {item.args && <span className="truncate text-muted">{item.args}</span>}
         </div>
       );

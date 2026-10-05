@@ -10,8 +10,8 @@ export interface MenuItem {
 }
 export type MenuEntry = MenuItem | 'separator' | { heading: string };
 
-/** A small popup menu at a screen position (context menus and dropdowns). Closes on outside click or Esc. */
-export function Menu({ x, y, entries, onClose, width = 220 }: { x: number; y: number; entries: MenuEntry[]; onClose(): void; width?: number }) {
+/** A small popup menu at a screen position (context menus and dropdowns). Closes on outside click or Esc. `above` puts its bottom edge at y. */
+export function Menu({ x, y, entries, onClose, width = 220, above = false }: { x: number; y: number; entries: MenuEntry[]; onClose(): void; width?: number; above?: boolean }) {
   const ref = useRef<HTMLDivElement>(null);
   const [position, setPosition] = useState({ left: x, top: y });
 
@@ -20,8 +20,9 @@ export function Menu({ x, y, entries, onClose, width = 220 }: { x: number; y: nu
     const el = ref.current;
     if (!el) return;
     const { innerWidth, innerHeight } = window;
-    setPosition({ left: Math.min(x, innerWidth - el.offsetWidth - 8), top: Math.min(y, innerHeight - el.offsetHeight - 8) });
-  }, [x, y]);
+    const top = above ? y - el.offsetHeight : y;
+    setPosition({ left: Math.min(x, innerWidth - el.offsetWidth - 8), top: Math.max(8, Math.min(top, innerHeight - el.offsetHeight - 8)) });
+  }, [x, y, above]);
 
   useEffect(() => {
     const onDown = (event: MouseEvent) => {
@@ -83,6 +84,11 @@ export function useMenu() {
     openBelow: (el: HTMLElement) => {
       const rect = el.getBoundingClientRect();
       setAt({ x: rect.left, y: rect.bottom + 4 });
+    },
+    /** For `<Menu above>`: anchors the menu's bottom edge just above the element. */
+    openAbove: (el: HTMLElement) => {
+      const rect = el.getBoundingClientRect();
+      setAt({ x: rect.left, y: rect.top - 4 });
     },
     close: () => setAt(null),
   };

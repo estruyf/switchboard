@@ -27,7 +27,7 @@ export function TodoList({ todos, compact = false }: { todos: Todo[]; compact?: 
           {todo.status === 'completed' ? (
             <Check size={14} className="mt-px shrink-0 text-ok" />
           ) : todo.status === 'in_progress' ? (
-            <CircleDot size={14} className="mt-px shrink-0 animate-pulse text-accent" />
+            <CircleDot size={14} className="mt-px shrink-0 animate-pulse text-accent-ink" />
           ) : (
             <Circle size={14} className="mt-px shrink-0 text-faint" />
           )}

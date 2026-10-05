@@ -2,7 +2,7 @@ import { create } from 'zustand';
 import type { LiveSession, SessionHostInfo, SessionsChanged, SessionsSnapshot, SessionSummary } from '@switchboard/protocol/client';
 import { hostAsLive, isActiveHost } from './hostsStore.ts';
 
-export type MainView = 'session' | 'new' | 'diagnostics';
+export type MainView = 'session' | 'new' | 'diagnostics' | 'settings';
 
 interface SessionsState {
   sessions: Map<string, SessionSummary>;

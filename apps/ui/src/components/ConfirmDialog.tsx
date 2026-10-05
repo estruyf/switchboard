@@ -53,7 +53,7 @@ export function ConfirmDialog(props: ConfirmDialogProps) {
               data-confirm
               disabled={busy}
               onClick={() => void confirm()}
-              className={`rounded-md px-3 py-1 text-[12px] font-medium text-white disabled:opacity-50 ${props.danger ? 'bg-error' : 'bg-accent'}`}
+              className={`rounded-md px-3 py-1 text-[12px] font-medium disabled:opacity-50 ${props.danger ? 'bg-error text-white' : 'bg-accent text-on-accent'}`}
             >
               {busy ? 'Working…' : props.confirmLabel}
             </button>

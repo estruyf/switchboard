@@ -71,7 +71,7 @@ function EmojiPicker({ x, y, root, onClose }: { x: number; y: number; root: stri
           onChange={(e) => setValue(e.target.value)}
           onKeyDown={(e) => e.key === 'Escape' && onClose()}
           placeholder="Or type any emoji (⌃⌘Space)"
-          className="h-7 min-w-0 flex-1 rounded-md border border-border bg-bg px-2 text-[12px] outline-none focus:border-accent/60"
+          className="h-7 min-w-0 flex-1 rounded-md border border-border bg-bg px-2 text-[12px] outline-none focus:border-accent-ink/60"
         />
         <button type="button" onClick={onClose} className="rounded px-1.5 text-faint hover:text-text" aria-label="Cancel">
           <X size={13} />
@@ -188,7 +188,7 @@ function FilterRow(props: { selected: boolean; onSelect(): void; onMore?(x: numb
         {props.icon}
         <span className="min-w-0 flex-1 truncate">{props.label}</span>
         {props.count !== undefined && <span className="text-[11px] text-faint tabular-nums">{props.count}</span>}
-        <span className="w-3">{props.selected && <Check size={12} className="text-accent" />}</span>
+        <span className="w-3">{props.selected && <Check size={12} className="text-accent-ink" />}</span>
       </button>
       {props.onMore && (
         <button

@@ -58,6 +58,8 @@ export interface LiveRegistryOptions {
   /** Liveness re-check interval; registry files of crashed processes are never removed. */
   pollMs?: number;
   isAlive?: (pid: number) => boolean;
+  /** Sessions to leave out, e.g. the engine's own short-lived helper processes. */
+  ignore?: (sessionId: string) => boolean;
 }
 
 /** Tracks which Claude Code sessions are running right now, from the registry directory. */
@@ -99,7 +101,7 @@ export class LiveRegistry {
     for (const file of files) {
       try {
         const entry = parseRegistryEntry(JSON.parse(readFileSync(join(this.options.dir, file), 'utf8')), this.options.resolveRoot);
-        if (entry && alive(entry.pid)) next.push(entry);
+        if (entry && alive(entry.pid) && !this.options.ignore?.(entry.sessionId)) next.push(entry);
       } catch {
         // Half-written or foreign file; the next scan will see the complete version.
       }

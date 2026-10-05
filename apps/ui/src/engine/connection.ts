@@ -75,3 +75,9 @@ export class EngineConnection {
 }
 
 export const engineConnection = new EngineConnection(window.switchboard);
+
+// Calls in flight when the engine restarts fail with DISCONNECTED; the window reconnects and
+// effects run again, so these are expected and must not surface as unhandled errors.
+window.addEventListener('unhandledrejection', (event) => {
+  if ((event.reason as { code?: unknown } | null)?.code === 'DISCONNECTED') event.preventDefault();
+});

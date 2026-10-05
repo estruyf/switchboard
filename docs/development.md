@@ -1,0 +1,84 @@
+# Development
+
+Running Switchboard from source, testing it, and how the code is organised. See [PLAN.md](../PLAN.md) for the roadmap and design decisions, and [spike/FINDINGS.md](../spike/FINDINGS.md) for what the Phase 0 spike verified about the Agent SDK.
+
+[← Back to the README](../README.md)
+
+## Requirements
+
+- macOS, Node 24+, npm 11+
+- Claude Code installed and signed in (`claude` on your PATH)
+
+## Commands
+
+```bash
+npm install
+npm run dev        # Electron + Vite dev server with hot reload
+npm run check      # typecheck every package + unit tests
+npm run smoke      # build, launch, drive the UI, kill the engine once, verify it recovers
+npm run build      # production bundles in apps/desktop/out
+npm run icon -w @switchboard/desktop   # regenerate the app icon from its SVG
+npm run dist       # package Switchboard.app and a .dmg (signed when a Developer ID is available)
+npm run dist:notarized   # sign, notarise and staple
+npm run smoke:packaged   # run the smoke test against the packaged app
+```
+
+Packaging and signing are covered in [Building, signing and notarisation](building-and-signing.md).
+
+## Tests
+
+`npm run check` runs the TypeScript checks and the unit tests (Vitest).
+
+`npm run smoke` launches the real app with a throwaway profile and drives it. It checks:
+
+- startup time and the first session list
+- the transcript, and that it opens scrolled to the end
+- the ⌘Q prompt, Settings (theme, sidebar style, quit prompt), the terminal, project actions and syntax highlighting
+- the usage band
+- recovery after the engine process is killed
+
+Screenshots and `result.json` go to `apps/desktop/.smoke`. Set `SWITCHBOARD_COLOR_SCHEME=light` or `dark` to force a colour scheme for a run without saving it.
+
+Tests that call the real Claude Code (a few cents of Haiku each) are opt-in and need a throwaway git repo:
+
+```bash
+SWITCHBOARD_LIVE_CWD=/path/to/throwaway-repo npx vitest run claude.live
+SWITCHBOARD_SMOKE_LIVE_CWD=/path/to/throwaway-repo npm run smoke
+```
+
+The live smoke step drives the real window. It starts a session in that folder, attaches an image, approves a permission prompt, waits for the reply, runs a `/` command, opens the Claude TUI tab and deletes the session. It refuses to submit if the folder field shows anything else.
+
+## Layout
+
+| Path | What it is |
+|---|---|
+| `apps/desktop` | Electron main process, preload, and the engine utilityProcess entry |
+| `apps/ui` | React 19 renderer |
+| `packages/engine` | The engine: plain Node, no Electron imports. Cache DB, Claude Code sessions, terminals, project actions, usage |
+| `packages/protocol` | zod contract + typed RPC over MessagePorts, shared by engine and UI |
+| `spike/` | Phase 0 throwaway experiments against the Agent SDK |
+| `docs/` | These pages |
+
+`@switchboard/protocol` has three entry points:
+
+- `.` has everything, including the zod schemas. The engine uses it.
+- `./client` is the RPC client only, so the renderer bundle stays free of zod.
+- `./bridge` holds the IPC constants and preferences types for main and preload.
+
+## Preferences
+
+Main keeps the app's preferences (theme, sidebar style, quit prompt) in `preferences.json` in the app's data folder (`~/Library/Application Support/Switchboard`). The preload reads them synchronously at page load, so the first paint already has the right theme and layout. Changes go through main, which saves them and broadcasts them to every window.
+
+The colours are the [Demo Time theme](https://github.com/estruyf/vscode-demo-time-theme)'s, as CSS variables in [`apps/ui/src/styles.css`](../apps/ui/src/styles.css). Code blocks use its syntax colours from [`apps/ui/src/lib/themes`](../apps/ui/src/lib/themes).
+
+## App icon
+
+The icon is a patch panel with two cables hanging between its jacks. Its source is [`apps/desktop/build/icon.svg`](../apps/desktop/build/icon.svg). Edit that, then run `npm run icon -w @switchboard/desktop` to regenerate:
+
+| File | Used for |
+|---|---|
+| `apps/desktop/build/icon.png` | 1024×1024; the Dock icon while developing, and the About panel |
+| `apps/desktop/build/icon.icns` | Every macOS size, for the packaged app |
+| `apps/ui/src/assets/app-icon.png` | 64×64, without the macOS margin, for the sidebar header |
+
+The SVG is rendered with Electron (Chromium), and the `.icns` is built with macOS's `sips` and `iconutil`, so nothing extra needs installing.

@@ -20,6 +20,7 @@ import { createProjectResolver } from './claude/projectResolver.ts';
 import { sdkSessionSource, type SessionSource } from './claude/sessionSource.ts';
 import { ActionStore, expandCommand, suggestActions } from './actions/actionStore.ts';
 import { HostManager, type SdkRuntime } from './host/hostManager.ts';
+import { UsageMonitor } from './host/usageMonitor.ts';
 import { ProjectRegistry } from './projects/projectRegistry.ts';
 import { createAppStateStore } from './db/appState.ts';
 import { openCacheDatabase } from './db/database.ts';
@@ -111,7 +112,10 @@ export function createEngine(options: EngineOptions): Engine {
     onChange: (change) => broadcast('sessions.changed', change),
     onTranscriptChanged: (id) => transcripts.changed(id),
   });
+  /** The engine's own short-lived helper processes (usage, command lists): never shown as live sessions. */
+  const ephemeral = new Set<string>();
   const registry = new LiveRegistry({
+    ignore: (id) => ephemeral.has(id),
     dir: join(claudeConfigDir, 'sessions'),
     resolveRoot: (cwd) => resolver.resolve(cwd).root,
     onChange: (live) => broadcast('sessions.live', { live }),
@@ -144,8 +148,19 @@ export function createEngine(options: EngineOptions): Engine {
   const claude = shell.forLookup().then((env) => findClaude(env, options.claudeBinary));
   const files = new FileIndex();
 
+  const sdk = options.sdk ?? (() => import('@anthropic-ai/claude-agent-sdk'));
+  const usage = new UsageMonitor({
+    sdk,
+    env: async () => (await shell.ready).env,
+    claudePath: async () => (await claude)?.path,
+    onChange: (snapshot) => broadcast('usage.changed', { usage: snapshot }),
+    log,
+    ephemeral,
+  });
   const hosts = new HostManager({
-    sdk: options.sdk ?? (() => import('@anthropic-ai/claude-agent-sdk')),
+    sdk,
+    ephemeral,
+    onUsageHint: () => usage.nudge(),
     env: async () => (await shell.ready).env,
     claudePath: async () => (await claude)?.path,
     isOpenElsewhere: (id) => !hosts.has(id) && registry.list().some((l) => l.sessionId === id),
@@ -377,6 +392,7 @@ export function createEngine(options: EngineOptions): Engine {
       return {};
     },
     'models.list': () => ({ models: hosts.listModels() }),
+    'usage.get': ({ refresh }) => usage.get(refresh),
 
     'projects.inspect': ({ path }) => {
       const exists = existsSync(path);
@@ -502,6 +518,7 @@ export function createEngine(options: EngineOptions): Engine {
       for (const server of servers) server.dispose();
       servers.clear();
       hosts.closeAll();
+      usage.stop();
       terminals.closeAll();
       sessions.stop();
       registry.stop();

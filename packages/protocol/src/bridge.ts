@@ -16,7 +16,44 @@ export const IpcChannel = {
   pickImage: 'switchboard:pick-image',
   focusSession: 'switchboard:focus-session',
   selectSession: 'switchboard:select-session',
+  quitRequested: 'switchboard:quit-requested',
+  quitAnswer: 'switchboard:quit-answer',
+  getPreferences: 'switchboard:get-preferences',
+  setPreferences: 'switchboard:set-preferences',
+  preferencesChanged: 'switchboard:preferences-changed',
+  openSettings: 'switchboard:open-settings',
 } as const;
+
+/** Appearance: follow macOS, or always light or dark. */
+export type ColorScheme = 'system' | 'light' | 'dark';
+/** Sidebar rows: a large project icon beside three lines, three lines, or one line. */
+export type SidebarStyle = 'large' | 'standard' | 'compact';
+/** Tool calls in a conversation: one summary line per run (click for the steps), or every step. */
+export type ToolActivity = 'summary' | 'steps';
+
+/** App preferences, kept by main in the app's data folder. */
+export interface Preferences {
+  colorScheme: ColorScheme;
+  sidebarStyle: SidebarStyle;
+  toolActivity: ToolActivity;
+  /** ⌘Q asks first (a second ⌘Q quits). */
+  confirmQuit: boolean;
+}
+
+export const DEFAULT_PREFERENCES: Preferences = { colorScheme: 'system', sidebarStyle: 'standard', toolActivity: 'summary', confirmQuit: true };
+
+const oneOf = <T extends string>(values: readonly T[], value: unknown): value is T => values.includes(value as T);
+
+/** Keeps only valid fields (for files on disk and values from the renderer). */
+export function sanitizePreferences(input: unknown): Partial<Preferences> {
+  const raw = (input ?? {}) as Record<string, unknown>;
+  const out: Partial<Preferences> = {};
+  if (oneOf(['system', 'light', 'dark'] as const, raw.colorScheme)) out.colorScheme = raw.colorScheme;
+  if (oneOf(['large', 'standard', 'compact'] as const, raw.sidebarStyle)) out.sidebarStyle = raw.sidebarStyle;
+  if (oneOf(['summary', 'steps'] as const, raw.toolActivity)) out.toolActivity = raw.toolActivity;
+  if (typeof raw.confirmQuit === 'boolean') out.confirmQuit = raw.confirmQuit;
+  return out;
+}
 
 /** Sent once per engine connection by the renderer. Used for startup timing and the smoke test. */
 export interface RendererReadyReport {
@@ -44,4 +81,15 @@ export interface SwitchboardBridge {
   onSelectSession(listener: (sessionId: string) => void): () => void;
   /** Native image picker (for project icons). Resolves to null when cancelled. */
   pickImage(defaultPath?: string): Promise<string | null>;
+  /** ⌘Q was pressed: show the quit prompt. Pressing ⌘Q again while it's open quits without it. */
+  onQuitRequested(listener: () => void): () => void;
+  answerQuit(answer: 'quit' | 'cancel'): void;
+  /** Read once when the page loads, so the first paint already uses them. */
+  readonly preferences: Preferences;
+  /** Applies at once (the colour scheme flips prefers-color-scheme) and is remembered. */
+  setPreferences(patch: Partial<Preferences>): void;
+  /** Fires in every window after any change, including from the menu bar. */
+  onPreferencesChanged(listener: (preferences: Preferences) => void): () => void;
+  /** Switchboard → Settings… (⌘,) in the menu bar. */
+  onOpenSettings(listener: () => void): () => void;
 }

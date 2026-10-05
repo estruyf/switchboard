@@ -7,6 +7,7 @@ import { useHosts } from '../../state/hostsStore.ts';
 import { useProjects } from '../../state/projectsStore.ts';
 import { useSessions } from '../../state/sessionsStore.ts';
 import { Composer } from '../composer/Composer.tsx';
+import { UsageBand } from '../UsageBand.tsx';
 
 const DEFAULTS_KEY = 'newSession.defaults';
 const EFFORTS: Effort[] = ['low', 'medium', 'high', 'xhigh', 'max'];
@@ -22,7 +23,7 @@ interface Defaults {
 
 const INITIAL: Defaults = { cwd: null, model: '', permissionMode: 'default', effort: '', workspace: 'current', baseRef: 'fresh' };
 
-const field = 'h-7 rounded-md border border-border bg-card px-2 text-[12px] text-text outline-none focus:border-accent/60 disabled:opacity-50';
+const field = 'h-7 rounded-md border border-border bg-card px-2 text-[12px] text-text outline-none focus:border-accent-ink/60 disabled:opacity-50';
 
 function Segmented<T extends string>({ value, options, onChange, disabled }: { value: T; options: Array<{ value: T; label: string; title?: string }>; onChange(v: T): void; disabled?: boolean }) {
   return (
@@ -237,6 +238,7 @@ export function NewSessionView() {
             </select>
           </div>
 
+          <UsageBand />
           <div onInput={(e) => setDraftPrompt((e.target as HTMLTextAreaElement).value ?? '')}>
             <Composer
               cwd={d.cwd}

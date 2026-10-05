@@ -48,6 +48,10 @@ export interface HostManagerDeps {
   idleTimeoutMs?: number;
   /** Discard an unused pre-warmed process after this long (default 2 min). */
   warmTtlMs?: number;
+  /** Plan usage probably changed. */
+  onUsageHint?: () => void;
+  /** Helper processes register in the live registry while they run; the engine hides them. */
+  ephemeral?: { add(sessionId: string): void; delete(sessionId: string): void };
   /** Persisted command lists per folder, so the palette is instant after a restart. */
   commandCache?: { get(cwd: string): SlashCommand[] | null; set(cwd: string, commands: SlashCommand[]): void };
 }
@@ -271,9 +275,14 @@ export class HostManager {
     const [env, claudePath, sdk] = await Promise.all([this.deps.env(), this.deps.claudePath(), this.deps.sdk()]);
     // A prompt that never yields: Claude Code starts, answers the question, and no session is written.
     const idle: AsyncIterable<SDKUserMessage> = { [Symbol.asyncIterator]: () => ({ next: () => new Promise(() => {}) }) };
+    const helperId = randomUUID();
+    this.deps.ephemeral?.add(helperId);
+    setTimeout(() => this.deps.ephemeral?.delete(helperId), 30_000).unref?.();
     const query = sdk.query({
       prompt: idle,
       options: {
+        sessionId: helperId,
+        persistSession: false,
         cwd,
         env,
         pathToClaudeCodeExecutable: claudePath,
@@ -388,6 +397,7 @@ export class HostManager {
         stream: (delta) => this.deps.onStream(delta),
         messages: (id, messages) => this.deps.onMessages(id, messages),
         log: this.deps.log,
+        usageHint: () => this.deps.onUsageHint?.(),
       },
       startQuery,
     );

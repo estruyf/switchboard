@@ -1,33 +1,42 @@
 @import 'tailwindcss';
 
 :root {
-  --sb-bg: #fbfbfa;
-  --sb-sidebar: #f2f2ef;
+  /* Demo Time Light (github.com/estruyf/vscode-demo-time-theme) */
+  --sb-bg: #ffffff;
+  --sb-sidebar: #f4f6fa;
   --sb-card: #ffffff;
-  --sb-border: #e4e3de;
-  --sb-text: #1c1c1e;
-  --sb-muted: #6c6c72;
-  --sb-faint: #9b9ba1;
-  --sb-accent: #c96442;
-  --sb-ok: #2f9e44;
-  --sb-warn: #d08700;
-  --sb-error: #d6336c;
+  --sb-border: #e1e4e8;
+  --sb-text: #202736;
+  --sb-muted: #505869;
+  --sb-faint: #9ba4b7;
+  /* Yellow fills (buttons, tints); accent-ink is the readable version for text, icons, dots and borders. */
+  --sb-accent: #ffd43b;
+  --sb-accent-ink: #916c00;
+  --sb-on-accent: #15181f;
+  --sb-link: #005cc5;
+  --sb-ok: #00a08c;
+  --sb-warn: #ed217c;
+  --sb-error: #d73a49;
   color-scheme: light;
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --sb-bg: #151517;
-    --sb-sidebar: #1b1b1e;
-    --sb-card: #1f1f23;
-    --sb-border: #2c2c31;
-    --sb-text: #ececef;
-    --sb-muted: #a0a0a8;
-    --sb-faint: #6e6e76;
-    --sb-accent: #e08a6a;
+    /* Demo Time Dark */
+    --sb-bg: #15181f;
+    --sb-sidebar: #202736;
+    --sb-card: #202736;
+    --sb-border: #2d3142;
+    --sb-text: #d9dbe1;
+    --sb-muted: #9ba4b7;
+    --sb-faint: #6b7280;
+    --sb-accent: #ffd43b;
+    --sb-accent-ink: #ffd43b;
+    --sb-on-accent: #15181f;
+    --sb-link: #74c0fc;
     --sb-ok: #51cf66;
-    --sb-warn: #fcc419;
-    --sb-error: #f06595;
+    --sb-warn: #ed217c;
+    --sb-error: #ff6b6b;
     color-scheme: dark;
   }
 }
@@ -41,6 +50,9 @@
   --color-muted: var(--sb-muted);
   --color-faint: var(--sb-faint);
   --color-accent: var(--sb-accent);
+  --color-accent-ink: var(--sb-accent-ink);
+  --color-on-accent: var(--sb-on-accent);
+  --color-link: var(--sb-link);
   --color-ok: var(--sb-ok);
   --color-warn: var(--sb-warn);
   --color-error: var(--sb-error);
@@ -73,6 +85,19 @@ body {
   cursor: default;
 }
 
+/*
+ * No focus ring from clicks or programmatic focus (dialogs focus their default button).
+ * While moving through controls with Tab (data-keyboard-nav, set in main.tsx) a subtle one shows.
+ */
+:focus,
+:focus-visible {
+  outline: none;
+}
+html[data-keyboard-nav] :is(button, a, summary, [role='menuitem'], [role='option'], [tabindex]):focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--sb-accent-ink) 55%, transparent);
+  outline-offset: 1px;
+}
+
 ::selection {
   background: color-mix(in srgb, var(--sb-accent) 30%, transparent);
 }
@@ -87,5 +112,43 @@ body {
 @media (prefers-color-scheme: dark) {
   .shiki span {
     color: var(--shiki-dark);
+  }
+}
+
+/* Claude is working: three dots that take turns, like Claude Code. */
+.working-dots {
+  display: inline-flex;
+  gap: 2px;
+  align-items: center;
+}
+.working-dots span {
+  width: 4px;
+  height: 4px;
+  border-radius: 9999px;
+  background: var(--sb-accent-ink);
+  animation: working-dot 1.2s ease-in-out infinite;
+}
+.working-dots span:nth-child(2) {
+  animation-delay: 0.2s;
+}
+.working-dots span:nth-child(3) {
+  animation-delay: 0.4s;
+}
+@keyframes working-dot {
+  0%,
+  80%,
+  100% {
+    opacity: 0.25;
+    transform: translateY(0);
+  }
+  40% {
+    opacity: 1;
+    transform: translateY(-2px);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .working-dots span {
+    animation: none;
+    opacity: 0.8;
   }
 }

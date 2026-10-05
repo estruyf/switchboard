@@ -1,11 +1,13 @@
 import { useVirtualizer } from '@tanstack/react-virtual';
-import { Activity, ChevronRight, GitBranch, Pin, Search, SquarePen } from 'lucide-react';
+import { Activity, ChevronRight, GitBranch, Pin, Search, Settings, SquarePen } from 'lucide-react';
+import type { SidebarStyle } from '@switchboard/protocol/bridge';
 import { memo, useEffect, useMemo, useRef, useState, type KeyboardEvent, type MouseEvent } from 'react';
 import { useEngineConnection } from '../../engine/useEngine.ts';
 import { shortAge } from '../../lib/format.ts';
 import { isActiveHost, useHosts } from '../../state/hostsStore.ts';
 import { useProjects } from '../../state/projectsStore.ts';
 import { toRows, useSessions, type SessionRowData } from '../../state/sessionsStore.ts';
+import { usePreferences } from '../../state/preferencesStore.ts';
 import { buildSessionList, isActive, rowStatus } from '../../state/sidebarRows.ts';
 import { ConfirmDialog } from '../ConfirmDialog.tsx';
 import { Menu, type MenuEntry } from '../Menu.tsx';
@@ -17,7 +19,8 @@ import appIcon from '../../assets/app-icon.png';
 
 type ListRow = { kind: 'session'; data: SessionRowData; settled: boolean } | { kind: 'settled-header'; count: number; open: boolean };
 
-const ROW_HEIGHT = { session: 70, 'settled-header': 34 } as const;
+const SESSION_ROW_HEIGHT: Record<SidebarStyle, number> = { large: 70, standard: 70, compact: 36 };
+const SETTLED_HEADER_HEIGHT = 34;
 
 /** Re-renders relative ages (and the 48 h cut-off) once a minute. */
 function useNow(intervalMs = 60_000): number {
@@ -44,37 +47,68 @@ const SessionRow = memo(function SessionRow({
 }) {
   const select = useSessions((s) => s.select);
   const project = useProjects((s) => s.projects.get(data.projectRoot));
+  const style = usePreferences((s) => s.prefs.sidebarStyle);
   const status = rowStatus(data);
   const emphasised = status !== null && status !== 'idle';
-  const ageTone = status === 'needs-you' ? 'text-warn' : status === 'running' || status === 'unread' ? 'text-accent' : 'text-faint';
-  return (
-    <button
-      type="button"
-      data-session-id={data.id}
-      onClick={() => select(data.id)}
-      onContextMenu={(e) => onContextMenu(e, data)}
-      title={[data.title, data.summary?.cwd].filter(Boolean).join('\n')}
-      className={`grid h-[66px] w-full grid-rows-3 rounded-lg px-2.5 py-1.5 text-left ${selected ? 'bg-accent/15' : 'hover:bg-border/45'}`}
-    >
+  const ageTone = status === 'needs-you' ? 'text-warn' : status === 'running' || status === 'unread' ? 'text-accent-ink' : 'text-faint';
+  const projectName = project?.name ?? data.projectRoot.split('/').pop();
+  const titleTone = emphasised || selected ? 'font-semibold text-text' : settled ? 'text-muted' : 'text-text/80';
+  const age = <span className={`shrink-0 tabular-nums ${ageTone}`}>{shortAge(data.updatedAt, now)}</span>;
+  const pin = data.pinned && <Pin size={11} className="shrink-0 text-faint" aria-label="Pinned" />;
+  const common = {
+    type: 'button' as const,
+    'data-session-id': data.id,
+    onClick: () => select(data.id),
+    onContextMenu: (e: MouseEvent) => onContextMenu(e, data),
+    title: [data.title, style === 'compact' ? projectName : null, data.summary?.cwd].filter(Boolean).join('\n'),
+  };
+  const surface = selected ? 'bg-accent/15' : 'hover:bg-border/45';
+
+  if (style === 'compact') {
+    return (
+      <button {...common} className={`flex h-8 w-full items-center gap-2 rounded-md px-2.5 text-left text-[11px] ${surface}`}>
+        <ProjectIcon project={project} root={data.projectRoot} size={16} />
+        <span className={`min-w-0 flex-1 truncate text-[13px] ${titleTone}`}>{data.title}</span>
+        {pin}
+        {status ? <StatusIcon status={status} /> : age}
+      </button>
+    );
+  }
+
+  const lines = (
+    <>
       <span className="flex min-w-0 items-center gap-1.5 text-[11px] text-muted">
-        <ProjectIcon project={project} root={data.projectRoot} size={13} />
-        <span className="min-w-0 flex-1 truncate">{project?.name ?? data.projectRoot.split('/').pop()}</span>
-        {data.pinned && <Pin size={11} className="shrink-0 text-faint" aria-label="Pinned" />}
-        <span className={`shrink-0 tabular-nums ${ageTone}`}>{shortAge(data.updatedAt, now)}</span>
+        {style === 'standard' && <ProjectIcon project={project} root={data.projectRoot} size={13} />}
+        <span className="min-w-0 flex-1 truncate">{projectName}</span>
+        {pin}
+        {age}
       </span>
-      <span className={`min-w-0 truncate text-[13px] leading-5 ${emphasised || selected ? 'font-semibold text-text' : settled ? 'text-muted' : 'text-text/80'}`}>
-        {data.title}
-      </span>
+      <span className={`min-w-0 truncate text-[13px] leading-5 ${titleTone}`}>{data.title}</span>
       <span className="flex min-w-0 items-center gap-1.5 text-[11px] text-faint">
         {data.branch && (
           <>
-            <GitBranch size={11} className={`shrink-0 ${data.isWorktree ? 'text-accent/80' : ''}`} aria-label={data.isWorktree ? 'Worktree' : 'Branch'} />
+            <GitBranch size={11} className={`shrink-0 ${data.isWorktree ? 'text-accent-ink/80' : ''}`} aria-label={data.isWorktree ? 'Worktree' : 'Branch'} />
             <span className="min-w-0 truncate">{data.branch}</span>
           </>
         )}
         <span className="flex-1" />
         <StatusIcon status={status} />
       </span>
+    </>
+  );
+
+  if (style === 'large') {
+    return (
+      <button {...common} className={`flex h-[66px] w-full items-center gap-2.5 rounded-lg px-2.5 text-left ${surface}`}>
+        <ProjectIcon project={project} root={data.projectRoot} size={34} />
+        <span className="grid min-w-0 flex-1 grid-rows-3">{lines}</span>
+      </button>
+    );
+  }
+
+  return (
+    <button {...common} className={`grid h-[66px] w-full grid-rows-3 rounded-lg px-2.5 py-1.5 text-left ${surface}`}>
+      {lines}
     </button>
   );
 });
@@ -100,6 +134,7 @@ export function Sidebar() {
   const [menu, setMenu] = useState<{ x: number; y: number; entries: MenuEntry[] } | null>(null);
   const [deleting, setDeleting] = useState<SessionRowData | null>(null);
   const now = useNow();
+  const sidebarStyle = usePreferences((s) => s.prefs.sidebarStyle);
 
   const all = useMemo(() => toRows(sessions, live, hosts), [sessions, live, hosts]);
   const { active, settled } = useMemo(() => buildSessionList(all, { search, project: projectFilter, now }), [all, search, projectFilter, now]);
@@ -127,9 +162,11 @@ export function Sidebar() {
   const virtualizer = useVirtualizer({
     count: rows.length,
     getScrollElement: () => scrollRef.current,
-    estimateSize: (i) => ROW_HEIGHT[rows[i]!.kind],
+    estimateSize: (i) => (rows[i]!.kind === 'session' ? SESSION_ROW_HEIGHT[sidebarStyle] : SETTLED_HEADER_HEIGHT),
     overscan: 10,
   });
+  // Row heights change with the sidebar style.
+  useEffect(() => virtualizer.measure(), [sidebarStyle, virtualizer]);
 
   // ↑/↓ moves through visible sessions, like a native source list; ⌘⌫ deletes the selected one.
   const onKeyDown = (event: KeyboardEvent) => {
@@ -185,7 +222,7 @@ export function Sidebar() {
       </div>
 
       <div className="flex items-center gap-1 px-3 pb-1.5">
-        <label className="no-drag flex h-7 min-w-0 flex-1 items-center gap-2 rounded-md px-1.5 text-muted focus-within:bg-card focus-within:ring-1 focus-within:ring-accent/50 hover:bg-border/40">
+        <label className="no-drag flex h-7 min-w-0 flex-1 items-center gap-2 rounded-md px-1.5 text-muted focus-within:bg-card focus-within:ring-1 focus-within:ring-accent-ink/50 hover:bg-border/40">
           <Search size={14} className="shrink-0" />
           <input
             type="search"
@@ -248,11 +285,20 @@ export function Sidebar() {
         </span>
         <button
           type="button"
+          data-open-settings
+          onClick={() => setView(view === 'settings' ? 'session' : 'settings')}
+          title="Settings (⌘,)"
+          className={`flex size-7 items-center justify-center rounded-md hover:bg-border/60 hover:text-text ${view === 'settings' ? 'bg-border/60 text-text' : 'text-muted'}`}
+        >
+          <Settings size={15} />
+        </button>
+        <button
+          type="button"
           onClick={() => setView(view === 'diagnostics' ? 'session' : 'diagnostics')}
           title="Diagnostics"
-          className={`flex size-7 items-center justify-center rounded-md hover:bg-border/60 hover:text-muted ${view === 'diagnostics' ? 'text-text' : ''}`}
+          className={`flex size-7 items-center justify-center rounded-md hover:bg-border/60 hover:text-text ${view === 'diagnostics' ? 'bg-border/60 text-text' : 'text-muted'}`}
         >
-          <Activity size={14} />
+          <Activity size={15} />
         </button>
       </footer>
 

@@ -24,6 +24,8 @@ export interface HostEvents {
   /** Complete messages as they happen, for the live transcript (same uuids as the file). */
   messages(sessionId: string, messages: RawSessionMessage[]): void;
   log(level: LogLevel, message: string): void;
+  /** Plan usage probably changed (a turn finished, or Claude Code reported a rate-limit update). */
+  usageHint?(): void;
 }
 
 export interface HostConfig {
@@ -254,6 +256,10 @@ export class SessionHost {
       case 'result':
         this.update({ costUsd: message.total_cost_usd ?? this.info.costUsd });
         void this.refreshContext();
+        this.events.usageHint?.();
+        return;
+      case 'rate_limit_event':
+        this.events.usageHint?.();
         return;
       default:
         return;

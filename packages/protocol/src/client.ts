@@ -11,3 +11,4 @@ export type * from './host.ts';
 export type * from './terminal.ts';
 export type * from './actions.ts';
 export { ACTION_ICONS, type ActionIcon } from './actionIcons.ts';
+export type * from './usage.ts';

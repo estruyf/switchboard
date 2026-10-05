@@ -4,53 +4,102 @@
 
 <h1 align="center">Switchboard</h1>
 
-A fast desktop app for managing Claude Code sessions. See [PLAN.md](PLAN.md) for the full plan and [spike/FINDINGS.md](spike/FINDINGS.md) for what the Phase 0 spike verified.
+<p align="center">A fast Mac app for running and keeping track of your Claude Code sessions.</p>
+
+Switchboard puts all your Claude Code sessions in one window: the ones you start in the app, and the ones running in your terminal. Start new sessions, see at a glance which ones are working or waiting for you, approve permissions, and pick up any past conversation where you left off.
+
+It uses the Claude Code you already have installed, with your login, settings, commands and skills. Nothing extra to sign in to.
+
+## What you can do
+
+**Keep track of every session**
+- One list of all your sessions, newest first, across every project. Sessions you haven't touched for a while move to **Settled**, out of the way.
+- See at a glance which sessions are **working**, **waiting for you**, **finished** or **unread**.
+- Filter by project, search by title, and pin the sessions you keep coming back to.
+- Give each project an icon. Switchboard picks one up from the repo when it can (a logo or favicon).
+- Sessions running in your terminal show up too, live.
+
+**Work with Claude**
+- Start a session in a folder (⌘N), either on the current branch or in a **new worktree**, just like `claude --worktree`.
+- Chat as you would in the terminal. You get streaming replies, `/` commands (your own commands and skills included), `@` file mentions, and images you paste or attach.
+- Approve or deny permission requests, answer Claude's questions and review plans in the conversation.
+- Follow what Claude does without the noise: each run of tool calls is one line ("Reading src/app.ts…", then "Ran 3 commands and edited 2 files"), and a click shows every step, with diffs, command output, to-do lists and subagent runs.
+- Images Claude reads or you attach are shown in the conversation.
+- Press **Esc** to stop Claude, **⇧Tab** to switch permission mode, and keep typing while it works (messages queue up).
+- Continue any past session. If it's still open in a terminal, Switchboard offers to **fork** it instead, leaving the original untouched.
+
+**Stay on top of things**
+- A notification and Dock badge when a session needs you or finishes, so you can leave it running in the background.
+- Your plan usage above the message box: how much of your 5-hour and weekly limits you've used, and when they reset.
+
+**Everything in one place**
+- A built-in terminal per session (⌘J), with a tab for your shell and one for the full Claude Code terminal interface.
+- **Project actions**: one-click buttons for things like *Commit*, *Test* or *Publish*, running a command or sending Claude a prompt. See [Project actions](docs/project-actions.md).
+- **Open in** your editor, terminal or Finder (⌘O), and click any file path in the conversation to open it at that line.
+- Delete sessions you don't need. They go to the Trash, so you can get them back.
 
 ## Requirements
 
-- macOS, Node 24+, npm 11+
-- Claude Code installed and signed in (`claude` on your PATH)
+- A Mac with Apple Silicon
+- [Claude Code](https://github.com/anthropics/claude-code) installed and signed in (`claude` works in your terminal)
 
-## Commands
+## Install
+
+There's no download yet; you build the app from this repository, which takes a couple of minutes. You need Node 24 or later.
 
 ```bash
 npm install
-npm run dev        # Electron + Vite dev server with hot reload
-npm run check      # typecheck every package + unit tests
-npm run smoke      # build, launch, kill the engine once, verify it recovers
-npm run build      # production bundles in apps/desktop/out
-npm run icon -w @switchboard/desktop   # regenerate the app icon from its SVG
+npm run dist
 ```
 
-Tests that call the real Claude Code (a few cents of Haiku each) are opt-in and need a throwaway git repo:
+Then open `apps/desktop/dist/Switchboard-0.1.0-arm64.dmg` and drag Switchboard to Applications.
 
-```bash
-SWITCHBOARD_LIVE_CWD=/path/to/throwaway-repo npx vitest run claude.live
-SWITCHBOARD_SMOKE_LIVE_CWD=/path/to/throwaway-repo npm run smoke
-```
+If macOS blocks the app the first time you open it, see [Building, signing and notarisation](docs/building-and-signing.md).
 
-The live smoke step drives the real window: it starts a session in that folder, approves a permission prompt and waits for the reply. It refuses to submit if the folder field shows anything else.
+## Getting started
 
-## App icon
+1. **Open Switchboard.** Your existing Claude Code sessions appear in the sidebar straight away.
+2. **Pick a session** to read it, or type below it to continue.
+3. **Start something new** with ⌘N: choose a folder, and whether to work in the current folder or a new worktree.
+4. When a session needs you (a permission or a question), it's marked in the sidebar and you get a notification.
 
-The icon is a patch panel with two cables hanging between its jacks. Its source is [`apps/desktop/build/icon.svg`](apps/desktop/build/icon.svg); edit that, then run `npm run icon -w @switchboard/desktop` to regenerate:
+## Keyboard shortcuts
 
-| File | Used for |
+| Shortcut | What it does |
 |---|---|
-| `apps/desktop/build/icon.png` | 1024×1024; the Dock icon while developing, and the About panel |
-| `apps/desktop/build/icon.icns` | Every macOS size, for the packaged app |
-| `apps/ui/src/assets/app-icon.png` | 64×64, without the macOS margin, for the sidebar header |
+| ⌘N | New session |
+| ↑ ↓ | Move through sessions in the sidebar |
+| ⌘⌫ | Delete the selected session (to the Trash) |
+| ⌘O | Open the session's folder in your editor |
+| ⌘J | Show or hide the terminal |
+| ⌘, | Settings |
+| Esc | Stop Claude while it's working |
+| ⇧Tab | Switch permission mode |
+| `/` and `@` | Commands and file mentions in the message box |
+| ⌘Q | Quit (Switchboard asks first; press ⌘Q again to quit) |
 
-The SVG is rendered with Electron (Chromium), and the `.icns` is built with macOS's `sips` and `iconutil`, so nothing extra needs installing.
+Right-click a session for more: pin, settle, open its folder, copy its ID, or delete it.
 
-## Layout
+## Settings
 
-| Path | What it is |
-|---|---|
-| `apps/desktop` | Electron main process, preload, and the engine utilityProcess entry |
-| `apps/ui` | React 19 renderer |
-| `packages/engine` | The engine: plain Node, no Electron imports. Cache DB, shell env, `claude` detection |
-| `packages/protocol` | zod contract + typed RPC over MessagePorts, shared by engine and UI |
-| `spike/` | Phase 0 throwaway experiments against the Agent SDK |
+Open Settings with ⌘, or the gear at the bottom of the sidebar.
 
-`@switchboard/protocol` has three entry points: `.` (everything, including zod schemas; used by the engine), `./client` (RPC client only, so the renderer bundle stays free of zod), and `./bridge` (IPC constants for main and preload).
+- **Theme:** Match System, Light or Dark. The colours come from the [Demo Time theme](https://github.com/estruyf/vscode-demo-time-theme).
+- **Sidebar:** *Large icons* (easy to spot each project), *Standard*, or *Compact* (one line per session).
+- **Conversation:** *Summarised* (the default) shows each run of tool calls as one line, like Claude Code: what Claude is doing right now, or what it did, with how long it took. Click it to see the steps, and a step to see its details. *Every step* shows each tool call as its own card.
+- **Quitting:** turn off the "Ask before quitting" prompt.
+
+## Your data
+
+Switchboard reads the session files Claude Code already keeps in `~/.claude` and runs your own `claude` to do the work, so your sessions stay in one place whether you use the terminal or the app. It doesn't send anything anywhere else. Deleting a session moves its files to the Trash.
+
+## Documentation
+
+- [Project actions](docs/project-actions.md): add buttons for your own commands and prompts, and share them with your team.
+- [Building, signing and notarisation](docs/building-and-signing.md): packaging the app, and signing it with an Apple Developer ID.
+- [Development](docs/development.md): running from source, tests, and how the code is organised.
+- [Plan](PLAN.md): the roadmap and design decisions.
+
+## Credits
+
+Switchboard's colour theme and syntax colours come from the [Demo Time theme](https://github.com/estruyf/vscode-demo-time-theme) (MIT).

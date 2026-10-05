@@ -12,9 +12,13 @@ const appDir = join(import.meta.dirname, '..');
 const outDir = join(appDir, '.smoke');
 rmSync(outDir, { recursive: true, force: true });
 
-const electronPath = createRequire(import.meta.url)('electron') as unknown as string;
+// --packaged runs the built Switchboard.app (npm run dist) instead of the development build.
+const packaged = process.argv.includes('--packaged');
+const command = packaged
+  ? join(appDir, 'dist', 'mac-arm64', 'Switchboard.app', 'Contents', 'MacOS', 'Switchboard')
+  : (createRequire(import.meta.url)('electron') as unknown as string);
 const started = performance.now();
-const child = spawn(electronPath, [appDir], {
+const child = spawn(command, packaged ? [] : [appDir], {
   env: { ...process.env, SWITCHBOARD_SMOKE_OUT: outDir, ELECTRON_ENABLE_LOGGING: '0' },
   stdio: 'inherit',
 });
@@ -29,12 +33,20 @@ const result = JSON.parse(readFileSync(join(outDir, 'result.json'), 'utf8'));
 console.log(`✓ UI talking to the engine ${result.connectedMs}ms after process start (diagnostics loaded at ${result.loadedMs}ms)`);
 console.log(`${result.sessionCount > 0 ? '✓' : '✗'} ${result.sessionCount} sessions listed on first load`);
 console.log(`${result.transcriptOpened ? '✓' : '✗'} newest session's transcript rendered`);
+const gapOk = typeof result.transcriptAtBottom === 'number' && result.transcriptAtBottom >= 16;
+console.log(`${gapOk ? '✓' : '✗'} transcript opens at the end, ${result.transcriptAtBottom ?? '?'}px above the composer`);
+if (!gapOk) process.exitCode = 1;
+console.log(`${result.activity?.steps ? '✓' : '✗'} tool calls summarised: ${result.activity ? `${result.activity.groups} groups; "${result.activity.label}" opens to ${result.activity.steps} steps` : 'no groups'}`);
+if (!result.activity?.steps) process.exitCode = 1;
+console.log(`${result.quitGuarded ? '✓' : '✗'} ⌘Q asks first, Cancel keeps the app open, a second ⌘Q quits`);
+console.log(`${result.settingsResult === 'ok' ? '✓' : '✗'} settings: theme, sidebar style, tool activity and quit prompt apply at once and are saved${result.settingsResult === 'ok' ? '' : ` (${result.settingsResult})`}`);
 console.log(`${result.terminalOpened ? '✓' : '✗'} terminal panel opened a shell`);
 console.log(`${result.actionRan ? '✓' : '✗'} project action added through the editor and run in a terminal tab`);
 console.log(`${result.highlighted ? '✓' : '✗'} syntax highlighting loaded and coloured a code block`);
+console.log(`${result.usageBand ? '✓' : '✗'} usage band above the composer: ${result.usageBand ?? 'not shown'}`);
 console.log(`  rendering on screen: ${JSON.stringify(result.rendering)}`);
 if (result.notifications.length) console.log(`  notifications: ${result.notifications.map((n: { kind: string; title: string; suppressed: boolean }) => `${n.kind} "${n.title}"${n.suppressed ? ' (suppressed: you were looking)' : ''}`).join('; ')}`);
-if (!result.terminalOpened || !result.actionRan || !result.highlighted) process.exitCode = 1;
+if (!result.quitGuarded || result.settingsResult !== 'ok' || !result.terminalOpened || !result.actionRan || !result.highlighted) process.exitCode = 1;
 if (result.liveSession !== null) {
   console.log(`${result.liveSession === 'ok' ? '✓' : '✗'} live session through the UI: ${result.liveSession}`);
   if (result.liveSession !== 'ok') process.exitCode = 1;
@@ -42,4 +54,5 @@ if (result.liveSession !== null) {
 console.log(`✓ engine restarted and renderer reconnected in ${result.restartRecoveryMs}ms`);
 if (!result.transcriptOpened || result.sessionCount === 0) process.exitCode = 1;
 console.log(`  claude ${result.reports[0].claudeVersion ?? 'not found'} · engine ping ${result.reports[0].pingMs}ms · electron ${result.versions.electron}`);
+if (packaged) console.log('  (packaged app)');
 console.log(`  total wall time ${Math.round(performance.now() - started)}ms, screenshots in ${outDir}`);

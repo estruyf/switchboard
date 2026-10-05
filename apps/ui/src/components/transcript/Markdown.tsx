@@ -6,7 +6,7 @@ import { CodeBlock } from './CodeBlock.tsx';
 const components: Components = {
   a: ({ href, children }) => (
     // The main process opens http(s) links in the browser and blocks everything else.
-    <a href={href} target="_blank" rel="noreferrer" className="text-accent underline decoration-accent/40 underline-offset-2">
+    <a href={href} target="_blank" rel="noreferrer" className="text-link underline decoration-link/40 underline-offset-2">
       {children}
     </a>
   ),

@@ -201,6 +201,15 @@ describe('live registry', () => {
     expect(parseRegistryEntry('nope', () => null)).toBeNull();
   });
 
+  it('leaves out sessions it is told to ignore', () => {
+    const dir = tempDir();
+    writeFileSync(join(dir, '1.json'), JSON.stringify({ pid: 1, sessionId: 'helper', status: 'busy' }));
+    writeFileSync(join(dir, '2.json'), JSON.stringify({ pid: 2, sessionId: 'real', status: 'idle' }));
+    const registry = new LiveRegistry({ dir, resolveRoot: () => null, isAlive: () => true, ignore: (id) => id === 'helper', onChange: () => {} });
+    registry.scan();
+    expect(registry.list().map((l) => l.sessionId)).toEqual(['real']);
+  });
+
   it('lists only live processes and reports changes once', () => {
     const dir = tempDir();
     writeFileSync(join(dir, '1.json'), JSON.stringify({ pid: 1, sessionId: 'alive', status: 'idle' }));

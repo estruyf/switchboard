@@ -6,6 +6,7 @@ import { useEngineConnection } from '../../engine/useEngine.ts';
 import { guessHome, shortAge, tildify } from '../../lib/format.ts';
 import { nextMode } from '../../lib/modes.ts';
 import { hostAsLive, isActiveHost, useHosts } from '../../state/hostsStore.ts';
+import { usePreferences } from '../../state/preferencesStore.ts';
 import { useProjects } from '../../state/projectsStore.ts';
 import { realBranch, useSessions } from '../../state/sessionsStore.ts';
 import { useTerminals } from '../../state/terminalsStore.ts';
@@ -17,33 +18,46 @@ import { OpenInButton } from '../OpenInButton.tsx';
 import { ProjectIcon } from '../ProjectIcon.tsx';
 import { PermissionCard } from '../session/PermissionCard.tsx';
 import { StatusBar } from '../session/StatusBar.tsx';
+import { UsageBand } from '../UsageBand.tsx';
 import { liveLabel, StatusDot } from '../StatusDot.tsx';
-import { buildDisplayItems } from './displayItems.ts';
+import { formatDuration, useTicker, WorkingDots } from './ActivityGroup.tsx';
+import { buildDisplayItems, groupActivity, type RenderItem } from './displayItems.ts';
 import { parseTodos, TodoList } from './TodoList.tsx';
 import { TranscriptItem } from './TranscriptItem.tsx';
 import { useTranscript } from './useTranscript.ts';
 
 const ORIGIN_LABEL = { cli: 'Terminal', desktop: 'Claude desktop', ide: 'IDE', sdk: 'SDK', app: 'Switchboard', unknown: '' } as const;
 
-/** What Claude is writing right now, before the block lands in the transcript. */
-function StreamingBlock({ sessionId }: { sessionId: string }) {
+/**
+ * What Claude is doing right now, before it lands in the transcript: the text it's writing,
+ * or (when no step line is already showing it) dots, the time since your message, and the step.
+ */
+function StreamingBlock({ sessionId, since, showIndicator }: { sessionId: string; since: number | null; showIndicator: boolean }) {
   const block = useHosts((s) => s.streaming.get(sessionId));
   const running = useHosts((s) => s.hosts.get(sessionId)?.state === 'running');
-  if (!block && !running) return null;
-  return (
-    <div className="mx-auto max-w-3xl px-6 pt-3 pb-2" data-streaming>
-      {block?.kind === 'text' ? (
+  const now = useTicker(running && showIndicator && block?.kind !== 'text');
+  if (block?.kind === 'text') {
+    return (
+      <div className="mx-auto max-w-3xl px-6 pt-3 pb-2" data-streaming>
         <p className="text-[13.5px] leading-relaxed whitespace-pre-wrap select-text">
           {block.text}
-          <span className="ml-0.5 inline-block h-3.5 w-1.5 animate-pulse bg-accent align-middle" />
+          <span className="ml-0.5 inline-block h-3.5 w-1.5 animate-pulse bg-accent-ink align-middle" />
         </p>
-      ) : (
-        <p className="flex items-center gap-2 text-[12px] text-faint">
-          <span className="size-1.5 animate-pulse rounded-full bg-accent" />
-          {block?.kind === 'tool' ? `Using ${block.text}…` : block?.kind === 'thinking' ? 'Thinking…' : 'Working…'}
-          {block?.kind === 'thinking' && <span className="min-w-0 truncate italic">{block.text.slice(-160)}</span>}
-        </p>
-      )}
+      </div>
+    );
+  }
+  if (!running || !showIndicator) return null;
+  const label = block?.kind === 'tool' ? `Using ${block.text}` : block?.kind === 'thinking' ? 'Thinking' : 'Working';
+  return (
+    <div className="mx-auto max-w-3xl px-6 pt-3 pb-2" data-streaming>
+      <p className="flex min-w-0 items-center gap-2 text-[12.5px] text-muted">
+        <span className="flex w-4 shrink-0 justify-center">
+          <WorkingDots />
+        </span>
+        {since !== null && <span className="shrink-0 text-faint tabular-nums">{formatDuration(now - since)} ·</span>}
+        <span className="shrink-0">{label}</span>
+        {block?.kind === 'thinking' && block.text && <span className="min-w-0 truncate text-faint italic">{block.text.slice(-160)}</span>}
+      </p>
     </div>
   );
 }
@@ -81,6 +95,8 @@ export function TranscriptView({ sessionId }: { sessionId: string }) {
     }
   }, [actionTerminals, sessionId]);
   const items = useMemo(() => buildDisplayItems(messages), [messages]);
+  const toolActivity = usePreferences((s) => s.prefs.toolActivity);
+  const renderItems = useMemo<RenderItem[]>(() => (toolActivity === 'summary' ? groupActivity(items) : items), [items, toolActivity]);
   const [commands, setCommands] = useState<SlashCommand[]>([]);
 
   const projectRoot = summary?.projectRoot ?? registryLive?.projectRoot ?? null;
@@ -110,6 +126,24 @@ export function TranscriptView({ sessionId }: { sessionId: string }) {
   const cwd = activeHost?.cwd ?? summary?.cwd ?? registryLive?.cwd ?? null;
   const running = activeHost?.state === 'running' || activeHost?.state === 'needs-you';
 
+  // The run of steps Claude is on now (summary mode), and what to call it between steps.
+  const lastRender = renderItems.at(-1);
+  // Sessions running elsewhere (a terminal, Claude desktop) count too: their status comes from the registry.
+  const working = running || live?.status === 'running' || live?.status === 'needs-you';
+  const activeGroupKey = working && lastRender?.kind === 'activity' ? lastRender.key : null;
+  const streamKind = useHosts((s) => s.streaming.get(sessionId)?.kind ?? null);
+  const streamTool = useHosts((s) => (s.streaming.get(sessionId)?.kind === 'tool' ? s.streaming.get(sessionId)!.text : null));
+  const activeLabel =
+    live?.status === 'needs-you' ? 'Waiting for you' : streamKind === 'thinking' ? 'Thinking' : streamKind === 'tool' && streamTool ? `Using ${streamTool}` : null;
+  // When your last message went in, for the "9s · Thinking" timer.
+  const turnStart = useMemo(() => {
+    for (let i = items.length - 1; i >= 0; i--) {
+      const item = items[i]!;
+      if ((item.kind === 'user' && !item.subagent) || item.kind === 'command') return item.at;
+    }
+    return null;
+  }, [items]);
+
   useEffect(() => {
     if (!client) return;
     void client.call('session.commands', { sessionId, ...(cwd ? { cwd } : {}) }).then((r) => setCommands(r.commands));
@@ -117,27 +151,41 @@ export function TranscriptView({ sessionId }: { sessionId: string }) {
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const virtualizer = useVirtualizer({
-    count: items.length,
+    count: renderItems.length,
     getScrollElement: () => scrollRef.current,
     estimateSize: () => 72,
     overscan: 6,
-    getItemKey: (i) => items[i]!.key,
+    getItemKey: (i) => renderItems[i]!.key,
+    // Room above the first message and between the last one and the composer.
+    paddingStart: 16,
+    paddingEnd: 28,
+    scrollPaddingEnd: 28,
   });
 
   // Start at the bottom, and keep following new output while the user is at the bottom.
+  // Only scrolling up stops the following: the automatic scrolling below only moves down, and
+  // while rows are measured it can briefly sit far from the end, which must not count as leaving.
   const stickToBottom = useRef(true);
+  const lastScrollTop = useRef(0);
   const onScroll = () => {
     const el = scrollRef.current;
-    if (el) stickToBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 160;
+    if (!el) return;
+    const nearEnd = el.scrollHeight - el.scrollTop - el.clientHeight < 160;
+    if (el.scrollTop < lastScrollTop.current - 1) stickToBottom.current = nearEnd;
+    else if (nearEnd) stickToBottom.current = true;
+    lastScrollTop.current = el.scrollTop;
   };
   const streamingText = useHosts((s) => s.streaming.get(sessionId)?.text.length ?? 0);
+  // Rows start at an estimated height and grow once measured, so follow the total size too:
+  // otherwise the first jump lands short of the end and the last message sits under the composer.
+  const totalSize = virtualizer.getTotalSize();
   useLayoutEffect(() => {
     const el = scrollRef.current;
-    if (el && stickToBottom.current && items.length > 0) {
-      virtualizer.scrollToIndex(items.length - 1, { align: 'end' });
+    if (el && stickToBottom.current && renderItems.length > 0) {
+      virtualizer.scrollToIndex(renderItems.length - 1, { align: 'end' });
       requestAnimationFrame(() => (el.scrollTop = el.scrollHeight));
     }
-  }, [items.length, streamingText, permissions.length, virtualizer]);
+  }, [renderItems.length, totalSize, streamingText, permissions.length, virtualizer]);
 
   const send = async (text: string, attachments: ImageAttachment[], fork = false) => {
     if (!client) throw new Error('Not connected to the engine');
@@ -189,23 +237,29 @@ export function TranscriptView({ sessionId }: { sessionId: string }) {
         ) : items.length === 0 && !activeHost ? (
           <p className="p-8 text-center text-[12px] text-faint">This session has no messages yet.</p>
         ) : (
-          <div className="relative mx-auto max-w-3xl px-6" style={{ height: virtualizer.getTotalSize() + 16 }}>
+          <div className="relative mx-auto max-w-3xl px-6" style={{ height: virtualizer.getTotalSize() }}>
             {virtualizer.getVirtualItems().map((row) => (
               <div
                 key={row.key}
                 data-index={row.index}
                 data-transcript-item
-                data-item-kind={items[row.index]!.kind}
+                data-item-kind={renderItems[row.index]!.kind}
                 ref={virtualizer.measureElement}
                 className="absolute inset-x-6 pt-3"
-                style={{ transform: `translateY(${row.start + 16}px)` }}
+                style={{ transform: `translateY(${row.start}px)` }}
               >
-                <TranscriptItem item={items[row.index]!} cwd={cwd} sessionId={sessionId} />
+                <TranscriptItem
+                  item={renderItems[row.index]!}
+                  cwd={cwd}
+                  sessionId={sessionId}
+                  active={renderItems[row.index]!.key === activeGroupKey}
+                  activeLabel={renderItems[row.index]!.key === activeGroupKey ? activeLabel : null}
+                />
               </div>
             ))}
           </div>
         )}
-        <StreamingBlock sessionId={sessionId} />
+        <StreamingBlock sessionId={sessionId} since={turnStart} showIndicator={activeGroupKey === null} />
       </div>
 
       <div className="shrink-0 border-t border-border bg-bg">
@@ -232,6 +286,7 @@ export function TranscriptView({ sessionId }: { sessionId: string }) {
               <strong className="font-medium text-text">fork</strong>: a new session that continues from this conversation, leaving the original untouched.
             </p>
           )}
+          <UsageBand />
           <Composer
             cwd={cwd}
             commands={commands}
