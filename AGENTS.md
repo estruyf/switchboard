@@ -77,7 +77,7 @@ SWITCHBOARD_SMOKE_LIVE_CWD=/path/to/throwaway-repo npm run smoke
 
 ## Releases
 
-1. Set `version` in `apps/desktop/package.json` (the `.dmg` is named after it).
+1. Set `version` in `apps/desktop/package.json` (the `.dmg` is named after it), and add the release to `CHANGELOG.md`, written for people using the app. Its section is also the GitHub release notes.
 2. Build locally with `npm run dist:notarized` (signed with the Developer ID and notarised; needs the `switchboard-notary` keychain profile), or let CI build.
 3. Tag `vX.Y.Z` and push. `.github/workflows/release.yml` builds on an Apple Silicon runner, and attaches the `.dmg` to the GitHub release (signed and notarised when the signing secrets are set; see `docs/building-and-signing.md`). If the release already has a `.dmg` and CI has no signing secrets, CI leaves it alone, so a locally notarised build isn't replaced by an unsigned one.
 

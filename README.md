@@ -122,6 +122,7 @@ Switchboard reads the session files Claude Code already keeps in `~/.claude` and
 - [Project actions](docs/project-actions.md): add buttons for your own commands and prompts, and share them with your team.
 - [Building, signing and notarisation](docs/building-and-signing.md): packaging the app, and signing it with an Apple Developer ID.
 - [Development](docs/development.md): running from source, tests, and how the code is organised.
+- [Changelog](CHANGELOG.md): what's new in each release.
 - [Plan](PLAN.md): the roadmap and design decisions.
 
 ## Credits
