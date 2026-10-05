@@ -1,4 +1,4 @@
-import { existsSync, rmSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, rmSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import {
@@ -11,17 +11,20 @@ import {
   type LogEntry,
   type LogLevel,
   type RpcServer,
+  type SlashCommand,
   type SystemInfo,
   type Transport,
 } from '@switchboard/protocol';
 import { LiveRegistry } from './claude/liveRegistry.ts';
 import { createProjectResolver } from './claude/projectResolver.ts';
 import { sdkSessionSource, type SessionSource } from './claude/sessionSource.ts';
+import { ActionStore, expandCommand, suggestActions } from './actions/actionStore.ts';
 import { HostManager, type SdkRuntime } from './host/hostManager.ts';
 import { ProjectRegistry } from './projects/projectRegistry.ts';
 import { createAppStateStore } from './db/appState.ts';
 import { openCacheDatabase } from './db/database.ts';
 import { findClaude } from './system/claudeBinary.ts';
+import { normaliseMessage } from './claude/transcript.ts';
 import { SessionIndex } from './sessions/sessionIndex.ts';
 import { TerminalManager, type SpawnPty } from './terminals/terminalManager.ts';
 import { TranscriptHub } from './sessions/transcriptHub.ts';
@@ -157,6 +160,14 @@ export function createEngine(options: EngineOptions): Engine {
       owned.add(id);
       markOwned.run(id, Date.now());
     },
+    commandCache: {
+      // Persisted for an hour; Claude Code reports fresh lists from every running session anyway.
+      get: (cwd) => {
+        const stored = appState.get(`commands:${cwd}`) as { at: number; commands: SlashCommand[] } | null;
+        return stored && Date.now() - stored.at < 3_600_000 ? stored.commands : null;
+      },
+      set: (cwd, commands) => appState.set(`commands:${cwd}`, { at: Date.now(), commands }),
+    },
     log,
   });
 
@@ -183,6 +194,40 @@ export function createEngine(options: EngineOptions): Engine {
     } else {
       viewers?.delete(context);
     }
+  };
+
+  const actions = new ActionStore(cache.db);
+
+  /** Runs an action's command in a terminal tab of the session and returns the terminal id. */
+  const runShellAction = async (sessionId: string, cwd: string, name: string, command: string) =>
+    (await terminals.open({ sessionId, cwd, kind: 'action', command, title: name, cols: 100, rows: 20, fork: false })).id;
+
+  /**
+   * For a new worktree: wait until Claude Code has created it, then run the
+   * project's setup actions there one by one (untrusted shared ones are skipped).
+   */
+  const worktreeSetup = (sessionId: string, repoCwd: string, worktreeName: string) => {
+    const root = resolver.resolve(repoCwd).root;
+    const setup = actions.list(root).actions.filter((a) => a.runOnWorktreeCreate && a.type === 'shell');
+    if (setup.length === 0) return undefined;
+    return async () => {
+      const path = join(root, '.claude', 'worktrees', worktreeName);
+      const deadline = Date.now() + 30_000;
+      while (!existsSync(path)) {
+        if (Date.now() > deadline) throw new Error(`Worktree ${path} did not appear`);
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      }
+      for (const action of setup) {
+        if (!action.trusted) {
+          log('warn', `Skipped setup action "${action.name}": approve it once by running it from the actions menu`);
+          continue;
+        }
+        const vars = { cwd: path, projectRoot: root, branch: `worktree-${worktreeName}`, worktreeName, sessionId, sessionTitle: '' };
+        const id = await runShellAction(sessionId, action.cwd === 'project-root' ? root : path, `Setup: ${action.name}`, expandCommand(action.command, vars, true));
+        const code = await terminals.waitForExit(id);
+        if (code !== 0) log('warn', `Setup action "${action.name}" exited with ${code}`);
+      }
+    };
   };
 
   const defaultEditorKey = 'editor.default';
@@ -254,6 +299,33 @@ export function createEngine(options: EngineOptions): Engine {
       return {};
     },
     'transcript.get': async ({ sessionId }) => ({ sessionId, messages: await transcripts.read(sessionId) }),
+    'transcript.subagent': async ({ sessionId, toolUseId }) => {
+      // Each subagent leaves agent-<id>.meta.json next to its transcript, naming the tool call that started it.
+      const transcript = sessions.pathFor(sessionId);
+      const dir = transcript ? join(transcript.replace(/\.jsonl$/, ''), 'subagents') : null;
+      let agentId: string | null = null;
+      let agentType: string | null = null;
+      for (const file of dir && existsSync(dir) ? readdirSync(dir).filter((f) => f.endsWith('.meta.json')) : []) {
+        try {
+          const meta = JSON.parse(readFileSync(join(dir!, file), 'utf8')) as { toolUseId?: unknown; agentType?: unknown };
+          if (meta.toolUseId === toolUseId) {
+            agentId = file.replace(/^agent-/, '').replace(/\.meta\.json$/, '');
+            agentType = typeof meta.agentType === 'string' ? meta.agentType : null;
+            break;
+          }
+        } catch {
+          // A half-written meta file: the next poll will see it.
+        }
+      }
+      if (!agentId || !source.subagentMessages) return { agentId, agentType, messages: [] };
+      const sink = transcripts.images.sink(sessionId);
+      return { agentId, agentType, messages: (await source.subagentMessages(sessionId, agentId)).map((m) => normaliseMessage(m, sink)) };
+    },
+    'transcript.image': async ({ sessionId, imageId }) => {
+      const image = await transcripts.image(sessionId, imageId);
+      if (!image) throw new RpcError('NOT_FOUND', 'Image not found in this transcript');
+      return image;
+    },
     'transcript.watch': ({ sessionId }, context) => {
       const map = subscriptionsFor(context);
       if (!map.has(sessionId)) {
@@ -274,7 +346,9 @@ export function createEngine(options: EngineOptions): Engine {
       if (params.worktree && !resolver.resolve(params.cwd).gitDir) {
         throw new RpcError('NOT_A_REPO', 'Worktrees need a git repository');
       }
-      return { sessionId: await hosts.create(params) };
+      const worktree = params.worktree;
+      const setup = worktree ? (id: string) => worktreeSetup(id, params.cwd, worktree.name)?.() ?? Promise.resolve() : undefined;
+      return { sessionId: await hosts.create({ ...params, ...(setup ? { beforeFirstMessage: setup } : {}) }) };
     },
     'session.send': (params) => hosts.send(params),
     'session.interrupt': async ({ sessionId }) => {
@@ -297,7 +371,7 @@ export function createEngine(options: EngineOptions): Engine {
       hosts.respond(requestId, decision);
       return {};
     },
-    'session.commands': ({ sessionId, cwd }) => ({ commands: hosts.commands(sessionId, cwd) }),
+    'session.commands': async ({ sessionId, cwd }) => ({ commands: await hosts.commands(sessionId, cwd) }),
     'session.prewarm': ({ cwd }) => {
       if (existsSync(cwd)) void hosts.prewarm(cwd).catch((error: Error) => log('debug', `Pre-warm failed: ${error.message}`));
       return {};
@@ -331,6 +405,42 @@ export function createEngine(options: EngineOptions): Engine {
       return {};
     },
 
+    'actions.list': ({ projectRoot }) => actions.list(projectRoot),
+    'actions.save': ({ projectRoot, action, previousId }) => {
+      actions.save(projectRoot, action, previousId);
+      return {};
+    },
+    'actions.delete': ({ projectRoot, id }) => {
+      actions.remove(projectRoot, id);
+      return {};
+    },
+    'actions.trust': ({ projectRoot, id }) => {
+      const action = actions.list(projectRoot).actions.find((a) => a.id === id);
+      if (!action) throw new RpcError('NOT_FOUND', 'No such action');
+      actions.trust(projectRoot, action.command);
+      return {};
+    },
+    'actions.suggest': ({ projectRoot }) => ({ suggestions: suggestActions(projectRoot) }),
+    'actions.run': async ({ sessionId, projectRoot, cwd, id }) => {
+      const action = actions.list(projectRoot).actions.find((a) => a.id === id);
+      if (!action) throw new RpcError('NOT_FOUND', 'No such action');
+      if (!action.trusted) throw new RpcError('UNTRUSTED', `"${action.name}" comes from ${projectRoot}/.switchboard.json and has not been approved yet`);
+      const location = resolver.resolve(cwd);
+      const vars = {
+        cwd,
+        projectRoot,
+        branch: resolver.branch(location) ?? '',
+        worktreeName: location.worktree?.name ?? '',
+        sessionId,
+        sessionTitle: sessions.get(sessionId)?.title ?? '',
+      };
+      if (action.type === 'prompt') {
+        const sent = await hosts.send({ sessionId, text: expandCommand(action.command, vars, false), attachments: [], fork: false });
+        return { kind: 'prompt' as const, sessionId: sent.sessionId, messageUuid: sent.messageUuid };
+      }
+      const runIn = action.cwd === 'project-root' ? projectRoot : cwd;
+      return { kind: 'terminal' as const, terminalId: await runShellAction(sessionId, runIn, action.name, expandCommand(action.command, vars, true)) };
+    },
     'terminal.open': async (params) => {
       if (params.kind === 'claude' && params.sessionId && !params.fork) {
         if (hosts.has(params.sessionId)) {

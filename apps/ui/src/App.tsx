@@ -59,6 +59,16 @@ function EmptyState() {
   );
 }
 
+/** Keeps main informed about what's on screen, and opens sessions main asks for (notification clicks). */
+function useWindowFocus() {
+  const view = useSessions((s) => s.view);
+  const selectedId = useSessions((s) => s.selectedId);
+  useEffect(() => {
+    window.switchboard?.reportFocus(view === 'session' ? selectedId : null);
+  }, [view, selectedId]);
+  useEffect(() => window.switchboard?.onSelectSession((id) => useSessions.getState().select(id)), []);
+}
+
 export function App() {
   useSessionsSync();
   useHostsSync();
@@ -66,6 +76,7 @@ export function App() {
   useTerminalsSync();
   useReadyReport();
   useShortcuts();
+  useWindowFocus();
   const view = useSessions((s) => s.view);
   const selectedId = useSessions((s) => s.selectedId);
 

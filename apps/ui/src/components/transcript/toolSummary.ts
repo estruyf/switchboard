@@ -60,3 +60,21 @@ export function toolSummary(name: string, input: unknown, cwd: string | null): T
     }
   }
 }
+
+/** Before/after pairs for tools that change files, so the card can show a diff. */
+export function editHunks(item: { name: string; input: unknown }): Array<{ before: string; after: string }> | null {
+  const input = (item.input ?? {}) as Record<string, unknown>;
+  const str = (v: unknown) => (typeof v === 'string' ? v : '');
+  switch (item.name) {
+    case 'Edit':
+      return [{ before: str(input.old_string), after: str(input.new_string) }];
+    case 'MultiEdit':
+      return Array.isArray(input.edits) ? input.edits.map((e) => ({ before: str((e as Record<string, unknown>).old_string), after: str((e as Record<string, unknown>).new_string) })) : null;
+    case 'Write':
+      return [{ before: '', after: str(input.content) }];
+    case 'NotebookEdit':
+      return [{ before: '', after: str(input.new_source) }];
+    default:
+      return null;
+  }
+}

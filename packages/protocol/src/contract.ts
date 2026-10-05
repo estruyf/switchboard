@@ -24,6 +24,7 @@ import {
   TranscriptUpdate,
 } from './sessions.ts';
 import { TerminalInfo, TerminalKind } from './terminal.ts';
+import { ActionRunResult, ActionSuggestion, ListedAction, ProjectAction } from './actions.ts';
 
 export const ClaudeInstall = z.object({
   path: z.string(),
@@ -122,6 +123,16 @@ export const contract = {
       params: z.object({ sessionId: SessionId }),
       result: z.object({ sessionId: z.string(), messages: z.array(TranscriptMessage) }),
     },
+    /** One image from a transcript, as base64. */
+    'transcript.image': {
+      params: z.object({ sessionId: SessionId, imageId: z.string().min(1).max(300) }),
+      result: z.object({ mediaType: z.string(), data: z.string() }),
+    },
+    /** The transcript of the subagent a Task/Agent tool call started (null when it hasn't written one yet). */
+    'transcript.subagent': {
+      params: z.object({ sessionId: SessionId, toolUseId: z.string().min(1).max(200) }),
+      result: z.object({ agentId: z.string().nullable(), agentType: z.string().nullable(), messages: z.array(TranscriptMessage) }),
+    },
     /** Subscribes this window to `transcript.updated` for one session until unwatched or disconnected. */
     'transcript.watch': {
       params: z.object({ sessionId: SessionId }),
@@ -193,6 +204,28 @@ export const contract = {
       result: z.object({}),
     },
     'editors.setDefault': { params: z.object({ editorId: z.string() }), result: z.object({}) },
+
+    // --- Project actions -----------------------------------------------------------------------
+    /** Merged actions for a project: yours for it, then shared (.switchboard.json), then global. */
+    'actions.list': {
+      params: z.object({ projectRoot: AbsolutePath }),
+      result: z.object({ actions: z.array(ListedAction), sharedFile: z.string().nullable(), errors: z.array(z.string()) }),
+    },
+    /** Saves one of your actions; `projectRoot: null` makes it global. `previousId` renames. */
+    'actions.save': {
+      params: z.object({ projectRoot: AbsolutePath.nullable(), action: ProjectAction, previousId: z.string().optional() }),
+      result: z.object({}),
+    },
+    'actions.delete': { params: z.object({ projectRoot: AbsolutePath.nullable(), id: z.string() }), result: z.object({}) },
+    /** Approves a shared action's exact command (an edited command needs approval again). */
+    'actions.trust': { params: z.object({ projectRoot: AbsolutePath, id: z.string() }), result: z.object({}) },
+    /** Starter actions for a project (package.json scripts, git, gh). */
+    'actions.suggest': { params: z.object({ projectRoot: AbsolutePath }), result: z.object({ suggestions: z.array(ActionSuggestion) }) },
+    /** Runs an action for a session: shell actions open a terminal tab, prompt actions message the session. */
+    'actions.run': {
+      params: z.object({ sessionId: SessionId, projectRoot: AbsolutePath, cwd: AbsolutePath, id: z.string() }),
+      result: ActionRunResult,
+    },
 
     // --- Terminals ---------------------------------------------------------------------------
     /**

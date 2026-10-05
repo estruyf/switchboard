@@ -2,6 +2,7 @@ import type { LogLevel, TranscriptMessage, TranscriptUpdate } from '@switchboard
 import type { SessionSource } from '../claude/sessionSource.ts';
 import { normaliseMessage, type RawSessionMessage } from '../claude/transcript.ts';
 import { coalesce } from '../util/coalesce.ts';
+import { ImageStore } from './imageStore.ts';
 
 interface Watcher {
   /** UUIDs this watcher has already been sent, in order; null until the initial load is sent. */
@@ -37,6 +38,7 @@ export function diffTranscript(
 export class TranscriptHub {
   private readonly watchers = new Map<string, Set<Watcher>>();
   private readonly reloads = new Map<string, ReturnType<typeof coalesce>>();
+  readonly images = new ImageStore();
 
   constructor(
     private readonly source: SessionSource,
@@ -44,7 +46,16 @@ export class TranscriptHub {
   ) {}
 
   async read(sessionId: string): Promise<TranscriptMessage[]> {
-    return (await this.source.messages(sessionId)).map(normaliseMessage);
+    const sink = this.images.sink(sessionId);
+    return (await this.source.messages(sessionId)).map((m) => normaliseMessage(m, sink));
+  }
+
+  /** An image from a session's transcript; re-reads the transcript once if it was evicted. */
+  async image(sessionId: string, imageId: string): Promise<{ mediaType: string; data: string } | undefined> {
+    const hit = this.images.get(sessionId, imageId);
+    if (hit) return hit;
+    await this.read(sessionId);
+    return this.images.get(sessionId, imageId);
   }
 
   /** Starts sending `transcript.updated` for a session; the first update is a full `replace`. */
@@ -72,7 +83,8 @@ export class TranscriptHub {
   pushLive(sessionId: string, raw: readonly RawSessionMessage[]): void {
     const set = this.watchers.get(sessionId);
     if (!set || raw.length === 0) return;
-    const messages = raw.map(normaliseMessage);
+    const sink = this.images.sink(sessionId);
+    const messages = raw.map((m) => normaliseMessage(m, sink));
     for (const watcher of set) {
       if (watcher.uuids === null) {
         watcher.dirty = true;

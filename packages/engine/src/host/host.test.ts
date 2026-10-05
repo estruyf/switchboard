@@ -98,7 +98,10 @@ class FakeQuery {
     this.model = model ?? 'default';
   }
   async supportedCommands() {
-    return [{ name: 'review', description: 'Review the diff', argumentHint: '' }];
+    return [
+      { name: 'review', description: 'Review the diff', argumentHint: '' },
+      { name: 'doctor', description: 'Terminal only', argumentHint: '' },
+    ];
   }
   async supportedModels() {
     return [{ value: 'fake', displayName: 'Fake', description: 'Test model', supportsEffort: false }];
@@ -176,7 +179,7 @@ describe('HostManager', () => {
     expect(t.streams.filter((s) => s.kind === 'text').map((s) => s.text).join('')).toBe('Hello');
     expect(t.messages.flatMap((m) => m.messages.map((x) => x.uuid))).toContain('a-Hello');
     expect(t.infos.at(-1)).toMatchObject({ model: 'fake-model', costUsd: 0.01, contextPercent: 12 });
-    expect(t.manager.commands(id, undefined)).toEqual([{ name: 'review', description: 'Review the diff', argumentHint: '' }]);
+    await expect(t.manager.commands(id, undefined)).resolves.toEqual([{ name: 'review', description: 'Review the diff', argumentHint: '' }]);
     t.manager.closeAll();
   });
 
@@ -243,6 +246,40 @@ describe('HostManager', () => {
     await until(() => lastState(t.infos, id) === 'idle');
     expect(t.queries).toHaveLength(1);
     expect(t.queries[0]!.mode).toBe('plan');
+    t.manager.closeAll();
+  });
+
+  it('holds the first message until setup has finished', async () => {
+    const t = setup();
+    let finishSetup!: () => void;
+    const setupDone = new Promise<void>((resolve) => (finishSetup = resolve));
+    const seen: string[] = [];
+    const id = await t.manager.create({
+      ...base,
+      cwd: '/w',
+      prompt: 'hello',
+      beforeFirstMessage: async (sessionId) => {
+        seen.push(sessionId);
+        await setupDone;
+      },
+    });
+    expect(seen).toEqual([id]);
+    await new Promise((r) => setTimeout(r, 50));
+    expect(t.messages).toEqual([]);
+    finishSetup();
+    await until(() => lastState(t.infos, id) === 'idle');
+    expect(t.messages[0]).toMatchObject({ id, messages: [{ type: 'user' }] });
+    t.manager.closeAll();
+  });
+
+  it('lists commands for a folder without starting a session, once', async () => {
+    const t = setup();
+    const first = await t.manager.commands(undefined, '/projects/web');
+    expect(first.map((c) => c.name)).toEqual(['review']);
+    expect(t.queries).toHaveLength(1);
+    expect(t.queries[0]!.closed).toBe(true);
+    await t.manager.commands(undefined, '/projects/web');
+    expect(t.queries).toHaveLength(1);
     t.manager.closeAll();
   });
 

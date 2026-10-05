@@ -1,6 +1,6 @@
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { SquareTerminal } from 'lucide-react';
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { lazy, Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { ImageAttachment, SlashCommand } from '@switchboard/protocol/client';
 import { useEngineConnection } from '../../engine/useEngine.ts';
 import { guessHome, shortAge, tildify } from '../../lib/format.ts';
@@ -9,14 +9,17 @@ import { hostAsLive, isActiveHost, useHosts } from '../../state/hostsStore.ts';
 import { useProjects } from '../../state/projectsStore.ts';
 import { realBranch, useSessions } from '../../state/sessionsStore.ts';
 import { useTerminals } from '../../state/terminalsStore.ts';
-import { TerminalPanel } from '../terminal/TerminalPanel.tsx';
+// xterm.js is large; it loads the first time a terminal panel opens, not at startup.
+const TerminalPanel = lazy(() => import('../terminal/TerminalPanel.tsx').then((m) => ({ default: m.TerminalPanel })));
 import { Composer } from '../composer/Composer.tsx';
+import { ActionsBar } from '../actions/ActionsBar.tsx';
 import { OpenInButton } from '../OpenInButton.tsx';
 import { ProjectIcon } from '../ProjectIcon.tsx';
 import { PermissionCard } from '../session/PermissionCard.tsx';
 import { StatusBar } from '../session/StatusBar.tsx';
 import { liveLabel, StatusDot } from '../StatusDot.tsx';
 import { buildDisplayItems } from './displayItems.ts';
+import { parseTodos, TodoList } from './TodoList.tsx';
 import { TranscriptItem } from './TranscriptItem.tsx';
 import { useTranscript } from './useTranscript.ts';
 
@@ -60,6 +63,23 @@ export function TranscriptView({ sessionId }: { sessionId: string }) {
   const panelOpen = useTerminals((s) => s.panelOpen);
   const togglePanel = useTerminals((s) => s.togglePanel);
   const terminalCount = useTerminals((s) => [...s.terminals.values()].filter((t) => t.sessionId === sessionId && t.exitCode === null).length);
+
+  // Setup and project actions open their own terminal tab: show it as soon as one starts.
+  const actionTerminals = useTerminals((s) => [...s.terminals.values()].filter((t) => t.sessionId === sessionId && t.kind === 'action').map((t) => t.id).join(','));
+  const seenActionTerminals = useRef<Set<string> | null>(null);
+  useEffect(() => {
+    const ids = actionTerminals ? actionTerminals.split(',') : [];
+    if (seenActionTerminals.current === null) {
+      seenActionTerminals.current = new Set(ids);
+      return;
+    }
+    const fresh = ids.filter((id) => !seenActionTerminals.current!.has(id));
+    ids.forEach((id) => seenActionTerminals.current!.add(id));
+    if (fresh.length) {
+      useTerminals.getState().togglePanel(true);
+      useTerminals.getState().setActive(sessionId, fresh.at(-1)!);
+    }
+  }, [actionTerminals, sessionId]);
   const items = useMemo(() => buildDisplayItems(messages), [messages]);
   const [commands, setCommands] = useState<SlashCommand[]>([]);
 
@@ -73,6 +93,16 @@ export function TranscriptView({ sessionId }: { sessionId: string }) {
     const timer = setTimeout(() => void client.call('sessions.markViewed', { sessionId }).catch(() => {}), 600);
     return () => clearTimeout(timer);
   }, [client, sessionId, unread, summary?.updatedAt]);
+
+  // The latest task list, pinned above the composer while there's still work on it.
+  const todos = useMemo(() => {
+    for (let i = items.length - 1; i >= 0; i--) {
+      const item = items[i]!;
+      if (item.kind === 'tool' && item.name === 'TodoWrite') return parseTodos(item.input);
+    }
+    return [];
+  }, [items]);
+  const [todosOpen, setTodosOpen] = useState(true);
 
   const activeHost = isActiveHost(host) ? host : null;
   const live = activeHost ? hostAsLive(activeHost) : registryLive;
@@ -139,6 +169,7 @@ export function TranscriptView({ sessionId }: { sessionId: string }) {
             {liveLabel(live)}
           </span>
         )}
+        <ActionsBar sessionId={sessionId} projectRoot={projectRoot} cwd={cwd} />
         <button
           type="button"
           data-toggle-terminal
@@ -169,7 +200,7 @@ export function TranscriptView({ sessionId }: { sessionId: string }) {
                 className="absolute inset-x-6 pt-3"
                 style={{ transform: `translateY(${row.start + 16}px)` }}
               >
-                <TranscriptItem item={items[row.index]!} cwd={cwd} />
+                <TranscriptItem item={items[row.index]!} cwd={cwd} sessionId={sessionId} />
               </div>
             ))}
           </div>
@@ -179,6 +210,19 @@ export function TranscriptView({ sessionId }: { sessionId: string }) {
 
       <div className="shrink-0 border-t border-border bg-bg">
         <div className="mx-auto grid max-w-3xl gap-2 px-6 pt-3 pb-1.5">
+          {todos.some((t) => t.status !== 'completed') && (live || activeHost) && (
+            <div className="rounded-lg border border-border bg-card px-3 py-2" data-todo-strip>
+              <button type="button" onClick={() => setTodosOpen((o) => !o)} className="flex w-full items-center gap-2 text-left text-[11px] text-muted">
+                <span className={`inline-block text-[8px] transition-transform ${todosOpen ? 'rotate-90' : ''}`}>▶</span>
+                Tasks · {todos.filter((t) => t.status === 'completed').length}/{todos.length} done
+              </button>
+              {todosOpen && (
+                <div className="mt-1.5 max-h-40 overflow-y-auto">
+                  <TodoList todos={todos} compact />
+                </div>
+              )}
+            </div>
+          )}
           {permissions.map((request) => (
             <PermissionCard key={request.requestId} request={request} cwd={cwd} />
           ))}
@@ -210,7 +254,11 @@ export function TranscriptView({ sessionId }: { sessionId: string }) {
           )}
         </div>
       </div>
-      {panelOpen && <TerminalPanel sessionId={sessionId} cwd={cwd} />}
+      {panelOpen && (
+        <Suspense fallback={<div className="h-40 shrink-0 border-t border-border bg-sidebar" />}>
+          <TerminalPanel sessionId={sessionId} cwd={cwd} />
+        </Suspense>
+      )}
     </div>
   );
 }

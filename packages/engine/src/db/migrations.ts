@@ -114,4 +114,25 @@ export const migrations: readonly string[] = [
     added_at  INTEGER
   );
   `,
+
+  // v5: project actions are keyed by project folder; v1 pointed them at the unused projects table.
+  // Nothing could be saved under v1's foreign key, so the table is recreated empty.
+  `
+  DROP TABLE project_actions;
+  CREATE TABLE project_actions (
+    id                     TEXT NOT NULL,
+    project_id             TEXT,
+    name                   TEXT NOT NULL,
+    icon                   TEXT,
+    type                   TEXT NOT NULL CHECK (type IN ('shell', 'prompt')),
+    command                TEXT NOT NULL,
+    cwd_mode               TEXT NOT NULL DEFAULT 'session' CHECK (cwd_mode IN ('session', 'project-root')),
+    confirm                INTEGER NOT NULL DEFAULT 0,
+    shortcut               TEXT,
+    run_on_worktree_create INTEGER NOT NULL DEFAULT 0,
+    sort                   INTEGER NOT NULL DEFAULT 0
+  );
+  -- project_id NULL means a global action; COALESCE keeps ids unique per scope.
+  CREATE UNIQUE INDEX project_actions_scope_id ON project_actions (COALESCE(project_id, ''), id);
+  `,
 ];

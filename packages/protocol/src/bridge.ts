@@ -14,6 +14,8 @@ export const IpcChannel = {
   rendererReady: 'switchboard:renderer-ready',
   pickFolder: 'switchboard:pick-folder',
   pickImage: 'switchboard:pick-image',
+  focusSession: 'switchboard:focus-session',
+  selectSession: 'switchboard:select-session',
 } as const;
 
 /** Sent once per engine connection by the renderer. Used for startup timing and the smoke test. */
@@ -36,6 +38,10 @@ export interface SwitchboardBridge {
   reportReady(report: RendererReadyReport): void;
   /** Native folder picker. Resolves to null when cancelled. */
   pickFolder(defaultPath?: string): Promise<string | null>;
+  /** Tells main which session is on screen, so it doesn't notify about what you're already watching. */
+  reportFocus(sessionId: string | null): void;
+  /** Main asks to show a session (e.g. a notification was clicked). */
+  onSelectSession(listener: (sessionId: string) => void): () => void;
   /** Native image picker (for project icons). Resolves to null when cancelled. */
   pickImage(defaultPath?: string): Promise<string | null>;
 }

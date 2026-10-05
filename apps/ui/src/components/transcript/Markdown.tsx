@@ -1,6 +1,7 @@
 import { memo } from 'react';
 import ReactMarkdown, { type Components } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import { CodeBlock } from './CodeBlock.tsx';
 
 const components: Components = {
   a: ({ href, children }) => (
@@ -9,15 +10,14 @@ const components: Components = {
       {children}
     </a>
   ),
-  pre: ({ children }) => (
-    <pre className="my-2 overflow-x-auto rounded-md border border-border bg-sidebar px-3 py-2 font-mono text-[12px] leading-relaxed">{children}</pre>
-  ),
-  code: ({ className, children }) =>
-    className ? (
-      <code className={className}>{children}</code>
-    ) : (
-      <code className="rounded bg-border/60 px-1 py-px font-mono text-[0.9em]">{children}</code>
-    ),
+  // Fenced blocks render through CodeBlock (highlighted when idle); `pre` is just a pass-through.
+  pre: ({ children }) => <>{children}</>,
+  code: ({ className, children }) => {
+    const text = String(children ?? '');
+    const language = /language-([\w+#-]+)/.exec(className ?? '')?.[1];
+    if (language || text.includes('\n')) return <CodeBlock code={text.replace(/\n$/, '')} language={language} />;
+    return <code className="rounded bg-border/60 px-1 py-px font-mono text-[0.9em]">{children}</code>;
+  },
   table: ({ children }) => (
     <div className="my-2 overflow-x-auto">
       <table className="border-collapse text-[12px] [&_td]:border [&_td]:border-border [&_td]:px-2 [&_td]:py-1 [&_th]:border [&_th]:border-border [&_th]:px-2 [&_th]:py-1 [&_th]:text-left">

@@ -1,0 +1,194 @@
+import { createHash } from 'node:crypto';
+import { existsSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import type { DatabaseSync } from 'node:sqlite';
+import { z } from 'zod';
+import { ProjectAction, type ActionSuggestion, type ListedAction } from '@switchboard/protocol';
+
+export const SHARED_FILE = '.switchboard.json';
+
+/** The shared file is hand-written, so ids are optional (derived from the name). */
+const SharedFile = z.object({
+  actions: z.array(z.record(z.string(), z.unknown())).default([]),
+});
+
+export const slugify = (name: string) =>
+  name
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 40) || 'action';
+
+const hash = (command: string) => createHash('sha256').update(command).digest('hex');
+
+/** Quotes a value for POSIX shells: `it's` → `'it'\''s'`. */
+export const shellQuote = (value: string) => `'${value.replace(/'/g, `'\\''`)}'`;
+
+export interface ActionVariables {
+  cwd: string;
+  projectRoot: string;
+  branch: string;
+  worktreeName: string;
+  sessionId: string;
+  sessionTitle: string;
+}
+
+/**
+ * Fills in `${cwd}`, `${branch}`, … . For shell actions every value is
+ * shell-quoted, so a branch or title can never inject a command.
+ * Unknown variables are left as they are.
+ */
+export function expandCommand(command: string, vars: ActionVariables, forShell: boolean): string {
+  return command.replace(/\$\{(\w+)\}/g, (match, name: string) => {
+    if (!Object.hasOwn(vars, name)) return match;
+    const value = vars[name as keyof ActionVariables];
+    return forShell ? shellQuote(value) : value;
+  });
+}
+
+interface Row {
+  id: string;
+  name: string;
+  icon: string | null;
+  type: string;
+  command: string;
+  cwd_mode: string;
+  confirm: number;
+  shortcut: string | null;
+  run_on_worktree_create: number;
+}
+
+const fromRow = (row: Row): ProjectAction =>
+  ProjectAction.parse({
+    id: row.id,
+    name: row.name,
+    icon: row.icon ?? 'play',
+    type: row.type,
+    command: row.command,
+    cwd: row.cwd_mode,
+    confirm: row.confirm === 1,
+    shortcut: row.shortcut,
+    runOnWorktreeCreate: row.run_on_worktree_create === 1,
+  });
+
+/** Project actions: yours (per project or global, in the database) and shared ones from the repo. */
+export class ActionStore {
+  private readonly statements;
+
+  constructor(db: DatabaseSync) {
+    this.statements = {
+      list: db.prepare('SELECT * FROM project_actions WHERE COALESCE(project_id, \'\') = ? ORDER BY sort, name'),
+      upsert: db.prepare(`
+        INSERT INTO project_actions (id, project_id, name, icon, type, command, cwd_mode, confirm, shortcut, run_on_worktree_create, sort)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT (COALESCE(project_id, ''), id) DO UPDATE SET
+          name = excluded.name, icon = excluded.icon, type = excluded.type, command = excluded.command,
+          cwd_mode = excluded.cwd_mode, confirm = excluded.confirm, shortcut = excluded.shortcut,
+          run_on_worktree_create = excluded.run_on_worktree_create`),
+      remove: db.prepare("DELETE FROM project_actions WHERE COALESCE(project_id, '') = ? AND id = ?"),
+      count: db.prepare("SELECT COUNT(*) AS n FROM project_actions WHERE COALESCE(project_id, '') = ?"),
+      trusted: db.prepare('SELECT 1 FROM trusted_commands WHERE project_id = ? AND command_hash = ?'),
+      trust: db.prepare('INSERT OR IGNORE INTO trusted_commands (project_id, command_hash, trusted_at) VALUES (?, ?, ?)'),
+    };
+  }
+
+  private own(projectRoot: string | null): ProjectAction[] {
+    return (this.statements.list.all(projectRoot ?? '') as unknown as Row[]).map(fromRow);
+  }
+
+  /** Reads the repo's shared actions. Invalid entries are reported, not fatal. */
+  shared(projectRoot: string): { actions: ProjectAction[]; file: string | null; errors: string[] } {
+    const file = join(projectRoot, SHARED_FILE);
+    if (!existsSync(file)) return { actions: [], file: null, errors: [] };
+    const errors: string[] = [];
+    let raw: unknown;
+    try {
+      raw = JSON.parse(readFileSync(file, 'utf8'));
+    } catch (error) {
+      return { actions: [], file, errors: [`${SHARED_FILE}: ${(error as Error).message}`] };
+    }
+    const parsed = SharedFile.safeParse(raw);
+    if (!parsed.success) return { actions: [], file, errors: [`${SHARED_FILE}: expected { "actions": [...] }`] };
+    const actions: ProjectAction[] = [];
+    for (const [i, entry] of parsed.data.actions.entries()) {
+      const candidate = { ...entry, id: typeof entry.id === 'string' ? entry.id : slugify(String(entry.name ?? `action-${i + 1}`)) };
+      const action = ProjectAction.safeParse(candidate);
+      if (action.success) actions.push(action.data);
+      else errors.push(`${SHARED_FILE} action ${i + 1}: ${action.error.issues[0]?.message ?? 'invalid'}`);
+    }
+    return { actions, file, errors };
+  }
+
+  isTrusted(projectRoot: string, command: string): boolean {
+    return this.statements.trusted.get(projectRoot, hash(command)) !== undefined;
+  }
+
+  trust(projectRoot: string, command: string): void {
+    this.statements.trust.run(projectRoot, hash(command), Date.now());
+  }
+
+  /** Yours for this project win over shared, which win over your global ones (matched by id). */
+  list(projectRoot: string): { actions: ListedAction[]; sharedFile: string | null; errors: string[] } {
+    const shared = this.shared(projectRoot);
+    const merged = new Map<string, ListedAction>();
+    for (const action of this.own(null)) merged.set(action.id, { ...action, scope: 'global', trusted: true });
+    for (const action of shared.actions) merged.set(action.id, { ...action, scope: 'shared', trusted: this.isTrusted(projectRoot, action.command) });
+    for (const action of this.own(projectRoot)) merged.set(action.id, { ...action, scope: 'project', trusted: true });
+    return { actions: [...merged.values()], sharedFile: shared.file, errors: shared.errors };
+  }
+
+  save(projectRoot: string | null, action: ProjectAction, previousId?: string): void {
+    const scope = projectRoot ?? '';
+    if (previousId && previousId !== action.id) this.statements.remove.run(scope, previousId);
+    const sort = (this.statements.count.get(scope) as { n: number }).n;
+    this.statements.upsert.run(
+      action.id,
+      projectRoot,
+      action.name,
+      action.icon,
+      action.type,
+      action.command,
+      action.cwd,
+      action.confirm ? 1 : 0,
+      action.shortcut,
+      action.runOnWorktreeCreate ? 1 : 0,
+      sort,
+    );
+  }
+
+  remove(projectRoot: string | null, id: string): void {
+    this.statements.remove.run(projectRoot ?? '', id);
+  }
+}
+
+/** Starter actions: package.json scripts (with the project's package manager), plus git and Claude basics. */
+export function suggestActions(projectRoot: string): ActionSuggestion[] {
+  const suggestions: ActionSuggestion[] = [];
+  let scripts: Record<string, unknown> = {};
+  try {
+    scripts = (JSON.parse(readFileSync(join(projectRoot, 'package.json'), 'utf8')) as { scripts?: Record<string, unknown> }).scripts ?? {};
+  } catch {
+    // Not a Node project.
+  }
+  const runner = existsSync(join(projectRoot, 'pnpm-lock.yaml'))
+    ? 'pnpm'
+    : existsSync(join(projectRoot, 'bun.lock')) || existsSync(join(projectRoot, 'bun.lockb'))
+      ? 'bun run'
+      : existsSync(join(projectRoot, 'yarn.lock'))
+        ? 'yarn'
+        : 'npm run';
+  const iconFor = (name: string): ActionSuggestion['icon'] =>
+    /test|check|lint/.test(name) ? 'flask' : /dev|start|serve/.test(name) ? 'play' : /build|package/.test(name) ? 'package' : /publish|release|deploy/.test(name) ? 'rocket' : 'terminal';
+  for (const name of Object.keys(scripts).slice(0, 12)) {
+    suggestions.push({ name: name.charAt(0).toUpperCase() + name.slice(1), command: `${runner} ${name}`, type: 'shell', icon: iconFor(name) });
+  }
+  if (Object.keys(scripts).length > 0) {
+    suggestions.push({ name: 'Install', command: runner === 'npm run' ? 'npm install' : `${runner.split(' ')[0]} install`, type: 'shell', icon: 'package' });
+  }
+  suggestions.push(
+    { name: 'Commit', command: 'Commit the current changes with a clear, conventional commit message.', type: 'prompt', icon: 'git-commit' },
+    { name: 'Push', command: 'git push', type: 'shell', icon: 'upload' },
+    { name: 'Create PR', command: 'gh pr create --web', type: 'shell', icon: 'git-pull-request' },
+  );
+  return suggestions;
+}

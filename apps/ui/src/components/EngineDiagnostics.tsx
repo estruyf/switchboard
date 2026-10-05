@@ -2,6 +2,12 @@ import type { ReactNode } from 'react';
 import type { LogLevel } from '@switchboard/protocol/client';
 import { useDiagnostics } from '../engine/useDiagnostics.ts';
 import { useEngineConnection } from '../engine/useEngine.ts';
+import { CodeBlock } from './transcript/CodeBlock.tsx';
+
+const SAMPLE = `// Syntax highlighting loads on first use
+export function greet(name: string): string {
+  return \`Hello, \${name}!\`;
+}`;
 
 type Tone = 'ok' | 'warn' | 'error' | 'idle';
 
@@ -125,6 +131,12 @@ export function EngineDiagnostics() {
         <Row label="Node">{info ? <Mono>{info.versions.node}</Mono> : '—'}</Row>
         <Row label="SQLite">{info ? <Mono>{info.versions.sqlite}</Mono> : '—'}</Row>
         <Row label="Cache database">{info ? <Mono>{info.paths.database}</Mono> : '—'}</Row>
+      </Card>
+
+      <Card title="Rendering">
+        <div className="px-4 py-1" data-rendering-check>
+          <CodeBlock code={SAMPLE} language="ts" />
+        </div>
       </Card>
 
       <Card title="Engine log">

@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
-/** `shell`: your login shell in the session's folder. `claude`: the real Claude Code TUI for the session. */
-export const TerminalKind = z.enum(['shell', 'claude']);
+/** `shell`: your login shell in the session's folder. `claude`: the real Claude Code TUI for the session. `action`: a project action's command. */
+export const TerminalKind = z.enum(['shell', 'claude', 'action']);
 export type TerminalKind = z.infer<typeof TerminalKind>;
 
 export const TerminalInfo = z.object({

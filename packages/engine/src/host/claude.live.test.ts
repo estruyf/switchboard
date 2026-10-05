@@ -2,6 +2,7 @@
  * End-to-end against the real Claude Code CLI (costs a few cents of Haiku).
  * Opt-in: SWITCHBOARD_LIVE_CWD=/path/to/throwaway/git/repo npx vitest run claude.live
  */
+import { execFileSync } from 'node:child_process';
 import { existsSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -116,4 +117,62 @@ describe.skipIf(!cwd)('live Claude Code session', () => {
     expect(summary?.origin).toBe('app');
     console.log(`all steps done in ${Date.now() - started}ms; cost $${hosts.filter((h) => h.sessionId === sessionId).at(-1)?.costUsd}`);
   }, 300_000);
+
+  it('runs worktree setup actions in the new worktree before Claude starts', async () => {
+    const name = `live-setup-${Date.now() % 100_000}`;
+    const worktree = join(cwd!, '.claude', 'worktrees', name);
+    try {
+      await client.call('actions.save', {
+        projectRoot: cwd!,
+        action: { id: 'live-setup', name: 'Live setup', command: 'touch setup-ran.txt', runOnWorktreeCreate: true },
+      });
+      const { sessionId } = await client.call('session.create', {
+        cwd: cwd!,
+        model: 'haiku',
+        worktree: { name, baseRef: 'head' },
+        prompt: 'Use the Bash tool to run `ls setup-ran.txt`, then reply with exactly FOUND if it exists, otherwise MISSING.',
+      });
+      await client.call('transcript.watch', { sessionId });
+      await until('reply about the setup file', () => texts(transcript).some((t) => t.startsWith('assistant') && /FOUND|MISSING/.test(t)));
+      const reply = texts(transcript).filter((t) => t.startsWith('assistant')).at(-1)!;
+      const { terminals } = await client.call('terminal.list', {});
+      const setup = terminals.find((t) => t.sessionId === sessionId && t.title === 'Setup: Live setup');
+      console.log(`worktree reply: ${reply} | setup terminal exit ${setup?.exitCode} in ${setup?.cwd}`);
+      expect(setup).toMatchObject({ kind: 'action', exitCode: 0, cwd: worktree });
+      expect(reply).toContain('FOUND');
+      expect(existsSync(join(worktree, 'setup-ran.txt'))).toBe(true);
+      await client.call('session.close', { sessionId });
+    } finally {
+      await client.call('actions.delete', { projectRoot: cwd!, id: 'live-setup' }).catch(() => {});
+      await new Promise((r) => setTimeout(r, 1_500));
+      try {
+        execFileSync('git', ['worktree', 'remove', '--force', worktree], { cwd: cwd! });
+        execFileSync('git', ['branch', '-D', `worktree-${name}`], { cwd: cwd! });
+      } catch {
+        // Already gone.
+      }
+    }
+  }, 300_000);
+
+  it.skipIf(!process.env.SWITCHBOARD_LIVE_SUBAGENT)('loads a real subagent transcript from its Task call', async () => {
+    const [sessionId, toolUseId] = process.env.SWITCHBOARD_LIVE_SUBAGENT!.split(':');
+    await until('index ready', () => true, 1);
+    await new Promise((r) => setTimeout(r, 1_500));
+    const result = await client.call('transcript.subagent', { sessionId: sessionId!, toolUseId: toolUseId! });
+    console.log(`subagent ${result.agentId} (${result.agentType}): ${result.messages.length} messages`);
+    expect(result.agentId).not.toBeNull();
+    expect(result.messages.length).toBeGreaterThan(0);
+  });
+
+  it.skipIf(!process.env.SWITCHBOARD_LIVE_IMAGES)('serves images that Claude read, from a real transcript', async () => {
+    const sessionId = process.env.SWITCHBOARD_LIVE_IMAGES!;
+    const { messages } = await client.call('transcript.get', { sessionId });
+    const refs = messages.flatMap((m) => m.blocks.flatMap((b) => (b.type === 'tool_result' ? b.images : b.type === 'image' && b.ref ? [b.ref] : [])));
+    const payload = JSON.stringify(messages).length;
+    expect(refs.length).toBeGreaterThan(0);
+    const image = await client.call('transcript.image', { sessionId, imageId: refs.at(-1)!.imageId });
+    console.log(`${refs.length} images referenced; transcript payload ${(payload / 1e6).toFixed(2)} MB without image data; last image ${image.mediaType}, ${(image.data.length / 1e3).toFixed(0)} KB base64`);
+    expect(image.mediaType).toMatch(/^image\//);
+    expect(image.data.length).toBeGreaterThan(1000);
+  });
 });

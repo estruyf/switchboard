@@ -19,6 +19,7 @@ export interface SessionSource {
   list(): Promise<RawSessionInfo[]>;
   info(sessionId: string): Promise<RawSessionInfo | undefined>;
   messages(sessionId: string): Promise<RawSessionMessage[]>;
+  subagentMessages?(sessionId: string, agentId: string): Promise<RawSessionMessage[]>;
 }
 
 type Sdk = typeof import('@anthropic-ai/claude-agent-sdk');
@@ -34,5 +35,6 @@ export function sdkSessionSource(): SessionSource {
     list: async () => (await load()).listSessions(),
     info: async (id) => (await load()).getSessionInfo(id),
     messages: async (id) => (await (await load()).getSessionMessages(id)) as RawSessionMessage[],
+    subagentMessages: async (id, agentId) => (await (await load()).getSubagentMessages(id, agentId)) as RawSessionMessage[],
   };
 }

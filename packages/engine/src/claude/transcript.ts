@@ -1,4 +1,7 @@
-import type { TranscriptBlock, TranscriptMessage } from '@switchboard/protocol';
+import type { ImageRef, TranscriptBlock, TranscriptMessage } from '@switchboard/protocol';
+
+/** Receives image data found while normalising, so it can be served on demand instead of inline. */
+export type ImageSink = (imageId: string, mediaType: string, data: string) => void;
 
 /** The subset of the SDK's SessionMessage we rely on (plus `timestamp`, present at runtime). */
 export interface RawSessionMessage {
@@ -54,6 +57,23 @@ export function clipJson(value: unknown, maxString: number): { value: Json; trun
 
 type RawBlock = { type?: unknown; [key: string]: unknown };
 
+/** Base64 image source → reference (the data goes to the sink). */
+function imageRef(source: unknown, imageId: string, sink: ImageSink | undefined): ImageRef | null {
+  const s = source as { type?: unknown; media_type?: unknown; data?: unknown } | undefined;
+  if (s?.type !== 'base64' || typeof s.data !== 'string' || typeof s.media_type !== 'string') return null;
+  sink?.(imageId, s.media_type, s.data);
+  return { imageId, mediaType: s.media_type, bytes: Math.floor((s.data.length * 3) / 4) };
+}
+
+function toolResultImages(content: unknown, idPrefix: string, sink: ImageSink | undefined): ImageRef[] {
+  if (!Array.isArray(content)) return [];
+  return content.flatMap((part: RawBlock, i) => {
+    if (part?.type !== 'image') return [];
+    const ref = imageRef(part.source, `${idPrefix}:${i}`, sink);
+    return ref ? [ref] : [];
+  });
+}
+
 function toolResultText(content: unknown): string {
   if (typeof content === 'string') return content;
   if (Array.isArray(content)) {
@@ -65,7 +85,7 @@ function toolResultText(content: unknown): string {
   return '';
 }
 
-function normaliseBlock(block: RawBlock): TranscriptBlock {
+function normaliseBlock(block: RawBlock, imageId: string, sink: ImageSink | undefined): TranscriptBlock {
   switch (block.type) {
     case 'text':
       return { type: 'text', text: clip(String(block.text ?? ''), LIMITS.text).text };
@@ -82,29 +102,41 @@ function normaliseBlock(block: RawBlock): TranscriptBlock {
     case 'tool_result':
     case 'mcp_tool_result': {
       const { text, truncated } = clip(toolResultText(block.content), LIMITS.toolResult);
-      return { type: 'tool_result', toolUseId: String(block.tool_use_id ?? ''), isError: block.is_error === true, text, truncated };
+      return {
+        type: 'tool_result',
+        toolUseId: String(block.tool_use_id ?? ''),
+        isError: block.is_error === true,
+        text,
+        truncated,
+        images: toolResultImages(block.content, imageId, sink),
+      };
     }
     case 'image': {
       const source = block.source as { media_type?: unknown } | undefined;
-      return { type: 'image', mediaType: typeof source?.media_type === 'string' ? source.media_type : null };
+      return { type: 'image', mediaType: typeof source?.media_type === 'string' ? source.media_type : null, ref: imageRef(block.source, `${imageId}:-1`, sink) };
     }
     default:
       return { type: 'unknown', kind: typeof block.type === 'string' ? block.type : 'unknown' };
   }
 }
 
-function contentBlocks(message: unknown): TranscriptBlock[] {
+function contentBlocks(message: unknown, uuid: string, sink: ImageSink | undefined): TranscriptBlock[] {
   const content = (message as { content?: unknown } | null)?.content;
   if (typeof content === 'string') return content ? [{ type: 'text', text: clip(content, LIMITS.text).text }] : [];
-  if (Array.isArray(content)) return content.filter((b) => b && typeof b === 'object').map((b) => normaliseBlock(b as RawBlock));
+  if (Array.isArray(content)) {
+    return content.flatMap((b, i) => (b && typeof b === 'object' ? [normaliseBlock(b as RawBlock, `${uuid}:${i}`, sink)] : []));
+  }
   return [];
 }
 
-/** Converts an SDK session message into the renderer-friendly, size-bounded shape. */
-export function normaliseMessage(raw: RawSessionMessage): TranscriptMessage {
+/**
+ * Converts an SDK session message into the renderer-friendly, size-bounded
+ * shape. Images become references; their data goes to `sink`.
+ */
+export function normaliseMessage(raw: RawSessionMessage, sink?: ImageSink): TranscriptMessage {
   const timestamp = raw.timestamp ? Date.parse(raw.timestamp) : NaN;
   const model = (raw.message as { model?: unknown } | null)?.model;
-  let blocks = contentBlocks(raw.message);
+  let blocks = contentBlocks(raw.message, raw.uuid, sink);
   if (raw.type === 'system' && blocks.length === 0) {
     const subtype = (raw.message as { subtype?: unknown } | null)?.subtype;
     blocks = [{ type: 'unknown', kind: typeof subtype === 'string' ? subtype : 'system' }];

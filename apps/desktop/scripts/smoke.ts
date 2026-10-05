@@ -30,7 +30,11 @@ console.log(`✓ UI talking to the engine ${result.connectedMs}ms after process 
 console.log(`${result.sessionCount > 0 ? '✓' : '✗'} ${result.sessionCount} sessions listed on first load`);
 console.log(`${result.transcriptOpened ? '✓' : '✗'} newest session's transcript rendered`);
 console.log(`${result.terminalOpened ? '✓' : '✗'} terminal panel opened a shell`);
-if (!result.terminalOpened) process.exitCode = 1;
+console.log(`${result.actionRan ? '✓' : '✗'} project action added through the editor and run in a terminal tab`);
+console.log(`${result.highlighted ? '✓' : '✗'} syntax highlighting loaded and coloured a code block`);
+console.log(`  rendering on screen: ${JSON.stringify(result.rendering)}`);
+if (result.notifications.length) console.log(`  notifications: ${result.notifications.map((n: { kind: string; title: string; suppressed: boolean }) => `${n.kind} "${n.title}"${n.suppressed ? ' (suppressed: you were looking)' : ''}`).join('; ')}`);
+if (!result.terminalOpened || !result.actionRan || !result.highlighted) process.exitCode = 1;
 if (result.liveSession !== null) {
   console.log(`${result.liveSession === 'ok' ? '✓' : '✗'} live session through the UI: ${result.liveSession}`);
   if (result.liveSession !== 'ok') process.exitCode = 1;

@@ -98,6 +98,8 @@ export class SessionHost {
   private streamBuffer: StreamDelta | null = null;
   private streamTimer: ReturnType<typeof setTimeout> | undefined;
   commands: SlashCommand[] = [];
+  /** Commands that only work in the terminal UI (reported by Claude Code at init). */
+  terminalOnly: string[] = [];
   models: ModelOption[] = [];
   lastActivity = Date.now();
   /** When the process ended (closed or crashed), for telling our own exiting process apart from another window. */
@@ -238,12 +240,16 @@ export class SessionHost {
       case 'stream_event':
         if (message.parent_tool_use_id === null) this.handleStreamEvent(message.event as { type: string; [key: string]: unknown });
         return;
+      // Subagent messages live in their own transcript file (shown inside the Task card),
+      // so only the main conversation is pushed live.
       case 'assistant':
+        if (message.parent_tool_use_id !== null) return;
         this.events.messages(this.sessionId, [toRaw(message)]);
-        if (message.parent_tool_use_id === null) this.pushStream('clear', '');
+        this.pushStream('clear', '');
         return;
       case 'user':
-        if (!('isReplay' in message && message.isReplay)) this.events.messages(this.sessionId, [toRaw(message)]);
+        if (message.parent_tool_use_id !== null || ('isReplay' in message && message.isReplay)) return;
+        this.events.messages(this.sessionId, [toRaw(message)]);
         return;
       case 'result':
         this.update({ costUsd: message.total_cost_usd ?? this.info.costUsd });
@@ -265,6 +271,8 @@ export class SessionHost {
         permissionMode: init.permissionMode as PermissionMode,
         state: first ? 'idle' : this.info.state,
       });
+      const terminalOnly = (init as { terminal_slash_commands?: unknown }).terminal_slash_commands;
+      if (Array.isArray(terminalOnly)) this.terminalOnly = terminalOnly.filter((c): c is string => typeof c === 'string');
       this.initResolve(init.session_id);
       if (first) void this.loadCatalogs();
       return;

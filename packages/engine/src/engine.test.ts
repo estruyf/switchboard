@@ -131,4 +131,45 @@ describe('engine over a MessagePort', () => {
     await expect(client.call('session.delete', { sessionId: SESSION_ID })).rejects.toMatchObject({ code: 'SESSION_BUSY_ELSEWHERE' });
     expect(trashed).toEqual([]);
   });
+
+  it('runs shell actions in a terminal tab and refuses unapproved shared ones', async () => {
+    const spawned: Array<{ file: string; args: string[]; cwd: string }> = [];
+    const dataDir = mkdtempSync(join(tmpdir(), 'switchboard-engine-'));
+    const project = mkdtempSync(join(tmpdir(), 'switchboard-project-'));
+    writeFileSync(join(project, '.switchboard.json'), JSON.stringify({ actions: [{ id: 'shared', name: 'Shared', command: 'make it' }] }));
+    const engine = createEngine({
+      dataDir,
+      claudeConfigDir: join(dataDir, 'claude'),
+      shellEnv: Promise.resolve({ shell: '/bin/zsh', env: { PATH: '', SHELL: '/bin/zsh' }, resolved: false, durationMs: 0 }),
+      claudeBinary: '/nonexistent/claude',
+      sessionSource: fakeSource,
+      spawnPty: async () => (file, args, options) => {
+        spawned.push({ file, args, cwd: options.cwd });
+        return { pid: 1, onData: () => ({ dispose() {} }), onExit: () => ({ dispose() {} }), write() {}, resize() {}, kill() {} };
+      },
+    });
+    const { port1, port2 } = new MessageChannel();
+    const detach = engine.attach(messagePortTransport(asDomPort(port1)));
+    const client = createRpcClient<Contract>(messagePortTransport(asDomPort(port2)));
+    cleanups.push(() => {
+      client.dispose();
+      detach();
+      engine.close();
+      port1.close();
+      port2.close();
+      rmSync(dataDir, { recursive: true, force: true });
+      rmSync(project, { recursive: true, force: true });
+    });
+
+    await client.call('actions.save', { projectRoot: project, action: { id: 'greet', name: 'Greet', command: 'echo ${sessionId}' } });
+    const result = await client.call('actions.run', { sessionId: SESSION_ID, projectRoot: project, cwd: project, id: 'greet' });
+    expect(result.kind).toBe('terminal');
+    expect(spawned[0]).toEqual({ file: '/bin/zsh', args: ['-ilc', `echo '${SESSION_ID}'`], cwd: project });
+    const { terminals } = await client.call('terminal.list', {});
+    expect(terminals[0]).toMatchObject({ kind: 'action', title: 'Greet', sessionId: SESSION_ID });
+
+    await expect(client.call('actions.run', { sessionId: SESSION_ID, projectRoot: project, cwd: project, id: 'shared' })).rejects.toMatchObject({ code: 'UNTRUSTED' });
+    await client.call('actions.trust', { projectRoot: project, id: 'shared' });
+    await expect(client.call('actions.run', { sessionId: SESSION_ID, projectRoot: project, cwd: project, id: 'shared' })).resolves.toMatchObject({ kind: 'terminal' });
+  });
 });

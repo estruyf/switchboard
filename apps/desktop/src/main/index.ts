@@ -4,6 +4,8 @@ import { join } from 'node:path';
 import { app, BrowserWindow, dialog, ipcMain, MessageChannelMain, nativeTheme, shell } from 'electron';
 import { IpcChannel, type RendererReadyReport } from '@switchboard/protocol/bridge';
 import { EngineProcess } from './engineProcess.ts';
+import type { AttentionEvent } from './attention.ts';
+import { Notifier } from './notifier.ts';
 import { isTrashableSessionPath } from './trashGuard.ts';
 
 const here = import.meta.dirname;
@@ -15,6 +17,21 @@ if (smokeOutDir) app.setPath('userData', mkdtempSync(join(tmpdir(), 'switchboard
 if (!app.requestSingleInstanceLock()) app.quit();
 
 let engine: EngineProcess;
+let notifier: Notifier;
+let focusedSession: string | null = null;
+const recordedNotifications: Array<AttentionEvent & { suppressed: boolean }> = [];
+
+ipcMain.on(IpcChannel.focusSession, (_event, sessionId: unknown) => {
+  focusedSession = typeof sessionId === 'string' ? sessionId : null;
+});
+
+function openSession(sessionId: string): void {
+  const win = BrowserWindow.getAllWindows()[0] ?? createWindow();
+  if (win.isMinimized()) win.restore();
+  win.show();
+  win.focus();
+  win.webContents.send(IpcChannel.selectSession, sessionId);
+}
 
 async function handleEngineRequest(message: unknown): Promise<unknown> {
   const request = message as { type?: unknown; id?: unknown; paths?: unknown } | null;
@@ -158,7 +175,22 @@ async function runLiveSessionStep(win: BrowserWindow, cwd: string): Promise<stri
   }
   await setFieldValue(win, '[data-folder-select]', cwd);
   await setFieldValue(win, '[data-model-select]', 'haiku');
-  await setFieldValue(win, '[data-composer]', 'Run exactly this with the Bash tool: touch smoke-ui.txt — then reply with exactly: SMOKE OK');
+  // Attach a red square through the attach button's file input, like picking a file.
+  await win.webContents.executeJavaScript(`(async () => {
+    const canvas = document.createElement('canvas');
+    canvas.width = canvas.height = 64;
+    const ctx = canvas.getContext('2d');
+    ctx.fillStyle = '#e03131';
+    ctx.fillRect(0, 0, 64, 64);
+    const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/png'));
+    const input = document.querySelector('[data-attach-input]');
+    const transfer = new DataTransfer();
+    transfer.items.add(new File([blob], 'square.png', { type: 'image/png' }));
+    input.files = transfer.files;
+    input.dispatchEvent(new Event('change', { bubbles: true }));
+  })()`);
+  if (!(await waitInPage(win, "document.querySelector('[data-composer]').closest('div').parentElement.querySelector('img')", 3_000))) return 'attached image not shown';
+  await setFieldValue(win, '[data-composer]', 'Run exactly this with the Bash tool: touch smoke-ui.txt — then reply with the colour of the attached square in one word, followed by exactly: SMOKE OK');
   if (!(await waitInPage(win, "!document.querySelector('[data-composer-submit]').disabled"))) return 'submit stayed disabled';
   // Never start a session anywhere but the requested sandbox folder.
   await new Promise((resolve) => setTimeout(resolve, 300));
@@ -175,6 +207,31 @@ async function runLiveSessionStep(win: BrowserWindow, cwd: string): Promise<stri
   if (!(await waitInPage(win, replied, 60_000))) return 'no reply';
   await new Promise((resolve) => setTimeout(resolve, 800));
   await shot('session.png');
+  if (!(await waitInPage(win, "document.querySelector('[data-transcript-image] img')", 5_000))) return 'the attached image is not shown in the transcript';
+  const colour = await win.webContents.executeJavaScript(
+    "[...document.querySelectorAll('[data-item-kind=\"text\"]')].map((el) => el.innerText).find((t) => t.includes('SMOKE OK'))",
+  );
+  console.log(`[smoke] Claude about the attached image: ${JSON.stringify(colour)}`);
+
+  // Slash commands: "/" opens the palette with the session's commands; pick /context with the keyboard.
+  await win.webContents.executeJavaScript("document.querySelector('[data-composer]').focus()");
+  await win.webContents.insertText('/');
+  if (!(await waitInPage(win, "document.querySelectorAll('[data-palette] [role=option]').length > 5", 15_000))) return 'slash palette did not open';
+  const paletteCount = await win.webContents.executeJavaScript("document.querySelectorAll('[data-palette] [role=option]').length");
+  await win.webContents.insertText('conte');
+  await new Promise((resolve) => setTimeout(resolve, 200));
+  await shot('palette.png');
+  win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Return' });
+  win.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Return' });
+  await new Promise((resolve) => setTimeout(resolve, 200));
+  const composed = await win.webContents.executeJavaScript("document.querySelector('[data-composer]').value");
+  if (!String(composed).startsWith('/context')) return `palette composed ${JSON.stringify(composed)}`;
+  win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Return' });
+  win.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Return' });
+  if (!(await waitInPage(win, "[...document.querySelectorAll('[data-item-kind=\"text\"]')].some((el) => /Context Usage/i.test(el.innerText))", 30_000))) return '/context output not shown';
+  console.log(`[smoke] palette showed ${paletteCount} commands; /context output rendered`);
+  await new Promise((resolve) => setTimeout(resolve, 500));
+  await shot('slash-command.png');
 
   // Open the same session in the Claude Code TUI: it runs here, so the panel offers to stop it first.
   const js = (code: string) => win.webContents.executeJavaScript(code);
@@ -223,6 +280,39 @@ let crashedAt = 0;
 let transcriptOpened = false;
 let liveSession: string | null = null;
 let terminalOpened = false;
+let actionRan = false;
+let highlighted = false;
+let rendering: Record<string, number> = {};
+
+/** Adds a project action through the editor, runs it from the header and checks it opened a terminal tab. */
+async function runActionStep(win: BrowserWindow): Promise<boolean> {
+  const js = (code: string) => win.webContents.executeJavaScript(code);
+  await js("document.querySelector('[data-actions-menu]')?.click()");
+  if (!(await waitInPage(win, "[...document.querySelectorAll('[role=menuitem]')].some((b) => /action/i.test(b.innerText))", 3_000))) return false;
+  await js("[...document.querySelectorAll('[role=menuitem]')].find((b) => /action/i.test(b.innerText)).click()");
+  if (!(await waitInPage(win, "document.querySelector('[data-add-action]')", 3_000))) return false;
+  await js("document.querySelector('[data-add-action]').click()");
+  if (!(await waitInPage(win, "document.querySelector('[data-action-name]')", 3_000))) return false;
+  await setFieldValue(win, '[data-action-name]', 'Smoke action');
+  await setFieldValue(win, '[data-action-command]', 'echo "action ran on ${branch} in $PWD"');
+  await new Promise((resolve) => setTimeout(resolve, 200));
+  await shot(win, 'action-editor.png');
+  await js("document.querySelector('[data-save-action]').click()");
+  if (!(await waitInPage(win, "[...document.querySelectorAll('[role=dialog] li')].some((li) => li.innerText.includes('Smoke action'))", 3_000))) return false;
+  win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Escape' });
+  win.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Escape' });
+  if (!(await waitInPage(win, "document.querySelector('[data-action=\"smoke-action\"]') && !document.querySelector('[role=dialog]')", 3_000))) return false;
+  await js("document.querySelector('[data-action=\"smoke-action\"]').click()");
+  if (!(await waitInPage(win, "[...document.querySelectorAll('[data-terminal-panel] button')].some((b) => b.innerText.includes('Smoke action'))", 5_000))) return false;
+  await new Promise((resolve) => setTimeout(resolve, 1_500));
+  await shot(win, 'action.png');
+  await js("document.querySelector('[data-toggle-terminal]')?.click()");
+  return true;
+}
+
+async function shot(win: BrowserWindow, name: string): Promise<void> {
+  writeFileSync(join(smokeOutDir!, name), (await win.webContents.capturePage()).toPNG());
+}
 
 /** Opens the terminal panel on the open session, runs a harmless command and screenshots it. */
 async function runTerminalStep(win: BrowserWindow): Promise<boolean> {
@@ -259,6 +349,15 @@ async function runSmokeStep(win: BrowserWindow | null): Promise<void> {
     await new Promise((resolve) => setTimeout(resolve, 300));
     writeFileSync(join(smokeOutDir, 'transcript.png'), (await win.webContents.capturePage()).toPNG());
     terminalOpened = await runTerminalStep(win);
+    actionRan = await runActionStep(win);
+    // Diagnostics renders a sample through Shiki, which loads in its own chunks on first use.
+    await win.webContents.executeJavaScript("[...document.querySelectorAll('footer button')].find((b) => b.title === 'Diagnostics')?.click()");
+    highlighted = await waitInPage(win, "document.querySelector('[data-rendering-check] .shiki span[style*=\"--shiki\"]')", 5_000);
+    await shot(win, 'diagnostics.png');
+    await win.webContents.executeJavaScript("[...document.querySelectorAll('footer button')].find((b) => b.title === 'Diagnostics')?.click()");
+    rendering = await win.webContents.executeJavaScript(
+      "({ diffs: document.querySelectorAll('[data-diff]').length, highlighted: document.querySelectorAll('.shiki').length, codeBlocks: document.querySelectorAll('.code-block').length, todos: document.querySelectorAll('[data-todos]').length, images: document.querySelectorAll('[data-transcript-image] img').length })",
+    );
     const liveCwd = process.env.SWITCHBOARD_SMOKE_LIVE_CWD;
     if (liveCwd) liveSession = await runLiveSessionStep(win, liveCwd).catch((error: Error) => `failed: ${error.message}`);
     crashedAt = performance.now();
@@ -274,9 +373,13 @@ async function runSmokeStep(win: BrowserWindow | null): Promise<void> {
         loadedMs: readyReports[0]!.loadedMs,
         restartRecoveryMs: Math.round(performance.now() - crashedAt),
         sessionCount: readyReports[0]!.sessionCount,
+        notifications: recordedNotifications,
         transcriptOpened,
         liveSession,
         terminalOpened,
+        actionRan,
+        highlighted,
+        rendering,
         reports: readyReports,
         versions: { electron: process.versions.electron, chrome: process.versions.chrome, node: process.versions.node },
       },
@@ -294,9 +397,18 @@ app.whenReady().then(() => {
     onRequest: handleEngineRequest,
     onRestarted: () => {
       for (const win of BrowserWindow.getAllWindows()) win.webContents.send(IpcChannel.engineRestarted);
+      notifier.connect();
     },
   });
   engine.start();
+  notifier = new Notifier({
+    engine,
+    window: () => BrowserWindow.getAllWindows()[0],
+    focusedSession: () => focusedSession,
+    openSession,
+    ...(smokeOutDir ? { record: (event: AttentionEvent & { suppressed: boolean }) => void recordedNotifications.push(event) } : {}),
+  });
+  notifier.connect();
   createWindow();
 
   app.on('activate', () => {

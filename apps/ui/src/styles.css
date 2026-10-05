@@ -76,3 +76,16 @@ body {
 ::selection {
   background: color-mix(in srgb, var(--sb-accent) 30%, transparent);
 }
+
+/* Shiki output carries both themes as CSS variables; pick by colour scheme. */
+.shiki {
+  background: transparent !important;
+}
+.shiki span {
+  color: var(--shiki-light);
+}
+@media (prefers-color-scheme: dark) {
+  .shiki span {
+    color: var(--shiki-dark);
+  }
+}

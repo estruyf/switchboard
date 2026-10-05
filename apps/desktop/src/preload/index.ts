@@ -17,6 +17,12 @@ const bridge: SwitchboardBridge = {
   reportReady: (report: RendererReadyReport) => ipcRenderer.send(IpcChannel.rendererReady, report),
   pickFolder: (defaultPath?: string) => ipcRenderer.invoke(IpcChannel.pickFolder, defaultPath) as Promise<string | null>,
   pickImage: (defaultPath?: string) => ipcRenderer.invoke(IpcChannel.pickImage, defaultPath) as Promise<string | null>,
+  reportFocus: (sessionId: string | null) => ipcRenderer.send(IpcChannel.focusSession, sessionId),
+  onSelectSession(listener) {
+    const handler = (_event: unknown, sessionId: string) => listener(sessionId);
+    ipcRenderer.on(IpcChannel.selectSession, handler);
+    return () => ipcRenderer.off(IpcChannel.selectSession, handler);
+  },
 };
 
 contextBridge.exposeInMainWorld('switchboard', bridge);

@@ -48,7 +48,12 @@ export interface HostManagerDeps {
   idleTimeoutMs?: number;
   /** Discard an unused pre-warmed process after this long (default 2 min). */
   warmTtlMs?: number;
+  /** Persisted command lists per folder, so the palette is instant after a restart. */
+  commandCache?: { get(cwd: string): SlashCommand[] | null; set(cwd: string, commands: SlashCommand[]): void };
 }
+
+/** Commands that only work in the terminal UI; Claude Code reports more at init. */
+const TERMINAL_ONLY = new Set(['doctor', 'color', 'focus', 'reload-plugins']);
 
 interface Pending {
   request: PermissionRequest;
@@ -74,6 +79,11 @@ export interface CreateParams {
   permissionMode: PermissionMode;
   effort: Effort | null;
   worktree: WorktreeRequest | null;
+  /**
+   * Runs after Claude Code has started (and created the worktree) but before
+   * the first message, e.g. setup actions. Failures are logged; the message still goes.
+   */
+  beforeFirstMessage?: (sessionId: string) => Promise<void>;
 }
 
 const DEFAULT_MODELS: ModelOption[] = [
@@ -131,7 +141,15 @@ export class HostManager {
       if (params.model) await host.setModel(params.model).catch(() => {});
       if (params.permissionMode !== 'default') await host.setPermissionMode(params.permissionMode).catch(() => {});
     }
-    host.send(params.prompt, params.attachments);
+    if (params.beforeFirstMessage) {
+      // Return the id now, so the window can show the session (and its setup terminals) right away.
+      const before = params.beforeFirstMessage;
+      void before(sessionId)
+        .catch((error: Error) => this.deps.log('warn', `Worktree setup failed: ${error.message}`))
+        .then(() => host.active && host.send(params.prompt, params.attachments));
+    } else {
+      host.send(params.prompt, params.attachments);
+    }
     return sessionId;
   }
 
@@ -210,11 +228,68 @@ export class HostManager {
     }
   }
 
-  commands(sessionId: string | undefined, cwd: string | undefined): SlashCommand[] {
+  /**
+   * Slash commands (built-ins, custom commands, skills, plugins) for a session
+   * or folder. Without a running session, a short-lived Claude Code process is
+   * asked once (~0.6 s, no prompt is sent) and the answer is cached.
+   */
+  async commands(sessionId: string | undefined, cwd: string | undefined): Promise<SlashCommand[]> {
     const host = sessionId ? this.hosts.get(sessionId) : undefined;
-    if (host?.commands.length) return host.commands;
     const folder = host?.info.cwd ?? cwd;
-    return (folder && this.commandsByCwd.get(folder)) || [...this.commandsByCwd.values()][0] || [];
+    const list = host?.commands.length ? host.commands : folder ? (this.commandsByCwd.get(folder) ?? (await this.fetchCommands(folder))) : [];
+    for (const name of host?.terminalOnly ?? []) TERMINAL_ONLY.add(name);
+    return list.filter((c) => !TERMINAL_ONLY.has(c.name));
+  }
+
+  private readonly commandFetches = new Map<string, Promise<SlashCommand[]>>();
+
+  private fetchCommands(cwd: string): Promise<SlashCommand[]> {
+    const cached = this.deps.commandCache?.get(cwd);
+    if (cached) {
+      this.commandsByCwd.set(cwd, cached);
+      return Promise.resolve(cached);
+    }
+    let pending = this.commandFetches.get(cwd);
+    if (!pending) {
+      pending = this.listCommands(cwd)
+        .then((commands) => {
+          this.commandsByCwd.set(cwd, commands);
+          this.deps.commandCache?.set(cwd, commands);
+          return commands;
+        })
+        .catch((error: Error) => {
+          this.deps.log('debug', `Listing commands in ${cwd} failed: ${error.message}`);
+          return [];
+        })
+        .finally(() => this.commandFetches.delete(cwd));
+      this.commandFetches.set(cwd, pending);
+    }
+    return pending;
+  }
+
+  private async listCommands(cwd: string): Promise<SlashCommand[]> {
+    const [env, claudePath, sdk] = await Promise.all([this.deps.env(), this.deps.claudePath(), this.deps.sdk()]);
+    // A prompt that never yields: Claude Code starts, answers the question, and no session is written.
+    const idle: AsyncIterable<SDKUserMessage> = { [Symbol.asyncIterator]: () => ({ next: () => new Promise(() => {}) }) };
+    const query = sdk.query({
+      prompt: idle,
+      options: {
+        cwd,
+        env,
+        pathToClaudeCodeExecutable: claudePath,
+        settingSources: ['user', 'project', 'local'],
+        systemPrompt: { type: 'preset', preset: 'claude_code' },
+      },
+    });
+    try {
+      const commands = await Promise.race([
+        query.supportedCommands(),
+        new Promise<never>((_, reject) => setTimeout(() => reject(new Error('timed out')), 20_000)),
+      ]);
+      return commands.map((c) => ({ name: c.name, description: c.description, argumentHint: c.argumentHint }));
+    } finally {
+      query.close();
+    }
   }
 
   listModels(): ModelOption[] {
@@ -330,7 +405,10 @@ export class HostManager {
         this.hosts.set(info.sessionId, host);
       }
     }
-    if (host.commands.length) this.commandsByCwd.set(info.cwd, host.commands);
+    if (host.commands.length) {
+      this.commandsByCwd.set(info.cwd, host.commands);
+      this.deps.commandCache?.set(info.cwd, host.commands);
+    }
     if (host.models.length) this.models = host.models;
     this.deps.onInfo(info);
   }

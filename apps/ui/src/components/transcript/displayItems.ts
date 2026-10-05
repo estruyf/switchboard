@@ -1,13 +1,14 @@
-import type { TranscriptMessage } from '@switchboard/protocol/client';
+import type { ImageRef, TranscriptMessage } from '@switchboard/protocol/client';
 
 export interface ToolResultView {
   text: string;
   isError: boolean;
   truncated: boolean;
+  images: ImageRef[];
 }
 
 export type DisplayItem =
-  | { kind: 'user'; key: string; text: string; images: number; subagent: boolean }
+  | { kind: 'user'; key: string; text: string; images: ImageRef[]; subagent: boolean }
   | { kind: 'command'; key: string; name: string; args: string }
   | { kind: 'text'; key: string; text: string; subagent: boolean }
   | { kind: 'thinking'; key: string; text: string }
@@ -32,14 +33,14 @@ const NOTICE_LABELS: Record<string, string> = {
 };
 
 /** Recognises the markup Claude Code writes into user turns (slash commands, command output, interrupts). */
-function userTextItem(text: string, key: string, subagent: boolean, images: number): DisplayItem | null {
+function userTextItem(text: string, key: string, subagent: boolean, images: ImageRef[]): DisplayItem | null {
   const name = tag(text, 'command-name');
   if (name) return { kind: 'command', key, name: name.startsWith('/') ? name : `/${name}`, args: tag(text, 'command-args') ?? '' };
   const stdout = tag(text, 'local-command-stdout');
   if (stdout !== null) return stdout ? { kind: 'notice', key, text: stdout } : null;
   if (/^\[Request interrupted by user/.test(text)) return { kind: 'notice', key, text: 'Interrupted by you' };
   const cleaned = text.replace(SYSTEM_REMINDER, '').trim();
-  if (!cleaned && images === 0) return null;
+  if (!cleaned && images.length === 0) return null;
   return { kind: 'user', key, text: cleaned, images, subagent };
 }
 
@@ -52,7 +53,7 @@ export function buildDisplayItems(messages: readonly TranscriptMessage[]): Displ
   const results = new Map<string, ToolResultView>();
   for (const message of messages) {
     for (const block of message.blocks) {
-      if (block.type === 'tool_result') results.set(block.toolUseId, { text: block.text, isError: block.isError, truncated: block.truncated });
+      if (block.type === 'tool_result') results.set(block.toolUseId, { text: block.text, isError: block.isError, truncated: block.truncated, images: block.images ?? [] });
     }
   }
 
@@ -61,8 +62,8 @@ export function buildDisplayItems(messages: readonly TranscriptMessage[]): Displ
     const subagent = message.parentToolUseId !== null;
     if (message.role === 'user') {
       const texts = message.blocks.flatMap((b) => (b.type === 'text' ? [b.text] : []));
-      const images = message.blocks.filter((b) => b.type === 'image').length;
-      if (texts.length === 0 && images === 0) continue;
+      const images = message.blocks.flatMap((b) => (b.type === 'image' && b.ref ? [b.ref] : []));
+      if (texts.length === 0 && images.length === 0) continue;
       const item = userTextItem(texts.join('\n\n'), message.uuid, subagent, images);
       if (item) items.push(item);
       continue;

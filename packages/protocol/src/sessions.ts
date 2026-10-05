@@ -88,6 +88,19 @@ export const LiveSession = z.object({
 });
 export type LiveSession = z.infer<typeof LiveSession>;
 
+/**
+ * An image in a transcript, by reference: the data stays in the engine and is
+ * fetched with `transcript.image` when it scrolls into view.
+ */
+export const ImageRef = z.object({
+  /** Stable within the session: `<message uuid>:<block>:<part>`. */
+  imageId: z.string(),
+  mediaType: z.string(),
+  /** Approximate size of the decoded image. */
+  bytes: z.number(),
+});
+export type ImageRef = z.infer<typeof ImageRef>;
+
 export const TranscriptBlock = z.discriminatedUnion('type', [
   z.object({ type: z.literal('text'), text: z.string() }),
   z.object({ type: z.literal('thinking'), text: z.string() }),
@@ -105,8 +118,11 @@ export const TranscriptBlock = z.discriminatedUnion('type', [
     isError: z.boolean(),
     text: z.string(),
     truncated: z.boolean(),
+    /** Images the tool returned (e.g. Read on a screenshot). */
+    images: z.array(ImageRef),
   }),
-  z.object({ type: z.literal('image'), mediaType: z.string().nullable() }),
+  /** `ref` is null when the image is not stored inline (e.g. a URL source). */
+  z.object({ type: z.literal('image'), mediaType: z.string().nullable(), ref: ImageRef.nullable() }),
   /** Anything we don't render yet; kept so the UI can show a placeholder instead of dropping it. */
   z.object({ type: z.literal('unknown'), kind: z.string() }),
 ]);

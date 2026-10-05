@@ -68,6 +68,49 @@ describe('normaliseMessage', () => {
   });
 });
 
+describe('images in transcripts', () => {
+  it('turns inline images into references and hands their data to the sink', () => {
+    const seen: Array<[string, string, string]> = [];
+    const m = normaliseMessage(
+      {
+        type: 'user',
+        uuid: 'u9',
+        parent_tool_use_id: null,
+        message: {
+          content: [
+            { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'AAAA' } },
+            { type: 'tool_result', tool_use_id: 't1', content: [{ type: 'text', text: 'read it' }, { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: 'BBBBBBBB' } }] },
+          ],
+        },
+      },
+      (id, type, data) => seen.push([id, type, data]),
+    );
+    expect(m.blocks[0]).toEqual({ type: 'image', mediaType: 'image/png', ref: { imageId: 'u9:0:-1', mediaType: 'image/png', bytes: 3 } });
+    expect(m.blocks[1]).toMatchObject({ type: 'tool_result', text: 'read it\n[image]', images: [{ imageId: 'u9:1:1', mediaType: 'image/jpeg', bytes: 6 }] });
+    expect(seen).toEqual([
+      ['u9:0:-1', 'image/png', 'AAAA'],
+      ['u9:1:1', 'image/jpeg', 'BBBBBBBB'],
+    ]);
+    // The transcript itself never carries image data.
+    expect(JSON.stringify(m)).not.toContain('BBBBBBBB');
+  });
+});
+
+describe('ImageStore', async () => {
+  const { ImageStore } = await import('../sessions/imageStore.ts');
+  it('serves images per session and evicts the least recently used past its budget', () => {
+    const store = new ImageStore(10);
+    const sink = store.sink('s1');
+    sink('a', 'image/png', '1234');
+    sink('b', 'image/png', '5678');
+    expect(store.get('s1', 'a')?.data).toBe('1234');
+    sink('c', 'image/png', '9999');
+    expect(store.get('s1', 'b')).toBeUndefined();
+    expect(store.get('s1', 'a')?.data).toBe('1234');
+    expect(store.get('s2', 'a')).toBeUndefined();
+  });
+});
+
 describe('clipJson', () => {
   it('drops undefined, non-finite numbers and over-deep nesting', () => {
     let deep: unknown = 'leaf';

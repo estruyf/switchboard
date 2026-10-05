@@ -45,6 +45,7 @@ interface Terminal {
   replayLength: number;
   pending: string;
   timer: ReturnType<typeof setTimeout> | undefined;
+  exited: Promise<number>;
 }
 
 /**
@@ -83,6 +84,7 @@ async function loadNodePty(): Promise<SpawnPty> {
 /** Terminals for session panels: login shells and the Claude Code TUI. They outlive window switches. */
 export class TerminalManager {
   private readonly terminals = new Map<string, Terminal>();
+  private readonly closeWaiters = new Map<string, () => void>();
   private spawnPty: Promise<SpawnPty> | undefined;
 
   constructor(private readonly options: TerminalManagerOptions) {}
@@ -91,7 +93,17 @@ export class TerminalManager {
     return [...this.terminals.values()].map((t) => t.info);
   }
 
-  async open(params: { sessionId: string | null; cwd: string; kind: TerminalKind; cols: number; rows: number; fork: boolean }): Promise<TerminalInfo> {
+  async open(params: {
+    sessionId: string | null;
+    cwd: string;
+    kind: TerminalKind;
+    cols: number;
+    rows: number;
+    fork: boolean;
+    /** For `action`: the command line to run in the login shell. */
+    command?: string;
+    title?: string;
+  }): Promise<TerminalInfo> {
     if (!existsSync(params.cwd)) throw new Error(`Folder not found: ${params.cwd}`);
     const baseEnv = await this.options.env();
     const env: Record<string, string> = { ...baseEnv, TERM: 'xterm-256color', COLORTERM: 'truecolor', TERM_PROGRAM: 'Switchboard' };
@@ -106,6 +118,12 @@ export class TerminalManager {
       file = claude;
       args = params.sessionId ? ['--resume', params.sessionId, ...(params.fork ? ['--fork-session'] : [])] : [];
       title = params.fork ? 'Claude (fork)' : 'Claude';
+    } else if (params.kind === 'action') {
+      if (!params.command) throw new Error('No command to run');
+      // An interactive login shell, so aliases and nvm from your shell config work in actions too.
+      file = env.SHELL || '/bin/zsh';
+      args = ['-ilc', params.command];
+      title = params.title ?? 'Action';
     } else {
       file = env.SHELL || '/bin/zsh';
       args = ['-l'];
@@ -114,7 +132,10 @@ export class TerminalManager {
 
     this.spawnPty ??= this.options.spawn ? this.options.spawn() : loadNodePty();
     const pty = (await this.spawnPty)(file, args, { name: 'xterm-256color', cols: params.cols, rows: params.rows, cwd: params.cwd, env });
+    let resolveExit!: (code: number) => void;
+    const exited = new Promise<number>((resolve) => (resolveExit = resolve));
     const terminal: Terminal = {
+      exited,
       info: {
         id: randomUUID(),
         sessionId: params.sessionId,
@@ -139,11 +160,18 @@ export class TerminalManager {
     pty.onExit(({ exitCode }) => {
       this.flush(terminal);
       terminal.info = { ...terminal.info, exitCode };
+      resolveExit(exitCode);
       this.changed();
     });
     this.options.log('info', `Opened ${params.kind} terminal in ${params.cwd} (pid ${pty.pid})`);
     this.changed();
     return terminal.info;
+  }
+
+  /** Resolves with the exit code (or -1 when the terminal is closed first). */
+  waitForExit(id: string): Promise<number> {
+    const terminal = this.terminals.get(id);
+    return terminal ? Promise.race([terminal.exited, new Promise<number>((resolve) => this.closeWaiters.set(id, () => resolve(-1)))]) : Promise.resolve(-1);
   }
 
   /** Recent output, for a window attaching to a running terminal. */
@@ -153,14 +181,15 @@ export class TerminalManager {
     return { info: terminal.info, replay: terminal.replay.join('') };
   }
 
+  /** Keystrokes for a terminal that just closed are dropped, not errors (a closing tab can still send one). */
   write(id: string, data: string): void {
-    const terminal = this.require(id);
-    if (terminal.info.exitCode === null) terminal.pty.write(data);
+    const terminal = this.terminals.get(id);
+    if (terminal && terminal.info.exitCode === null) terminal.pty.write(data);
   }
 
   resize(id: string, cols: number, rows: number): void {
-    const terminal = this.require(id);
-    if (terminal.info.exitCode !== null || (terminal.info.cols === cols && terminal.info.rows === rows)) return;
+    const terminal = this.terminals.get(id);
+    if (!terminal || terminal.info.exitCode !== null || (terminal.info.cols === cols && terminal.info.rows === rows)) return;
     terminal.pty.resize(cols, rows);
     terminal.info = { ...terminal.info, cols, rows };
   }
@@ -177,6 +206,8 @@ export class TerminalManager {
       }
     }
     this.terminals.delete(id);
+    this.closeWaiters.get(id)?.();
+    this.closeWaiters.delete(id);
     this.changed();
   }
 

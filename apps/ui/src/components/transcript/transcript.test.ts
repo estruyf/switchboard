@@ -20,7 +20,7 @@ describe('buildDisplayItems', () => {
         { type: 'thinking', text: 'ok' },
         { type: 'tool_use', id: 't1', name: 'Bash', input: { command: 'npm test' }, truncated: false },
       ]),
-      m('u2', 'user', [{ type: 'tool_result', toolUseId: 't1', isError: false, text: '5 passed', truncated: false }]),
+      m('u2', 'user', [{ type: 'tool_result', toolUseId: 't1', isError: false, text: '5 passed', truncated: false, images: [] }]),
       m('a2', 'assistant', [{ type: 'text', text: 'All green.' }]),
     ]);
     expect(items.map((i) => i.kind)).toEqual(['user', 'thinking', 'tool', 'text']);
@@ -39,7 +39,7 @@ describe('buildDisplayItems', () => {
       { kind: 'command', key: 'u1', name: '/review', args: '--fast' },
       { kind: 'notice', key: 'u2', text: 'Compacted' },
       { kind: 'notice', key: 'u3', text: 'Interrupted by you' },
-      { kind: 'user', key: 'u5', text: 'Real prompt', images: 0, subagent: false },
+      { kind: 'user', key: 'u5', text: 'Real prompt', images: [], subagent: false },
     ]);
   });
 

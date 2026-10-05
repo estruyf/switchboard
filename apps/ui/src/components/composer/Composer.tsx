@@ -1,3 +1,4 @@
+import { ImagePlus } from 'lucide-react';
 import { useEffect, useLayoutEffect, useRef, useState, type ClipboardEvent, type DragEvent, type KeyboardEvent } from 'react';
 import type { ImageAttachment, SlashCommand } from '@switchboard/protocol/client';
 import { useEngineConnection } from '../../engine/useEngine.ts';
@@ -52,6 +53,8 @@ export function Composer(props: ComposerProps) {
   const [sending, setSending] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const ref = useRef<HTMLTextAreaElement>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
+  const listRef = useRef<HTMLUListElement>(null);
   const searchSeq = useRef(0);
 
   // Grow with the content up to a limit, then scroll.
@@ -72,9 +75,9 @@ export function Composer(props: ComposerProps) {
     if (token.kind === 'slash') {
       const q = token.query.toLowerCase();
       const items = props.commands
-        .filter((c) => c.name.toLowerCase().includes(q))
-        .sort((a, b) => Number(!a.name.toLowerCase().startsWith(q)) - Number(!b.name.toLowerCase().startsWith(q)))
-        .slice(0, 8)
+        .filter((c) => c.name.toLowerCase().includes(q) || (q.length > 2 && c.description.toLowerCase().includes(q)))
+        .sort((a, b) => Number(!a.name.toLowerCase().startsWith(q)) - Number(!b.name.toLowerCase().startsWith(q)) || a.name.localeCompare(b.name))
+        .slice(0, 60)
         .map((c) => ({ value: `/${c.name}`, label: `/${c.name}`, detail: c.argumentHint ? `${c.argumentHint} · ${c.description}` : c.description }));
       return setPalette(items.length ? { kind: 'slash', start: token.start, items, active: 0 } : null);
     }
@@ -123,7 +126,9 @@ export function Composer(props: ComposerProps) {
       if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
         event.preventDefault();
         const step = event.key === 'ArrowDown' ? 1 : -1;
-        setPalette({ ...palette, active: (palette.active + step + palette.items.length) % palette.items.length });
+        const active = (palette.active + step + palette.items.length) % palette.items.length;
+        setPalette({ ...palette, active });
+        requestAnimationFrame(() => listRef.current?.children[active]?.scrollIntoView({ block: 'nearest' }));
         return;
       }
       if (event.key === 'Enter' || event.key === 'Tab') {
@@ -176,7 +181,7 @@ export function Composer(props: ComposerProps) {
   return (
     <div className="relative" onDragOver={(e) => e.preventDefault()} onDrop={onDrop}>
       {palette && (
-        <ul className="absolute right-0 bottom-full left-0 z-10 mb-2 overflow-hidden rounded-lg border border-border bg-card shadow-lg" role="listbox">
+        <ul ref={listRef} className="absolute right-0 bottom-full left-0 z-10 mb-2 max-h-72 overflow-y-auto rounded-lg border border-border bg-card shadow-lg" role="listbox" data-palette>
           {palette.items.map((item, i) => (
             <li key={item.value} role="option" aria-selected={i === palette.active}>
               <button
@@ -235,6 +240,28 @@ export function Composer(props: ComposerProps) {
             {notice ? <span className="text-error">{notice}</span> : props.running ? 'Esc to interrupt · messages you send now are queued' : '/ for commands · @ for files · ⇧Tab mode'}
           </span>
           <div className="flex shrink-0 items-center gap-1.5">
+            <input
+              ref={fileRef}
+              type="file"
+              accept="image/png,image/jpeg,image/gif,image/webp"
+              multiple
+              hidden
+              data-attach-input
+              onChange={(e) => {
+                void addFiles([...(e.target.files ?? [])]);
+                e.target.value = '';
+              }}
+            />
+            <button
+              type="button"
+              onClick={() => fileRef.current?.click()}
+              disabled={disabled}
+              title="Attach images (or paste / drop them)"
+              className="rounded-md p-1 text-muted hover:bg-border/50 hover:text-text disabled:opacity-40"
+              data-attach
+            >
+              <ImagePlus size={15} />
+            </button>
             {props.running && props.onInterrupt && (
               <button type="button" onClick={props.onInterrupt} className="rounded-md border border-border px-2.5 py-1 text-[12px] text-muted hover:text-text">
                 Stop
