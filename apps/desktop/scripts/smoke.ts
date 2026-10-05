@@ -54,6 +54,8 @@ console.log(`${result.quitGuarded ? '✓' : '✗'} ⌘Q asks first, Cancel keeps
 console.log(`${result.settingsResult === 'ok' ? '✓' : '✗'} settings: theme, sidebar style, session scope, tool activity and quit prompt apply at once and are saved${result.settingsResult === 'ok' ? '' : ` (${result.settingsResult})`}`);
 console.log(`${result.terminalOpened ? '✓' : '✗'} terminal panel opened a shell`);
 console.log(`${result.actionRan ? '✓' : '✗'} project action added through the editor and run in a terminal tab`);
+console.log(`${String(result.projectsResult).startsWith('ok') ? '✓' : '✗'} projects: ${result.projectsResult}`);
+if (!String(result.projectsResult).startsWith('ok')) process.exitCode = 1;
 console.log(`${result.highlighted ? '✓' : '✗'} syntax highlighting loaded and coloured a code block`);
 console.log(`${result.usageBand ? '✓' : '✗'} usage band above the composer: ${result.usageBand ?? 'not shown'}`);
 console.log(`  rendering on screen: ${JSON.stringify(result.rendering)}`);

@@ -472,6 +472,7 @@ let paletteResult = 'not run';
 let toolsResult = 'not run';
 let splitResult = 'not run';
 let settleResult = 'not run';
+let projectsResult = 'not run';
 let rendering: Record<string, number> = {};
 
 /** Adds a project action through the editor, runs it from the header and checks it opened a terminal tab. */
@@ -602,6 +603,58 @@ async function runSettingsStep(win: BrowserWindow): Promise<string> {
   if (restored.colorScheme !== 'system' || restored.sidebarStyle !== 'standard' || restored.toolActivity !== 'summary' || !restored.confirmQuit || restored.sessionScope !== 'all') return 'could not restore the defaults';
   await click('[data-open-settings]');
   return 'ok';
+}
+
+/**
+ * Projects are added by hand: the throwaway profile starts with none, the Add project dialog offers the
+ * folders Claude Code has sessions for, and a project's defaults reach the New session view. Only the
+ * throwaway profile's own project list changes (nothing on disk); the project is removed again at the end.
+ */
+async function runProjectsStep(win: BrowserWindow): Promise<string> {
+  const js = (code: string) => win.webContents.executeJavaScript(code);
+  const click = (selector: string) => js(`document.querySelector(${JSON.stringify(selector)}).click()`);
+  if (!(await waitInPage(win, "document.querySelector('[data-sidebar-onboarding]')", 3_000))) return 'a new profile did not offer to add a project';
+  await click('[data-open-projects]');
+  if (!(await waitInPage(win, "document.querySelector('[data-project-manager] [data-no-projects]')", 3_000))) return 'the Projects view did not open empty';
+  await click('[data-manager-add]');
+  if (!(await waitInPage(win, "document.querySelector('[data-add-project-dialog] [data-known-project]')", 5_000))) return 'no folders with sessions offered';
+  const known = (await js("document.querySelectorAll('[data-known-project]').length")) as number;
+  const root = (await js("document.querySelector('[data-known-project][data-added=\"false\"]')?.dataset.knownProject ?? null")) as string | null;
+  if (!root) return 'every offered folder was already a project';
+  const rowSelector = `[data-project-row=${JSON.stringify(root)}]`;
+  const row = (selector = '') => `document.querySelector(${JSON.stringify(selector ? `${rowSelector} ${selector}` : rowSelector)})`;
+  await new Promise((resolve) => setTimeout(resolve, 300));
+  await shot(win, 'add-project.png');
+  await click(`[data-known-project=${JSON.stringify(root)}]`);
+  if (!(await waitInPage(win, "document.querySelector('[data-known-project][data-added=\"true\"]')", 3_000))) return 'the folder was not marked as added';
+  win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Escape' });
+  if (!(await waitInPage(win, `!document.querySelector('[data-add-project-dialog]') && ${row()} && !document.querySelector('[data-sidebar-onboarding]')`, 3_000))) return 'the project did not appear in the list';
+
+  await js(`${row('[data-project-toggle]')}.click()`);
+  if (!(await waitInPage(win, `${row('[data-default-effort]')}`, 3_000))) return 'the defaults editor did not open';
+  await setFieldValue(win, `${rowSelector} [data-default-effort]`, 'high');
+  if (!(await waitInPage(win, `${row('[data-defaults-summary]')}.innerText.includes('high effort')`, 3_000))) return 'the effort default was not saved';
+  await new Promise((resolve) => setTimeout(resolve, 300));
+  await shot(win, 'projects.png');
+
+  // A new session in the project starts from its defaults; a change there can be saved back.
+  await click('[data-new-session]');
+  if (!(await waitInPage(win, `document.querySelector('[data-folder-select]')?.dataset.value === ${JSON.stringify(root)} && document.querySelector('[data-new-effort]')?.value === 'high'`, 5_000))) {
+    return `New session did not start from the project's defaults (${String(await js("document.querySelector('[data-folder-select]')?.dataset.value + ' ' + document.querySelector('[data-new-effort]')?.value"))})`;
+  }
+  await setFieldValue(win, '[data-new-effort]', 'low');
+  if (!(await waitInPage(win, "document.querySelector('[data-save-project-defaults]')", 3_000))) return 'no Save as project default after a change';
+  await click('[data-save-project-defaults]');
+  if (!(await waitInPage(win, "!document.querySelector('[data-save-project-defaults]')", 3_000))) return 'Save as project default did not save';
+
+  await click('[data-open-projects]');
+  if (!(await waitInPage(win, `${row('[data-defaults-summary]')}?.innerText.includes('low effort')`, 3_000))) return 'the saved default did not reach the Projects view';
+  await js(`${row('[data-remove-project]')}.click()`);
+  if (!(await waitInPage(win, "document.querySelector('[data-confirm]')", 3_000))) return 'no confirmation before removing';
+  await click('[data-confirm]');
+  if (!(await waitInPage(win, "document.querySelector('[data-no-projects]')", 3_000))) return 'the project was not removed';
+  await click('[data-open-projects]');
+  return `ok: ${known} folders offered; added one, its defaults reached New session, saved a change back, removed it`;
 }
 
 /** Tool calls are summarised by default: open the last finished group and count its steps. */
@@ -856,6 +909,7 @@ async function runSmokeStep(win: BrowserWindow | null): Promise<void> {
     settingsResult = await runSettingsStep(win).catch((error: Error) => `failed: ${error.message}`);
     terminalOpened = await runTerminalStep(win);
     actionRan = await runActionStep(win);
+    projectsResult = await runProjectsStep(win).catch((error: Error) => `failed: ${error.message}`);
     // Diagnostics renders a sample through Shiki, which loads in its own chunks on first use.
     await win.webContents.executeJavaScript("[...document.querySelectorAll('footer button')].find((b) => b.title === 'Diagnostics')?.click()");
     highlighted = await waitInPage(win, "document.querySelector('[data-rendering-check] .shiki span[style*=\"--shiki\"]')", 5_000);
@@ -894,6 +948,7 @@ async function runSmokeStep(win: BrowserWindow | null): Promise<void> {
         quitGuarded,
         settingsResult,
         actionRan,
+        projectsResult,
         highlighted,
         usageBand,
         rendering,

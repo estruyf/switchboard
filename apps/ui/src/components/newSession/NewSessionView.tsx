@@ -2,27 +2,18 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Effort, ImageAttachment, PermissionMode, ProjectInspection, SlashCommand } from '@switchboard/protocol/client';
 import { useEngineConnection } from '../../engine/useEngine.ts';
 import { FolderPicker } from './FolderPicker.tsx';
-import { basename, guessHome, tildify } from '../../lib/format.ts';
+import { basename, guessHome } from '../../lib/format.ts';
 import { MODE_CHOICES, MODE_LABEL, worktreeSlug } from '../../lib/modes.ts';
 import { useHosts } from '../../state/hostsStore.ts';
+import { addedProjects } from '../../state/projectList.ts';
 import { useProjects } from '../../state/projectsStore.ts';
 import { useSessions } from '../../state/sessionsStore.ts';
 import { Composer } from '../composer/Composer.tsx';
 import { UsageBand } from '../UsageBand.tsx';
+import { globalPatch, INITIAL_CHOICES, readGlobals, sameDefaults, startingChoices, toProjectDefaults, type Choices, type GlobalChoices } from './choices.ts';
 
 const DEFAULTS_KEY = 'newSession.defaults';
 const EFFORTS: Effort[] = ['low', 'medium', 'high', 'xhigh', 'max'];
-
-interface Defaults {
-  cwd: string | null;
-  model: string;
-  permissionMode: PermissionMode;
-  effort: Effort | '';
-  workspace: 'current' | 'worktree';
-  baseRef: 'fresh' | 'head';
-}
-
-const INITIAL: Defaults = { cwd: null, model: '', permissionMode: 'default', effort: '', workspace: 'current', baseRef: 'fresh' };
 
 const field = 'h-7 rounded-md border border-border bg-card px-2 text-[12px] text-text outline-none focus:border-accent-ink/60 disabled:opacity-50';
 
@@ -45,95 +36,148 @@ function Segmented<T extends string>({ value, options, onChange, disabled }: { v
   );
 }
 
-/** Starts a new Claude Code session: pick a folder and options, then write the first message. */
+/**
+ * Starts a new Claude Code session: pick a project (or any folder) and options, then write the first
+ * message. Options start from the project's defaults; fields it leaves unset use the choices last made here.
+ */
 export function NewSessionView() {
   const connection = useEngineConnection();
   const client = connection.status === 'connected' ? connection.client : null;
-  const sessions = useSessions((s) => s.sessions);
   const select = useSessions((s) => s.select);
   const models = useHosts((s) => s.models);
-  const [d, setD] = useState<Defaults>(INITIAL);
+  const [cwd, setCwd] = useState<string | null>(null);
+  const [globals, setGlobals] = useState<GlobalChoices>(INITIAL_CHOICES);
+  const [d, setD] = useState<Choices>({ ...INITIAL_CHOICES, branch: '' });
   const [loaded, setLoaded] = useState(false);
   const [inspection, setInspection] = useState<ProjectInspection | null>(null);
+  const [branches, setBranches] = useState<{ current: string | null; branches: string[] }>({ current: null, branches: [] });
   const [worktreeName, setWorktreeName] = useState('');
   const [nameTouched, setNameTouched] = useState(false);
   const [commands, setCommands] = useState<SlashCommand[]>([]);
   const [draftPrompt, setDraftPrompt] = useState('');
-  /** Set once the user changes anything, so late-arriving saved defaults never override their choices. */
-  const touched = useRef(false);
+  const [addAsProject, setAddAsProject] = useState(true);
+  const [savedNote, setSavedNote] = useState<string | null>(null);
+  /** The folder the user changed options for: until the folder changes, late-arriving defaults never override their choices. */
+  const touchedFor = useRef<string | null>(null);
 
   const projects = useProjects((s) => s.projects);
   const projectFilter = useProjects((s) => s.filter);
-  // Recent project folders first, then folders added by hand that have no sessions yet.
-  const recent = useMemo(() => {
-    const latest = new Map<string, number>();
-    for (const s of sessions.values()) {
-      if (!s.projectRoot.startsWith('/')) continue;
-      latest.set(s.projectRoot, Math.max(latest.get(s.projectRoot) ?? 0, s.updatedAt));
-    }
-    const added = [...projects.values()].filter((p) => p.added && p.exists && !latest.has(p.root)).map((p) => p.root);
-    return [...[...latest.entries()].sort((a, b) => b[1] - a[1]).slice(0, 15).map(([root]) => root), ...added];
-  }, [sessions, projects]);
-  const home = useMemo(() => guessHome(recent), [recent]);
+  const newSessionIn = useProjects((s) => s.newSessionIn);
+  const reloadProjects = useProjects((s) => s.reload);
+  const yours = useMemo(() => addedProjects(projects), [projects]);
+  const folders = useMemo(() => yours.filter((p) => p.exists).map((p) => p.root), [yours]);
+  const home = useMemo(() => guessHome(projects.keys()), [projects]);
+  const project = cwd ? projects.get(cwd) : undefined;
+  const isProject = project?.added ?? false;
+  const projectDefaults = isProject ? project!.defaults : null;
+  const defaultsKey = JSON.stringify(projectDefaults);
 
-  // Restore last choices.
+  // Restore the last folder and global choices.
   useEffect(() => {
     if (!client || loaded) return;
     void client.call('appState.get', { key: DEFAULTS_KEY }).then(({ value }) => {
-      if (value && typeof value === 'object' && !Array.isArray(value) && !touched.current) setD({ ...INITIAL, ...(value as Partial<Defaults>) });
+      const stored = readGlobals(value);
+      setGlobals(stored.globals);
+      setCwd((current) => current ?? stored.cwd);
       setLoaded(true);
     });
   }, [client, loaded]);
+  // The palette or Projects view asked for a folder.
   useEffect(() => {
-    // Only fills an empty field; re-checked inside the updater because a user change may be queued.
-    // A project filtered in the sidebar is the natural default.
-    const preferred = projectFilter && recent.includes(projectFilter) ? projectFilter : recent[0];
-    if (loaded && !d.cwd && preferred) setD((c) => (c.cwd ? c : { ...c, cwd: preferred }));
-  }, [loaded, recent, d.cwd, projectFilter]);
+    if (!newSessionIn) return;
+    setCwd(newSessionIn);
+    useProjects.getState().startIn(null);
+  }, [newSessionIn]);
+  useEffect(() => {
+    // Only fills an empty field. A project filtered in the sidebar is the natural default.
+    const preferred = projectFilter && folders.includes(projectFilter) ? projectFilter : folders[0];
+    if (loaded && !cwd && preferred) setCwd((c) => c ?? preferred);
+  }, [loaded, folders, cwd, projectFilter]);
+  // A new folder starts from its project's defaults (again when they arrive or change, until the user changes something).
+  useEffect(() => {
+    if (!loaded || touchedFor.current === cwd) return;
+    setD(startingChoices(globals, projectDefaults));
+  }, [loaded, cwd, defaultsKey, globals]);
 
-  // Inspect the folder (git? branch?), load its commands and pre-warm Claude Code there.
+  // Inspect the folder (git? branch?), load its commands and branches, and pre-warm Claude Code there.
   useEffect(() => {
-    if (!client || !d.cwd) return;
+    if (!client || !cwd) return;
     let cancelled = false;
     setInspection(null);
-    void client.call('projects.inspect', { path: d.cwd }).then((r) => !cancelled && setInspection(r));
-    void client.call('session.commands', { cwd: d.cwd }).then((r) => !cancelled && setCommands(r.commands));
-    if (d.workspace === 'current') void client.call('session.prewarm', { cwd: d.cwd });
+    setBranches({ current: null, branches: [] });
+    setSavedNote(null);
+    void client.call('projects.inspect', { path: cwd }).then((r) => !cancelled && setInspection(r));
+    void client.call('session.commands', { cwd }).then((r) => !cancelled && setCommands(r.commands));
+    client.call('git.branches', { cwd }).then(
+      (r) => !cancelled && setBranches(r),
+      () => {},
+    );
     return () => {
       cancelled = true;
     };
-  }, [client, d.cwd, d.workspace]);
+  }, [client, cwd]);
+  useEffect(() => {
+    if (client && cwd && d.workspace === 'current' && !d.branch) void client.call('session.prewarm', { cwd });
+  }, [client, cwd, d.workspace, d.branch]);
+
+  const persist = (next: GlobalChoices, folder: string | null) => void client?.call('appState.set', { key: DEFAULTS_KEY, value: { ...next, cwd: folder } });
 
   // Always build on the latest state: two quick changes (folder, then model) must not undo each other.
-  const update = (patch: Partial<Defaults>) => {
-    touched.current = true;
-    setD((current) => {
-      const next = { ...current, ...patch };
-      void client?.call('appState.set', { key: DEFAULTS_KEY, value: { ...next } });
-      return next;
-    });
+  const update = (patch: Partial<Choices>) => {
+    touchedFor.current = cwd;
+    setSavedNote(null);
+    setD((current) => ({ ...current, ...patch }));
+    const remembered = globalPatch(patch, projectDefaults);
+    if (Object.keys(remembered).length) {
+      setGlobals((current) => {
+        const next = { ...current, ...remembered };
+        persist(next, cwd);
+        return next;
+      });
+    }
+  };
+  const changeFolder = (folder: string) => {
+    touchedFor.current = null;
+    setCwd(folder);
+    setAddAsProject(true);
+    persist(globals, folder);
   };
 
   const chooseFolder = async () => {
-    const picked = await window.switchboard?.pickFolder(d.cwd ?? undefined);
-    if (picked) update({ cwd: picked });
+    const picked = await window.switchboard?.pickFolder(cwd ?? undefined);
+    if (picked) changeFolder(picked);
   };
 
   const canWorktree = inspection?.isGitRepo ?? false;
   const useWorktree = d.workspace === 'worktree' && canWorktree;
   const effectiveName = nameTouched ? worktreeName : worktreeSlug(draftPrompt);
+  const checkoutBranch = !useWorktree && d.branch && d.branch !== branches.current ? d.branch : null;
+  const branchOptions = d.branch && !branches.branches.includes(d.branch) ? [d.branch, ...branches.branches] : branches.branches;
+  const asDefaults = toProjectDefaults({ ...d, workspace: useWorktree ? 'worktree' : d.workspace });
+  const unsaved = isProject && !sameDefaults(asDefaults, project!.defaults);
+
+  const saveAsProjectDefault = async () => {
+    if (!client || !cwd) return;
+    await client.call('projects.setDefaults', { root: cwd, defaults: asDefaults });
+    reloadProjects();
+    setSavedNote(`Saved as ${project?.name ?? basename(cwd)}'s defaults`);
+  };
 
   const create = async (text: string, attachments: ImageAttachment[]) => {
-    if (!client || !d.cwd) throw new Error('Choose a folder first');
+    if (!client || !cwd) throw new Error('Choose a folder first');
     const { sessionId } = await client.call('session.create', {
-      cwd: d.cwd,
+      cwd,
       prompt: text,
       attachments,
       model: d.model || null,
       permissionMode: d.permissionMode,
       effort: d.effort || null,
       worktree: useWorktree ? { name: effectiveName || worktreeSlug(text), baseRef: d.baseRef } : null,
+      checkoutBranch,
     });
+    if (!isProject && addAsProject && inspection?.exists) {
+      await client.call('projects.add', { path: cwd }).then(reloadProjects, () => {});
+    }
     select(sessionId);
   };
 
@@ -148,11 +192,13 @@ export function NewSessionView() {
           <div className="grid gap-1.5">
             <label className="text-[11px] tracking-wide text-faint uppercase">Folder</label>
             <div className="flex min-w-0 gap-2">
-              <FolderPicker value={d.cwd} folders={recent} home={home} onChange={(cwd) => update({ cwd })} onChooseOther={() => void chooseFolder()} />
+              <FolderPicker value={cwd} folders={folders} home={home} onChange={changeFolder} onChooseOther={() => void chooseFolder()} />
             </div>
             <p className="text-[11px] text-faint">
-              {!d.cwd
-                ? 'Pick where Claude should work.'
+              {!cwd
+                ? folders.length
+                  ? 'Pick where Claude should work.'
+                  : 'Pick where Claude should work. Folders you add as projects are listed here.'
                 : !inspection
                   ? 'Checking folder…'
                   : !inspection.exists
@@ -161,6 +207,12 @@ export function NewSessionView() {
                       ? `Git repository${inspection.branch ? ` on ${inspection.branch}` : ''}`
                       : 'Not a git repository'}
             </p>
+            {cwd && !isProject && inspection?.exists && (
+              <label className="flex w-fit cursor-pointer items-center gap-2 text-[12px] text-muted">
+                <input type="checkbox" checked={addAsProject} onChange={(e) => setAddAsProject(e.target.checked)} data-add-as-project />
+                Add {basename(cwd)} to your projects
+              </label>
+            )}
           </div>
 
           <div className="grid gap-1.5">
@@ -197,6 +249,24 @@ export function NewSessionView() {
                   />
                 </>
               )}
+              {!useWorktree && branches.branches.length > 0 && (
+                <select
+                  className={field}
+                  value={d.branch}
+                  onChange={(e) => update({ branch: e.target.value })}
+                  title="Check out a branch before the session starts. Git keeps uncommitted changes, or refuses when they conflict."
+                  data-branch-select
+                >
+                  <option value="">On {branches.current ?? 'the current checkout'}</option>
+                  {branchOptions
+                    .filter((b) => b !== branches.current)
+                    .map((b) => (
+                      <option key={b} value={b}>
+                        Check out {b}
+                      </option>
+                    ))}
+                </select>
+              )}
             </div>
           </div>
 
@@ -218,7 +288,7 @@ export function NewSessionView() {
                 </option>
               ))}
             </select>
-            <select className={field} value={d.effort} onChange={(e) => update({ effort: e.target.value as Effort | '' })} title="Effort">
+            <select className={field} value={d.effort} onChange={(e) => update({ effort: e.target.value as Effort | '' })} title="Effort" data-new-effort>
               <option value="">Default effort</option>
               {EFFORTS.map((e) => (
                 <option key={e} value={e}>
@@ -228,15 +298,32 @@ export function NewSessionView() {
             </select>
           </div>
 
+          {isProject && (
+            <div className="-mt-2 flex min-h-5 flex-wrap items-center gap-2 text-[11px] text-faint" data-project-defaults-bar>
+              {savedNote ? (
+                <span className="text-accent-ink">{savedNote}</span>
+              ) : unsaved ? (
+                <>
+                  <span>These choices apply to this session only.</span>
+                  <button type="button" onClick={() => void saveAsProjectDefault()} className="text-link hover:underline" data-save-project-defaults>
+                    Save as project default
+                  </button>
+                </>
+              ) : (
+                <span>{Object.values(project!.defaults).some((v) => v !== null) ? `${project!.name}'s defaults` : `${project!.name} uses your last choices`}</span>
+              )}
+            </div>
+          )}
+
           <UsageBand />
           <div onInput={(e) => setDraftPrompt((e.target as HTMLTextAreaElement).value ?? '')}>
             <Composer
-              cwd={d.cwd}
+              cwd={cwd}
               commands={commands}
               placeholder="What should Claude work on?"
               submitLabel="Start session"
               autoFocus
-              disabledReason={!client ? 'Connecting to the engine…' : !d.cwd ? 'Choose a folder first' : inspection && !inspection.exists ? 'That folder no longer exists' : null}
+              disabledReason={!client ? 'Connecting to the engine…' : !cwd ? 'Choose a folder first' : inspection && !inspection.exists ? 'That folder no longer exists' : null}
               onSubmit={create}
             />
           </div>

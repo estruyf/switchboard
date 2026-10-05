@@ -96,6 +96,21 @@ describe('engine over a MessagePort', () => {
     expect(snapshot.live).toEqual([]);
   });
 
+  it('lists your projects and offers folders that only have sessions', async () => {
+    const { client, dataDir } = connect();
+    await new Promise((resolve) => client.on('sessions.changed', resolve));
+    expect((await client.call('projects.list', {})).projects).toMatchObject([{ root: '/work/parser', added: false, sessionCount: 1, order: null }]);
+    await client.call('projects.add', { path: dataDir });
+    await client.call('projects.setDefaults', { root: dataDir, defaults: { model: 'haiku', effort: null, permissionMode: 'plan', workspace: null, baseRef: null, branch: null } });
+    expect((await client.call('projects.list', {})).projects).toMatchObject([
+      { root: dataDir, added: true, order: 0, defaults: { model: 'haiku', permissionMode: 'plan' } },
+      { root: '/work/parser', added: false },
+    ]);
+    await expect(client.call('projects.setDefaults', { root: '/work/parser', defaults: {} })).rejects.toMatchObject({ code: 'NOT_FOUND' });
+    await client.call('projects.remove', { root: dataDir });
+    expect((await client.call('projects.list', {})).projects.map((p) => p.root)).toEqual(['/work/parser']);
+  });
+
   it('streams a watched transcript to the caller', async () => {
     const { client } = connect();
     const update = new Promise<TranscriptUpdate>((resolve) => client.on('transcript.updated', resolve));

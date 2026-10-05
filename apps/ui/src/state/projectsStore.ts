@@ -8,26 +8,44 @@ const FILTER_KEY = 'ui.projectFilter';
 
 interface ProjectsState {
   projects: Map<string, ProjectInfo>;
+  /** The first list has arrived. */
+  loaded: boolean;
   /** Show only this project's sessions; null = all projects. */
   filter: string | null;
   settledOpen: boolean;
   /** Bumped to ask for a reload after icon or project changes. */
   version: number;
+  /** The Add project dialog is open. */
+  adding: boolean;
+  /** The project the Projects view should scroll to and open (from a project's menu). */
+  manageFocus: string | null;
+  /** A folder the New session view should switch to when it opens (from the palette or the Projects view). */
+  newSessionIn: string | null;
   setProjects(projects: ProjectInfo[]): void;
   setFilter(root: string | null): void;
   toggleSettled(): void;
   reload(): void;
+  showAdd(open: boolean): void;
+  setManageFocus(root: string | null): void;
+  startIn(root: string | null): void;
 }
 
 export const useProjects = create<ProjectsState>()((set) => ({
   projects: new Map(),
+  loaded: false,
   filter: null,
   settledOpen: false,
   version: 0,
-  setProjects: (projects) => set({ projects: new Map(projects.map((p) => [p.root, p])) }),
+  adding: false,
+  manageFocus: null,
+  newSessionIn: null,
+  setProjects: (projects) => set({ projects: new Map(projects.map((p) => [p.root, p])), loaded: true }),
   setFilter: (filter) => set({ filter }),
   toggleSettled: () => set((s) => ({ settledOpen: !s.settledOpen })),
   reload: () => set((s) => ({ version: s.version + 1 })),
+  showAdd: (adding) => set({ adding }),
+  setManageFocus: (manageFocus) => set({ manageFocus }),
+  startIn: (newSessionIn) => set({ newSessionIn }),
 }));
 
 /** Loads projects (with icons) whenever the set of project folders changes, and persists the filter. */

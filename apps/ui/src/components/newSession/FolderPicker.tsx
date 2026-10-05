@@ -6,8 +6,8 @@ import { useProjects } from '../../state/projectsStore.ts';
 import { ProjectIcon } from '../ProjectIcon.tsx';
 
 /**
- * The folder for a new session: recent projects, filterable by typing, with their icons.
- * "Choose another folder…" opens the system dialog for anything else.
+ * The folder for a new session: your projects, filterable by typing, with their icons. Typing an
+ * absolute path offers that folder; "Choose another folder…" opens the system dialog.
  */
 export function FolderPicker({
   value,
@@ -34,7 +34,10 @@ export function FolderPicker({
   const options = useMemo(() => {
     const all = value && !folders.includes(value) ? [value, ...folders] : folders;
     if (!filter.trim()) return all;
-    return all
+    // A typed absolute path is offered as it is, for folders that aren't projects yet.
+    const typed = filter.trim().replace(/(.)\/+$/, '$1');
+    const path = typed.startsWith('/') && !all.includes(typed) ? [typed] : [];
+    const matches = all
       .map((folder) => {
         const name = projects.get(folder)?.name ?? basename(folder);
         const score = Math.max(fuzzyScore(filter, name) ?? -Infinity, (fuzzyScore(filter, tildify(folder, home)) ?? -Infinity) - 2);
@@ -43,6 +46,7 @@ export function FolderPicker({
       .filter((o) => o.score > -Infinity)
       .sort((a, b) => b.score - a.score)
       .map((o) => o.folder);
+    return [...path, ...matches];
   }, [filter, folders, home, projects, value]);
   // The extra row at the end: the system folder dialog.
   const count = options.length + 1;
@@ -107,7 +111,7 @@ export function FolderPicker({
                 else if (e.key === 'ArrowUp') (e.preventDefault(), setActive((i) => Math.max(0, i - 1)));
                 else if (e.key === 'Enter') (e.preventDefault(), pick(active));
               }}
-              placeholder="Filter projects"
+              placeholder="Filter projects, or type a path"
               spellCheck={false}
               className="h-9 shrink-0 border-b border-border bg-transparent px-3 text-[12.5px] text-text outline-none placeholder:text-faint"
             />

@@ -15,13 +15,14 @@ It uses the Claude Code you already have installed, with your login, settings, c
 **Keep track of every session**
 - One list of all your sessions, newest first, across every project. Sessions you haven't touched for a while move to **Settled**, out of the way. You can settle one yourself too, even while it works: it comes back when it needs you or has finished.
 - See at a glance which sessions are **working**, **waiting for you**, **finished** or **unread**.
-- Filter by project, filter by title, and pin the sessions you keep coming back to.
+- Filter by one of your projects, filter by title, and pin the sessions you keep coming back to.
 - **Search every conversation** (⌘⇧F): your prompts and Claude's replies across all sessions, with the matching words highlighted. Pick a result to jump straight to that message.
 - Give each project an icon. Switchboard picks one up from the repo when it can (a logo or favicon).
 - Sessions running in your terminal show up too, live.
 
 **Work with Claude**
-- Start a session in a folder (⌘N): pick a project by typing a few letters, then work on the current branch or in a **new worktree**, just like `claude --worktree`.
+- Start a session in a folder (⌘N): pick a project by typing a few letters, then work on the current branch (or check out another one first) or in a **new worktree**, just like `claude --worktree`.
+- **Projects** are the folders you choose to work in. Add them from the folders you've used Claude Code in, or any folder, then reorder or remove them in the **Projects** view (the folder icon at the bottom of the sidebar). Give a project its own defaults for new sessions: model, effort, permission mode, worktree or current folder, and a branch. The New session view starts from them; change something there for one session, or click *Save as project default*.
 - Chat as you would in the terminal. You get streaming replies, `/` commands (your own commands and skills included), `@` file mentions, and images you paste or attach.
 - Approve or deny permission requests, answer Claude's questions and review plans in the conversation.
 - Follow what Claude does without the noise: each run of tool calls is one line ("Reading src/app.ts…", then "Ran 3 commands and edited 2 files"), and a click shows every step, with diffs, command output, to-do lists and subagent runs.

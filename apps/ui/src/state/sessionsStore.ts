@@ -2,7 +2,7 @@ import { create } from 'zustand';
 import type { LiveSession, SessionHostInfo, SessionsChanged, SessionsSnapshot, SessionSummary } from '@switchboard/protocol/client';
 import { hostAsLive, isActiveHost } from './hostsStore.ts';
 
-export type MainView = 'session' | 'new' | 'diagnostics' | 'settings';
+export type MainView = 'session' | 'new' | 'diagnostics' | 'settings' | 'projects';
 export type Pane = 'main' | 'split';
 
 const other = (pane: Pane): Pane => (pane === 'main' ? 'split' : 'main');

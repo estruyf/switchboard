@@ -18,6 +18,7 @@ import {
 } from './host.ts';
 import {
   LiveSession,
+  ProjectDefaults,
   ProjectIconChoice,
   ProjectInfo,
   SearchHit,
@@ -116,10 +117,19 @@ export const contract = {
     'session.delete': { params: z.object({ sessionId: SessionId }), result: z.object({}) },
     /** The user is looking at this session now; clears its unread state. */
     'sessions.markViewed': { params: z.object({ sessionId: SessionId }), result: z.object({}) },
+    /**
+     * Your projects (`added`) in your order, plus every other folder Claude Code has sessions for
+     * (`added: false`), which the Add project picker offers and the sidebar uses for icons.
+     */
     'projects.list': { params: z.object({}), result: z.object({ projects: z.array(ProjectInfo) }) },
     'projects.add': { params: z.object({ path: AbsolutePath }), result: z.object({}) },
+    /** Removes a project from Switchboard's list. Nothing on disk changes; its sessions stay. */
     'projects.remove': { params: z.object({ root: AbsolutePath }), result: z.object({}) },
     'projects.setIcon': { params: z.object({ root: AbsolutePath, icon: ProjectIconChoice }), result: z.object({}) },
+    /** Replaces a project's defaults for new sessions. */
+    'projects.setDefaults': { params: z.object({ root: AbsolutePath, defaults: ProjectDefaults }), result: z.object({}) },
+    /** Puts your projects in this order (roots not listed keep their place after these). */
+    'projects.reorder': { params: z.object({ roots: z.array(AbsolutePath).max(5000) }), result: z.object({}) },
     /** Forces a full rescan of ~/.claude/projects. */
     'sessions.refresh': {
       params: z.object({}),
@@ -165,6 +175,8 @@ export const contract = {
         permissionMode: PermissionMode.default('default'),
         effort: Effort.nullable().default(null),
         worktree: WorktreeRequest.nullable().default(null),
+        /** Check out this branch in `cwd` first (not with a worktree). Fails when git refuses, e.g. over uncommitted changes. */
+        checkoutBranch: z.string().min(1).max(250).nullable().default(null),
       }),
       result: z.object({ sessionId: z.string() }),
     },
@@ -281,6 +293,8 @@ export const contract = {
       params: z.object({ cwd: AbsolutePath, base: ChangesBase, path: z.string().max(4096) }),
       result: z.object({ diff: z.string(), truncated: z.boolean() }),
     },
+    /** Local branches of the repository at `cwd`, and the one checked out (null when detached or not a repo). */
+    'git.branches': { params: z.object({ cwd: AbsolutePath }), result: z.object({ current: z.string().nullable(), branches: z.array(z.string()) }) },
     'git.stage': { params: z.object({ cwd: AbsolutePath, paths: z.array(z.string().max(4096)).max(5000), staged: z.boolean() }), result: z.object({}) },
     /** Puts files back to HEAD. New files go to the Trash. */
     'git.revert': { params: z.object({ cwd: AbsolutePath, paths: z.array(z.string().max(4096)).min(1).max(5000) }), result: z.object({}) },

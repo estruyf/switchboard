@@ -164,4 +164,17 @@ export const migrations: readonly string[] = [
     created_at INTEGER NOT NULL
   );
   `,
+
+  // v8: projects are added by hand, with their own order and defaults for new sessions (user choices: keep them).
+  // Upgrading users keep the projects they worked with in Switchboard: every folder with a session started or
+  // continued here. On a new install these tables are empty, so the list starts empty.
+  `
+  ALTER TABLE project_settings ADD COLUMN sort INTEGER;
+  ALTER TABLE project_settings ADD COLUMN defaults_json TEXT;
+  INSERT INTO project_settings (root, added_at)
+    SELECT project_root, MAX(updated_at) FROM sessions
+    WHERE project_root LIKE '/%' AND (id IN (SELECT id FROM owned_sessions) OR id IN (SELECT id FROM continued_sessions))
+    GROUP BY project_root
+  ON CONFLICT (root) DO UPDATE SET added_at = COALESCE(project_settings.added_at, excluded.added_at);
+  `,
 ];

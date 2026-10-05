@@ -18,13 +18,13 @@ import {
 import { LiveRegistry } from './claude/liveRegistry.ts';
 import { createProjectResolver } from './claude/projectResolver.ts';
 import { sdkSessionSource, type SessionSource } from './claude/sessionSource.ts';
-import { fileDiff, listChanges, removeWorktree, revert, stage, worktreeStatus } from './git/gitChanges.ts';
+import { fileDiff, listBranches, listChanges, removeWorktree, revert, stage, switchBranch, worktreeStatus } from './git/gitChanges.ts';
 import { SearchIndex } from './sessions/searchIndex.ts';
 import { installedPlugins } from './host/capabilities.ts';
 import { ActionStore, expandCommand, shellQuote, suggestActions } from './actions/actionStore.ts';
 import { HostManager, type SdkRuntime } from './host/hostManager.ts';
 import { UsageMonitor } from './host/usageMonitor.ts';
-import { ProjectRegistry } from './projects/projectRegistry.ts';
+import { ProjectRegistry, type FolderActivity } from './projects/projectRegistry.ts';
 import { createAppStateStore } from './db/appState.ts';
 import { openCacheDatabase } from './db/database.ts';
 import { findClaude } from './system/claudeBinary.ts';
@@ -333,7 +333,17 @@ export function createEngine(options: EngineOptions): Engine {
       sessions.markViewed(sessionId);
       return {};
     },
-    'projects.list': () => ({ projects: projects.list(new Set(sessions.snapshot().sessions.map((s) => s.projectRoot))) }),
+    'projects.list': () => {
+      const activity = new Map<string, FolderActivity>();
+      for (const s of sessions.snapshot().sessions) {
+        const entry = activity.get(s.projectRoot);
+        if (entry) {
+          entry.count++;
+          entry.lastActivity = Math.max(entry.lastActivity, s.updatedAt);
+        } else activity.set(s.projectRoot, { count: 1, lastActivity: s.updatedAt });
+      }
+      return { projects: projects.list(activity) };
+    },
     'projects.add': ({ path }) => {
       projects.add(path);
       return {};
@@ -344,6 +354,14 @@ export function createEngine(options: EngineOptions): Engine {
     },
     'projects.setIcon': ({ root, icon }) => {
       projects.setIcon(root, icon);
+      return {};
+    },
+    'projects.setDefaults': ({ root, defaults }) => {
+      projects.setDefaults(root, defaults);
+      return {};
+    },
+    'projects.reorder': ({ roots }) => {
+      projects.reorder(roots);
       return {};
     },
     'sessions.refresh': async () => {
@@ -399,9 +417,18 @@ export function createEngine(options: EngineOptions): Engine {
       if (params.worktree && !resolver.resolve(params.cwd).gitDir) {
         throw new RpcError('NOT_A_REPO', 'Worktrees need a git repository');
       }
+      const { checkoutBranch, ...create } = params;
+      if (checkoutBranch) {
+        if (params.worktree) throw new RpcError('INVALID', 'A new worktree gets its own branch; choose the current folder to check out a branch');
+        try {
+          await switchBranch(params.cwd, checkoutBranch);
+        } catch (error) {
+          throw new RpcError('GIT_FAILED', `Could not check out ${checkoutBranch}: ${(error as Error).message}`);
+        }
+      }
       const worktree = params.worktree;
       const setup = worktree ? (id: string) => worktreeSetup(id, params.cwd, worktree.name)?.() ?? Promise.resolve() : undefined;
-      return { sessionId: await hosts.create({ ...params, ...(setup ? { beforeFirstMessage: setup } : {}) }) };
+      return { sessionId: await hosts.create({ ...create, ...(setup ? { beforeFirstMessage: setup } : {}) }) };
     },
     'session.send': (params) => hosts.send(params),
     'session.forkAt': async ({ sessionId, messageUuid }) => {
@@ -530,6 +557,14 @@ export function createEngine(options: EngineOptions): Engine {
     'git.diff': async ({ cwd, base, path }) => {
       try {
         return await fileDiff(cwd, base, path);
+      } catch (error) {
+        throw new RpcError('GIT_FAILED', (error as Error).message);
+      }
+    },
+    'git.branches': async ({ cwd }) => {
+      if (!resolver.resolve(cwd).gitDir) return { current: null, branches: [] };
+      try {
+        return await listBranches(cwd);
       } catch (error) {
         throw new RpcError('GIT_FAILED', (error as Error).message);
       }

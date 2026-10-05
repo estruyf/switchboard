@@ -2,6 +2,8 @@ import {
   Activity,
   Blocks,
   FileDiff,
+  FolderCog,
+  FolderPlus,
   Monitor,
   Moon,
   PanelLeft,
@@ -21,6 +23,7 @@ import { fuzzyScore } from '../../lib/fuzzy.ts';
 import { isActiveHost, useHosts } from '../../state/hostsStore.ts';
 import { useOverlay } from '../../state/overlayStore.ts';
 import { usePreferences } from '../../state/preferencesStore.ts';
+import { addedProjects } from '../../state/projectList.ts';
 import { useProjects } from '../../state/projectsStore.ts';
 import { toRows, useSessions } from '../../state/sessionsStore.ts';
 import { inScope } from '../../state/sidebarRows.ts';
@@ -31,7 +34,7 @@ import { ProjectIcon } from '../ProjectIcon.tsx';
 
 interface Item {
   id: string;
-  group: 'Commands' | 'Project actions' | 'Sessions';
+  group: 'Commands' | 'Project actions' | 'Projects' | 'Sessions';
   label: string;
   /** Extra words to match on. */
   keywords?: string;
@@ -44,7 +47,7 @@ interface Item {
 
 const icon = (Icon: LucideIcon) => <Icon size={14} />;
 
-/** ⌘K: every command, the current project's actions, and a jump to any session, by typing a few letters. */
+/** ⌘K: every command, the current project's actions, a new session in any project, and a jump to any session, by typing a few letters. */
 export function CommandPalette() {
   const connection = useEngineConnection();
   const client = connection.status === 'connected' ? connection.client : null;
@@ -76,6 +79,8 @@ export function CommandPalette() {
       { id: 'new', group: 'Commands', label: 'New session', hint: '⌘N', icon: icon(SquarePen), run: () => setView('new') },
       { id: 'search', group: 'Commands', label: 'Search conversations', keywords: 'find text', hint: '⌘⇧F', icon: icon(Search), run: () => useOverlay.getState().show('search') },
       { id: 'settings', group: 'Commands', label: 'Settings', keywords: 'preferences', hint: '⌘,', icon: icon(Settings), run: () => setView('settings') },
+      { id: 'projects', group: 'Commands', label: 'Manage projects', keywords: 'folders defaults', icon: icon(FolderCog), run: () => setView('projects') },
+      { id: 'add-project', group: 'Commands', label: 'Add project…', keywords: 'folder', icon: icon(FolderPlus), run: () => useProjects.getState().showAdd(true) },
       { id: 'diagnostics', group: 'Commands', label: 'Engine diagnostics', icon: icon(Activity), run: () => setView('diagnostics') },
       { id: 'theme-system', group: 'Commands', label: 'Theme: Match System', keywords: 'appearance', icon: icon(Monitor), run: () => updatePrefs({ colorScheme: 'system' }) },
       { id: 'theme-light', group: 'Commands', label: 'Theme: Light', keywords: 'appearance', icon: icon(Sun), run: () => updatePrefs({ colorScheme: 'light' }) },
@@ -101,6 +106,20 @@ export function CommandPalette() {
       const Icon = ACTION_ICON[a.icon] ?? Play;
       return { id: `action:${a.id}`, group: 'Project actions', label: `Run: ${a.name}`, keywords: a.command, hint: a.shortcut ? formatShortcut(a.shortcut) : undefined, icon: <Icon size={14} />, run: () => useOverlay.getState().requestAction(a.id) };
     });
+    // Typing a project's name starts a session there.
+    const projectItems: Item[] = addedProjects(projects)
+      .filter((p) => p.exists)
+      .map((p) => ({
+        id: `project:${p.root}`,
+        group: 'Projects',
+        label: `New session in ${p.name}`,
+        keywords: `${p.name} ${p.root}`,
+        icon: <ProjectIcon project={p} root={p.root} size={14} />,
+        run: () => {
+          useProjects.getState().startIn(p.root);
+          setView('new');
+        },
+      }));
     const sessionItems: Item[] = toRows(sessions, live, hosts)
       .filter((row) => inScope(row, scope))
       .sort((a, b) => b.updatedAt - a.updatedAt)
@@ -117,12 +136,12 @@ export function CommandPalette() {
           runBeside: () => useSessions.getState().openBeside(row.id),
         };
       });
-    return [...commands, ...projectActions, ...sessionItems];
+    return [...commands, ...projectActions, ...projectItems, ...sessionItems];
   }, [actions, client, current, cwd, hosts, live, openIn, projects, running, scope, sessions, updatePrefs]);
 
   // With nothing typed: commands, actions and the 8 most recent sessions. Otherwise the best matches.
   const results = useMemo(() => {
-    if (!query.trim()) return [...items.filter((i) => i.group !== 'Sessions'), ...items.filter((i) => i.group === 'Sessions').slice(0, 8)];
+    if (!query.trim()) return [...items.filter((i) => i.group !== 'Sessions' && i.group !== 'Projects'), ...items.filter((i) => i.group === 'Sessions').slice(0, 8)];
     return items
       .map((item) => {
         const label = fuzzyScore(query, item.label);
