@@ -21,6 +21,8 @@ export function ChoiceMenu<T extends string>({
   title,
   disabled,
   width = 240,
+  heading,
+  placement = 'auto',
   children,
 }: {
   /** `data-menu` on the panel, and `data-<name>-select` on the pill, for the smoke test. */
@@ -31,6 +33,10 @@ export function ChoiceMenu<T extends string>({
   title?: string;
   disabled?: boolean;
   width?: number;
+  /** A small uppercase title over the choices. */
+  heading?: string;
+  /** `up` always opens above the pill; `auto` opens above only when there is no room below. */
+  placement?: 'auto' | 'up';
   children: ReactNode;
 }) {
   const [open, setOpen] = useState(false);
@@ -83,7 +89,7 @@ export function ChoiceMenu<T extends string>({
         {...{ [`data-${name}-select`]: '' }}
         onClick={(e) => {
           // Opens upward when the pill sits near the bottom of the window.
-          setUpward(window.innerHeight - e.currentTarget.getBoundingClientRect().bottom < 300);
+          setUpward(placement === 'up' || window.innerHeight - e.currentTarget.getBoundingClientRect().bottom < 300);
           setOpen((o) => !o);
         }}
         className={`flex h-7 items-center gap-1.5 rounded-md px-2 text-[12px] whitespace-nowrap text-muted hover:bg-border/50 hover:text-text disabled:opacity-50 ${open ? 'bg-border/50 text-text' : ''}`}
@@ -98,6 +104,7 @@ export function ChoiceMenu<T extends string>({
           style={{ width }}
           className={`absolute left-0 z-40 max-h-80 overflow-y-auto rounded-lg border border-border bg-card py-1 shadow-xl ${upward ? 'bottom-full mb-1.5' : 'top-full mt-1.5'}`}
         >
+          {heading && <p className="px-3 pt-1.5 pb-1 text-[10px] tracking-wide text-faint uppercase">{heading}</p>}
           {choices.map((choice) => (
             <button
               key={choice.value}

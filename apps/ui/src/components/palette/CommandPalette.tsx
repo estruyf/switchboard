@@ -73,7 +73,7 @@ export function CommandPalette() {
   const items = useMemo<Item[]>(() => {
     const setView = useSessions.getState().setView;
     const commands: Item[] = [
-      { id: 'new', group: 'Commands', label: 'New session', hint: '⌘N', icon: icon(SquarePen), run: () => setView('new') },
+      { id: 'new', group: 'Commands', label: 'New session', hint: '⌘N', icon: icon(SquarePen), run: () => useSessions.getState().openNewSession() },
       { id: 'search', group: 'Commands', label: 'Search conversations', keywords: 'find text', hint: '⌘⇧F', icon: icon(Search), run: () => useOverlay.getState().show('search') },
       { id: 'settings', group: 'Commands', label: 'Settings', keywords: 'preferences', hint: '⌘,', icon: icon(Settings), run: () => setView('settings') },
       { id: 'diagnostics', group: 'Commands', label: 'Engine diagnostics', icon: icon(Activity), run: () => setView('diagnostics') },

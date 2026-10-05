@@ -1,4 +1,4 @@
-import { RotateCcw } from 'lucide-react';
+import { Gauge, RotateCcw } from 'lucide-react';
 import { useRef, type KeyboardEvent } from 'react';
 import type { Effort } from '@switchboard/protocol/client';
 import { EFFORT_LABEL, EFFORTS, toggleEffort } from './route.ts';
@@ -22,6 +22,7 @@ export function EffortDial({ value, onChange }: { value: Effort | ''; onChange(e
 
   return (
     <div className="flex items-center gap-2" data-effort-dial>
+      <Gauge size={14} className="shrink-0 text-muted" aria-hidden />
       <div ref={group} role="radiogroup" aria-label="Effort" className="flex h-7 items-center" onKeyDown={onKeyDown}>
         {EFFORTS.map((effort, i) => (
           <button

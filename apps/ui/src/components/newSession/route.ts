@@ -12,17 +12,17 @@ export const EFFORT_LABEL: Record<Effort, string> = {
 
 /** One line per mode for the permission menu. */
 export const MODE_DESCRIPTION: Partial<Record<PermissionMode, string>> = {
-  default: 'Asks before each edit or command',
-  acceptEdits: 'Edits files without asking, asks for commands',
-  plan: 'Explores and proposes a plan, changes nothing',
-  auto: 'Runs safe actions itself, asks for risky ones',
+  default: 'Approve every edit and command',
+  acceptEdits: 'File edits apply, commands still ask',
+  plan: 'Read and plan, no changes',
+  auto: 'Claude only asks when it matters',
 };
 
 /** The status dot per mode, as a theme colour. */
 export const MODE_DOT: Partial<Record<PermissionMode, string>> = {
-  default: 'bg-faint',
-  acceptEdits: 'bg-ok',
-  plan: 'bg-link',
+  default: 'bg-ok',
+  acceptEdits: 'bg-link',
+  plan: 'bg-faint',
   auto: 'bg-accent-ink',
 };
 

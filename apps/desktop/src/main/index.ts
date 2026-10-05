@@ -683,9 +683,12 @@ async function runNewSessionStep(win: BrowserWindow): Promise<string> {
     win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Escape' });
     win.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Escape' });
   };
-  await click('[data-new-session]');
+  const newSession = () => win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'N', modifiers: ['meta'] });
+  const promptFocused = "document.activeElement?.matches('[data-composer]')";
+  newSession();
   if (!(await waitInPage(win, "document.querySelector('[data-project-header]') && document.querySelector('[data-route-tray]')", 3_000))) return 'the new session view did not open';
   if (!(await waitInPage(win, "document.querySelector('[data-folder-select]').dataset.value", 5_000))) return 'no folder chosen by default';
+  if (!(await waitInPage(win, promptFocused, 3_000))) return '⌘N did not focus the prompt';
   await click('[data-model-select]');
   if (!(await waitInPage(win, "document.activeElement?.closest('[data-menu=\"model\"]')", 2_000))) return 'the model menu did not open with focus';
   escape();
@@ -704,6 +707,10 @@ async function runNewSessionStep(win: BrowserWindow): Promise<string> {
   if (!(await waitInPage(win, "!document.querySelector('[data-effort-dial] [aria-checked=\"true\"]') && !document.querySelector('[data-effort-reset]')", 2_000))) return 'Default did not clear the effort';
   // Put back the effort the profile had, so the remembered defaults are as they were.
   if (effortBefore) await click(`[data-effort="${effortBefore}"]`);
+  // ⌘N while already on New session puts the cursor back in the prompt.
+  await js("document.querySelector('[data-model-select]').focus()");
+  newSession();
+  if (!(await waitInPage(win, promptFocused, 2_000))) return '⌘N on an open New session did not focus the prompt';
   const hint = (await js("document.querySelector('[data-route-hint]').innerText.replace(/\\s+/g, ' ')")) as string;
   await js(`document.querySelector('[data-session-id="${smokeSessionId}"]')?.click()`);
   await waitInPage(win, "document.querySelector('[data-transcript-item]')", 5_000);

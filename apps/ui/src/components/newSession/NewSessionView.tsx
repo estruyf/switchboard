@@ -1,4 +1,4 @@
-import { Box, ChevronDown, GitBranch } from 'lucide-react';
+import { Cpu, GitBranch } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import type { Effort, ImageAttachment, PermissionMode, ProjectInspection, SlashCommand } from '@switchboard/protocol/client';
 import { useEngineConnection } from '../../engine/useEngine.ts';
@@ -27,7 +27,7 @@ interface Defaults {
 
 const INITIAL: Defaults = { cwd: null, model: '', permissionMode: 'default', effort: '', workspace: 'current', baseRef: 'fresh' };
 
-function Segmented<T extends string>({ label, value, options, onChange, disabled }: { label: string; value: T; options: Array<{ value: T; label: string; title?: string }>; onChange(v: T): void; disabled?: boolean }) {
+function Segmented<T extends string>({ label, value, options, onChange, disabled, mono }: { label: string; value: T; options: Array<{ value: T; label: string; title?: string }>; onChange(v: T): void; disabled?: boolean; mono?: boolean }) {
   return (
     <div role="radiogroup" aria-label={label} className="flex shrink-0 rounded-md border border-border bg-card p-0.5">
       {options.map((o) => (
@@ -40,7 +40,7 @@ function Segmented<T extends string>({ label, value, options, onChange, disabled
           disabled={disabled}
           data-segment={o.value}
           onClick={() => onChange(o.value)}
-          className={`rounded px-2 py-px text-[11.5px] whitespace-nowrap disabled:opacity-50 ${value === o.value ? 'bg-accent/15 text-text' : 'text-muted hover:text-text'}`}
+          className={`rounded px-2 py-px text-[11.5px] whitespace-nowrap disabled:opacity-50 ${mono ? 'font-mono' : ''} ${value === o.value ? 'bg-border text-text' : 'text-muted hover:text-text'}`}
         >
           {o.label}
         </button>
@@ -54,7 +54,8 @@ function Socket({ children, on = true, cable = false, grow = false }: { children
   return (
     <div className={`flex min-w-0 items-center gap-1.5 ${grow ? 'flex-1 basis-40' : 'shrink-0'}`}>
       {cable && <span className="mr-0.5 w-4 shrink-0 border-t border-dashed border-faint" aria-hidden />}
-      <span className={`size-[7px] shrink-0 rounded-full border ${on ? 'border-accent-ink bg-accent-ink' : 'border-faint bg-transparent'}`} aria-hidden />
+      {/* The first socket is the source (filled); the ones patched to it are rings. */}
+      <span className={`size-[7px] shrink-0 rounded-full border-[1.5px] ${!on ? 'border-faint' : cable ? 'border-accent-ink' : 'border-accent-ink bg-accent-ink'}`} aria-hidden />
       {children}
     </div>
   );
@@ -72,6 +73,7 @@ export function NewSessionView() {
   const sessions = useSessions((s) => s.sessions);
   const select = useSessions((s) => s.select);
   const models = useHosts((s) => s.models);
+  const focusRequest = useSessions((s) => s.newSessionRequest);
   const hosts = useHosts((s) => s.hosts);
   const live = useSessions((s) => s.live);
   const [d, setD] = useState<Defaults>(INITIAL);
@@ -184,15 +186,16 @@ export function NewSessionView() {
         value={d.model}
         onChange={(model) => update({ model })}
         title="Model"
+        heading="Model"
+        placement="up"
         choices={[
           { value: '', label: 'Default model', description: models.find((m) => m.value === 'default')?.description || 'What Claude Code would pick' },
           ...models.filter((m) => m.value !== 'default').map((m) => ({ value: m.value, label: m.displayName, description: m.description })),
         ]}
         width={260}
       >
-        <Box size={13} className="shrink-0" />
+        <Cpu size={14} className="shrink-0" />
         <span className="max-w-40 truncate">{modelLabel}</span>
-        <ChevronDown size={12} className="shrink-0 text-faint" />
       </ChoiceMenu>
       <Divider />
       <EffortDial value={d.effort} onChange={(effort) => update({ effort })} />
@@ -202,6 +205,8 @@ export function NewSessionView() {
         value={d.permissionMode}
         onChange={(permissionMode) => update({ permissionMode })}
         title="Permission mode (⇧Tab in the prompt)"
+        heading="Permissions"
+        placement="up"
         choices={MODE_CHOICES.map((mode) => ({ value: mode, label: MODE_LABEL[mode], description: MODE_DESCRIPTION[mode], dot: MODE_DOT[mode] }))}
         width={280}
       >
@@ -233,6 +238,7 @@ export function NewSessionView() {
                 submitHint="⌘↵"
                 large
                 autoFocus
+                focusRequest={focusRequest}
                 toolbar={toolbar}
                 onCycleMode={() => update({ permissionMode: nextMode(d.permissionMode) })}
                 disabledReason={!client ? 'Connecting to the engine…' : !d.cwd ? 'Choose a folder first' : inspection && !inspection.exists ? 'That folder no longer exists' : null}
@@ -240,7 +246,7 @@ export function NewSessionView() {
               />
             </div>
 
-            <div className="mx-3 flex flex-wrap items-center gap-x-1.5 gap-y-1.5 rounded-b-lg border border-t-0 border-border bg-sidebar px-3 py-1.5" data-route-tray>
+            <div className="mx-3 flex flex-wrap items-center gap-x-1.5 gap-y-1.5 rounded-b-lg border border-t-0 border-border bg-border/15 px-3 py-1.5" data-route-tray>
               <Socket>
                 <Segmented
                   label="Workspace"
@@ -256,12 +262,14 @@ export function NewSessionView() {
               {useWorktree && (
                 <>
                   <Socket cable>
+                    <span className="text-[11.5px] text-muted">from</span>
                     <Segmented
                       label="Branch from"
+                      mono
                       value={d.baseRef}
                       onChange={(baseRef) => update({ baseRef })}
                       options={[
-                        { value: 'fresh', label: 'from origin', title: "Branch from origin's default branch (Claude Code's default)" },
+                        { value: 'fresh', label: 'origin', title: "Branch from origin's default branch (Claude Code's default)" },
                         { value: 'head', label: 'HEAD', title: 'Branch from your current local HEAD, including unpushed commits' },
                       ]}
                     />
@@ -271,12 +279,15 @@ export function NewSessionView() {
               <Socket cable grow on={useWorktree || !!branch}>
                 <GitBranch size={12} className="shrink-0 text-faint" />
                 {useWorktree ? (
-                  <label className="flex min-w-0 flex-1 items-center font-mono text-[11.5px]" title={`Branch worktree-${effectiveName} in .claude/worktrees/${effectiveName}`}>
+                  <label
+                    className="flex h-6 min-w-0 flex-1 items-center rounded-md border border-border bg-card px-2 font-mono text-[11.5px] focus-within:border-accent-ink/60"
+                    title={`Branch worktree-${effectiveName} in .claude/worktrees/${effectiveName}`}
+                  >
                     <span className="text-faint">worktree-</span>
                     <input
                       data-worktree-name
                       aria-label="Worktree name"
-                      className="w-full min-w-0 rounded border border-transparent bg-transparent px-0.5 text-text outline-none placeholder:text-faint hover:border-border focus:border-accent-ink/60"
+                      className="w-full min-w-0 bg-transparent text-text outline-none placeholder:text-faint"
                       value={nameTouched ? worktreeName : ''}
                       placeholder={worktreeSlug(draftPrompt)}
                       spellCheck={false}
@@ -298,15 +309,15 @@ export function NewSessionView() {
             </div>
           </div>
 
-          <div className="-mt-2 flex flex-wrap items-center justify-between gap-x-4 gap-y-1 px-1 text-[11.5px] text-faint" data-route-hint>
+          <div className="-mt-1 flex flex-wrap items-center justify-between gap-x-4 gap-y-2 px-4 text-[11.5px] text-faint" data-route-hint>
             <span className="min-w-0 truncate">
               {folderProblem ?? routeHint({ worktree: useWorktree, isGitRepo: canWorktree, branch, name: effectiveName })}
             </span>
             {running.length > 0 && (
               <span className="flex min-w-0 items-center gap-1.5" data-running-here>
-                <span className="size-1.5 shrink-0 rounded-full bg-ok" aria-hidden />
+                <span className="size-1.5 shrink-0 rounded-full bg-accent-ink" aria-hidden />
                 <span className="min-w-0 truncate" title={running.map((r) => r.title).join('\n')}>
-                  {running.length === 1 ? `“${running[0]!.title}” is running here` : `${running.length} sessions running here`}
+                  <span className="text-muted">{running.length} running here</span> · {running[0]!.title}
                 </span>
                 <button type="button" onClick={() => select(running[0]!.id)} className="shrink-0 text-link hover:underline" data-open-running>
                   Open

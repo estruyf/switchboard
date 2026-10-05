@@ -1,4 +1,4 @@
-import { Check, ChevronsUpDown, FolderOpen } from 'lucide-react';
+import { Check, ChevronsUpDown, FolderOpen, FolderPlus } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { basename, tildify } from '../../lib/format.ts';
 import { fuzzyScore } from '../../lib/fuzzy.ts';
@@ -105,7 +105,7 @@ export function FolderPicker({
       </div>
 
       {open && (
-        <div className={`absolute left-0 z-40 flex max-h-96 w-[min(30rem,100%)] ${upward ? 'bottom-full mb-1 flex-col-reverse' : 'top-full mt-2 flex-col'}`} data-folder-panel>
+        <div className={`absolute left-[58px] z-40 flex max-h-96 w-[min(27rem,calc(100%-58px))] ${upward ? 'bottom-full mb-1 flex-col-reverse' : 'top-full -mt-3 flex-col'}`} data-folder-panel>
           <div className="flex max-h-96 min-h-0 flex-1 flex-col overflow-hidden rounded-lg border border-border bg-card shadow-xl" data-folder-list role="menu" aria-label="Recent folders">
             <input
               autoFocus
@@ -121,10 +121,11 @@ export function FolderPicker({
               placeholder="Filter projects"
               aria-label="Filter projects"
               spellCheck={false}
-              className="h-9 shrink-0 border-b border-border bg-transparent px-3 text-[12.5px] text-text outline-none placeholder:text-faint"
+              // Type to filter: the field only shows once there is something in it.
+              className={filter ? 'h-9 shrink-0 border-b border-border bg-transparent px-3 text-[12.5px] text-text outline-none placeholder:text-faint' : 'sr-only'}
             />
             <div ref={listRef} className="min-h-0 flex-1 overflow-y-auto py-1">
-              <p className="px-3 pt-1 pb-0.5 text-[10px] tracking-wide text-faint uppercase">Recent folders</p>
+              {!filter && <p className="px-3 pt-1.5 pb-1 text-[10px] tracking-wide text-faint uppercase">Recent folders</p>}
               {options.length === 0 && <p className="px-3 py-2 text-[12px] text-faint">No project matches.</p>}
               {options.map((folder, index) => {
                 const branch = branches.get(folder);
@@ -160,7 +161,7 @@ export function FolderPicker({
                 onClick={() => pick(options.length)}
                 className={`mt-1 flex h-9 w-full items-center gap-2.5 border-t border-border px-3 text-left text-[12.5px] text-muted ${active === options.length ? 'bg-accent/15' : ''}`}
               >
-                <FolderOpen size={15} className="shrink-0" />
+                <FolderPlus size={15} className="shrink-0" />
                 Open another folder…
               </button>
             </div>

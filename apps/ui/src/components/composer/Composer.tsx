@@ -27,6 +27,8 @@ export interface ComposerProps {
   submitLabel?: string;
   disabledReason?: string | null;
   autoFocus?: boolean;
+  /** Changing it focuses the prompt again (New session asked for while already open). */
+  focusRequest?: number;
   /** Controls shown in the card's bottom bar in place of the hint line (the new session view). */
   toolbar?: ReactNode;
   /** A shortcut shown on the submit button, like `⌘↵`. */
@@ -52,6 +54,13 @@ function readImage(file: File): Promise<ImageAttachment | null> {
   });
 }
 
+/** Focus is in another text field, or in a menu or dialog: a late focus request must not take it away. */
+function isTypingElsewhere(prompt: HTMLElement): boolean {
+  const active = document.activeElement as HTMLElement | null;
+  if (!active || active === document.body || active === prompt) return false;
+  return active.matches('input, textarea, select, [contenteditable]') || !!active.closest('[role=menu], [role=dialog], [role=alertdialog], [role=listbox]');
+}
+
 export function Composer(props: ComposerProps) {
   const connection = useEngineConnection();
   const client = connection.status === 'connected' ? connection.client : null;
@@ -73,9 +82,21 @@ export function Composer(props: ComposerProps) {
     el.style.height = `${Math.min(el.scrollHeight, 320)}px`;
   }, [text]);
 
+  // Mounting with autoFocus, or a new focusRequest, focuses the prompt. While the prompt is disabled
+  // (engine connecting, no folder yet) the request waits, and is dropped if by then the user is typing
+  // somewhere else, like the folder filter.
+  const pendingFocus = useRef(!!props.autoFocus);
+  const lastRequest = useRef(props.focusRequest);
   useEffect(() => {
-    if (props.autoFocus) ref.current?.focus();
-  }, [props.autoFocus]);
+    const el = ref.current;
+    const asked = props.focusRequest !== lastRequest.current;
+    lastRequest.current = props.focusRequest;
+    if (asked) pendingFocus.current = true;
+    if (!pendingFocus.current || !el || props.disabledReason) return;
+    pendingFocus.current = false;
+    if (!asked && isTypingElsewhere(el)) return;
+    el.focus();
+  }, [props.focusRequest, props.disabledReason]);
 
   const updatePalette = (value: string, caret: number) => {
     const token = tokenAtCaret(value, caret);

@@ -68,9 +68,9 @@ export function UsageBand({ compact = false }: { compact?: boolean }) {
 
   if (compact) {
     return (
-      <div className="flex shrink-0 items-center gap-3 text-[11.5px]" data-usage-band>
+      <div className="flex shrink-0 items-center divide-x divide-border text-[11.5px]" data-usage-band>
         {limits.map((limit) => (
-          <div key={`${limit.kind}:${limit.scope ?? ''}`} className="flex items-center gap-1.5 whitespace-nowrap" title={resetTitle(limit)}>
+          <div key={`${limit.kind}:${limit.scope ?? ''}`} className="flex items-center gap-1.5 px-2.5 whitespace-nowrap first:pl-0 last:pr-0" title={resetTitle(limit)}>
             <Ring percent={limit.percent} severity={limit.severity} />
             <span className="font-semibold text-muted tabular-nums">{Math.round(limit.percent)}%</span>
             <span className="text-faint">
