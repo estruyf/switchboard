@@ -21,6 +21,7 @@ import { useProfilesSync } from './state/profilesStore.ts';
 import { useProjects, useProjectsSync } from './state/projectsStore.ts';
 import { useSidebarSync } from './state/sidebarStore.ts';
 import { useTerminals, useTerminalsSync } from './state/terminalsStore.ts';
+import { useUpdatesSync } from './state/updatesStore.ts';
 import { useHostsSync } from './state/useHostsSync.ts';
 import { useSessionsSync } from './state/useSessionsSync.ts';
 
@@ -118,8 +119,8 @@ function useWindowFocus() {
     window.switchboard?.reportFocus(view === 'session' ? selectedId : null);
   }, [view, selectedId]);
   useEffect(() => window.switchboard?.onSelectSession((id) => useSessions.getState().select(id)), []);
-  // Switchboard → Settings… (⌘,) in the menu bar.
-  useEffect(() => window.switchboard?.onOpenSettings(() => useSessions.getState().openSettings()), []);
+  // Switchboard → Settings… (⌘,) or Check for Updates… (About) in the menu bar.
+  useEffect(() => window.switchboard?.onOpenSettings((section) => useSessions.getState().openSettings(section ?? undefined)), []);
 }
 
 export function App() {
@@ -128,6 +129,7 @@ export function App() {
   useProjectsSync();
   useProfilesSync();
   useTerminalsSync();
+  useUpdatesSync();
   useSidebarSync();
   useUsageSync();
   usePreferencesSync();

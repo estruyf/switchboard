@@ -1,10 +1,11 @@
-import { Activity, ChevronLeft, MessageSquare, Palette, PanelLeft, SlidersHorizontal, Users, X, type LucideIcon } from 'lucide-react';
+import { Activity, ChevronLeft, Info, MessageSquare, Palette, PanelLeft, SlidersHorizontal, Users, X, type LucideIcon } from 'lucide-react';
 import { useEffect, type ReactNode } from 'react';
 import type { ColorScheme, SidebarStyle, StartupView, ToolActivity } from '@switchboard/protocol/bridge';
 import { usePreferences } from '../state/preferencesStore.ts';
 import { useSessions, type SettingsSection } from '../state/sessionsStore.ts';
 import { EngineDiagnostics } from './EngineDiagnostics.tsx';
 import { ProfilesSettings } from './profiles/ProfilesSettings.tsx';
+import { AboutSettings, SettingsVersion } from './updates/AboutSettings.tsx';
 import { Choice } from './ui/Choice.tsx';
 import { Radio, RadioGroup } from './ui/Radio.tsx';
 import { Toggle } from './ui/Toggle.tsx';
@@ -143,6 +144,7 @@ const SECTIONS: Array<{ id: SettingsSection; label: string; icon: LucideIcon }> 
   { id: 'conversation', label: 'Conversation', icon: MessageSquare },
   { id: 'profiles', label: 'Claude profiles', icon: Users },
   { id: 'diagnostics', label: 'Diagnostics', icon: Activity },
+  { id: 'about', label: 'About', icon: Info },
 ];
 
 const close = () => useSessions.getState().setView('session');
@@ -261,6 +263,12 @@ function SectionPage({ section }: { section: SettingsSection }) {
           <EngineDiagnostics />
         </Section>
       );
+    case 'about':
+      return (
+        <Section title="About">
+          <AboutSettings />
+        </Section>
+      );
   }
 }
 
@@ -286,6 +294,7 @@ export function SettingsNav() {
           <span className="truncate">{label}</span>
         </button>
       ))}
+      <SettingsVersion />
     </nav>
   );
 }

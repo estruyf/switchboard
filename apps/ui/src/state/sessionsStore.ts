@@ -4,7 +4,7 @@ import { hostAsLive, isActiveHost } from './hostsStore.ts';
 
 export type MainView = 'session' | 'new' | 'settings' | 'projects';
 /** The pages of Settings, listed in its own sidebar. */
-export type SettingsSection = 'general' | 'theme' | 'sidebar' | 'conversation' | 'profiles' | 'diagnostics';
+export type SettingsSection = 'general' | 'theme' | 'sidebar' | 'conversation' | 'profiles' | 'diagnostics' | 'about';
 export type Pane = 'main' | 'split';
 
 const other = (pane: Pane): Pane => (pane === 'main' ? 'split' : 'main');

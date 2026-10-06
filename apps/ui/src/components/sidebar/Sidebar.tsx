@@ -18,6 +18,9 @@ import { useOpenIn } from '../OpenInButton.tsx';
 import { ProfileBadge } from '../profiles/ProfileBadge.tsx';
 import { ProjectIcon } from '../ProjectIcon.tsx';
 import { SettingsNav } from '../SettingsView.tsx';
+import { updatePill } from '../../lib/updates.ts';
+import { useUpdates } from '../../state/updatesStore.ts';
+import { UpdatePillButton } from '../updates/UpdatePill.tsx';
 import { ProjectFilter, useProjectIconEntries } from './ProjectMenu.tsx';
 import { StatusIcon } from './StatusIcon.tsx';
 import appIcon from '../../assets/app-icon.png';
@@ -265,6 +268,7 @@ export function Sidebar() {
   };
 
   const liveCount = all.filter((row) => row.live !== null).length;
+  const hasUpdatePill = useUpdates((s) => updatePill(s.state) !== null);
 
   return (
     <aside className="relative flex shrink-0 flex-col border-r border-border bg-sidebar" style={{ width }} data-sidebar>
@@ -367,11 +371,18 @@ export function Sidebar() {
       )}
 
       <footer className="flex h-10 shrink-0 items-center gap-2 border-t border-border px-3 text-[11px] text-faint">
-        <span className="min-w-0 flex-1 truncate">
-          {all.length} sessions{liveCount > 0 && ` · ${liveCount} open`}
-          {waiting > 0 && <span className="text-warn">{` · ${waiting} waiting`}</span>}
-          {!complete && loaded && ' · scanning…'}
-        </span>
+        {/* An update to act on takes the footer's place; the session count is the lesser news. */}
+        {hasUpdatePill ? (
+          <div className="flex min-w-0 flex-1">
+            <UpdatePillButton />
+          </div>
+        ) : (
+          <span className="min-w-0 flex-1 truncate">
+            {all.length} sessions{liveCount > 0 && ` · ${liveCount} open`}
+            {waiting > 0 && <span className="text-warn">{` · ${waiting} waiting`}</span>}
+            {!complete && loaded && ' · scanning…'}
+          </span>
+        )}
         <button
           type="button"
           data-open-projects

@@ -64,6 +64,8 @@ console.log(`${String(result.projectsResult).startsWith('ok') ? '✓' : '✗'} p
 if (!String(result.projectsResult).startsWith('ok')) process.exitCode = 1;
 console.log(`${String(result.profilesResult).startsWith('ok') ? '✓' : '✗'} profiles: ${result.profilesResult}`);
 if (!String(result.profilesResult).startsWith('ok')) process.exitCode = 1;
+console.log(`${String(result.aboutResult).startsWith('ok') ? '✓' : '✗'} about: ${result.aboutResult}`);
+if (!String(result.aboutResult).startsWith('ok')) process.exitCode = 1;
 console.log(`${result.highlighted ? '✓' : '✗'} syntax highlighting loaded and coloured a code block`);
 console.log(`${result.usageBand ? '✓' : '✗'} usage band above the composer: ${result.usageBand ?? 'not shown'}`);
 console.log(`  rendering on screen: ${JSON.stringify(result.rendering)}`);

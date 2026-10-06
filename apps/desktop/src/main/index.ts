@@ -2,16 +2,30 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 
 import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { app, BrowserWindow, dialog, ipcMain, Menu, MessageChannelMain, nativeTheme, shell, type MenuItemConstructorOptions } from 'electron';
-import { IpcChannel, sanitizePreferences, type RendererReadyReport } from '@switchboard/protocol/bridge';
+import { IpcChannel, sanitizePreferences, type AppInfo, type RendererReadyReport, type UpdateCommand } from '@switchboard/protocol/bridge';
 import { EngineProcess } from './engineProcess.ts';
 import type { AttentionEvent } from './attention.ts';
 import { Notifier } from './notifier.ts';
 import { PreferencesStore, windowBackground } from './preferences.ts';
 import { QuitGuard } from './quitGuard.ts';
 import { isConfigDir, isTrashableRepoFile, isTrashableSessionPath } from './trashGuard.ts';
+import { Updater } from './updater.ts';
+import { updatesDisabledReason } from './updateState.ts';
 
 const here = import.meta.dirname;
 const smokeOutDir = process.env.SWITCHBOARD_SMOKE_OUT;
+
+// `Switchboard --version` prints the version for scripts and support, before any window opens.
+if (process.argv.includes('--version')) {
+  process.stdout.write(`${app.getVersion()}\n`);
+  app.exit(0);
+}
+
+/** The running build. The commit is baked in at build time (electron.vite.config.ts). */
+const appInfo: AppInfo = { version: app.getVersion(), commit: __SWITCHBOARD_COMMIT__ || null, dev: !app.isPackaged };
+ipcMain.on(IpcChannel.getAppInfo, (event) => {
+  event.returnValue = appInfo;
+});
 
 // The smoke test runs against a throwaway profile so it never touches real app data.
 if (smokeOutDir) app.setPath('userData', mkdtempSync(join(tmpdir(), 'switchboard-smoke-')));
@@ -24,9 +38,39 @@ const preferences = new PreferencesStore(join(app.getPath('userData'), 'preferen
 // The smoke steps need sessions to click; on the real ~/.claude most were started elsewhere.
 if (smokeOutDir) preferences.update({ sessionScope: 'all' });
 
+// SWITCHBOARD_MOCK_UPDATES=1 points the updater at a local feed (scripts/mock-update-server.ts).
+const mockFeedUrl = process.env.SWITCHBOARD_MOCK_UPDATES === '1' ? (process.env.SWITCHBOARD_MOCK_UPDATES_URL ?? 'http://localhost:8484') : undefined;
+const updater = new Updater({
+  currentVersion: app.getVersion(),
+  channel: preferences.get().updateChannel,
+  autoCheck: preferences.get().autoUpdate,
+  disabledReason: updatesDisabledReason({
+    env: process.env,
+    packaged: app.isPackaged,
+    devServer: Boolean(process.env.ELECTRON_RENDERER_URL),
+    hasFeed: app.isPackaged && existsSync(join(process.resourcesPath, 'app-update.yml')),
+    mockFeed: Boolean(mockFeedUrl),
+  }),
+  markerFile: join(app.getPath('userData'), 'update-marker.json'),
+  ...(mockFeedUrl ? { mockFeedUrl } : {}),
+  onState: (state) => {
+    for (const win of BrowserWindow.getAllWindows()) win.webContents.send(IpcChannel.updateState, state);
+  },
+  beforeInstall: () => engine?.stop(),
+  log: (message) => console.log(`[updater] ${message}`),
+});
+ipcMain.on(IpcChannel.getUpdateState, (event) => {
+  event.returnValue = updater.state;
+});
+ipcMain.on(IpcChannel.updateCommand, (_event, command: unknown) => {
+  if (command === 'check' || command === 'download' || command === 'install' || command === 'retry' || command === 'dismiss') updater.run(command satisfies UpdateCommand);
+});
+
 /** Applies a change from any window or the menu bar, and tells every window. */
 function updatePreferences(patch: unknown): void {
   const next = preferences.update(patch);
+  updater.setAutoCheck(next.autoUpdate);
+  updater.setChannel(next.updateChannel);
   const item = Menu.getApplicationMenu()?.getMenuItemById(`scheme-${next.colorScheme}`);
   if (item) item.checked = true;
   for (const win of BrowserWindow.getAllWindows()) win.webContents.send(IpcChannel.preferencesChanged, next);
@@ -109,12 +153,18 @@ ipcMain.on(IpcChannel.quitAnswer, (_event, answer: unknown) => {
 // The smoke test checks quitting without ending its own run.
 const quitApp = () => (smokeOutDir ? (quitRecorded = true) : app.quit());
 
-function openSettings(): void {
+function openSettings(section: 'about' | null = null): void {
   const win = BrowserWindow.getAllWindows()[0] ?? createWindow();
   if (win.isMinimized()) win.restore();
   win.show();
   win.focus();
-  win.webContents.send(IpcChannel.openSettings);
+  win.webContents.send(IpcChannel.openSettings, section);
+}
+
+/** Switchboard → Check for Updates…: checks, and opens Settings → About where the result shows. */
+function checkForUpdates(): void {
+  updater.run('check');
+  openSettings('about');
 }
 
 /** The standard macOS menu, except that ⌘Q goes through the quit guard. */
@@ -124,6 +174,7 @@ function installMenu(): void {
       label: 'Switchboard',
       submenu: [
         { role: 'about' },
+        { id: 'check-updates', label: 'Check for Updates…', click: () => checkForUpdates() },
         { type: 'separator' },
         { label: 'Settings…', accelerator: 'CmdOrCtrl+,', click: () => openSettings() },
         { type: 'separator' },
@@ -489,6 +540,7 @@ let dropResult = 'not run';
 let controlsResult = 'not run';
 let projectsResult = 'not run';
 let profilesResult = 'not run';
+let aboutResult = 'not run';
 let newSessionResult = 'not run';
 let rendering: Record<string, number> = {};
 
@@ -771,6 +823,54 @@ async function runProfilesStep(win: BrowserWindow): Promise<string> {
   if (!(await waitInPage(win, "document.querySelector('[data-session-id]') && !document.querySelector('[data-session-id] [data-profile-badge]')", 3_000))) return 'sessions still show a profile after removing it';
   if (!builtinDefault) return 'the built-in profile did not become the default again';
   return 'ok: added a second profile, sessions and New session showed it, made it the default, removed it';
+}
+
+/**
+ * Settings → About shows the running version (matching app.getVersion()) and the update controls, and
+ * Check for Updates… is in the app menu. Nothing is checked, downloaded or installed: the menu item is
+ * only clicked when updates are turned off (as in an unpackaged build), where it just opens About.
+ */
+async function runAboutStep(win: BrowserWindow): Promise<string> {
+  const js = (code: string) => win.webContents.executeJavaScript(code);
+  const menuItem = Menu.getApplicationMenu()?.getMenuItemById('check-updates');
+  if (!menuItem) return 'no Check for Updates… in the app menu';
+  const off = updater.state.status === 'disabled';
+  if (off) menuItem.click();
+  else {
+    await js("document.querySelector('[data-open-settings]').click()");
+    await waitInPage(win, "document.querySelector('[data-settings-section=\"about\"]')", 3_000);
+    await js("document.querySelector('[data-settings-section=\"about\"]').click()");
+  }
+  if (!(await waitInPage(win, "document.querySelector('[data-settings-page=\"about\"] [data-about]')", 3_000))) return off ? 'Check for Updates… did not open Settings → About' : 'Settings → About did not open';
+  const shown = (await js("document.querySelector('[data-app-version]')?.dataset.appVersion ?? null")) as string | null;
+  if (shown !== app.getVersion()) return `About shows version ${shown}, the app is ${app.getVersion()}`;
+  const navVersion = (await js("document.querySelector('[data-settings-version]')?.innerText ?? ''")) as string;
+  if (app.isPackaged ? navVersion !== `v${app.getVersion()}` : !navVersion.startsWith('dev')) return `the Settings sidebar shows "${navVersion}"`;
+  const controls = (await js(
+    `['[data-check-updates]', '[data-auto-update]', '[data-update-channel="stable"][aria-checked=true]', '[data-update-channel="nightly"]', '[data-changelog-link]'].filter((s) => !document.querySelector(s))`,
+  )) as string[];
+  if (controls.length > 0) return `missing: ${controls.join(', ')}`;
+  if (off) {
+    const status = (await js("document.querySelector('[data-update-status]')?.innerText ?? ''")) as string;
+    if (!(await js("document.querySelector('[data-update-status=\"disabled\"]') && document.querySelector('[data-check-updates]').disabled"))) return 'updates are off but About does not say so';
+    if (status !== updater.state.disabledReason) return `About says "${status}" instead of the reason updates are off`;
+    if (await js("document.querySelector('[data-update-pill]')")) return 'the sidebar shows an update pill while updates are off';
+  }
+  // With the mock feed (scripts/mock-update-server.ts --fake <newer version>), check it once; never download.
+  let mockCheck = '';
+  if (mockFeedUrl) {
+    await js("document.querySelector('[data-check-updates]').click()");
+    if (!(await waitInPage(win, "['available', 'up-to-date', 'error'].includes(document.querySelector('[data-update-status]')?.dataset.updateStatus)", 10_000))) return 'the mock check did not finish';
+    if (updater.state.status === 'error') return `the mock check failed: ${updater.state.error}`;
+    if (updater.state.status === 'available' && !(await waitInPage(win, "document.querySelector('[data-update-pill=\"available\"]') && document.querySelector('[data-about-release-notes]')", 3_000))) {
+      return 'an update was found but the sidebar pill or the release notes did not show';
+    }
+    mockCheck = `, mock feed: ${updater.state.status === 'available' ? `v${updater.state.availableVersion} offered, pill shown` : 'up to date'}`;
+  }
+  await new Promise((resolve) => setTimeout(resolve, 300));
+  await shot(win, 'about.png');
+  await js("document.querySelector('[data-close-settings]').click()");
+  return `ok: ${navVersion}${off ? `, updates off ("${updater.state.disabledReason}")` : `, updates ${updater.state.status}`}${mockCheck}`;
 }
 
 /** Tool calls are summarised by default: open the last finished group and count its steps. */
@@ -1197,6 +1297,7 @@ async function runSmokeStep(win: BrowserWindow | null): Promise<void> {
     actionRan = await runActionStep(win);
     projectsResult = await runProjectsStep(win).catch((error: Error) => `failed: ${error.message}`);
     profilesResult = await runProfilesStep(win).catch((error: Error) => `failed: ${error.message}`);
+    aboutResult = await runAboutStep(win).catch((error: Error) => `failed: ${error.message}`);
     // Diagnostics (in Settings) renders a sample through Shiki, which loads in its own chunks on first use.
     await win.webContents.executeJavaScript("document.querySelector('[data-open-settings]').click()");
     await waitInPage(win, "document.querySelector('[data-settings-section=\"diagnostics\"]')", 3_000);
@@ -1242,6 +1343,7 @@ async function runSmokeStep(win: BrowserWindow | null): Promise<void> {
         actionRan,
         projectsResult,
         profilesResult,
+        aboutResult,
         highlighted,
         usageBand,
         rendering,
@@ -1258,7 +1360,13 @@ async function runSmokeStep(win: BrowserWindow | null): Promise<void> {
 app.whenReady().then(() => {
   // Packaged builds take the icon from the bundle's icon.icns; in development, set it on the Dock.
   if (!app.isPackaged) app.dock?.setIcon(join(here, '../../build/icon.png'));
-  app.setAboutPanelOptions({ applicationName: 'Switchboard', iconPath: join(here, '../../build/icon.png') });
+  // The commit shows in brackets after the version, handy when someone reports a bug from a build.
+  app.setAboutPanelOptions({
+    applicationName: 'Switchboard',
+    applicationVersion: appInfo.dev ? `${appInfo.version} (dev)` : appInfo.version,
+    version: appInfo.commit ?? '',
+    iconPath: join(here, '../../build/icon.png'),
+  });
   engine = new EngineProcess({
     entry: join(here, 'engine.js'),
     dataDir: app.getPath('userData'),
@@ -1280,6 +1388,7 @@ app.whenReady().then(() => {
   });
   notifier.connect();
   createWindow();
+  updater.start();
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
@@ -1299,4 +1408,7 @@ app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit();
 });
 
-app.on('before-quit', () => engine?.stop());
+app.on('before-quit', () => {
+  updater.stop();
+  engine?.stop();
+});

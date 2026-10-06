@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process';
 import { resolve } from 'node:path';
 import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
@@ -7,6 +8,15 @@ import type { Plugin } from 'vite';
 const here = import.meta.dirname;
 // Workspace packages ship TypeScript source, so they must be bundled rather than required at runtime.
 const workspacePackages = ['@switchboard/engine', '@switchboard/protocol'];
+
+/** The commit being built, for Settings → About and the About panel. Empty when git isn't there. */
+function shortCommit(): string {
+  try {
+    return execFileSync('git', ['rev-parse', '--short', 'HEAD'], { cwd: here, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
+  } catch {
+    return process.env.GITHUB_SHA?.slice(0, 7) ?? '';
+  }
+}
 
 /** Strict CSP for production builds (dev needs inline scripts for React Fast Refresh). */
 const csp = [
@@ -31,6 +41,7 @@ const cspPlugin: Plugin = {
 
 export default defineConfig({
   main: {
+    define: { __SWITCHBOARD_COMMIT__: JSON.stringify(shortCommit()) },
     build: {
       externalizeDeps: { exclude: workspacePackages },
       rollupOptions: {

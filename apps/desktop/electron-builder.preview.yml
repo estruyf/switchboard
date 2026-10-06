@@ -1,0 +1,5 @@
+# Preview and test builds (npm run dist:preview), e.g. from a pull request: the release config without
+# a publish provider, so the app has no app-update.yml. It can't update itself, and no update feed is
+# written that could ever offer it to anyone.
+extends: ./electron-builder.yml
+publish: null

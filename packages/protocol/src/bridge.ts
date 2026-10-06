@@ -22,6 +22,10 @@ export const IpcChannel = {
   setPreferences: 'switchboard:set-preferences',
   preferencesChanged: 'switchboard:preferences-changed',
   openSettings: 'switchboard:open-settings',
+  getAppInfo: 'switchboard:get-app-info',
+  getUpdateState: 'switchboard:get-update-state',
+  updateState: 'switchboard:update-state',
+  updateCommand: 'switchboard:update-command',
 } as const;
 
 /** Appearance: follow macOS, or always light or dark. */
@@ -34,6 +38,8 @@ export type ToolActivity = 'summary' | 'steps';
 export type SessionScope = 'switchboard' | 'all';
 /** What a new window shows: the session open last time, or New session. */
 export type StartupView = 'last' | 'new';
+/** Which releases to update to: published releases, or the nightly pre-releases too. */
+export type UpdateChannel = 'stable' | 'nightly';
 
 /** App preferences, kept by main in the app's data folder. */
 export interface Preferences {
@@ -44,9 +50,21 @@ export interface Preferences {
   confirmQuit: boolean;
   sessionScope: SessionScope;
   startupView: StartupView;
+  /** Check GitHub for a newer release shortly after launch and every few hours. */
+  autoUpdate: boolean;
+  updateChannel: UpdateChannel;
 }
 
-export const DEFAULT_PREFERENCES: Preferences = { colorScheme: 'system', sidebarStyle: 'standard', toolActivity: 'summary', confirmQuit: true, sessionScope: 'switchboard', startupView: 'last' };
+export const DEFAULT_PREFERENCES: Preferences = {
+  colorScheme: 'system',
+  sidebarStyle: 'standard',
+  toolActivity: 'summary',
+  confirmQuit: true,
+  sessionScope: 'switchboard',
+  startupView: 'last',
+  autoUpdate: true,
+  updateChannel: 'stable',
+};
 
 const oneOf = <T extends string>(values: readonly T[], value: unknown): value is T => values.includes(value as T);
 
@@ -60,8 +78,57 @@ export function sanitizePreferences(input: unknown): Partial<Preferences> {
   if (typeof raw.confirmQuit === 'boolean') out.confirmQuit = raw.confirmQuit;
   if (oneOf(['switchboard', 'all'] as const, raw.sessionScope)) out.sessionScope = raw.sessionScope;
   if (oneOf(['last', 'new'] as const, raw.startupView)) out.startupView = raw.startupView;
+  if (typeof raw.autoUpdate === 'boolean') out.autoUpdate = raw.autoUpdate;
+  if (oneOf(['stable', 'nightly'] as const, raw.updateChannel)) out.updateChannel = raw.updateChannel;
   return out;
 }
+
+/** The running build, for Settings → About and bug reports. */
+export interface AppInfo {
+  /** `app.getVersion()`: the release's version (from the tag) in a release build. */
+  version: string;
+  /** Short commit hash the build was made from; null when git wasn't available at build time. */
+  commit: string | null;
+  /** A development or unpackaged build: show `dev`, never a release number. */
+  dev: boolean;
+}
+
+/** `releases/tag/v…` for a version, where its release notes are. */
+export const releaseUrl = (version: string) => `https://github.com/estruyf/switchboard/releases/tag/v${version}`;
+export const CHANGELOG_URL = 'https://github.com/estruyf/switchboard/blob/main/CHANGELOG.md';
+
+/**
+ * Where the updater is. `idle` hasn't checked yet; `disabled` never will (see `disabledReason`).
+ * `error` keeps what was known before it failed, so Retry knows what to try again.
+ */
+export type UpdateStatus = 'idle' | 'checking' | 'up-to-date' | 'available' | 'downloading' | 'downloaded' | 'installing' | 'error' | 'disabled';
+
+/** The updater's whole state: one plain object that main pushes to every window on each change. */
+export interface UpdateState {
+  status: UpdateStatus;
+  currentVersion: string;
+  /** A newer version on the chosen channel, once a check found one. */
+  availableVersion: string | null;
+  /** Downloaded and ready to install on restart. */
+  downloadedVersion: string | null;
+  /** 0–100 while downloading. */
+  downloadPercent: number | null;
+  /** The new version's notes as plain text, cleaned up and capped; null when there are none (or they were unusable). */
+  releaseNotes: string | null;
+  error: string | null;
+  /** Retry makes sense (a network error, say), as opposed to a failure that would just happen again. */
+  canRetry: boolean;
+  /** Why updates are off for this build (development, unpackaged, no feed, turned off by the environment). */
+  disabledReason: string | null;
+  channel: UpdateChannel;
+  /** Epoch ms of the last finished check. */
+  checkedAt: number | null;
+  /** Set after relaunching into a freshly installed update, so the UI can say so once. */
+  updatedTo: string | null;
+}
+
+/** What the renderer can ask the updater to do. `retry` repeats whatever failed; `dismiss` clears "Updated to vX". */
+export type UpdateCommand = 'check' | 'download' | 'install' | 'retry' | 'dismiss';
 
 /** Sent once per engine connection by the renderer. Used for startup timing and the smoke test. */
 export interface RendererReadyReport {
@@ -100,6 +167,15 @@ export interface SwitchboardBridge {
   setPreferences(patch: Partial<Preferences>): void;
   /** Fires in every window after any change, including from the menu bar. */
   onPreferencesChanged(listener: (preferences: Preferences) => void): () => void;
-  /** Switchboard → Settings… (⌘,) in the menu bar. */
-  onOpenSettings(listener: () => void): () => void;
+  /** Switchboard → Settings… (⌘,) in the menu bar, or Check for Updates… (which opens About). */
+  onOpenSettings(listener: (section: 'about' | null) => void): () => void;
+  /** Read once when the page loads. */
+  readonly appInfo: AppInfo;
+  /** Read once when the page loads; then follow `onUpdateState`. */
+  readonly updateState: UpdateState;
+  onUpdateState(listener: (state: UpdateState) => void): () => void;
+  /** Check, download, install (restarts the app) or retry. The state arrives through `onUpdateState`. */
+  update(command: UpdateCommand): void;
+  /** Saves the channel in Preferences and checks again right away. */
+  setUpdateChannel(channel: UpdateChannel): void;
 }

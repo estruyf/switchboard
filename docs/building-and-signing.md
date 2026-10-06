@@ -15,6 +15,18 @@ npm run dist
 
 This builds `apps/desktop/dist/mac-arm64/Switchboard.app` and `apps/desktop/dist/Switchboard-<version>-arm64.dmg`. Open the `.dmg` and drag Switchboard to Applications.
 
+It also writes what the in-app updater needs: `Switchboard-<version>-arm64-mac.zip` (Squirrel.Mac installs from the zip, not the `.dmg`), its `.blockmap`, and the update feed `latest-mac.yml`. Inside the app, `Contents/Resources/app-update.yml` tells the updater where to look (the GitHub releases of `estruyf/switchboard`, from the `publish` section of `electron-builder.yml`). electron-builder never uploads anything itself (`--publish never`); the release workflow does.
+
+### Preview builds
+
+For a build that must never update or be offered as an update (a test build from a pull request, say), use:
+
+```bash
+npm run dist:preview
+```
+
+It uses [`electron-builder.preview.yml`](../apps/desktop/electron-builder.preview.yml), which is the normal configuration with `publish: null`: the app has no `app-update.yml` (Settings → About says updates are off) and no `latest-mac.yml` is written.
+
 Switchboard uses your installed Claude Code (`claude` on your PATH) and its login; it doesn't ship its own copy.
 
 ### Opening an unsigned build
@@ -77,8 +89,19 @@ The workflow then:
 2. builds the app on an Apple Silicon runner, with the version taken from the tag;
 3. signs it with your Developer ID, and notarises and staples it;
 4. checks the signature and that Gatekeeper accepts it as notarised;
-5. attaches `Switchboard-X.Y.Z-arm64.dmg` to the release;
-6. fills in the release notes from the CHANGELOG section, if you left them empty.
+5. attaches `Switchboard-X.Y.Z-arm64.dmg`, the `.zip` and its `.blockmap` to the release, then the update feed (`latest-mac.yml`) last, so the feed never points at a file that isn't there yet;
+6. fails if a `latest*.yml` ended up on a draft or pre-release;
+7. fills in the release notes from the CHANGELOG section, if you left them empty. The in-app updater shows these notes (cleaned up and shortened) for the new version.
+
+Everyone on the Stable channel is offered the release within a few hours, or straight away with **Check for Updates…**.
+
+### Channels and pre-releases
+
+- **Stable:** a normal (not pre-release) release with a version like `v1.2.3`. Its feed is `latest-mac.yml`, and the updater finds it as the repository's latest release.
+- **Nightly:** a *pre-release* tagged like `v1.2.3-nightly.20261006.1`. The workflow builds it with `-c.publish.channel=nightly`, so its feed is `nightly-mac.yml`, which only apps on the Nightly channel look for. A nightly version published as a normal release fails the workflow. There is no scheduled nightly workflow yet; publish one by hand when you want to.
+- **Any other pre-release** (`v1.2.3-beta.1`, say) gets the `.dmg` and `.zip` but no feed, so no one is updated to it. A pre-release version published as a normal release fails the workflow, since Stable users would be offered it.
+
+Only arm64 is built. If an Intel build is added, both architectures must go into one `latest-mac.yml` (a `files` entry each) rather than two feeds overwriting each other.
 
 Nothing is attached unsigned: without the secrets below the run fails. To retry, re-run the failed workflow run from the Actions tab.
 
@@ -103,3 +126,25 @@ npm run smoke:packaged
 ```
 
 Runs the smoke test (see [Development](development.md)) against `dist/mac-arm64/Switchboard.app` instead of the development build.
+
+## Testing updates with the mock server
+
+[`apps/desktop/scripts/mock-update-server.ts`](../apps/desktop/scripts/mock-update-server.ts) serves an update feed on `http://localhost:8484`. Starting Switchboard with `SWITCHBOARD_MOCK_UPDATES=1` points the updater at it instead of GitHub (set `SWITCHBOARD_MOCK_UPDATES_URL` for another port). Nothing is published.
+
+**The check and the UI**, with a made-up feed (works from a development build too):
+
+```bash
+npm run mock-updates -w @switchboard/desktop -- --fake 9.9.9
+SWITCHBOARD_MOCK_UPDATES=1 npm run dev
+```
+
+Settings → About → *Check for Updates* finds v9.9.9 with its release notes, and the sidebar shows the pill. Downloading fails, since there is no build behind a fake feed. `--fake 9.9.9-nightly.20261006.1` serves `nightly-mac.yml` for the Nightly channel. The smoke test runs one check against the mock feed when `SWITCHBOARD_MOCK_UPDATES=1` is set (it never downloads).
+
+**The whole flow** (download, restart, *Updated to vX*) needs two signed builds, since Squirrel.Mac only installs an update signed by the same Developer ID:
+
+1. Build the newer version and keep its `dist` folder: `npm pkg set version=0.0.9 -w @switchboard/desktop && npm run dist`, then move `apps/desktop/dist` to, say, `/tmp/switchboard-0.0.9`.
+2. Build and install the current version as usual (put `version` back first).
+3. Serve the newer one: `npm run mock-updates -w @switchboard/desktop -- --dir /tmp/switchboard-0.0.9`.
+4. Open the installed app with the mock feed: `SWITCHBOARD_MOCK_UPDATES=1 /Applications/Switchboard.app/Contents/MacOS/Switchboard`.
+
+`SWITCHBOARD_DISABLE_AUTO_UPDATE=1` turns updates off for a run, with that reason shown in Settings → About. `Switchboard --version` prints the version and exits.

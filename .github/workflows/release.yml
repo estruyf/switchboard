@@ -1,8 +1,13 @@
 # Builds Switchboard for a GitHub release.
 #
 # Runs when a release is published on GitHub (for a tag like v0.2.0): builds the app on an Apple
-# Silicon runner, signs and notarises it, and attaches the .dmg to that release. The version comes
-# from the tag. When the release has no notes, the matching CHANGELOG.md section is used.
+# Silicon runner, signs and notarises it, and attaches the .dmg to that release, with the .zip and
+# the update feed the in-app updater reads (latest-mac.yml). The version comes from the tag. When the
+# release has no notes, the matching CHANGELOG.md section is used.
+#
+# Channels: a release is the Stable feed (latest-mac.yml). A pre-release tagged vX.Y.Z-nightly.YYYYMMDD.N
+# is the Nightly feed (nightly-mac.yml). Any other pre-release gets the .dmg and .zip but no feed, so
+# no one is ever updated to it.
 #
 # Nothing is ever attached unsigned: without the signing secrets the run fails.
 # See docs/building-and-signing.md for the secrets.
@@ -45,6 +50,27 @@ jobs:
           fi
           echo "VERSION=$version" >> "$GITHUB_ENV"
 
+      - name: Update channel
+        env:
+          PRERELEASE: ${{ github.event.release.prerelease }}
+        run: |
+          # FEED: which update feed this release carries (latest, nightly, or none).
+          if [[ "$VERSION" == *-nightly.* ]]; then
+            if [ "$PRERELEASE" != "true" ]; then
+              echo "::error::$TAG is a nightly version; publish it as a pre-release."
+              exit 1
+            fi
+            echo "FEED=nightly" >> "$GITHUB_ENV"
+          elif [ "$PRERELEASE" == "true" ]; then
+            echo "::notice::$TAG is a pre-release but not a nightly: it gets no update feed."
+            echo "FEED=none" >> "$GITHUB_ENV"
+          elif [[ "$VERSION" == *-* ]]; then
+            echo "::error::$TAG has a pre-release version but is published as a release; Stable users would be offered it."
+            exit 1
+          else
+            echo "FEED=latest" >> "$GITHUB_ENV"
+          fi
+
       - name: Install
         run: npm ci
 
@@ -67,7 +93,12 @@ jobs:
           fi
           # The app's version (About panel, .dmg name) is the release's.
           npm pkg set version="$VERSION" -w @switchboard/desktop
-          npm run dist
+          if [ "$FEED" == "nightly" ]; then
+            # electron-builder names a GitHub feed latest-mac.yml unless told the channel.
+            npm run dist -w @switchboard/desktop -- -c.publish.channel=nightly
+          else
+            npm run dist
+          fi
 
       - name: Check the signature and notarisation
         run: |
@@ -77,10 +108,46 @@ jobs:
           spctl -a -vv "$app" 2>&1 | tee spctl.txt
           grep -q "source=Notarized Developer ID" spctl.txt
 
-      - name: Attach the .dmg to the release
+      - name: Check the update feed
+        run: |
+          cd apps/desktop/dist
+          ls -la
+          feeds=$(ls *-mac.yml 2>/dev/null || true)
+          expected="$FEED-mac.yml"
+          # Only one architecture is built today. When an Intel build is added, merge its files into the
+          # same latest-mac.yml (one `files` entry per arch) instead of uploading a second feed over it.
+          if [ "$FEED" != "none" ] && [ "$feeds" != "$expected" ]; then
+            echo "::error::Expected exactly $expected, found: ${feeds:-nothing}."
+            exit 1
+          fi
+          if [ "$FEED" != "none" ]; then
+            grep -q "^version: $VERSION\$" "$expected" || { echo "::error::$expected is not for $VERSION."; cat "$expected"; exit 1; }
+            ls Switchboard-*-mac.zip >/dev/null
+          fi
+
+      - name: Attach the .dmg, .zip and update feed to the release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release upload "$TAG" apps/desktop/dist/*.dmg --clobber --repo "$GITHUB_REPOSITORY"
+        run: |
+          cd apps/desktop/dist
+          files=(*.dmg *.zip *.zip.blockmap)
+          # The feed goes up last, so it never points at a .zip that isn't there yet.
+          gh release upload "$TAG" "${files[@]}" --clobber --repo "$GITHUB_REPOSITORY"
+          if [ "$FEED" != "none" ]; then
+            gh release upload "$TAG" "$FEED-mac.yml" --clobber --repo "$GITHUB_REPOSITORY"
+          fi
+
+      - name: Guard against a feed on the wrong release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # latest*.yml is the Stable feed: it must only ever be on a published, non-pre-release release.
+          read -r draft prerelease < <(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json isDraft,isPrerelease --jq '"\(.isDraft) \(.isPrerelease)"')
+          assets=$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name')
+          if { [ "$draft" == "true" ] || [ "$prerelease" == "true" ]; } && grep -q '^latest.*\.yml$' <<< "$assets"; then
+            echo "::error::$TAG is a draft or pre-release but carries a latest*.yml update feed. Delete that asset."
+            exit 1
+          fi
 
       - name: Fill in empty release notes from the changelog
         env:

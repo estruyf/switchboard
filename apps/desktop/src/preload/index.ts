@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron';
-import { ENGINE_PORT_MESSAGE, IpcChannel, type Preferences, type RendererReadyReport, type SwitchboardBridge } from '@switchboard/protocol/bridge';
+import { ENGINE_PORT_MESSAGE, IpcChannel, type AppInfo, type Preferences, type RendererReadyReport, type SwitchboardBridge, type UpdateState } from '@switchboard/protocol/bridge';
 
 // MessagePorts can't cross contextBridge, so forward them to the page with window.postMessage.
 ipcRenderer.on(IpcChannel.enginePort, (event) => {
@@ -40,10 +40,20 @@ const bridge: SwitchboardBridge = {
     return () => ipcRenderer.off(IpcChannel.preferencesChanged, handler);
   },
   onOpenSettings(listener) {
-    const handler = () => listener();
+    const handler = (_event: unknown, section: unknown) => listener(section === 'about' ? 'about' : null);
     ipcRenderer.on(IpcChannel.openSettings, handler);
     return () => ipcRenderer.off(IpcChannel.openSettings, handler);
   },
+  appInfo: ipcRenderer.sendSync(IpcChannel.getAppInfo) as AppInfo,
+  updateState: ipcRenderer.sendSync(IpcChannel.getUpdateState) as UpdateState,
+  onUpdateState(listener) {
+    const handler = (_event: unknown, state: UpdateState) => listener(state);
+    ipcRenderer.on(IpcChannel.updateState, handler);
+    return () => ipcRenderer.off(IpcChannel.updateState, handler);
+  },
+  update: (command) => ipcRenderer.send(IpcChannel.updateCommand, command),
+  // The channel is a preference; main checks again as soon as it changes.
+  setUpdateChannel: (channel) => ipcRenderer.send(IpcChannel.setPreferences, { updateChannel: channel }),
 };
 
 contextBridge.exposeInMainWorld('switchboard', bridge);
