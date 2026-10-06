@@ -2,11 +2,13 @@ import { existsSync, readdirSync, readFileSync, rmSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import {
+  BUILTIN_PROFILE_ID,
   contract,
   RpcError,
   serveRpc,
   type Contract,
   type HandlerContext,
+  type LiveSession,
   type Handlers,
   type LogEntry,
   type LogLevel,
@@ -18,14 +20,17 @@ import {
 import { LiveRegistry } from './claude/liveRegistry.ts';
 import { createProjectResolver } from './claude/projectResolver.ts';
 import { sdkSessionSource, type SessionSource } from './claude/sessionSource.ts';
-import { fileDiff, listChanges, removeWorktree, revert, stage, worktreeStatus } from './git/gitChanges.ts';
+import { fileDiff, listBranches, listChanges, removeWorktree, revert, stage, switchBranch, worktreeStatus } from './git/gitChanges.ts';
 import { SearchIndex } from './sessions/searchIndex.ts';
 import { installedPlugins } from './host/capabilities.ts';
 import { ActionStore, expandCommand, shellQuote, suggestActions } from './actions/actionStore.ts';
 import { HostManager, type SdkRuntime } from './host/hostManager.ts';
 import { UsageMonitor } from './host/usageMonitor.ts';
-import { ProjectRegistry } from './projects/projectRegistry.ts';
+import { ProjectRegistry, type FolderActivity } from './projects/projectRegistry.ts';
 import { createAppStateStore } from './db/appState.ts';
+import { ConfigDirLane } from './profiles/configDirLane.ts';
+import { ProfileStore, type ProfileRuntime } from './profiles/profileStore.ts';
+import { MultiProfileSource } from './profiles/profileSources.ts';
 import { openCacheDatabase } from './db/database.ts';
 import { findClaude } from './system/claudeBinary.ts';
 import { normaliseMessage } from './claude/transcript.ts';
@@ -42,7 +47,7 @@ import pkg from '../package.json' with { type: 'json' };
 export interface EngineOptions {
   /** Where the app keeps its own data (the cache database lives here). */
   dataDir: string;
-  /** Defaults to $CLAUDE_CONFIG_DIR or ~/.claude. */
+  /** The built-in profile's config folder. Defaults to $CLAUDE_CONFIG_DIR or ~/.claude. */
   claudeConfigDir?: string;
   /** Use this `claude` binary instead of searching PATH. */
   claudeBinary?: string;
@@ -50,7 +55,7 @@ export interface EngineOptions {
   shellEnv?: Promise<ShellEnv>;
   /** Mirror of every log entry, e.g. to write it to stderr. */
   onLog?: (entry: LogEntry) => void;
-  /** Where sessions are read from. Defaults to the Claude Agent SDK (tests pass a fake). */
+  /** Where the built-in profile's sessions are read from. Defaults to the Claude Agent SDK (tests pass a fake). */
   sessionSource?: SessionSource;
   /** Start watching ~/.claude immediately. Defaults to true. */
   watchSessions?: boolean;
@@ -58,12 +63,15 @@ export interface EngineOptions {
   sdk?: () => Promise<SdkRuntime>;
   /**
    * Moves files to the Trash. The desktop app routes this to Electron's
-   * shell.trashItem; without it, deleted sessions are removed permanently.
+   * shell.trashItem; without it, deleted sessions are removed permanently. Session files are
+   * scoped to the config folder they live in, files of a revert to their repository.
    */
-  trash?: (paths: string[], scope?: { repoRoot: string }) => Promise<void>;
+  trash?: (paths: string[], scope: TrashScope) => Promise<void>;
   /** Pseudo-terminal factory. Defaults to node-pty. */
   spawnPty?: () => Promise<SpawnPty>;
 }
+
+export type TrashScope = { configDir: string } | { repoRoot: string };
 
 export interface Engine {
   /** Serves the contract over a transport (one per window). Returns a detach function. */
@@ -72,9 +80,14 @@ export interface Engine {
   close(): void;
 }
 
+/** The built-in profile keeps the key used before profiles existed. */
+const commandCacheKey = ({ profileId, cwd }: { profileId: string; cwd: string }) =>
+  profileId === BUILTIN_PROFILE_ID ? `commands:${cwd}` : `commands:${profileId}:${cwd}`;
+
 export function createEngine(options: EngineOptions): Engine {
   const startedAt = Date.now();
   const claudeConfigDir = options.claudeConfigDir ?? process.env.CLAUDE_CONFIG_DIR ?? join(homedir(), '.claude');
+  const configDirFromEnv = Boolean(options.claudeConfigDir ?? process.env.CLAUDE_CONFIG_DIR);
   const cache = openCacheDatabase(join(options.dataDir, 'cache.sqlite'));
   const appState = createAppStateStore(cache.db);
   const servers = new Set<RpcServer<Contract>>();
@@ -89,9 +102,26 @@ export function createEngine(options: EngineOptions): Engine {
     for (const server of servers) server.emit(name, payload);
   };
 
-  // The SDK reads CLAUDE_CONFIG_DIR itself; keep it pointed at the same folder we watch.
-  if (options.claudeConfigDir && !options.sessionSource) process.env.CLAUDE_CONFIG_DIR = options.claudeConfigDir;
-  const source = options.sessionSource ?? sdkSessionSource();
+  // Slow-ish (login shell), so start it now and await on demand. Before any transcript is read: the
+  // shell must inherit the engine's own environment, not a profile's folder (see ConfigDirLane).
+  const shell = new ShellEnvironment(appState, options.shellEnv ? () => options.shellEnv! : undefined);
+  // One Claude Code login per config folder. Profiles can be added and removed at runtime, so
+  // everything per profile (sources, live registries, usage) is looked up through `profiles`.
+  const profiles = new ProfileStore(cache.db, appState, { configDir: claudeConfigDir, fromEnv: configDirFromEnv }, (snapshot) => {
+    broadcast('profiles.changed', snapshot);
+    profilesChanged();
+  });
+  // The SDK's transcript readers take the folder from process.env.CLAUDE_CONFIG_DIR: one folder at a time.
+  const lane = new ConfigDirLane();
+  const sdkSources = new Map<string, SessionSource>();
+  const sourceFor = (profile: ProfileRuntime): SessionSource => {
+    if (options.sessionSource && profile.id === BUILTIN_PROFILE_ID) return options.sessionSource;
+    const key = `${profile.id}\0${profile.configDir}`;
+    let found = sdkSources.get(key);
+    if (!found) sdkSources.set(key, (found = sdkSessionSource((fn) => lane.run(profile.envDir, fn))));
+    return found;
+  };
+  const source = new MultiProfileSource(() => profiles.runtimes().map((profile) => ({ profileId: profile.id, source: sourceFor(profile) })));
   const resolver = createProjectResolver();
   const transcripts = new TranscriptHub(source, log);
   const owned = new Set(
@@ -104,7 +134,7 @@ export function createEngine(options: EngineOptions): Engine {
   );
   const markContinued = cache.db.prepare('INSERT OR IGNORE INTO continued_sessions (id, created_at) VALUES (?, ?)');
   const unmarkContinued = cache.db.prepare('DELETE FROM continued_sessions WHERE id = ?');
-  const trash = options.trash ?? (async (paths: string[], _scope?: { repoRoot: string }) => paths.forEach((p) => rmSync(p, { recursive: true, force: true })));
+  const trash = options.trash ?? (async (paths: string[], _scope: TrashScope) => paths.forEach((p) => rmSync(p, { recursive: true, force: true })));
   const storedBaseline = appState.get('sessions.baseline');
   const baseline = typeof storedBaseline === 'number' ? storedBaseline : Date.now();
   if (typeof storedBaseline !== 'number') appState.set('sessions.baseline', baseline);
@@ -115,7 +145,7 @@ export function createEngine(options: EngineOptions): Engine {
     isContinued: (id) => continued.has(id),
     db: cache.db,
     source,
-    projectsDir: join(claudeConfigDir, 'projects'),
+    projectsDirs: () => profiles.runtimes().map((profile) => ({ profileId: profile.id, dir: join(profile.configDir, 'projects') })),
     resolver,
     log,
     onChange: (change) => {
@@ -143,16 +173,62 @@ export function createEngine(options: EngineOptions): Engine {
   }
   /** The engine's own short-lived helper processes (usage, command lists): never shown as live sessions. */
   const ephemeral = new Set<string>();
-  const registry = new LiveRegistry({
-    ignore: (id) => ephemeral.has(id),
-    dir: join(claudeConfigDir, 'sessions'),
-    resolveRoot: (cwd) => resolver.resolve(cwd).root,
-    onChange: (live) => broadcast('sessions.live', { live }),
-  });
-  if (options.watchSessions !== false) {
-    sessions.start();
-    registry.start();
+  /** Running Claude Code processes, from each profile's `sessions` folder. */
+  const registries = new Map<string, LiveRegistry>();
+  const liveList = (): LiveSession[] => [...registries.values()].flatMap((r) => r.list());
+  const scanLive = () => registries.forEach((r) => r.scan());
+  /** One registry per profile folder; started ones follow profiles being added and removed. */
+  const syncRegistries = (start: boolean) => {
+    const wanted = new Map(profiles.runtimes().map((p) => [`${p.id}\0${p.configDir}`, p]));
+    for (const [key, registry] of registries) {
+      if (!wanted.has(key)) {
+        registry.stop();
+        registries.delete(key);
+      }
+    }
+    for (const [key, profile] of wanted) {
+      if (registries.has(key)) continue;
+      const registry = new LiveRegistry({
+        ignore: (id) => ephemeral.has(id),
+        dir: join(profile.configDir, 'sessions'),
+        profileId: profile.id,
+        resolveRoot: (cwd) => resolver.resolve(cwd).root,
+        onChange: () => broadcast('sessions.live', { live: liveList() }),
+      });
+      registries.set(key, registry);
+      if (start) registry.start();
+    }
+  };
+  const watching = options.watchSessions !== false;
+  syncRegistries(watching);
+  if (watching) sessions.start();
+
+  /** Profiles were added or removed: read their folders (or stop reading them). */
+  function profilesChanged() {
+    syncRegistries(watching);
+    broadcast('sessions.live', { live: liveList() });
+    void sessions.rootsChanged();
+    const ids = new Set(profiles.runtimes().map((p) => p.id));
+    for (const [id, monitor] of usageMonitors) {
+      if (!ids.has(id)) {
+        monitor.stop();
+        usageMonitors.delete(id);
+      }
+    }
   }
+
+  /** The profile a session belongs to: where its transcript is, or the process that runs it. */
+  const sessionProfile = (sessionId: string): string =>
+    sessions.get(sessionId)?.profileId ??
+    liveList().find((l) => l.sessionId === sessionId)?.profileId ??
+    source.ownerOf(sessionId) ??
+    profiles.defaultId();
+  /** The profile new sessions in a folder's project use. */
+  const folderProfile = (cwd: string) => profiles.forProject(resolver.resolve(cwd).root);
+  const requireProfile = (id: string) => {
+    if (!profiles.has(id)) throw new RpcError('NOT_FOUND', 'That Claude profile no longer exists');
+    return id;
+  };
 
   /** Transcript subscriptions per connection, so `transcript.unwatch` and disconnects can clean up. */
   const subscriptions = new WeakMap<HandlerContext<Contract>, Map<string, () => void>>();
@@ -172,29 +248,44 @@ export function createEngine(options: EngineOptions): Engine {
 
   if (cache.recovered) log('warn', 'Cache database was unreadable and has been rebuilt');
 
-  // Both are slow-ish (login shell, `claude --version`), so start them now and await on demand.
-  const shell = new ShellEnvironment(appState, options.shellEnv ? () => options.shellEnv! : undefined);
   const claude = shell.forLookup().then((env) => findClaude(env, options.claudeBinary));
   const files = new FileIndex();
 
   const sdk = options.sdk ?? (() => import('@anthropic-ai/claude-agent-sdk'));
-  const usage = new UsageMonitor({
-    sdk,
-    env: async () => (await shell.ready).env,
-    claudePath: async () => (await claude)?.path,
-    onChange: (snapshot) => broadcast('usage.changed', { usage: snapshot }),
-    log,
-    ephemeral,
-  });
+  /** The login shell's environment, pointed at a profile's config folder. */
+  const envFor = async (profileId: string): Promise<Record<string, string>> => {
+    const env = { ...(await shell.ready).env };
+    const { envDir } = profiles.runtime(profileId);
+    if (envDir) env.CLAUDE_CONFIG_DIR = envDir;
+    return env;
+  };
+  /** Plan usage per profile (each login has its own limits), started when first asked for. */
+  const usageMonitors = new Map<string, UsageMonitor>();
+  const usageFor = (profileId: string) => {
+    let monitor = usageMonitors.get(profileId);
+    if (!monitor) {
+      monitor = new UsageMonitor({
+        sdk,
+        env: () => envFor(profileId),
+        claudePath: async () => (await claude)?.path,
+        onChange: (snapshot) => broadcast('usage.changed', { profileId, usage: snapshot }),
+        log,
+        ephemeral,
+      });
+      usageMonitors.set(profileId, monitor);
+    }
+    return monitor;
+  };
   const hosts = new HostManager({
     sdk,
     ephemeral,
-    onUsageHint: () => usage.nudge(),
-    env: async () => (await shell.ready).env,
+    onUsageHint: (profileId) => usageMonitors.get(profileId)?.nudge(),
+    env: envFor,
     claudePath: async () => (await claude)?.path,
-    isOpenElsewhere: (id) => !hosts.has(id) && registry.list().some((l) => l.sessionId === id),
-    refreshLive: () => registry.scan(),
-    sessionCwd: (id) => sessions.get(id)?.cwd ?? registry.list().find((l) => l.sessionId === id)?.cwd ?? null,
+    isOpenElsewhere: (id) => !hosts.has(id) && liveList().some((l) => l.sessionId === id),
+    refreshLive: scanLive,
+    sessionCwd: (id) => sessions.get(id)?.cwd ?? liveList().find((l) => l.sessionId === id)?.cwd ?? null,
+    sessionProfile,
     onInfo: (info) => broadcast('session.host', info),
     onStream: (delta) => broadcast('session.stream', delta),
     onMessages: (id, messages) => transcripts.pushLive(id, messages),
@@ -210,14 +301,14 @@ export function createEngine(options: EngineOptions): Engine {
       markContinued.run(id, Date.now());
       sessions.republish(id);
     },
-    installedPlugins: () => installedPlugins(claudeConfigDir),
+    installedPlugins: (profileId) => installedPlugins(profiles.runtime(profileId).configDir),
     commandCache: {
       // Persisted for an hour; Claude Code reports fresh lists from every running session anyway.
-      get: (cwd) => {
-        const stored = appState.get(`commands:${cwd}`) as { at: number; commands: SlashCommand[] } | null;
+      get: (key) => {
+        const stored = appState.get(commandCacheKey(key)) as { at: number; commands: SlashCommand[] } | null;
         return stored && Date.now() - stored.at < 3_600_000 ? stored.commands : null;
       },
-      set: (cwd, commands) => appState.set(`commands:${cwd}`, { at: Date.now(), commands }),
+      set: (key, commands) => appState.set(commandCacheKey(key), { at: Date.now(), commands }),
     },
     log,
   });
@@ -251,7 +342,12 @@ export function createEngine(options: EngineOptions): Engine {
 
   /** Runs an action's command in a terminal tab of the session and returns the terminal id. */
   const runShellAction = async (sessionId: string, cwd: string, name: string, command: string) =>
-    (await terminals.open({ sessionId, cwd, kind: 'action', command, title: name, cols: 100, rows: 20, fork: false })).id;
+    (await terminals.open({ sessionId, cwd, kind: 'action', command, title: name, cols: 100, rows: 20, fork: false, env: profileEnv(sessionProfile(sessionId)) })).id;
+  /** A terminal for a session gets its profile's config folder, so `claude` in it uses the same login. */
+  const profileEnv = (profileId: string): Record<string, string> => {
+    const { envDir } = profiles.runtime(profileId);
+    return envDir ? { CLAUDE_CONFIG_DIR: envDir } : {};
+  };
 
   /**
    * For a new worktree: wait until Claude Code has created it, then run the
@@ -306,13 +402,13 @@ export function createEngine(options: EngineOptions): Engine {
       appState.set(key, value);
       return {};
     },
-    'sessions.list': () => ({ ...sessions.snapshot(), live: registry.list() }),
+    'sessions.list': () => ({ ...sessions.snapshot(), live: liveList() }),
     'sessions.setFlags': ({ sessionId, pinned, settled }) => {
       sessions.setFlags(sessionId, { ...(pinned !== undefined ? { pinned } : {}), ...(settled !== undefined ? { settled } : {}) });
       return {};
     },
     'session.delete': async ({ sessionId }) => {
-      if (!hosts.has(sessionId) && registry.list().some((l) => l.sessionId === sessionId)) {
+      if (!hosts.has(sessionId) && liveList().some((l) => l.sessionId === sessionId)) {
         throw new RpcError('SESSION_BUSY_ELSEWHERE', 'This session is open in another Claude Code window. Close it there first.');
       }
       await hosts.release(sessionId);
@@ -320,7 +416,7 @@ export function createEngine(options: EngineOptions): Engine {
       if (!transcript) throw new RpcError('NOT_FOUND', 'No transcript found for this session');
       // The same files Claude Code's own deleteSession removes: the transcript and its subagent folder.
       const paths = [transcript, transcript.replace(/\.jsonl$/, '')].filter((p) => existsSync(p));
-      await trash(paths);
+      await trash(paths, { configDir: profiles.runtime(sessionProfile(sessionId)).configDir });
       sessions.forget(sessionId);
       owned.delete(sessionId);
       unmarkOwned.run(sessionId);
@@ -333,7 +429,17 @@ export function createEngine(options: EngineOptions): Engine {
       sessions.markViewed(sessionId);
       return {};
     },
-    'projects.list': () => ({ projects: projects.list(new Set(sessions.snapshot().sessions.map((s) => s.projectRoot))) }),
+    'projects.list': () => {
+      const activity = new Map<string, FolderActivity>();
+      for (const s of sessions.snapshot().sessions) {
+        const entry = activity.get(s.projectRoot);
+        if (entry) {
+          entry.count++;
+          entry.lastActivity = Math.max(entry.lastActivity, s.updatedAt);
+        } else activity.set(s.projectRoot, { count: 1, lastActivity: s.updatedAt });
+      }
+      return { projects: projects.list(activity) };
+    },
     'projects.add': ({ path }) => {
       projects.add(path);
       return {};
@@ -346,9 +452,39 @@ export function createEngine(options: EngineOptions): Engine {
       projects.setIcon(root, icon);
       return {};
     },
+    'projects.setProfile': ({ root, profileId }) => {
+      profiles.linkProject(root, profileId);
+      return {};
+    },
+    'profiles.list': () => profiles.snapshot(),
+    'profiles.add': ({ name, color, configDir }) => {
+      const id = profiles.add(name, color, configDir);
+      log('info', `Added Claude profile "${name}" (${configDir})`);
+      return { id };
+    },
+    'profiles.update': ({ id, name, color }) => {
+      profiles.update(id, { ...(name !== undefined ? { name } : {}), ...(color !== undefined ? { color } : {}) });
+      return {};
+    },
+    'profiles.remove': ({ id }) => {
+      profiles.remove(id);
+      return {};
+    },
+    'profiles.setDefault': ({ id }) => {
+      profiles.setDefault(id);
+      return {};
+    },
+    'projects.setDefaults': ({ root, defaults }) => {
+      projects.setDefaults(root, defaults);
+      return {};
+    },
+    'projects.reorder': ({ roots }) => {
+      projects.reorder(roots);
+      return {};
+    },
     'sessions.refresh': async () => {
       await sessions.refresh();
-      registry.scan();
+      scanLive();
       return {};
     },
     'transcript.get': async ({ sessionId }) => ({ sessionId, messages: await transcripts.read(sessionId) }),
@@ -399,9 +535,19 @@ export function createEngine(options: EngineOptions): Engine {
       if (params.worktree && !resolver.resolve(params.cwd).gitDir) {
         throw new RpcError('NOT_A_REPO', 'Worktrees need a git repository');
       }
+      const { checkoutBranch, profileId: chosenProfile, ...create } = params;
+      const profileId = requireProfile(chosenProfile ?? folderProfile(params.cwd));
+      if (checkoutBranch) {
+        if (params.worktree) throw new RpcError('INVALID', 'A new worktree gets its own branch; choose the current folder to check out a branch');
+        try {
+          await switchBranch(params.cwd, checkoutBranch);
+        } catch (error) {
+          throw new RpcError('GIT_FAILED', `Could not check out ${checkoutBranch}: ${(error as Error).message}`);
+        }
+      }
       const worktree = params.worktree;
       const setup = worktree ? (id: string) => worktreeSetup(id, params.cwd, worktree.name)?.() ?? Promise.resolve() : undefined;
-      return { sessionId: await hosts.create({ ...params, ...(setup ? { beforeFirstMessage: setup } : {}) }) };
+      return { sessionId: await hosts.create({ ...create, profileId, ...(setup ? { beforeFirstMessage: setup } : {}) }) };
     },
     'session.send': (params) => hosts.send(params),
     'session.forkAt': async ({ sessionId, messageUuid }) => {
@@ -443,18 +589,22 @@ export function createEngine(options: EngineOptions): Engine {
       hosts.respond(requestId, decision);
       return {};
     },
-    'session.commands': async ({ sessionId, cwd }) => ({ commands: await hosts.commands(sessionId, cwd) }),
-    'session.capabilities': ({ sessionId, cwd, refresh }) => hosts.capabilities(sessionId, cwd, refresh),
+    'session.commands': async ({ sessionId, cwd, profileId }) => ({
+      commands: await hosts.commands(sessionId, cwd, profileId ?? (sessionId ? sessionProfile(sessionId) : cwd ? folderProfile(cwd) : profiles.defaultId())),
+    }),
+    'session.capabilities': ({ sessionId, cwd, refresh, profileId }) =>
+      hosts.capabilities(sessionId, cwd, refresh, profileId ?? (sessionId ? sessionProfile(sessionId) : folderProfile(cwd))),
     'session.mcp': async ({ sessionId, server, action }) => {
       await hosts.mcp(sessionId, server, action);
       return {};
     },
-    'session.prewarm': ({ cwd }) => {
-      if (existsSync(cwd)) void hosts.prewarm(cwd).catch((error: Error) => log('debug', `Pre-warm failed: ${error.message}`));
+    'session.prewarm': ({ cwd, profileId }) => {
+      const profile = profileId && profiles.has(profileId) ? profileId : folderProfile(cwd);
+      if (existsSync(cwd)) void hosts.prewarm(cwd, profile).catch((error: Error) => log('debug', `Pre-warm failed: ${error.message}`));
       return {};
     },
     'models.list': () => ({ models: hosts.listModels() }),
-    'usage.get': ({ refresh }) => usage.get(refresh),
+    'usage.get': ({ refresh, profileId }) => usageFor(profileId && profiles.has(profileId) ? profileId : profiles.defaultId()).get(refresh),
 
     'projects.inspect': ({ path }) => {
       const exists = existsSync(path);
@@ -534,6 +684,14 @@ export function createEngine(options: EngineOptions): Engine {
         throw new RpcError('GIT_FAILED', (error as Error).message);
       }
     },
+    'git.branches': async ({ cwd }) => {
+      if (!resolver.resolve(cwd).gitDir) return { current: null, branches: [] };
+      try {
+        return await listBranches(cwd);
+      } catch (error) {
+        throw new RpcError('GIT_FAILED', (error as Error).message);
+      }
+    },
     'git.stage': async ({ cwd, paths, staged }) => {
       try {
         await stage(cwd, paths, staged);
@@ -590,12 +748,13 @@ export function createEngine(options: EngineOptions): Engine {
         if (hosts.has(params.sessionId)) {
           throw new RpcError('SESSION_RUNNING_HERE', 'This session is running in Switchboard. Stop it there first, or open a fork in the terminal.');
         }
-        if (registry.list().some((l) => l.sessionId === params.sessionId)) {
+        if (liveList().some((l) => l.sessionId === params.sessionId)) {
           throw new RpcError('SESSION_BUSY_ELSEWHERE', 'This session is open in another Claude Code window. Close it there first, or open a fork.');
         }
       }
+      const profileId = params.sessionId ? sessionProfile(params.sessionId) : folderProfile(params.cwd);
       try {
-        return await terminals.open(params);
+        return await terminals.open({ ...params, env: profileEnv(profileId) });
       } catch (error) {
         throw new RpcError('TERMINAL_FAILED', (error as Error).message);
       }
@@ -646,11 +805,11 @@ export function createEngine(options: EngineOptions): Engine {
       for (const server of servers) server.dispose();
       servers.clear();
       hosts.closeAll();
-      usage.stop();
+      for (const monitor of usageMonitors.values()) monitor.stop();
       terminals.closeAll();
       clearTimeout(searchTimer);
       sessions.stop();
-      registry.stop();
+      for (const registry of registries.values()) registry.stop();
       transcripts.stop();
       cache.close();
     },

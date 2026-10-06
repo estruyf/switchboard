@@ -6,8 +6,9 @@ import { useProjects } from '../../state/projectsStore.ts';
 import { ProjectIcon } from '../ProjectIcon.tsx';
 
 /**
- * The project header of a new session: the project's tile, name and path. The name opens the
- * recent folders, filterable by typing; "Open another folder…" opens the system dialog.
+ * The project header of a new session: the project's tile, name and path. The name opens your
+ * projects, filterable by typing; typing an absolute path offers that folder, and "Open another
+ * folder…" opens the system dialog.
  */
 export function FolderPicker({
   value,
@@ -38,7 +39,10 @@ export function FolderPicker({
   const options = useMemo(() => {
     const all = value && !folders.includes(value) ? [value, ...folders] : folders;
     if (!filter.trim()) return all;
-    return all
+    // A typed absolute path is offered as it is, for folders that aren't projects yet.
+    const typed = filter.trim().replace(/(.)\/+$/, '$1');
+    const path = typed.startsWith('/') && !all.includes(typed) ? [typed] : [];
+    const matches = all
       .map((folder) => {
         const name = projects.get(folder)?.name ?? basename(folder);
         const score = Math.max(fuzzyScore(filter, name) ?? -Infinity, (fuzzyScore(filter, tildify(folder, home)) ?? -Infinity) - 2);
@@ -47,6 +51,7 @@ export function FolderPicker({
       .filter((o) => o.score > -Infinity)
       .sort((a, b) => b.score - a.score)
       .map((o) => o.folder);
+    return [...path, ...matches];
   }, [filter, folders, home, projects, value]);
   // The extra row at the end: the system folder dialog.
   const count = options.length + 1;
@@ -106,7 +111,7 @@ export function FolderPicker({
 
       {open && (
         <div className={`absolute left-[58px] z-40 flex max-h-96 w-[min(27rem,calc(100%-58px))] ${upward ? 'bottom-full mb-1 flex-col-reverse' : 'top-full -mt-3 flex-col'}`} data-folder-panel>
-          <div className="flex max-h-96 min-h-0 flex-1 flex-col overflow-hidden rounded-lg border border-border bg-card shadow-xl" data-folder-list role="menu" aria-label="Recent folders">
+          <div className="flex max-h-96 min-h-0 flex-1 flex-col overflow-hidden rounded-lg border border-border bg-card shadow-xl" data-folder-list role="menu" aria-label="Your projects">
             <input
               autoFocus
               value={filter}
@@ -118,14 +123,14 @@ export function FolderPicker({
                 else if (e.key === 'Enter') (e.preventDefault(), pick(active));
                 else if (e.key === 'Tab') setOpen(false);
               }}
-              placeholder="Filter projects"
-              aria-label="Filter projects"
+              placeholder="Filter projects, or type a path"
+              aria-label="Filter projects, or type a path"
               spellCheck={false}
               // Type to filter: the field only shows once there is something in it.
               className={filter ? 'h-9 shrink-0 border-b border-border bg-transparent px-3 text-[12.5px] text-text outline-none placeholder:text-faint' : 'sr-only'}
             />
             <div ref={listRef} className="min-h-0 flex-1 overflow-y-auto py-1">
-              {!filter && <p className="px-3 pt-1.5 pb-1 text-[10px] tracking-wide text-faint uppercase">Recent folders</p>}
+              {!filter && <p className="px-3 pt-1.5 pb-1 text-[10px] tracking-wide text-faint uppercase">Your projects</p>}
               {options.length === 0 && <p className="px-3 py-2 text-[12px] text-faint">No project matches.</p>}
               {options.map((folder, index) => {
                 const branch = branches.get(folder);

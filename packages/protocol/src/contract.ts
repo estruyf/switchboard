@@ -18,6 +18,7 @@ import {
 } from './host.ts';
 import {
   LiveSession,
+  ProjectDefaults,
   ProjectIconChoice,
   ProjectInfo,
   SearchHit,
@@ -31,6 +32,7 @@ import { UsageSnapshot } from './usage.ts';
 import { ActionRunResult, ActionSuggestion, ListedAction, ProjectAction } from './actions.ts';
 import { ChangesBase, GitChanges, WorktreeStatus } from './git.ts';
 import { Capabilities } from './capabilities.ts';
+import { ProfileColor, ProfilesSnapshot } from './profiles.ts';
 
 export const ClaudeInstall = z.object({
   path: z.string(),
@@ -79,6 +81,8 @@ const AppStateKey = z.string().min(1).max(200);
 const SessionId = z.string().min(1).max(200);
 const AbsolutePath = z.string().min(1).max(4096).startsWith('/');
 const Prompt = z.string().max(200_000);
+const ProfileId = z.string().min(1).max(100);
+const ProfileName = z.string().trim().min(1).max(60);
 
 /** Every request the UI can make and every event the engine can push. */
 export const contract = {
@@ -116,10 +120,32 @@ export const contract = {
     'session.delete': { params: z.object({ sessionId: SessionId }), result: z.object({}) },
     /** The user is looking at this session now; clears its unread state. */
     'sessions.markViewed': { params: z.object({ sessionId: SessionId }), result: z.object({}) },
+    /**
+     * Your projects (`added`) in your order, plus every other folder Claude Code has sessions for
+     * (`added: false`), which the Add project picker offers and the sidebar uses for icons.
+     */
     'projects.list': { params: z.object({}), result: z.object({ projects: z.array(ProjectInfo) }) },
     'projects.add': { params: z.object({ path: AbsolutePath }), result: z.object({}) },
+    /** Removes a project from Switchboard's list. Nothing on disk changes; its sessions stay. */
     'projects.remove': { params: z.object({ root: AbsolutePath }), result: z.object({}) },
     'projects.setIcon': { params: z.object({ root: AbsolutePath, icon: ProjectIconChoice }), result: z.object({}) },
+    /** Links a project to a Claude profile; null uses the default profile. */
+    'projects.setProfile': { params: z.object({ root: AbsolutePath, profileId: ProfileId.nullable() }), result: z.object({}) },
+    /** Replaces a project's defaults for new sessions. */
+    'projects.setDefaults': { params: z.object({ root: AbsolutePath, defaults: ProjectDefaults }), result: z.object({}) },
+    /** Puts your projects in this order (roots not listed keep their place after these). */
+    'projects.reorder': { params: z.object({ roots: z.array(AbsolutePath).max(5000) }), result: z.object({}) },
+    // --- Claude profiles (one login per config folder) --------------------------------------
+    'profiles.list': { params: z.object({}), result: ProfilesSnapshot },
+    /** Adds a profile for a config folder (created when missing). Sign in there with `CLAUDE_CONFIG_DIR=<folder> claude`. */
+    'profiles.add': {
+      params: z.object({ name: ProfileName, color: ProfileColor, configDir: AbsolutePath }),
+      result: z.object({ id: z.string() }),
+    },
+    'profiles.update': { params: z.object({ id: ProfileId, name: ProfileName.optional(), color: ProfileColor.optional() }), result: z.object({}) },
+    /** Removes a profile from Switchboard (its folder, login and sessions stay). Its projects fall back to the default. */
+    'profiles.remove': { params: z.object({ id: ProfileId }), result: z.object({}) },
+    'profiles.setDefault': { params: z.object({ id: ProfileId }), result: z.object({}) },
     /** Forces a full rescan of ~/.claude/projects. */
     'sessions.refresh': {
       params: z.object({}),
@@ -165,6 +191,10 @@ export const contract = {
         permissionMode: PermissionMode.default('default'),
         effort: Effort.nullable().default(null),
         worktree: WorktreeRequest.nullable().default(null),
+        /** The Claude profile to run with; null uses the project's, else the default. */
+        profileId: ProfileId.nullable().default(null),
+        /** Check out this branch in `cwd` first (not with a worktree). Fails when git refuses, e.g. over uncommitted changes. */
+        checkoutBranch: z.string().min(1).max(250).nullable().default(null),
       }),
       result: z.object({ sessionId: z.string() }),
     },
@@ -203,12 +233,12 @@ export const contract = {
     'session.respond': { params: z.object({ requestId: z.string(), decision: PermissionDecision }), result: z.object({}) },
     /** Slash commands, skills and plugin commands available to a session (or folder, for a new one). */
     'session.commands': {
-      params: z.object({ sessionId: SessionId.optional(), cwd: AbsolutePath.optional() }),
+      params: z.object({ sessionId: SessionId.optional(), cwd: AbsolutePath.optional(), profileId: ProfileId.optional() }),
       result: z.object({ commands: z.array(SlashCommand) }),
     },
     /** MCP servers, agents, skills and commands, and plugins for a session (live when it runs here) or a folder. */
     'session.capabilities': {
-      params: z.object({ sessionId: SessionId.optional(), cwd: AbsolutePath, refresh: z.boolean().default(false) }),
+      params: z.object({ sessionId: SessionId.optional(), cwd: AbsolutePath, refresh: z.boolean().default(false), profileId: ProfileId.optional() }),
       result: Capabilities,
     },
     /** Turns an MCP server on or off, or reconnects it, in a session running in this app. */
@@ -217,14 +247,15 @@ export const contract = {
       result: z.object({}),
     },
     /** Starts a Claude Code process for a folder ahead of time so the first message answers faster. */
-    'session.prewarm': { params: z.object({ cwd: AbsolutePath }), result: z.object({}) },
+    'session.prewarm': { params: z.object({ cwd: AbsolutePath, profileId: ProfileId.nullable().default(null) }), result: z.object({}) },
     'models.list': { params: z.object({}), result: z.object({ models: z.array(ModelOption) }) },
     /**
      * Plan usage (5-hour and weekly limits) from Claude Code's /usage report. Cached for a minute;
      * `refresh` fetches now. `usage` is null without a claude.ai plan or before the first fetch.
      */
     'usage.get': {
-      params: z.object({ refresh: z.boolean().default(false) }),
+      /** The profile whose plan to report (default: the default profile). */
+      params: z.object({ refresh: z.boolean().default(false), profileId: ProfileId.optional() }),
       result: z.object({ usage: UsageSnapshot.nullable(), error: z.string().nullable() }),
     },
 
@@ -281,6 +312,8 @@ export const contract = {
       params: z.object({ cwd: AbsolutePath, base: ChangesBase, path: z.string().max(4096) }),
       result: z.object({ diff: z.string(), truncated: z.boolean() }),
     },
+    /** Local branches of the repository at `cwd`, and the one checked out (null when detached or not a repo). */
+    'git.branches': { params: z.object({ cwd: AbsolutePath }), result: z.object({ current: z.string().nullable(), branches: z.array(z.string()) }) },
     'git.stage': { params: z.object({ cwd: AbsolutePath, paths: z.array(z.string().max(4096)).max(5000), staged: z.boolean() }), result: z.object({}) },
     /** Puts files back to HEAD. New files go to the Trash. */
     'git.revert': { params: z.object({ cwd: AbsolutePath, paths: z.array(z.string().max(4096)).min(1).max(5000) }), result: z.object({}) },
@@ -339,7 +372,9 @@ export const contract = {
     'session.permissionResolved': z.object({ requestId: z.string(), sessionId: z.string() }),
     /** Output for an attached terminal (batched). */
     'terminal.data': z.object({ id: z.string(), data: z.string() }),
-    'usage.changed': z.object({ usage: UsageSnapshot.nullable() }),
+    'usage.changed': z.object({ profileId: z.string(), usage: UsageSnapshot.nullable() }),
+    /** Full list whenever profiles are added, changed or removed, or the default changes. */
+    'profiles.changed': ProfilesSnapshot,
     /** Full list whenever terminals start, exit or close. */
     'terminals.changed': z.object({ terminals: z.array(TerminalInfo) }),
   },

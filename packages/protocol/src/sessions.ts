@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { Effort, PermissionMode } from './host.ts';
 
 /** Where a session was started, derived from Claude Code's `entrypoint`. */
 export const SessionOrigin = z.enum(['cli', 'desktop', 'ide', 'sdk', 'app', 'unknown']);
@@ -40,6 +41,8 @@ export const SessionSummary = z.object({
   unread: z.boolean(),
   /** Started, forked or continued in Switchboard (the default sidebar shows only these). */
   inApp: z.boolean(),
+  /** The Claude profile whose config folder holds the transcript (resume and fork use it). */
+  profileId: z.string(),
 });
 export type SessionSummary = z.infer<typeof SessionSummary>;
 
@@ -60,14 +63,38 @@ export const ProjectIconChoice = z.discriminatedUnion('kind', [
 ]);
 export type ProjectIconChoice = z.infer<typeof ProjectIconChoice>;
 
+/**
+ * What a new session in a project starts with. Null fields fall back to the global
+ * defaults (the choices last used in the New session view).
+ */
+export const ProjectDefaults = z.object({
+  model: z.string().max(200).nullable().default(null),
+  effort: Effort.nullable().default(null),
+  permissionMode: PermissionMode.nullable().default(null),
+  workspace: z.enum(['current', 'worktree']).nullable().default(null),
+  /** For a new worktree: branch from origin's default branch (`fresh`) or the local HEAD. */
+  baseRef: z.enum(['fresh', 'head']).nullable().default(null),
+  /** For the current folder: a branch to check out before the session starts (null keeps what is checked out). */
+  branch: z.string().min(1).max(250).nullable().default(null),
+});
+export type ProjectDefaults = z.infer<typeof ProjectDefaults>;
+
 export const ProjectInfo = z.object({
   root: z.string(),
   name: z.string(),
   icon: ProjectIcon.nullable(),
   iconSource: z.enum(['custom', 'detected']).nullable(),
-  /** Added by hand (listed even without sessions). */
+  /** Added to Switchboard by hand. Folders that only have Claude Code sessions are listed with `added: false`. */
   added: z.boolean(),
   exists: z.boolean(),
+  /** Position in the user's project list (null: after the ordered ones). */
+  order: z.number().nullable(),
+  defaults: ProjectDefaults,
+  /** The Claude profile new sessions here use (null: the default profile). */
+  profileId: z.string().nullable(),
+  /** Claude Code sessions in this folder (from every app) and when the newest one was active. */
+  sessionCount: z.number(),
+  lastActivity: z.number().nullable(),
 });
 export type ProjectInfo = z.infer<typeof ProjectInfo>;
 
@@ -87,6 +114,8 @@ export const LiveSession = z.object({
   origin: SessionOrigin,
   startedAt: z.number().nullable(),
   updatedAt: z.number().nullable(),
+  /** The profile whose config folder registered this process. */
+  profileId: z.string(),
 });
 export type LiveSession = z.infer<typeof LiveSession>;
 

@@ -2,7 +2,7 @@ import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileS
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { baseBranch, fileDiff, git, insideRepo, listChanges, removeWorktree, revert, stage, worktreeStatus } from './gitChanges.ts';
+import { baseBranch, fileDiff, git, insideRepo, listBranches, listChanges, removeWorktree, revert, stage, switchBranch, worktreeStatus } from './gitChanges.ts';
 
 let repo: string;
 const write = (path: string, text: string) => writeFileSync(join(repo, path), text);
@@ -113,5 +113,28 @@ describe('worktrees', () => {
     await removeWorktree(await worktreeStatus(path), true);
     expect(existsSync(path)).toBe(false);
     expect((await run('branch', '--list', 'worktree-feature')).trim()).toBe('');
+  });
+});
+
+describe('branches', () => {
+  it('lists local branches and switches without losing uncommitted work', async () => {
+    await run('branch', 'feature');
+    expect(await listBranches(repo)).toEqual({ current: 'main', branches: expect.arrayContaining(['main', 'feature']) });
+    write('scratch.txt', 'mine\n');
+    await switchBranch(repo, 'feature');
+    expect((await listBranches(repo)).current).toBe('feature');
+    expect(readFileSync(join(repo, 'scratch.txt'), 'utf8')).toBe('mine\n');
+    await switchBranch(repo, 'feature');
+
+    // A change git would overwrite: it refuses, and the file is untouched.
+    await run('switch', '-q', 'main');
+    await run('switch', '-qc', 'other');
+    write('a.txt', 'committed on other\n');
+    await run('commit', '-qam', 'other');
+    await run('switch', '-q', 'main');
+    write('a.txt', 'uncommitted\n');
+    await expect(switchBranch(repo, 'other')).rejects.toThrow();
+    expect(readFileSync(join(repo, 'a.txt'), 'utf8')).toBe('uncommitted\n');
+    await expect(switchBranch(repo, '--orphan')).rejects.toThrow(/Not a branch/);
   });
 });

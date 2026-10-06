@@ -32,8 +32,8 @@ export interface SdkRuntime {
 
 export interface HostManagerDeps {
   sdk: () => Promise<SdkRuntime>;
-  /** The full login-shell environment for Claude Code processes. */
-  env: () => Promise<Record<string, string>>;
+  /** The full login-shell environment for Claude Code processes, pointed at a profile's config folder. */
+  env: (profileId: string) => Promise<Record<string, string>>;
   claudePath: () => Promise<string | undefined>;
   /** True when a Claude Code process outside this app has the session open. */
   isOpenElsewhere: (sessionId: string) => boolean;
@@ -41,6 +41,8 @@ export interface HostManagerDeps {
   refreshLive?: () => void;
   /** The folder a session ran in (resumes must start there, or tools act in the wrong place). */
   sessionCwd: (sessionId: string) => string | null;
+  /** The profile a session was created with (resumes and forks must use the same login). */
+  sessionProfile: (sessionId: string) => string;
   onInfo: (info: SessionHostInfo) => void;
   onStream: (delta: StreamDelta) => void;
   onMessages: (sessionId: string, messages: RawSessionMessage[]) => void;
@@ -55,15 +57,22 @@ export interface HostManagerDeps {
   idleTimeoutMs?: number;
   /** Discard an unused pre-warmed process after this long (default 2 min). */
   warmTtlMs?: number;
-  /** Plan usage probably changed. */
-  onUsageHint?: () => void;
+  /** Plan usage of this profile probably changed. */
+  onUsageHint?: (profileId: string) => void;
   /** Helper processes register in the live registry while they run; the engine hides them. */
   ephemeral?: { add(sessionId: string): void; delete(sessionId: string): void };
-  /** Installed plugins, for sessions that aren't running (their own list comes from Claude Code). */
-  installedPlugins?: () => PluginInfo[];
-  /** Persisted command lists per folder, so the palette is instant after a restart. */
-  commandCache?: { get(cwd: string): SlashCommand[] | null; set(cwd: string, commands: SlashCommand[]): void };
+  /** A profile's installed plugins, for sessions that aren't running (their own list comes from Claude Code). */
+  installedPlugins?: (profileId: string) => PluginInfo[];
+  /** Persisted command lists per profile and folder, so the palette is instant after a restart. */
+  commandCache?: { get(key: CommandKey): SlashCommand[] | null; set(key: CommandKey, commands: SlashCommand[]): void };
 }
+
+/** Command lists differ per folder (project commands) and per profile (user commands, skills, plugins). */
+export interface CommandKey {
+  profileId: string;
+  cwd: string;
+}
+const keyOf = ({ profileId, cwd }: CommandKey) => `${profileId}\0${cwd}`;
 
 /** Commands that only work in the terminal UI; Claude Code reports more at init. */
 const TERMINAL_ONLY = new Set(['doctor', 'color', 'focus', 'reload-plugins']);
@@ -77,6 +86,7 @@ interface Pending {
 
 interface Warm {
   cwd: string;
+  profileId: string;
   sessionId: string;
   warm: Promise<WarmQuery>;
   /** canUseTool is fixed at startup, so it forwards to whichever host adopts this process. */
@@ -86,6 +96,8 @@ interface Warm {
 
 export interface CreateParams {
   cwd: string;
+  /** The Claude profile (login) to run with. */
+  profileId: string;
   prompt: string;
   attachments: ImageAttachment[];
   model: string | null;
@@ -140,6 +152,7 @@ export class HostManager {
       {
         sessionId,
         cwd: params.cwd,
+        profileId: params.profileId,
         mode: 'new',
         model: params.model,
         permissionMode: params.permissionMode,
@@ -176,7 +189,8 @@ export class HostManager {
     if (!fork && this.deps.isOpenElsewhere(sessionId)) throw new RpcError('SESSION_BUSY_ELSEWHERE', busyMessage);
     const cwd = this.deps.sessionCwd(sessionId);
     if (!cwd) throw new RpcError('NOT_FOUND', 'Unknown session, or its folder is not recorded');
-    return this.spawn({ sessionId, cwd, mode: fork ? 'fork' : 'resume', model: null, permissionMode: 'default', effort: null, worktree: null });
+    const profileId = this.deps.sessionProfile(sessionId);
+    return this.spawn({ sessionId, cwd, profileId, mode: fork ? 'fork' : 'resume', model: null, permissionMode: 'default', effort: null, worktree: null });
   }
 
   async send(params: { sessionId: string; text: string; attachments: ImageAttachment[]; fork: boolean }): Promise<{ sessionId: string; messageUuid: string }> {
@@ -270,42 +284,44 @@ export class HostManager {
    * or folder. Without a running session, a short-lived Claude Code process is
    * asked once (~0.6 s, no prompt is sent) and the answer is cached.
    */
-  async commands(sessionId: string | undefined, cwd: string | undefined): Promise<SlashCommand[]> {
+  async commands(sessionId: string | undefined, cwd: string | undefined, profileId: string): Promise<SlashCommand[]> {
     const host = sessionId ? this.hosts.get(sessionId) : undefined;
     const folder = host?.info.cwd ?? cwd;
-    const list = host?.commands.length ? host.commands : folder ? (this.commandsByCwd.get(folder) ?? (await this.fetchCommands(folder))) : [];
+    const key = folder ? { profileId: host?.info.profileId ?? profileId, cwd: folder } : null;
+    const list = host?.commands.length ? host.commands : key ? (this.commandsByCwd.get(keyOf(key)) ?? (await this.fetchCommands(key))) : [];
     for (const name of host?.terminalOnly ?? []) TERMINAL_ONLY.add(name);
     return list.filter((c) => !TERMINAL_ONLY.has(c.name));
   }
 
   private readonly commandFetches = new Map<string, Promise<SlashCommand[]>>();
 
-  private fetchCommands(cwd: string): Promise<SlashCommand[]> {
-    const cached = this.deps.commandCache?.get(cwd);
+  private fetchCommands(key: CommandKey): Promise<SlashCommand[]> {
+    const id = keyOf(key);
+    const cached = this.deps.commandCache?.get(key);
     if (cached) {
-      this.commandsByCwd.set(cwd, cached);
+      this.commandsByCwd.set(id, cached);
       return Promise.resolve(cached);
     }
-    let pending = this.commandFetches.get(cwd);
+    let pending = this.commandFetches.get(id);
     if (!pending) {
-      pending = this.listCommands(cwd)
+      pending = this.listCommands(key)
         .then((commands) => {
-          this.commandsByCwd.set(cwd, commands);
-          this.deps.commandCache?.set(cwd, commands);
+          this.commandsByCwd.set(id, commands);
+          this.deps.commandCache?.set(key, commands);
           return commands;
         })
         .catch((error: Error) => {
-          this.deps.log('debug', `Listing commands in ${cwd} failed: ${error.message}`);
+          this.deps.log('debug', `Listing commands in ${key.cwd} failed: ${error.message}`);
           return [];
         })
-        .finally(() => this.commandFetches.delete(cwd));
-      this.commandFetches.set(cwd, pending);
+        .finally(() => this.commandFetches.delete(id));
+      this.commandFetches.set(id, pending);
     }
     return pending;
   }
 
-  private listCommands(cwd: string): Promise<SlashCommand[]> {
-    return this.withHelper(cwd, async (query) =>
+  private listCommands({ cwd, profileId }: CommandKey): Promise<SlashCommand[]> {
+    return this.withHelper(cwd, profileId, async (query) =>
       (await query.supportedCommands()).map((c) => ({ name: c.name, description: c.description, argumentHint: c.argumentHint })),
     );
   }
@@ -316,16 +332,17 @@ export class HostManager {
    * What a session can use. A session running here answers live (and its MCP servers can be
    * toggled); otherwise a helper process for the folder answers, cached for a minute.
    */
-  async capabilities(sessionId: string | undefined, cwd: string, refresh: boolean): Promise<Capabilities> {
+  async capabilities(sessionId: string | undefined, cwd: string, refresh: boolean, profileId: string): Promise<Capabilities> {
     const host = sessionId ? this.hosts.get(sessionId) : undefined;
-    const plugins = () => this.deps.installedPlugins?.() ?? [];
-    if (host?.active) return host.capabilities(plugins);
-    const cached = this.capabilityCache.get(cwd);
+    const plugins = (profile: string) => () => this.deps.installedPlugins?.(profile) ?? [];
+    if (host?.active) return host.capabilities(plugins(host.info.profileId));
+    const key = keyOf({ profileId, cwd });
+    const cached = this.capabilityCache.get(key);
     if (cached && !refresh && Date.now() - cached.at < 60_000) return cached.value;
     // A fresh helper has every MCP server pending; give them up to 5 s to connect.
-    const value = this.withHelper(cwd, (query) => readCapabilities(query, plugins(), false, 5_000));
-    this.capabilityCache.set(cwd, { at: Date.now(), value });
-    value.catch(() => this.capabilityCache.delete(cwd));
+    const value = this.withHelper(cwd, profileId, (query) => readCapabilities(query, plugins(profileId)(), false, 5_000));
+    this.capabilityCache.set(key, { at: Date.now(), value });
+    value.catch(() => this.capabilityCache.delete(key));
     return value;
   }
 
@@ -343,8 +360,8 @@ export class HostManager {
    * Runs `ask` against a short-lived Claude Code process for `cwd` that never gets a prompt,
    * so no session is written. It answers control requests (commands, agents, MCP) and is closed after.
    */
-  private async withHelper<T>(cwd: string, ask: (query: Query) => Promise<T>): Promise<T> {
-    const [env, claudePath, sdk] = await Promise.all([this.deps.env(), this.deps.claudePath(), this.deps.sdk()]);
+  private async withHelper<T>(cwd: string, profileId: string, ask: (query: Query) => Promise<T>): Promise<T> {
+    const [env, claudePath, sdk] = await Promise.all([this.deps.env(profileId), this.deps.claudePath(), this.deps.sdk()]);
     // A prompt that never yields: Claude Code starts, answers the question, and no session is written.
     const idle: AsyncIterable<SDKUserMessage> = { [Symbol.asyncIterator]: () => ({ next: () => new Promise(() => {}) }) };
     const helperId = randomUUID();
@@ -374,8 +391,8 @@ export class HostManager {
   }
 
   /** Starts a Claude Code process for `cwd` so a new session there answers about a second faster. */
-  async prewarm(cwd: string): Promise<void> {
-    if (this.warm?.cwd === cwd) return;
+  async prewarm(cwd: string, profileId: string): Promise<void> {
+    if (this.warm?.cwd === cwd && this.warm.profileId === profileId) return;
     this.discardWarm();
     const sessionId = randomUUID();
     const route: Warm['route'] = { canUseTool: null };
@@ -383,12 +400,13 @@ export class HostManager {
       {
         sessionId,
         cwd,
+        profileId,
         mode: 'new',
         model: null,
         permissionMode: 'default',
         effort: null,
         worktree: null,
-        env: await this.deps.env(),
+        env: await this.deps.env(profileId),
         claudePath: await this.deps.claudePath(),
         canUseTool: (...args) => (route.canUseTool ? route.canUseTool(...args) : Promise.resolve({ behavior: 'deny', message: 'Not ready' })),
       },
@@ -398,7 +416,7 @@ export class HostManager {
     warm.catch((error: unknown) => this.deps.log('debug', `Pre-warm failed: ${(error as Error).message}`));
     const timer = setTimeout(() => this.discardWarm(), this.deps.warmTtlMs ?? 120_000);
     timer.unref?.();
-    this.warm = { cwd, sessionId, warm, route, timer };
+    this.warm = { cwd, profileId, sessionId, warm, route, timer };
   }
 
   closeAll(): void {
@@ -433,7 +451,7 @@ export class HostManager {
   /** A warm process is only usable for a plain new session in the same folder (effort and worktree are fixed at startup). */
   private takeWarm(params: CreateParams): Warm | undefined {
     const warm = this.warm;
-    if (!warm || warm.cwd !== params.cwd || params.worktree || params.effort) return undefined;
+    if (!warm || warm.cwd !== params.cwd || warm.profileId !== params.profileId || params.worktree || params.effort) return undefined;
     clearTimeout(warm.timer);
     this.warm = undefined;
     return warm;
@@ -448,7 +466,7 @@ export class HostManager {
   }
 
   private async spawn(config: Omit<HostConfig, 'env' | 'claudePath' | 'canUseTool'>, warm?: Warm): Promise<SessionHost> {
-    const [env, claudePath, sdk] = await Promise.all([this.deps.env(), this.deps.claudePath(), this.deps.sdk()]);
+    const [env, claudePath, sdk] = await Promise.all([this.deps.env(config.profileId), this.deps.claudePath(), this.deps.sdk()]);
     // The session id can change (forks), so permission prompts look it up through the host.
     let hostRef: SessionHost | undefined;
     const canUseTool: CanUseTool = (toolName, input, options) => this.ask(hostRef!.sessionId, toolName, input, options);
@@ -465,7 +483,7 @@ export class HostManager {
         stream: (delta) => this.deps.onStream(delta),
         messages: (id, messages) => this.deps.onMessages(id, messages),
         log: this.deps.log,
-        usageHint: () => this.deps.onUsageHint?.(),
+        usageHint: () => this.deps.onUsageHint?.(config.profileId),
       },
       startQuery,
     );
@@ -484,8 +502,9 @@ export class HostManager {
       }
     }
     if (host.commands.length) {
-      this.commandsByCwd.set(info.cwd, host.commands);
-      this.deps.commandCache?.set(info.cwd, host.commands);
+      const key = { profileId: info.profileId, cwd: info.cwd };
+      this.commandsByCwd.set(keyOf(key), host.commands);
+      this.deps.commandCache?.set(key, host.commands);
     }
     if (host.models.length) this.models = host.models;
     this.deps.onInfo(info);
