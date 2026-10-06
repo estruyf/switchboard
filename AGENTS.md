@@ -77,12 +77,13 @@ SWITCHBOARD_SMOKE_LIVE_CWD=/path/to/throwaway-repo npm run smoke
 - `README.md` is for people using the app: what it does, how to install it, shortcuts, settings. No implementation details.
 - Technical material goes in `docs/` (`development.md`, `building-and-signing.md`, `project-actions.md`) and is linked from the README.
 - Update `PLAN.md` when a phase or roadmap item changes status.
+- Keep `CHANGELOG.md` up to date: when a change is visible to people using the app, add a line to the `## [Unreleased]` section at the top (create it if it's missing), written for them, not about the implementation. At release time that section becomes `## [X.Y.Z] - YYYY-MM-DD` (see Releases).
 
 ## Releases
 
 Releases are built by `.github/workflows/release.yml`, which runs when a release is published on GitHub:
 
-1. Add a `## [X.Y.Z] - YYYY-MM-DD` section to `CHANGELOG.md`, written for people using the app, and set `version` in `apps/desktop/package.json` to match.
+1. Rename the `## [Unreleased]` section of `CHANGELOG.md` to `## [X.Y.Z] - YYYY-MM-DD` (or add that section, written for people using the app), and set `version` in `apps/desktop/package.json` to match.
 2. Publish a GitHub release with tag `vX.Y.Z` (only when the user asks). The notes may be left empty; the workflow fills them from the CHANGELOG section.
 
 The workflow builds with the version from the tag, signs and notarises the app, checks Gatekeeper accepts it, and attaches the `.dmg` to the release. It never attaches an unsigned build. `npm run dist:notarized` is for checking a signed build locally.
