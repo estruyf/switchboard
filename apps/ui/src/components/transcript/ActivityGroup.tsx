@@ -1,4 +1,4 @@
-import { ChevronRight, CircleAlert } from 'lucide-react';
+import { ChevronRight } from 'lucide-react';
 import { useEffect, useId, useState } from 'react';
 import type { ActivityGroup, DisplayItem } from './displayItems.ts';
 import { Markdown } from './Markdown.tsx';
@@ -63,24 +63,25 @@ function Step({ item, cwd, sessionId }: { item: DisplayItem; cwd: string | null;
         onClick={toggle}
         aria-expanded={open}
         aria-controls={open ? detailsId : undefined}
-        className="flex w-full min-w-0 items-center gap-1.5 px-3 py-2 text-left text-[12.5px] text-muted hover:text-text"
+        className="group flex h-6.5 w-full min-w-0 items-center gap-2 text-left text-ui text-muted hover:text-text"
       >
+        <span className="flex w-4 shrink-0 justify-center" aria-hidden>
+          <span className={`size-1.5 rounded-full ${failed ? 'bg-error' : 'bg-faint/70'}`} />
+        </span>
         <span className="min-w-0 truncate">{label}</span>
-        {failed && (
-          <span className="flex shrink-0 items-center gap-1 text-[11px] text-error">
-            <CircleAlert size={12} aria-hidden /> failed
-          </span>
-        )}
-        <ChevronRight size={13} className={`shrink-0 text-faint transition-transform ${open ? 'rotate-90' : ''}`} aria-hidden />
+        {failed && <span className="shrink-0 text-meta text-error">failed</span>}
+        <ChevronRight size={13} className={`shrink-0 text-faint opacity-0 transition group-hover:opacity-100 ${open ? 'rotate-90 opacity-100' : ''}`} aria-hidden />
       </button>
       {open && (
-        <div id={detailsId} className="px-3 pb-2.5">
+        <div id={detailsId} className="mt-0.5 ml-6 pb-1.5">
           {item.kind === 'tool' ? (
             <ToolDetails item={item} cwd={cwd} sessionId={sessionId} withDiffAndImages />
           ) : item.kind === 'thinking' ? (
-            <p className="text-[12px] whitespace-pre-wrap text-muted italic select-text">{item.text}</p>
+            <p className="text-ui whitespace-pre-wrap text-muted italic select-text">{item.text}</p>
           ) : item.kind === 'text' || item.kind === 'user' || item.kind === 'agent-report' ? (
-            <Markdown text={item.text} />
+            <div className="text-body">
+              <Markdown text={item.text} />
+            </div>
           ) : null}
         </div>
       )}
@@ -129,22 +130,22 @@ export function ActivityGroupView({
         onClick={toggle}
         aria-expanded={open}
         aria-controls={open ? stepsId : undefined}
-        className="group flex w-full min-w-0 items-center gap-2 rounded-md py-1 text-left text-[12.5px]"
+        className="group flex h-6.5 w-full min-w-0 items-center gap-2 text-left text-ui"
         data-tooltip={open ? 'Hide steps' : 'Show each step'}
       >
         <span className="flex w-4 shrink-0 justify-center" aria-hidden>
-          {active ? <WorkingDots /> : failures > 0 ? <CircleAlert size={12} className="text-error" /> : <span className="size-1.5 rounded-full bg-faint/70" />}
+          {active ? <WorkingDots /> : <span className={`size-1.5 rounded-full ${failures > 0 ? 'bg-error' : 'bg-ok'}`} />}
         </span>
         <span className={`min-w-0 truncate ${active ? 'text-text/85' : 'text-muted group-hover:text-text'}`}>{label}</span>
-        {failures > 0 && !active && <span className="shrink-0 text-error">· {failures} failed</span>}
+        {failures > 0 && !active && <span className="shrink-0 text-meta text-error">· {failures} failed</span>}
         {/* How long the run took (still counting while Claude works on it). */}
         {duration && (
-          <span className="shrink-0 text-muted tabular-nums">
+          <span className="shrink-0 text-meta text-faint tabular-nums">
             <span className="sr-only">{active ? ', running for ' : ', took '}</span>
             {duration}
           </span>
         )}
-        <ChevronRight size={13} className={`shrink-0 text-faint transition-transform ${open ? 'rotate-90' : ''}`} aria-hidden />
+        <ChevronRight size={13} className={`shrink-0 text-faint opacity-0 transition group-hover:opacity-100 ${open ? 'rotate-90 opacity-100' : ''}`} aria-hidden />
       </button>
 
       {/* Images stay in view, like the attachments they often are (screenshots Claude took or read). */}
@@ -155,7 +156,8 @@ export function ActivityGroupView({
       )}
 
       {open && (
-        <div id={stepsId} className="mt-1 ml-6 divide-y divide-border overflow-hidden rounded-lg border border-border" data-steps>
+        // Each step is a quiet row of its own, indented under the summary; no box around them.
+        <div id={stepsId} className="ml-6" data-steps>
           {items.map((item) => (
             <Step key={item.key} item={item} cwd={cwd} sessionId={sessionId} />
           ))}

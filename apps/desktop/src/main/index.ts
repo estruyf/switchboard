@@ -552,10 +552,10 @@ async function runLiveSessionStep(win: BrowserWindow, cwd: string): Promise<stri
   await js(`document.querySelector('[data-session-id="${liveId}"]').click()`);
   if (!(await waitInPage(win, `document.querySelector('[data-current-session="${liveId}"]')`, 5_000))) return 'could not return to the session after forking';
 
-  // Open the same session in the Claude Code TUI: it runs here, so the panel offers to stop it first.
-  await js("document.querySelector('[data-toggle-terminal]')?.click()");
-  if (!(await waitInPage(win, "document.querySelector('[data-open-claude-tui]')", 3_000))) return 'no terminal panel';
-  await js("document.querySelector('[data-open-claude-tui]').click()");
+  // Open the same session in the Claude Code TUI from the ⋯ menu: it runs here, so the panel offers to stop it first.
+  await js("document.querySelector('[data-current-session] [data-more-menu]')?.click()");
+  if (!(await waitInPage(win, "document.querySelector('[role=menuitem][data-open-claude-tui]')", 3_000))) return 'no Claude Code item in the ⋯ menu';
+  await js("document.querySelector('[role=menuitem][data-open-claude-tui]').click()");
   if (!(await waitInPage(win, "[...document.querySelectorAll('[data-terminal-panel] button')].some((b) => b.innerText === 'Stop it here and open')", 5_000))) {
     return 'expected the stop-and-open choice for a session running here';
   }
@@ -563,9 +563,8 @@ async function runLiveSessionStep(win: BrowserWindow, cwd: string): Promise<stri
   if (!(await waitInPage(win, "document.querySelector('[data-terminal] textarea')", 10_000))) return 'the Claude Code terminal tab did not open';
   await new Promise((resolve) => setTimeout(resolve, 5_000));
   await shot('claude-tui.png');
-  // Close the TUI and give its process time to leave the registry, or delete would (rightly) refuse.
+  // Close the TUI (its last tab, so the panel hides too) and give its process time to leave the registry, or delete would (rightly) refuse.
   await js("document.querySelector('[data-terminal-panel] [aria-label^=\"Close\"]')?.click()");
-  await js("document.querySelector('[data-toggle-terminal]')?.click()");
   await new Promise((resolve) => setTimeout(resolve, 3_000));
 
   // Delete it again through the context menu; the transcript must land in the Trash.
@@ -663,12 +662,11 @@ async function shot(win: BrowserWindow, name: string): Promise<void> {
   writeFileSync(join(smokeOutDir!, name), (await win.webContents.capturePage()).toPNG());
 }
 
-/** Opens the terminal panel on the open session, runs a harmless command and screenshots it. */
+/** Opens the terminal panel on the open session (which starts a shell by itself), runs a harmless command and screenshots it. */
 async function runTerminalStep(win: BrowserWindow): Promise<boolean> {
   const js = (code: string) => win.webContents.executeJavaScript(code);
   await js("document.querySelector('[data-toggle-terminal]')?.click()");
   if (!(await waitInPage(win, "document.querySelector('[data-terminal-panel]')", 3_000))) return false;
-  await js("document.querySelector('[data-new-terminal]')?.click()");
   if (!(await waitInPage(win, "document.querySelector('[data-terminal] textarea')", 5_000))) return false;
   await new Promise((resolve) => setTimeout(resolve, 1_000));
   await js("document.querySelector('[data-terminal] textarea').focus()");
@@ -716,7 +714,7 @@ async function runSettingsStep(win: BrowserWindow): Promise<string> {
     await click(`[data-settings-section="${id}"]`);
     return waitInPage(win, `document.querySelector('[data-settings-page="${id}"]')`, 2_000);
   };
-  // The sidebar lists Settings' sections while it is open, so session rows are checked with it closed.
+  // Session rows are checked with Settings closed, so nothing about the sheet can affect them.
   const withSettingsClosed = async (check: string) => {
     await click('[data-close-settings]');
     const ok = await waitInPage(win, `!document.querySelector('[data-settings]') && ${check}`, 2_000);
@@ -726,13 +724,22 @@ async function runSettingsStep(win: BrowserWindow): Promise<string> {
   };
 
   await click('[data-open-settings]');
-  if (!(await waitInPage(win, "document.querySelector('[data-settings]') && document.querySelector('[data-settings-nav]') && !document.querySelector('[data-session-list]')", 3_000))) return 'settings did not open with its sections in the sidebar';
+  // Settings is a sheet over the main area with its sections inside; the sidebar keeps its session list.
+  if (
+    !(await waitInPage(
+      win,
+      "document.querySelector('[data-settings][role=dialog][aria-modal=true] [data-settings-nav] [data-settings-section]') && document.querySelector('[data-settings-scrim]') && document.querySelector('[data-session-list]')",
+      3_000,
+    ))
+  ) {
+    return 'settings did not open as a sheet with its sections, next to the session list';
+  }
   if (!(await section('theme'))) return 'the Theme section did not open';
   await click('[data-color-scheme="light"]');
   if (!(await waitInPage(win, `${background} === 'rgb(255, 255, 255)'`, 2_000))) return 'Light did not apply';
   if (!(await section('sidebar'))) return 'the Sidebar section did not open';
   await click('[data-sidebar-style="large"]');
-  if (!(await withSettingsClosed(`${rowHeight} === 66 && [...document.querySelectorAll('[data-session-id] > *')].some((el) => el.offsetWidth === 34)`))) return 'Large icons did not apply';
+  if (!(await withSettingsClosed(`${rowHeight} === 52 && [...document.querySelectorAll('[data-session-id] > *')].some((el) => el.offsetWidth === 34)`))) return 'Large icons did not apply';
   await pause();
   await shot(win, 'settings-light.png');
   await section('theme');
@@ -1182,30 +1189,34 @@ async function runBranchStep(win: BrowserWindow): Promise<string> {
 }
 
 /**
- * Read-only: the header's "Open in" menu opens on top of the transcript (nothing paints over it), offers
- * GitHub with the link git's remotes give when the checkout is on GitHub, and Escape closes it. Opens
- * nothing.
+ * Read-only: the "Open in" items in the header's ⋯ menu (the default app first, with ⌘O) open on top of
+ * the transcript (nothing paints over the menu), offer GitHub with the link git's remotes give when the
+ * checkout is on GitHub, and Escape closes the menu. Opens nothing.
  */
 async function runOpenInStep(win: BrowserWindow): Promise<string> {
   const js = (code: string) => win.webContents.executeJavaScript(code);
-  const toggle = "document.querySelector('[data-current-session] [data-open-in-menu]')";
-  if (!(await waitInPage(win, toggle, 3_000))) return 'no Open in button';
+  const toggle = "document.querySelector('[data-current-session] [data-more-menu]')";
+  const menu = "document.querySelector('[role=\"menu\"][aria-label=\"More\"]')";
+  if (!(await waitInPage(win, toggle, 3_000))) return 'no More menu';
   await js(`${toggle}.click()`);
-  if (!(await waitInPage(win, "document.querySelector('[data-menu=\"open-in\"] [role=\"menuitem\"]')", 2_000))) return 'menu did not open';
+  if (!(await waitInPage(win, `${menu}?.querySelector('[role="menuitem"]')`, 2_000))) return 'menu did not open';
+  if (!(await js(`!!${menu}.querySelector('[data-open-in]')`))) return 'no Open in items in the More menu';
+  const defaultHint = ((await js(`${menu}.querySelector('[data-open-in]').innerText`)) as string).replace(/\s+/g, ' ').trim();
   // The middle of the menu's last item must hit the menu itself, not the transcript under the header.
   const onTop = (await js(
-    "(() => { const menu = document.querySelector('[data-menu=\"open-in\"]'); const r = [...menu.querySelectorAll('[role=\"menuitem\"]')].at(-1).getBoundingClientRect(); return menu.contains(document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2)); })()",
+    `(() => { const menu = ${menu}; const r = [...menu.querySelectorAll('[role="menuitem"]')].at(-1).getBoundingClientRect(); return menu.contains(document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2)); })()`,
   )) as boolean;
-  const github = (await js("document.querySelector('[data-menu=\"open-in\"] [data-open-github]')?.dataset.openGithub ?? null")) as string | null;
+  const github = (await js(`${menu}.querySelector('[data-open-github]')?.dataset.openGithub ?? null`)) as string | null;
   // Let a frame with the menu paint before capturing.
   await new Promise((resolve) => setTimeout(resolve, 200));
   await shot(win, 'open-in-menu.png');
   win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Escape' });
   win.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Escape' });
   if (!onTop) return 'menu is covered by the page below it';
+  if (!defaultHint.includes('⌘O')) return `the default app does not show ⌘O ("${defaultHint}")`;
   if (github !== null && !/^https:\/\/github\.com\/[^/]+\/[^/]+(\/tree\/.+)?$/.test(github)) return `odd GitHub link "${github}"`;
-  if (!(await waitInPage(win, "!document.querySelector('[data-menu=\"open-in\"]')", 2_000))) return 'Escape did not close the menu';
-  return `ok: on top of the transcript, ${github ? `GitHub → ${github}` : 'no GitHub remote'}, Escape closed it`;
+  if (!(await waitInPage(win, `!${menu}`, 2_000))) return 'Escape did not close the menu';
+  return `ok: Open in items in the More menu (${defaultHint}), on top of the transcript, ${github ? `GitHub → ${github}` : 'no GitHub remote'}, Escape closed it`;
 }
 
 /**
@@ -1474,10 +1485,10 @@ async function runSplitStep(win: BrowserWindow): Promise<string> {
   if (!(await waitInPage(win, "document.querySelector('[data-pane-active=\"true\"]')?.dataset.pane === 'main'", 2_000))) return 'clicking the left pane did not make it active';
   await js("document.querySelector('[data-pane=\"split\"] [data-close-pane]').click()");
   if (!(await waitInPage(win, "!document.querySelector('[data-split]') && document.querySelector('[data-current-session]')", 2_000))) return 'closing the pane did not go back to one';
-  // Closing the last session lands on New session; picking it in the sidebar opens it again.
+  // Closing the last session lands on Home; picking it in the sidebar opens it again.
   const remaining = (await js("document.querySelector('[data-current-session]').dataset.currentSession")) as string;
   await js("document.querySelector('[data-close-session]').click()");
-  if (!(await waitInPage(win, "!document.querySelector('[data-current-session]') && document.querySelector('[data-new-session-view]')", 2_000))) return 'closing the session did not land on New session';
+  if (!(await waitInPage(win, "!document.querySelector('[data-current-session]') && document.querySelector('[data-home], [data-onboarding]')", 2_000))) return 'closing the session did not land on Home';
   await js(`document.querySelector('[data-session-id="${remaining}"]').click()`);
   if (!(await waitInPage(win, `document.querySelector('[data-current-session="${remaining}"]')`, 3_000))) return 'could not reopen the closed session';
   return 'ok: ⌥-click opened a second pane, focus follows clicks, closing returns to one, closing that lands on New session';

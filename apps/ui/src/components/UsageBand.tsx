@@ -3,6 +3,7 @@ import { create } from 'zustand';
 import type { UsageLimit, UsageSnapshot } from '@switchboard/protocol/client';
 import { useEngineConnection } from '../engine/useEngine.ts';
 import { useProfiles } from '../state/profilesStore.ts';
+import { levelOf, LEVEL_COLOR, LEVEL_FILL, LEVEL_TEXT } from '../lib/levels.ts';
 import { ProfileBadge } from './profiles/ProfileBadge.tsx';
 import { countdown, limitLabel, spokenLimit, visibleLimits } from './usageFormat.ts';
 
@@ -56,16 +57,14 @@ function useUsageFor(profileId: string): UsageSnapshot | null {
   return useUsage((s) => s.usage.get(profileId) ?? null);
 }
 
-const TONE: Record<string, string> = { warning: 'var(--sb-warn)', critical: 'var(--sb-error)' };
-
-function Ring({ percent, severity }: { percent: number; severity: string }) {
+function Ring({ percent }: { percent: number }) {
   const r = 6.5;
   const circumference = 2 * Math.PI * r;
   const filled = (Math.min(100, Math.max(0, percent)) / 100) * circumference;
   return (
     <svg width="16" height="16" viewBox="0 0 16 16" className="shrink-0 -rotate-90" aria-hidden>
       <circle cx="8" cy="8" r={r} fill="none" stroke="var(--sb-border)" strokeWidth="2.5" />
-      <circle cx="8" cy="8" r={r} fill="none" stroke={TONE[severity] ?? 'var(--sb-ok)'} strokeWidth="2.5" strokeLinecap="round" strokeDasharray={`${filled} ${circumference}`} />
+      <circle cx="8" cy="8" r={r} fill="none" stroke={LEVEL_COLOR[levelOf(percent)]} strokeWidth="2.5" strokeLinecap="round" strokeDasharray={`${filled} ${circumference}`} />
     </svg>
   );
 }
@@ -73,13 +72,17 @@ function Ring({ percent, severity }: { percent: number; severity: string }) {
 const money = (minorUnits: number, currency: string | null) =>
   new Intl.NumberFormat(undefined, { style: 'currency', currency: currency ?? 'USD', maximumFractionDigits: 2 }).format(minorUnits / 100);
 
-const BAR_TONE: Record<string, string> = { warning: 'bg-warn', critical: 'bg-error' };
+/** The footer's short names: "5h" for the session window, "Week" for the weekly one (with its scope, such as a model). */
+function footerLabel(limit: UsageLimit): string {
+  const label = limitLabel(limit);
+  return label.startsWith('7d') ? `Week${label.slice(2)}` : label;
+}
 
 /**
  * Plan usage, like the claude-stats mod: one pill per window with a ring and a reset countdown.
  * Shows the limits of the given Claude profile (the default one when omitted).
  * `compact` drops the pills for a single line (`6% 5h · 4h44m`), for the new session's route tray.
- * `footer`: tiny bars (`9% · 5h`) for the quiet line under a session's composer, reset times in the tooltips;
+ * `footer`: tiny bars (`5h ▬ 9%   Week ▬ 18%`) for the quiet line under a session's composer, reset times in the tooltips;
  * the profile is shown next to it by the caller.
  */
 export function UsageBand({ profileId, compact = false, footer = false }: { profileId?: string | null; compact?: boolean; footer?: boolean }) {
@@ -110,17 +113,20 @@ export function UsageBand({ profileId, compact = false, footer = false }: { prof
 
   if (footer) {
     return (
-      <div role="group" aria-label="Plan usage" className="flex min-w-0 items-center gap-3 text-[11.5px] text-muted" data-usage-band data-usage-profile={id}>
-        {limits.map((limit) => (
-          <div key={`${limit.kind}:${limit.scope ?? ''}`} {...meter(limit)} className="flex items-center gap-1.5 whitespace-nowrap" data-tooltip={resetTitle(limit)}>
-            <span className="h-1 w-12 overflow-hidden rounded-full bg-border @max-[860px]:hidden" aria-hidden>
-              <span className={`block h-full rounded-full ${BAR_TONE[limit.severity] ?? 'bg-ok'}`} style={{ width: `${Math.min(100, Math.max(2, limit.percent))}%` }} />
-            </span>
-            <span className={`tabular-nums ${limit.severity === 'critical' ? 'text-error' : limit.severity === 'warning' ? 'text-warn' : ''}`}>
-              {Math.round(limit.percent)}% · {limitLabel(limit)}
-            </span>
-          </div>
-        ))}
+      <div role="group" aria-label="Plan usage" className="flex min-w-0 items-center gap-4 text-meta text-muted" data-usage-band data-usage-profile={id}>
+        {limits.map((limit) => {
+          const level = levelOf(limit.percent);
+          return (
+            <div key={`${limit.kind}:${limit.scope ?? ''}`} {...meter(limit)} className="flex items-center gap-1.5 whitespace-nowrap" data-tooltip={resetTitle(limit)}>
+              <span>{footerLabel(limit)}</span>
+              {/* 48x4 bar; the fill takes the level's colour (green, orange, red). */}
+              <span className="h-1 w-12 overflow-hidden rounded-full bg-border @max-[860px]:hidden" aria-hidden>
+                <span className={`block h-full rounded-full ${LEVEL_FILL[level]}`} style={{ width: `${Math.min(100, Math.max(2, limit.percent))}%` }} />
+              </span>
+              <span className={`tabular-nums ${LEVEL_TEXT[level]}`}>{Math.round(limit.percent)}%</span>
+            </div>
+          );
+        })}
         {extra?.enabled && extra.usedCredits !== null && extra.usedCredits > 0 && (
           <span className="whitespace-nowrap @max-[860px]:hidden" data-tooltip={extra.monthlyLimit !== null ? `Extra usage this month, of ${money(extra.monthlyLimit, extra.currency)}` : 'Extra usage this month'}>
             <span className="text-ok">{money(extra.usedCredits, extra.currency)}</span> extra
@@ -132,7 +138,7 @@ export function UsageBand({ profileId, compact = false, footer = false }: { prof
 
   if (compact) {
     return (
-      <div role="group" aria-label="Plan usage" className="flex shrink-0 items-center divide-x divide-border text-[11.5px]" data-usage-band data-usage-profile={id}>
+      <div role="group" aria-label="Plan usage" className="flex shrink-0 items-center divide-x divide-border text-meta" data-usage-band data-usage-profile={id}>
         {limits.map((limit) => (
           <div
             key={`${limit.kind}:${limit.scope ?? ''}`}
@@ -140,7 +146,7 @@ export function UsageBand({ profileId, compact = false, footer = false }: { prof
             className="flex items-center gap-1.5 px-2.5 whitespace-nowrap first:pl-0 last:pr-0"
             data-tooltip={resetTitle(limit)}
           >
-            <Ring percent={limit.percent} severity={limit.severity} />
+            <Ring percent={limit.percent} />
             <span className="font-semibold text-muted tabular-nums">{Math.round(limit.percent)}%</span>
             <span className="text-muted">
               {limitLabel(limit)}
@@ -154,15 +160,15 @@ export function UsageBand({ profileId, compact = false, footer = false }: { prof
 
   return (
     <div role="group" aria-label="Plan usage" className="flex flex-wrap items-center gap-1.5" data-usage-band data-usage-profile={id}>
-      <ProfileBadge profileId={id} className="mr-0.5 text-[12px]" />
+      <ProfileBadge profileId={id} className="mr-0.5 text-ui" />
       {limits.map((limit) => (
         <div
           key={`${limit.kind}:${limit.scope ?? ''}`}
           {...meter(limit)}
-          className="flex h-7 items-center gap-1.5 rounded-full border border-border bg-card px-2.5 text-[12px]"
+          className="flex h-7 items-center gap-1.5 rounded-full border border-border bg-card px-2.5 text-ui"
           data-tooltip={resetTitle(limit)}
         >
-          <Ring percent={limit.percent} severity={limit.severity} />
+          <Ring percent={limit.percent} />
           <span className="font-semibold tabular-nums">{Math.round(limit.percent)}%</span>
           <span className="text-muted">
             {limitLabel(limit)}
@@ -171,7 +177,7 @@ export function UsageBand({ profileId, compact = false, footer = false }: { prof
         </div>
       ))}
       {extra?.enabled && extra.usedCredits !== null && extra.usedCredits > 0 && (
-        <div className="flex h-7 items-center gap-1.5 rounded-full border border-border bg-card px-2.5 text-[12px]">
+        <div className="flex h-7 items-center gap-1.5 rounded-full border border-border bg-card px-2.5 text-ui">
           <span className="font-semibold text-ok">{money(extra.usedCredits, extra.currency)}</span>
           <span className="text-muted">extra usage{extra.monthlyLimit !== null && ` of ${money(extra.monthlyLimit, extra.currency)}`}</span>
         </div>

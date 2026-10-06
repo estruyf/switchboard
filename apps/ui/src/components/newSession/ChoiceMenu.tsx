@@ -141,7 +141,7 @@ export function ChoiceMenu<T extends string>({
           setUpward(placement === 'up' || window.innerHeight - e.currentTarget.getBoundingClientRect().bottom < 300);
           setOpen((o) => !o);
         }}
-        className={`flex h-7 max-w-full min-w-0 items-center gap-1.5 rounded-md px-2 text-[12px] whitespace-nowrap text-muted hover:bg-border/50 hover:text-text disabled:opacity-50 ${open ? 'bg-border/50 text-text' : ''}`}
+        className={`flex h-7 max-w-full min-w-0 items-center gap-1.5 rounded-md px-2 text-ui whitespace-nowrap text-muted hover:bg-border/50 hover:text-text disabled:opacity-50 ${open ? 'bg-border/50 text-text' : ''}`}
       >
         {children}
         {chevron && <ChevronDown size={12} className="shrink-0 text-faint" aria-hidden />}
@@ -156,7 +156,7 @@ export function ChoiceMenu<T extends string>({
           className={`absolute z-40 max-h-80 overflow-y-auto rounded-lg border overlay py-1 ${align === 'right' ? 'right-0' : 'left-0'} ${upward ? 'bottom-full mb-1.5' : 'top-full mt-1.5'}`}
         >
           {heading && (
-            <p role="presentation" className="px-3 pt-1.5 pb-1 text-[10px] tracking-wide text-faint uppercase">
+            <p role="presentation" className="px-3 pt-1.5 pb-1 text-meta tracking-wide text-faint uppercase">
               {heading}
             </p>
           )}
@@ -168,7 +168,7 @@ export function ChoiceMenu<T extends string>({
               placeholder={search}
               spellCheck={false}
               aria-label={search}
-              className={`mx-2 mb-1 w-[calc(100%-1rem)] rounded-md border border-border bg-bg px-2 py-1 text-[11.5px] text-text outline-none placeholder:text-faint focus:border-accent-ink ${mono ? 'font-mono' : ''}`}
+              className={`mx-2 mb-1 w-[calc(100%-1rem)] rounded-md border border-border bg-bg px-2 py-1 text-ui text-text outline-none placeholder:text-faint focus:border-accent-ink ${mono ? 'font-mono' : ''}`}
             />
           )}
           {listed.map((choice) => (
@@ -188,15 +188,15 @@ export function ChoiceMenu<T extends string>({
               {choice.dot && <span aria-hidden className={`mt-[5px] size-2 shrink-0 rounded-full ${choice.dot}`} />}
               <span className="min-w-0 flex-1">
                 <span className="flex items-baseline gap-2">
-                  <span className={`min-w-0 truncate text-text ${mono ? 'font-mono text-[12px]' : 'text-[12.5px]'}`}>{choice.label}</span>
-                  {choice.note && <span className="shrink-0 text-[11px] text-faint tabular-nums">{choice.note}</span>}
+                  <span className={`min-w-0 truncate text-text ${mono ? 'font-mono text-ui' : 'text-ui'}`}>{choice.label}</span>
+                  {choice.note && <span className="shrink-0 text-meta text-faint tabular-nums">{choice.note}</span>}
                 </span>
-                {choice.description && <span className="block truncate text-[11px] text-muted">{choice.description}</span>}
+                {choice.description && <span className="block truncate text-meta text-muted">{choice.description}</span>}
               </span>
               <Check size={13} aria-hidden className={`mt-[3px] shrink-0 text-accent-ink ${choice.value === value ? '' : 'invisible'}`} />
             </button>
           ))}
-          {search && listed.length === 0 && <p className="px-3 py-1.5 text-[12px] text-muted">No matches</p>}
+          {search && listed.length === 0 && <p className="px-3 py-1.5 text-ui text-muted">No matches</p>}
           {extra}
           {actions && actions.length > 0 && (
             <>
@@ -212,10 +212,10 @@ export function ChoiceMenu<T extends string>({
                     close(true);
                     action.onSelect();
                   }}
-                  className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-[12.5px] text-text outline-none hover:bg-accent/15 focus-visible:bg-accent/15 disabled:opacity-40 disabled:hover:bg-transparent"
+                  className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-ui text-text outline-none hover:bg-accent/15 focus-visible:bg-accent/15 disabled:opacity-40 disabled:hover:bg-transparent"
                 >
                   <span className="min-w-0 flex-1 truncate">{action.label}</span>
-                  {action.hint && <span className="shrink-0 text-[11px] text-faint">{action.hint}</span>}
+                  {action.hint && <span className="shrink-0 text-meta text-faint">{action.hint}</span>}
                 </button>
               ))}
             </>

@@ -1,5 +1,5 @@
 import { useVirtualizer } from '@tanstack/react-virtual';
-import { Archive, ArchiveRestore, ChevronRight, FolderCog, GitBranch, Pin, Search, Settings, SquarePen, X } from 'lucide-react';
+import { Archive, ArchiveRestore, ChevronRight, FolderCog, GitBranch, House, Pin, Search, Settings, SquarePen, X } from 'lucide-react';
 import type { SidebarStyle } from '@switchboard/protocol/bridge';
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type MouseEvent, type PointerEvent } from 'react';
 import { useEngineConnection } from '../../engine/useEngine.ts';
@@ -12,14 +12,13 @@ import { toRows, useSessions, type SessionRowData } from '../../state/sessionsSt
 import { usePreferences } from '../../state/preferencesStore.ts';
 import { useSidebar } from '../../state/sidebarStore.ts';
 import { SIDEBAR_DEFAULT_WIDTH } from '../../state/sidebarWidth.ts';
-import { buildSessionList, inScope, isActive, rowStatus } from '../../state/sidebarRows.ts';
+import { buildListRows, buildSessionList, GROUP_LABEL, inScope, isActive, rowStatus, waitingLabel, type RowStatus, type SessionGroup, type SidebarListRow } from '../../state/sidebarRows.ts';
 import { NO_PICKS, rangePick, stepPick, togglePick, visiblePicks, type Picks } from '../../state/sessionPicks.ts';
 import { ConfirmDialog } from '../ConfirmDialog.tsx';
 import { Menu, type MenuEntry } from '../Menu.tsx';
 import { useOpenIn } from '../OpenInButton.tsx';
 import { ProfileBadge } from '../profiles/ProfileBadge.tsx';
 import { ProjectIcon } from '../ProjectIcon.tsx';
-import { SettingsNav } from '../SettingsView.tsx';
 import { updatePill } from '../../lib/updates.ts';
 import { useUpdates } from '../../state/updatesStore.ts';
 import { useClaudeUpdate } from '../../state/claudeUpdateStore.ts';
@@ -66,10 +65,35 @@ function SidebarResizeHandle() {
   );
 }
 
-type ListRow = { kind: 'session'; data: SessionRowData; archived: boolean } | { kind: 'header'; count: number; open: boolean };
-
-const SESSION_ROW_HEIGHT: Record<SidebarStyle, number> = { large: 70, standard: 70, compact: 36 };
+const SESSION_ROW_HEIGHT: Record<SidebarStyle, number> = { large: 56, standard: 48, compact: 34 };
 const ARCHIVED_HEADER_HEIGHT = 34;
+const GROUP_HEADER_HEIGHT = 28;
+
+const rowHeight = (row: SidebarListRow, style: SidebarStyle) =>
+  row.kind === 'session' ? SESSION_ROW_HEIGHT[style] : row.kind === 'group' ? GROUP_HEADER_HEIGHT - (row.first ? 6 : 0) : ARCHIVED_HEADER_HEIGHT;
+
+/** The 3px rail at a row's left edge: only the states that ask for a look get one. */
+const RAIL_TONE: Partial<Record<Exclude<RowStatus, null>, string>> = { 'needs-you': 'bg-warn', running: 'bg-accent-ink', unread: 'bg-unread' };
+const AGE_TONE: Partial<Record<Exclude<RowStatus, null>, string>> = { 'needs-you': 'text-warn', running: 'text-accent-ink', unread: 'text-unread' };
+
+/** A section header in the list. Needs you and Working take their status colour and a count, so they read at a glance. */
+function GroupHeader({ group, count, first }: { group: SessionGroup; count: number; first: boolean }) {
+  const tone = group === 'needs-you' ? 'text-warn' : group === 'working' ? 'text-accent-ink' : 'text-faint';
+  const pill = group === 'needs-you' ? 'bg-warn/15' : group === 'working' ? 'bg-accent/20' : null;
+  return (
+    <div className={`flex h-full items-end gap-1.5 px-2.5 ${first ? 'pb-1' : 'pb-1.5'} text-meta font-semibold tracking-wider uppercase ${tone}`} data-session-group={group}>
+      <span role="heading" aria-level={2}>
+        {GROUP_LABEL[group]}
+        {pill && <span className="sr-only">, {count}</span>}
+      </span>
+      {pill && (
+        <span className={`rounded-full px-1.5 tabular-nums tracking-normal ${pill}`} aria-hidden>
+          {count}
+        </span>
+      )}
+    </div>
+  );
+}
 
 /** Re-renders relative ages (and the 48 h cut-off) once a minute. */
 function useNow(intervalMs = 60_000): number {
@@ -89,6 +113,7 @@ const SessionRow = memo(function SessionRow({
   picked,
   now,
   tabbable,
+  waitingFor,
   onClick,
   onMenu,
 }: {
@@ -103,21 +128,27 @@ const SessionRow = memo(function SessionRow({
   now: number;
   /** The list's one Tab stop (roving tabindex): ↑ ↓ move between rows from there. */
   tabbable: boolean;
+  /** For a session waiting for you: what it asks for ("Permission: Bash", "Question"). */
+  waitingFor: string | null;
   onClick(event: MouseEvent, data: SessionRowData): void;
   onMenu(at: { x: number; y: number }, data: SessionRowData): void;
 }) {
   const project = useProjects((s) => s.projects.get(data.projectRoot));
   const style = usePreferences((s) => s.prefs.sidebarStyle);
+  // With a project filter on, every row is in that project: the name would only repeat.
+  const filtered = useProjects((s) => s.filter !== null);
   const status = rowStatus(data);
   // A running session on its project's checkout: the branch the header read from git, once it has.
   const liveCwd = data.live?.cwd && !data.isWorktree && !inWorktree(data.live.cwd) ? data.live.cwd : null;
   const liveBranch = useCheckoutBranches((s) => (liveCwd && s.byCwd.has(liveCwd) ? (s.byCwd.get(liveCwd) ?? 'detached') : null));
   const branch = liveBranch ?? data.branch;
-  const emphasised = status !== null && status !== 'idle';
-  const ageTone = status === 'needs-you' ? 'text-warn' : status === 'running' || status === 'unread' ? 'text-accent-ink' : 'text-faint';
+  const emphasised = status === 'needs-you' || status === 'running' || status === 'unread';
+  const ageTone = (status && AGE_TONE[status]) ?? 'text-faint';
   const projectName = project?.name ?? data.projectRoot.split('/').pop();
-  const titleTone = emphasised || selected ? 'font-semibold text-text' : archived ? 'text-muted' : 'text-text/80';
-  const age = <span className={`shrink-0 tabular-nums ${ageTone}`}>{shortAge(data.updatedAt, now)}</span>;
+  const titleTone = emphasised || selected ? 'font-semibold text-text' : archived ? 'text-muted' : 'text-text/85';
+  const age = <span className={`shrink-0 text-meta tabular-nums ${ageTone}`}>{shortAge(data.updatedAt, now)}</span>;
+  const railTone = status && RAIL_TONE[status];
+  const rail = railTone && <span className={`absolute inset-y-1.5 left-0 w-[3px] rounded-full ${railTone}`} aria-hidden />;
   const pin = data.pinned && <Pin size={11} className="shrink-0 text-faint" aria-hidden />;
   // Below the row's corner, for menus opened from the keyboard (or VoiceOver, which sends a contextmenu at 0,0).
   const menuAt = (el: HTMLElement) => {
@@ -147,21 +178,23 @@ const SessionRow = memo(function SessionRow({
         onMenu(menuAt(e.currentTarget), data);
       }
     },
-    'data-tooltip': [data.title, style === 'compact' ? projectName : null, data.summary?.cwd].filter(Boolean).join('\n'),
+    'data-tooltip': [data.title, style === 'compact' ? projectName : null, style === 'compact' ? waitingFor : null, data.summary?.cwd].filter(Boolean).join('\n'),
   };
+  // Selection is a neutral fill (a yellow tint vanishes on the light sidebar); picks add a ring on top.
   const surface = picked
-    ? `ring-1 ring-inset ring-accent-ink/50 ${selected ? 'bg-accent/15' : 'bg-accent/10'}`
+    ? `ring-1 ring-inset ring-accent-ink/50 ${selected ? 'bg-selected' : 'bg-border/30'}`
     : selected
-      ? 'bg-accent/15'
+      ? 'bg-selected'
       : beside
         ? 'bg-border/45 ring-1 ring-inset ring-border'
         : 'hover:bg-border/45';
 
   if (style === 'compact') {
     return (
-      <button {...common} className={`flex h-8 w-full items-center gap-2 rounded-md px-2.5 text-left text-[11px] ${surface}`}>
+      <button {...common} className={`relative flex h-8 w-full items-center gap-2 rounded-md px-2.5 text-left text-meta ${surface}`}>
+        {rail}
         <ProjectIcon project={project} root={data.projectRoot} size={16} />
-        <span className={`min-w-0 flex-1 truncate text-[13px] ${titleTone}`}>{data.title}</span>
+        <span className={`min-w-0 flex-1 truncate text-body ${titleTone}`}>{data.title}</span>
         <ProfileBadge profileId={data.profileId} dotOnly />
         {pin}
         {status ? <StatusIcon status={status} /> : age}
@@ -169,40 +202,37 @@ const SessionRow = memo(function SessionRow({
     );
   }
 
+  // Two lines: the title with its age, then what it waits for (needs you) or where it runs.
+  const place = [branch, filtered ? null : projectName].filter(Boolean);
   const lines = (
-    <>
-      <span className="flex min-w-0 items-center gap-1.5 text-[11px] text-muted">
-        {style === 'standard' && <ProjectIcon project={project} root={data.projectRoot} size={13} />}
-        <span className="min-w-0 flex-1 truncate">{projectName}</span>
-        <ProfileBadge profileId={data.profileId} className="max-w-24" />
-        {pin}
+    <span className="grid min-w-0 flex-1 gap-px">
+      <span className="flex min-w-0 items-center gap-2">
+        <span className={`min-w-0 flex-1 truncate text-body leading-5 ${titleTone}`}>{data.title}</span>
         {age}
       </span>
-      <span className={`min-w-0 truncate text-[13px] leading-5 ${titleTone}`}>{data.title}</span>
-      <span className="flex min-w-0 items-center gap-1.5 text-[11px] text-faint">
-        {branch && (
+      <span className="flex h-4 min-w-0 items-center gap-1.5 text-meta text-faint">
+        {waitingFor ? (
+          <span className="min-w-0 flex-1 truncate font-medium text-warn">{waitingFor}</span>
+        ) : (
           <>
-            <GitBranch size={11} className={`shrink-0 ${data.isWorktree ? 'text-accent-ink/80' : ''}`} aria-hidden />
-            <span className="min-w-0 truncate">{branch}</span>
+            {branch && <GitBranch size={11} className={`shrink-0 ${data.isWorktree ? 'text-accent-ink/80' : ''}`} aria-hidden />}
+            <span className="min-w-0 flex-1 truncate">{place.join(' · ')}</span>
           </>
         )}
-        <span className="flex-1" />
+        <ProfileBadge profileId={data.profileId} className="max-w-24" />
+        {pin}
         <StatusIcon status={status} />
       </span>
-    </>
+    </span>
   );
 
-  if (style === 'large') {
-    return (
-      <button {...common} className={`flex h-[66px] w-full items-center gap-2.5 rounded-lg px-2.5 text-left ${surface}`}>
-        <ProjectIcon project={project} root={data.projectRoot} size={34} />
-        <span className="grid min-w-0 flex-1 grid-rows-3">{lines}</span>
-      </button>
-    );
-  }
-
   return (
-    <button {...common} className={`grid h-[66px] w-full grid-rows-3 rounded-lg px-2.5 py-1.5 text-left ${surface}`}>
+    <button
+      {...common}
+      className={`relative flex w-full items-center rounded-lg pr-2.5 pl-3 text-left ${style === 'large' ? 'h-[52px] gap-2.5' : 'h-11'} ${surface}`}
+    >
+      {rail}
+      {style === 'large' && <ProjectIcon project={project} root={data.projectRoot} size={34} />}
       {lines}
     </button>
   );
@@ -246,6 +276,10 @@ export function Sidebar() {
   const complete = useSessions((s) => s.complete);
   const loaded = useSessions((s) => s.loaded);
   const view = useSessions((s) => s.view);
+  // Home is the main area with no session open (also behind Settings when it was opened from there).
+  const atHome = useSessions((s) => (s.view === 'session' || (s.view === 'settings' && s.settingsFrom === 'session')) && s.mainId === null);
+  // Settings is a sheet over the session, which stays selected in the list behind it.
+  const listView = useSessions((s) => (s.view === 'settings' ? s.settingsFrom : s.view));
   const { setFilter: setSearch, select, setView } = useSessions.getState();
   const projectFilter = useProjects((s) => s.filter);
   const archivedOpen = useProjects((s) => s.archivedOpen);
@@ -275,14 +309,21 @@ export function Sidebar() {
     return map;
   }, [all, now]);
 
-  const rows = useMemo<ListRow[]>(() => {
-    const list: ListRow[] = active.map((data) => ({ kind: 'session', data, archived: false }));
-    // While searching, archived matches are shown too.
-    const open = archivedOpen || search.trim() !== '';
-    if (archived.length) list.push({ kind: 'header', count: archived.length, open });
-    if (open) for (const data of archived) list.push({ kind: 'session', data, archived: true });
-    return list;
-  }, [active, archived, archivedOpen, search]);
+  // Sections (Needs you, Working, Today, Yesterday, Earlier), then Archived. While searching, archived matches are shown too.
+  const rows = useMemo(
+    () => buildListRows(active, archived, { now, archivedOpen: archivedOpen || search.trim() !== '' }),
+    [active, archived, archivedOpen, search, now],
+  );
+  // What each waiting session asks for, from its oldest open request. Sessions waiting in another app have none.
+  const permissions = useHosts((s) => s.permissions);
+  const waitingTool = useMemo(() => {
+    const map = new Map<string, { tool: string; at: number }>();
+    for (const request of permissions.values()) {
+      const seen = map.get(request.sessionId);
+      if (!seen || request.createdAt < seen.at) map.set(request.sessionId, { tool: request.toolName, at: request.createdAt });
+    }
+    return map;
+  }, [permissions]);
 
   // The sessions on screen, in list order: what ⇧-click ranges run over, and the picks that still count.
   const order = useMemo(() => rows.flatMap((r) => (r.kind === 'session' ? [r.data.id] : [])), [rows]);
@@ -294,17 +335,17 @@ export function Sidebar() {
   const virtualizer = useVirtualizer({
     count: rows.length,
     getScrollElement: () => scrollRef.current,
-    estimateSize: (i) => (rows[i]!.kind === 'session' ? SESSION_ROW_HEIGHT[sidebarStyle] : ARCHIVED_HEADER_HEIGHT),
-    // Keyed by row, not index: archiving or unarchiving moves the header without changing the count,
+    estimateSize: (i) => rowHeight(rows[i]!, sidebarStyle),
+    // Keyed by row, not index: archiving or unarchiving moves the headers without changing the count,
     // and the virtualiser only recomputes positions when the count or this function changes.
     getItemKey: useCallback((i: number) => {
       const row = rows[i]!;
-      return row.kind === 'session' ? row.data.id : 'archived-header';
+      return row.kind === 'session' ? row.data.id : row.kind === 'group' ? `group-${row.group}` : 'archived-header';
     }, [rows]),
     overscan: 10,
   });
-  // Row heights change with the sidebar style.
-  useEffect(() => virtualizer.measure(), [sidebarStyle, virtualizer]);
+  // Row heights change with the sidebar style, and a header's height with its place (the first has less room above).
+  useEffect(() => virtualizer.measure(), [sidebarStyle, rows, virtualizer]);
 
   // One Tab stop for the whole list: the selected row while it's rendered, else the first rendered one.
   const virtualItems = virtualizer.getVirtualItems();
@@ -312,7 +353,7 @@ export function Sidebar() {
     const row = rows[item.index];
     return row?.kind === 'session' ? [row.data.id] : [];
   });
-  const tabStopId = view === 'session' && selectedId && renderedIds.includes(selectedId) ? selectedId : (renderedIds[0] ?? null);
+  const tabStopId = listView === 'session' && selectedId && renderedIds.includes(selectedId) ? selectedId : (renderedIds[0] ?? null);
 
   const focusRow = (id: string) =>
     requestAnimationFrame(() => scrollRef.current?.querySelector<HTMLElement>(`[data-session-id="${CSS.escape(id)}"]`)?.focus({ preventScroll: true }));
@@ -426,161 +467,169 @@ export function Sidebar() {
       {/* Traffic lights on the left; the bar doubles as a window drag handle. */}
       <div className="drag flex h-13 shrink-0 items-center gap-2 pl-21">
         <img src={appIcon} alt="" width={20} height={20} draggable={false} />
-        <span className="text-[13px] font-semibold text-text/90">Switchboard</span>
+        <span className="text-body font-semibold text-text/90">Switchboard</span>
       </div>
 
-      {view === 'settings' ? (
-        <SettingsNav />
-      ) : (
-        <>
-          <div className="flex items-center gap-1 px-3 pb-1.5">
-            <label className="no-drag flex h-7 min-w-0 flex-1 items-center gap-2 rounded-md px-1.5 text-muted focus-within:bg-card focus-within:ring-1 focus-within:ring-accent-ink/50 hover:bg-border/40">
-              <Search size={14} className="shrink-0" aria-hidden />
-              <input
-                type="search"
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                placeholder="Search sessions"
-                aria-label="Search sessions by title, project or branch"
-                spellCheck={false}
-                className="h-full min-w-0 flex-1 bg-transparent text-[12px] text-text outline-none placeholder:text-muted"
-              />
-            </label>
-            <button
-              type="button"
-              data-new-session
-              onClick={() => useSessions.getState().openNewSession()}
-              data-tooltip="New session (⌘N)" aria-label="New session (⌘N)"
-              className={`no-drag flex size-7 items-center justify-center rounded-md hover:bg-border/50 ${view === 'new' ? 'bg-accent/15 text-text' : 'text-muted hover:text-text'}`}
-            >
-              <SquarePen size={15} aria-hidden />
-            </button>
-          </div>
+      {/* The session list stays while Settings is open (a sheet over the main area), so "Needs you" stays in view. */}
+      <div className="flex items-center gap-1 px-3 pb-1.5">
+        <label className="no-drag flex h-7 min-w-0 flex-1 items-center gap-2 rounded-md px-1.5 text-muted focus-within:bg-card focus-within:ring-1 focus-within:ring-accent-ink/50 hover:bg-border/40">
+          <Search size={14} className="shrink-0" aria-hidden />
+          <input
+            type="search"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search sessions"
+            aria-label="Search sessions by title, project or branch"
+            spellCheck={false}
+            className="h-full min-w-0 flex-1 bg-transparent text-ui text-text outline-none placeholder:text-muted"
+          />
+        </label>
+        <button
+          type="button"
+          data-go-home
+          onClick={() => useSessions.getState().goHome()}
+          data-tooltip="Home (⌘⇧H)" aria-label="Home (⌘⇧H)"
+          aria-current={atHome ? 'page' : undefined}
+          className={`no-drag flex size-7 items-center justify-center rounded-md hover:bg-border/50 ${atHome ? 'bg-selected text-text' : 'text-muted hover:text-text'}`}
+        >
+          <House size={15} aria-hidden />
+        </button>
+        <button
+          type="button"
+          data-new-session
+          onClick={() => useSessions.getState().openNewSession()}
+          data-tooltip="New session (⌘N)" aria-label="New session (⌘N)"
+          className={`no-drag flex size-7 items-center justify-center rounded-md hover:bg-border/50 ${view === 'new' ? 'bg-accent/15 text-text' : 'text-muted hover:text-text'}`}
+        >
+          <SquarePen size={15} aria-hidden />
+        </button>
+      </div>
 
-          <ProjectFilter counts={counts} />
-          {noProjects && (
-            <div className="mx-3 mb-2 grid justify-items-start gap-1 rounded-lg border border-dashed border-border px-3 py-2.5 text-[12px]" data-sidebar-onboarding>
-              <p className="font-medium text-text">Add a project</p>
-              <p className="text-muted">Choose the folders you work in. They are offered when you start a session.</p>
-              <button type="button" onClick={() => useProjects.getState().showAdd(true)} className="mt-1 text-link hover:underline">
-                Add project…
-              </button>
-            </div>
-          )}
-
-          <div ref={scrollRef} onKeyDown={onKeyDown} className="min-h-0 flex-1 overflow-y-auto px-2 pb-2" data-session-list>
-            {loaded && rows.length === 0 ? (
-              <div className="grid justify-items-start gap-2 px-2 py-4 text-[12px] text-muted" data-empty-sidebar>
-                <p>
-                  {search
-                    ? `No sessions match “${search.trim()}”. Search looks at titles, projects and branches; ⌘⇧F searches inside conversations.`
-                    : projectFilter
-                      ? 'No sessions in this project yet. Start one with ⌘N.'
-                      : scope === 'switchboard'
-                        ? 'Sessions you start or continue in Switchboard show up here. Start one with ⌘N.'
-                        : 'No Claude Code sessions found yet. Start one with ⌘N.'}
-                </p>
-                {search && (
-                  <button type="button" onClick={() => setSearch('')} className="text-link hover:underline">
-                    Clear search
-                  </button>
-                )}
-                {scope === 'switchboard' && sessions.size > 0 && (
-                  <button type="button" onClick={() => updatePrefs({ sessionScope: 'all' })} className="text-link hover:underline">
-                    Show sessions from other apps
-                  </button>
-                )}
-              </div>
-            ) : (
-              // Virtualised: only rows near the viewport exist, so each item says where it sits in the whole list.
-              <div role="list" aria-label="Sessions" style={{ height: virtualizer.getTotalSize(), position: 'relative' }}>
-                {virtualItems.map((item) => {
-                  const row = rows[item.index]!;
-                  return (
-                    <div
-                      key={item.key}
-                      role="listitem"
-                      aria-setsize={rows.length}
-                      aria-posinset={item.index + 1}
-                      style={{ position: 'absolute', top: 0, left: 0, right: 0, height: item.size, transform: `translateY(${item.start}px)` }}
-                    >
-                      {row.kind === 'session' ? (
-                        <SessionRow
-                          data={row.data}
-                          archived={row.archived}
-                          picked={multi && picked.has(row.data.id)}
-                          selected={view === 'session' && row.data.id === selectedId}
-                          beside={view === 'session' && splitId !== null && row.data.id !== selectedId && (row.data.id === mainId || row.data.id === splitId)}
-                          now={now}
-                          tabbable={row.data.id === tabStopId}
-                          onClick={rowClick}
-                          onMenu={sessionMenu}
-                        />
-                      ) : (
-                        <button
-                          type="button"
-                          data-archived-toggle
-                          data-open={row.open}
-                          aria-expanded={row.open}
-                          onClick={toggleArchived}
-                          data-tooltip="Quiet for 48 hours, or archived by you. They come back when there is something new."
-                          className="mt-1 flex h-[30px] w-full items-center gap-1.5 rounded-md px-2.5 text-[12px] text-muted hover:text-text"
-                        >
-                          Archived ({row.count})
-                          <ChevronRight size={13} className={`transition-transform ${row.open ? 'rotate-90' : ''}`} aria-hidden />
-                        </button>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-          {multi && (
-            <div className="flex h-9 shrink-0 items-center gap-1 border-t border-border px-3 text-[12px]" role="toolbar" aria-label="Selected sessions" data-selection-bar>
-              <span className="min-w-0 flex-1 truncate text-muted" data-selection-count={picked.size}>
-                {picked.size} selected
-              </span>
-              {pickedRows.some((row) => row.summary && isActive(row, now)) ? (
-                <button
-                  type="button"
-                  data-archive-selected
-                  onClick={() => {
-                    flagAll(pickedRows.filter((row) => isActive(row, Date.now())), ARCHIVE);
-                    setPicks(NO_PICKS);
-                  }}
-                  className="flex h-7 items-center gap-1.5 rounded-md px-2 text-text hover:bg-border/60"
-                >
-                  <Archive size={13} aria-hidden /> Archive
-                </button>
-              ) : (
-                <button
-                  type="button"
-                  data-unarchive-selected
-                  onClick={() => {
-                    flagAll(pickedRows, { archived: false });
-                    setPicks(NO_PICKS);
-                  }}
-                  className="flex h-7 items-center gap-1.5 rounded-md px-2 text-text hover:bg-border/60"
-                >
-                  <ArchiveRestore size={13} aria-hidden /> Unarchive
-                </button>
-              )}
-              <button
-                type="button"
-                onClick={() => setPicks(NO_PICKS)}
-                data-tooltip="Clear selection (Esc)"
-                aria-label="Clear selection"
-                className="flex size-7 items-center justify-center rounded-md text-muted hover:bg-border/60 hover:text-text"
-              >
-                <X size={14} aria-hidden />
-              </button>
-            </div>
-          )}
-        </>
+      <ProjectFilter counts={counts} />
+      {noProjects && (
+        <div className="mx-3 mb-2 grid justify-items-start gap-1 rounded-lg border border-dashed border-border px-3 py-2.5 text-ui" data-sidebar-onboarding>
+          <p className="font-medium text-text">Add a project</p>
+          <p className="text-muted">Choose the folders you work in. They are offered when you start a session.</p>
+          <button type="button" onClick={() => useProjects.getState().showAdd(true)} className="mt-1 text-link hover:underline">
+            Add project…
+          </button>
+        </div>
       )}
 
-      <footer className="flex h-10 shrink-0 items-center gap-2 border-t border-border px-3 text-[11px] text-muted">
+      <div ref={scrollRef} onKeyDown={onKeyDown} className="min-h-0 flex-1 overflow-y-auto px-2 pb-2" data-session-list>
+        {loaded && rows.length === 0 ? (
+          <div className="grid justify-items-start gap-2 px-2 py-4 text-ui text-muted" data-empty-sidebar>
+            <p>
+              {search
+                ? `No sessions match “${search.trim()}”. Search looks at titles, projects and branches; ⌘⇧F searches inside conversations.`
+                : projectFilter
+                  ? 'No sessions in this project yet. Start one with ⌘N.'
+                  : scope === 'switchboard'
+                    ? 'Sessions you start or continue in Switchboard show up here. Start one with ⌘N.'
+                    : 'No Claude Code sessions found yet. Start one with ⌘N.'}
+            </p>
+            {search && (
+              <button type="button" onClick={() => setSearch('')} className="text-link hover:underline">
+                Clear search
+              </button>
+            )}
+            {scope === 'switchboard' && sessions.size > 0 && (
+              <button type="button" onClick={() => updatePrefs({ sessionScope: 'all' })} className="text-link hover:underline">
+                Show sessions from other apps
+              </button>
+            )}
+          </div>
+        ) : (
+          // Virtualised: only rows near the viewport exist, so each item says where it sits in the whole list.
+          <div role="list" aria-label="Sessions" style={{ height: virtualizer.getTotalSize(), position: 'relative' }}>
+            {virtualItems.map((item) => {
+              const row = rows[item.index]!;
+              return (
+                <div
+                  key={item.key}
+                  role="listitem"
+                  aria-setsize={rows.length}
+                  aria-posinset={item.index + 1}
+                  style={{ position: 'absolute', top: 0, left: 0, right: 0, height: item.size, transform: `translateY(${item.start}px)` }}
+                >
+                  {row.kind === 'group' ? (
+                    <GroupHeader group={row.group} count={row.count} first={row.first} />
+                  ) : row.kind === 'session' ? (
+                    <SessionRow
+                      data={row.data}
+                      archived={row.archived}
+                      picked={multi && picked.has(row.data.id)}
+                      selected={listView === 'session' && row.data.id === selectedId}
+                      beside={listView === 'session' && splitId !== null && row.data.id !== selectedId && (row.data.id === mainId || row.data.id === splitId)}
+                      now={now}
+                      tabbable={row.data.id === tabStopId}
+                      waitingFor={rowStatus(row.data) === 'needs-you' ? waitingLabel(waitingTool.get(row.data.id)?.tool ?? null) : null}
+                      onClick={rowClick}
+                      onMenu={sessionMenu}
+                    />
+                  ) : (
+                    <button
+                      type="button"
+                      data-archived-toggle
+                      data-open={row.open}
+                      aria-expanded={row.open}
+                      onClick={toggleArchived}
+                      data-tooltip="Quiet for 48 hours, or archived by you. They come back when there is something new."
+                      className="mt-1 flex h-[30px] w-full items-center gap-1.5 rounded-md px-2.5 text-ui text-muted hover:text-text"
+                    >
+                      Archived ({row.count})
+                      <ChevronRight size={13} className={`transition-transform ${row.open ? 'rotate-90' : ''}`} aria-hidden />
+                    </button>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+      {multi && (
+        <div className="flex h-9 shrink-0 items-center gap-1 border-t border-border px-3 text-ui" role="toolbar" aria-label="Selected sessions" data-selection-bar>
+          <span className="min-w-0 flex-1 truncate text-muted" data-selection-count={picked.size}>
+            {picked.size} selected
+          </span>
+          {pickedRows.some((row) => row.summary && isActive(row, now)) ? (
+            <button
+              type="button"
+              data-archive-selected
+              onClick={() => {
+                flagAll(pickedRows.filter((row) => isActive(row, Date.now())), ARCHIVE);
+                setPicks(NO_PICKS);
+              }}
+              className="flex h-7 items-center gap-1.5 rounded-md px-2 text-text hover:bg-border/60"
+            >
+              <Archive size={13} aria-hidden /> Archive
+            </button>
+          ) : (
+            <button
+              type="button"
+              data-unarchive-selected
+              onClick={() => {
+                flagAll(pickedRows, { archived: false });
+                setPicks(NO_PICKS);
+              }}
+              className="flex h-7 items-center gap-1.5 rounded-md px-2 text-text hover:bg-border/60"
+            >
+              <ArchiveRestore size={13} aria-hidden /> Unarchive
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={() => setPicks(NO_PICKS)}
+            data-tooltip="Clear selection (Esc)"
+            aria-label="Clear selection"
+            className="flex size-7 items-center justify-center rounded-md text-muted hover:bg-border/60 hover:text-text"
+          >
+            <X size={14} aria-hidden />
+          </button>
+        </div>
+      )}
+
+      <footer className="flex h-10 shrink-0 items-center gap-2 border-t border-border px-3 text-meta text-muted">
         {/* An update to act on takes the footer's place (Switchboard's first); the session count is the lesser news. */}
         {hasUpdatePill ? (
           <div className="flex min-w-0 flex-1">
@@ -609,7 +658,7 @@ export function Sidebar() {
         <button
           type="button"
           data-open-settings
-          onClick={() => (view === 'settings' ? setView('session') : useSessions.getState().openSettings())}
+          onClick={() => (view === 'settings' ? useSessions.getState().closeSettings() : useSessions.getState().openSettings())}
           data-tooltip="Settings (⌘,)" aria-label="Settings (⌘,)"
           className={`flex size-7 items-center justify-center rounded-md hover:bg-border/60 hover:text-text ${view === 'settings' ? 'bg-border/60 text-text' : 'text-muted'}`}
         >

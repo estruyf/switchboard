@@ -8,11 +8,11 @@ import { CommitDialog } from './CommitDialog.tsx';
 import { gitSummary, planGit, STEP_LABEL, stepCount, type GitStep } from './gitPlan.ts';
 
 const ICON: Record<GitStep, typeof GitCommitHorizontal> = { fetch: RefreshCw, commit: GitCommitHorizontal, pull: CloudDownload, push: CloudUpload, pr: GitPullRequest };
-/** The count on the button's face: behind in the warning colour, ahead in green. */
-const COUNT: Partial<Record<GitStep, { prefix: string; tone: string }>> = {
-  pull: { prefix: '↓', tone: 'text-warn' },
-  push: { prefix: '↑', tone: 'text-ok' },
-  commit: { prefix: '', tone: 'text-muted' },
+/** The count on the button's face (↓ behind, ↑ ahead, files to commit). It sits on the yellow fill, so it keeps the fill's text colour. */
+const COUNT: Partial<Record<GitStep, { prefix: string }>> = {
+  pull: { prefix: '↓' },
+  push: { prefix: '↑' },
+  commit: { prefix: '' },
 };
 const MENU_WIDTH = 280;
 const PULL_SHORTCUT = '⌘⇧L';
@@ -137,6 +137,9 @@ export function GitButton({
   const FaceIcon = ICON[face];
   const faceBlocked = plan.blocked[face];
   const count = COUNT[face] ? stepCount(status, face) : null;
+  // The header's one yellow button, whenever there is something to do (pull, commit, push or a PR).
+  // With nothing to do the face is Fetch, which stays a quiet bordered button.
+  const primary = face !== 'fetch' && faceBlocked === null;
   const step = (s: GitStep, label: string, extra: Partial<Extract<MenuEntry, { label: string }>> = {}): MenuEntry => ({
     label,
     disabled: plan.blocked[s] !== null,
@@ -186,12 +189,12 @@ export function GitButton({
         data-tooltip={error ?? tooltipFor(face)}
         aria-label={`${STEP_LABEL[face]}${count ? ` ${count}` : ''}`}
         aria-keyshortcuts={face === 'pull' ? 'Meta+Shift+L' : undefined}
-        className={`flex h-7 items-center gap-1.5 rounded-l-md border px-2.5 text-[12px] ${error ? 'border-error/50 text-error' : 'border-border text-text'} ${faceBlocked ? 'cursor-default opacity-50' : 'hover:bg-border/50'}`}
+        className={`flex h-7 items-center gap-1.5 rounded-l-md px-2.5 text-ui ${primary ? 'bg-accent font-semibold text-on-accent' : 'border border-border text-text'} ${error ? 'ring-1 ring-error ring-inset' : ''} ${faceBlocked ? 'cursor-default opacity-50' : primary ? 'hover:bg-accent/85' : 'hover:bg-border/50'}`}
       >
-        <FaceIcon size={13} className="text-muted @max-[860px]:hidden" aria-hidden />
+        <FaceIcon size={13} className={`@max-[860px]:hidden ${primary ? '' : 'text-muted'}`} aria-hidden />
         <span>{STEP_LABEL[face]}</span>
         {count !== null && count > 0 && (
-          <span className={`tabular-nums ${COUNT[face]!.tone}`} aria-hidden>
+          <span className="tabular-nums" aria-hidden>
             {COUNT[face]!.prefix}
             {count}
           </span>
@@ -205,7 +208,7 @@ export function GitButton({
           if (menu.at || !rect) menu.close();
           else menu.openAt(rect.right - MENU_WIDTH, rect.bottom + 4);
         }}
-        className="flex h-7 items-center rounded-r-md border border-l-0 border-border px-1.5 text-muted hover:bg-border/50 hover:text-text"
+        className={`flex h-7 items-center rounded-r-md px-1.5 ${primary ? 'border-l border-on-accent/20 bg-accent text-on-accent hover:bg-accent/85' : 'border border-l-0 border-border text-muted hover:bg-border/50 hover:text-text'}`}
         aria-label="Git: pull, fetch, commit, push, pull request, branches"
         data-tooltip="Git"
         aria-haspopup="menu"

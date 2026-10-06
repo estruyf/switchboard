@@ -81,3 +81,83 @@ export function buildSessionList(
   archived.sort((a, b) => b.updatedAt - a.updatedAt);
   return { active, archived };
 }
+
+/** The sections of the main list, in the order they show: what needs attention first, then by time. */
+export type SessionGroup = 'needs-you' | 'working' | 'today' | 'yesterday' | 'earlier';
+
+export const GROUP_LABEL: Record<SessionGroup, string> = {
+  'needs-you': 'Needs you',
+  working: 'Working',
+  today: 'Today',
+  yesterday: 'Yesterday',
+  earlier: 'Earlier',
+};
+
+const GROUP_ORDER: readonly SessionGroup[] = ['needs-you', 'working', 'today', 'yesterday', 'earlier'];
+
+/** Local midnight of the day `now` falls on, so "Today" matches the calendar rather than the last 24 hours. */
+export function startOfDay(now: number): number {
+  const date = new Date(now);
+  date.setHours(0, 0, 0, 0);
+  return date.getTime();
+}
+
+/** Which section a main-list session sits in. */
+export function sessionGroup(row: SessionRowData, now: number): SessionGroup {
+  const status = rowStatus(row);
+  if (status === 'needs-you') return 'needs-you';
+  if (status === 'running') return 'working';
+  const today = startOfDay(now);
+  if (row.updatedAt >= today) return 'today';
+  // The day before today; a day can be 23 or 25 hours long across a clock change, hence the second midnight.
+  if (row.updatedAt >= startOfDay(today - 1)) return 'yesterday';
+  return 'earlier';
+}
+
+/**
+ * Splits the main list into its sections, skipping empty ones. The order inside a section is the
+ * order given (buildSessionList puts pinned sessions first, then newest), so pins stay on top of their section.
+ */
+export function groupSessions(active: readonly SessionRowData[], now: number): { group: SessionGroup; rows: SessionRowData[] }[] {
+  const buckets = new Map<SessionGroup, SessionRowData[]>();
+  for (const row of active) {
+    const group = sessionGroup(row, now);
+    const bucket = buckets.get(group);
+    if (bucket) bucket.push(row);
+    else buckets.set(group, [row]);
+  }
+  return GROUP_ORDER.flatMap((group) => {
+    const rows = buckets.get(group);
+    return rows ? [{ group, rows }] : [];
+  });
+}
+
+/** One row of the virtualised sidebar list: a session, a section header, or the Archived toggle. */
+export type SidebarListRow =
+  | { kind: 'session'; data: SessionRowData; archived: boolean }
+  | { kind: 'group'; group: SessionGroup; count: number; first: boolean }
+  | { kind: 'archived'; count: number; open: boolean };
+
+/** The flat row list the sidebar virtualises: each non-empty section under its header, then Archived. */
+export function buildListRows(
+  active: readonly SessionRowData[],
+  archived: readonly SessionRowData[],
+  options: { now: number; archivedOpen: boolean },
+): SidebarListRow[] {
+  const list: SidebarListRow[] = [];
+  for (const { group, rows } of groupSessions(active, options.now)) {
+    list.push({ kind: 'group', group, count: rows.length, first: list.length === 0 });
+    for (const data of rows) list.push({ kind: 'session', data, archived: false });
+  }
+  if (archived.length) list.push({ kind: 'archived', count: archived.length, open: options.archivedOpen });
+  if (options.archivedOpen) for (const data of archived) list.push({ kind: 'session', data, archived: true });
+  return list;
+}
+
+/** What a waiting session asks for, in a few words for its row: the question, a plan, or the tool it wants to run. */
+export function waitingLabel(toolName: string | null): string {
+  if (toolName === null) return 'Waiting for you';
+  if (toolName === 'AskUserQuestion') return 'Question';
+  if (toolName === 'ExitPlanMode') return 'Plan to review';
+  return `Permission: ${toolName}`;
+}

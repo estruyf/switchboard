@@ -1,66 +1,67 @@
-import { Check, ChevronsUpDown, FolderOpen, FolderPlus } from 'lucide-react';
-import { useEffect, useId, useMemo, useRef, useState } from 'react';
+import { FolderPlus, Plus, Search } from 'lucide-react';
+import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent } from 'react';
 import { basename, tildify } from '../../lib/format.ts';
-import { fuzzyScore } from '../../lib/fuzzy.ts';
 import { useProjects } from '../../state/projectsStore.ts';
 import { ProjectIcon } from '../ProjectIcon.tsx';
+import { filterFolders, quickTiles, type TileTone } from './projectTiles.ts';
+
+const COLUMNS = 5;
+/** Tiles shown before "+N More projects": the fifth place is that tile. */
+const QUICK = 4;
+
+const TONE_DOT: Record<TileTone, string> = { 'needs-you': 'bg-warn animate-pulse', working: 'bg-accent-ink', idle: 'bg-faint/60' };
+const TONE_TEXT: Record<TileTone, string> = { 'needs-you': 'text-warn', working: 'text-accent-ink', idle: 'text-muted' };
 
 /**
- * The project header of a new session: the project's tile, name and path. The name opens your
- * projects, filterable by typing; typing an absolute path offers that folder, and "Open another
- * folder…" opens the system dialog. The open list is a combobox: focus stays in the (hidden until
- * typed in) filter field and `aria-activedescendant` tells screen readers which row ↑ ↓ are on.
+ * Where a new session starts: the four most recent projects as tiles, and a fifth tile that opens all
+ * of them with a filter field (typing a name filters, typing an absolute path offers that folder, and
+ * "Other folder…" opens the system dialog). ⌘1 to ⌘9 pick the tiles in view. The open list is a
+ * combobox: focus stays in the filter field and `aria-activedescendant` says which tile the arrows are on.
  */
 export function FolderPicker({
   value,
   folders,
   home,
   branches,
+  statusOf,
   onChange,
   onChooseOther,
+  shortcuts,
   openRequest = 0,
 }: {
   value: string | null;
+  /** Your projects, most recent first. */
   folders: string[];
   home: string | null;
-  /** The checked-out branch per folder, where known. */
+  /** The checked-out branch per folder, where known (tooltips). */
   branches: Map<string, string | null>;
+  statusOf(folder: string): { tone: TileTone; label: string };
   onChange(folder: string): void;
   onChooseOther(): void;
-  /** Changing it opens the list (a link that didn't say which project). */
+  /** ⌘1 to ⌘9 pick a tile (off while something covers the view, like Settings). */
+  shortcuts: boolean;
+  /** Changing it opens the full list (a link that didn't say which project, or the project in the message box). */
   openRequest?: number;
 }) {
   const projects = useProjects((s) => s.projects);
   const [open, setOpen] = useState(false);
-  // Opens upward when the header sits near the bottom of the window (a short window).
-  const [upward, setUpward] = useState(false);
   const [filter, setFilter] = useState('');
   const [active, setActive] = useState(0);
-  const ref = useRef<HTMLDivElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
-  const trigger = useRef<HTMLButtonElement>(null);
+  const toggleRef = useRef<HTMLButtonElement>(null);
   const id = useId();
   const optionId = (index: number) => `${id}-option-${index}`;
+  const nameOf = (folder: string) => projects.get(folder)?.name ?? basename(folder);
 
+  const quick = useMemo(() => quickTiles(folders, value, QUICK), [folders, value]);
   const options = useMemo(() => {
     const all = value && !folders.includes(value) ? [value, ...folders] : folders;
-    if (!filter.trim()) return all;
-    // A typed absolute path is offered as it is, for folders that aren't projects yet.
-    const typed = filter.trim().replace(/(.)\/+$/, '$1');
-    const path = typed.startsWith('/') && !all.includes(typed) ? [typed] : [];
-    const matches = all
-      .map((folder) => {
-        const name = projects.get(folder)?.name ?? basename(folder);
-        const score = Math.max(fuzzyScore(filter, name) ?? -Infinity, (fuzzyScore(filter, tildify(folder, home)) ?? -Infinity) - 2);
-        return { folder, score };
-      })
-      .filter((o) => o.score > -Infinity)
-      .sort((a, b) => b.score - a.score)
-      .map((o) => o.folder);
-    return [...path, ...matches];
+    return filterFolders(all, filter, (folder) => projects.get(folder)?.name ?? basename(folder), home);
   }, [filter, folders, home, projects, value]);
-  // The extra row at the end: the system folder dialog.
+  const more = folders.filter((folder) => !quick.includes(folder)).length;
+  // The extra tile at the end of the full list: the system folder dialog.
   const count = options.length + 1;
+  const shown = open ? options : quick;
 
   useEffect(() => {
     if (!open) return;
@@ -68,143 +69,173 @@ export function FolderPicker({
     setActive(filter.trim() ? 0 : Math.max(0, value ? options.indexOf(value) : 0));
   }, [open, filter]);
   useEffect(() => {
-    if (!openRequest || !trigger.current) return;
-    setUpward(window.innerHeight - trigger.current.getBoundingClientRect().bottom < 340);
-    setOpen(true);
+    if (openRequest) setOpen(true);
   }, [openRequest]);
   useEffect(() => {
     listRef.current?.querySelector('[data-active="true"]')?.scrollIntoView({ block: 'nearest' });
   }, [active, open]);
-  useEffect(() => {
-    if (!open) return;
-    const onDown = (e: MouseEvent) => !ref.current?.contains(e.target as Node) && setOpen(false);
-    window.addEventListener('mousedown', onDown);
-    return () => window.removeEventListener('mousedown', onDown);
-  }, [open]);
 
-  const pick = (index: number) => {
+  const close = (refocus: boolean) => {
     setOpen(false);
     setFilter('');
-    if (index === options.length) onChooseOther();
-    else if (options[index]) onChange(options[index]!);
+    if (refocus) requestAnimationFrame(() => toggleRef.current?.focus());
+  };
+  const choose = (folder: string) => {
+    close(false);
+    onChange(folder);
+  };
+  const pick = (index: number) => {
+    if (index === options.length) {
+      close(false);
+      onChooseOther();
+    } else if (options[index]) choose(options[index]!);
   };
 
-  const current = value ? (projects.get(value)?.name ?? basename(value)) : null;
-  return (
-    <div ref={ref} className="relative flex min-w-0 items-center gap-3.5" data-project-header>
-      {value ? (
-        <ProjectIcon project={projects.get(value)} root={value} size={44} />
-      ) : (
-        <span aria-hidden className="flex size-11 shrink-0 items-center justify-center rounded-[10px] border border-dashed border-border text-faint">
-          <FolderOpen size={20} />
-        </span>
-      )}
-      <div className="min-w-0 flex-1">
-        <p className="text-[10.5px] font-semibold tracking-[0.12em] text-accent-ink uppercase">New session</p>
-        <button
-          ref={trigger}
-          type="button"
-          data-folder-select
-          data-value={value ?? ''}
-          aria-haspopup="listbox"
-          aria-expanded={open}
-          aria-label={current ? `Folder: ${current}. Change folder` : 'Choose a folder'}
-          onClick={(e) => {
-            setUpward(window.innerHeight - e.currentTarget.getBoundingClientRect().bottom < 340);
-            setOpen((o) => !o);
-          }}
-          className="-mx-1.5 flex max-w-full min-w-0 items-center gap-1 rounded-md px-1.5 text-left hover:bg-border/40"
-        >
-          <span className={`min-w-0 truncate text-[20px] leading-8 font-semibold ${current ? 'text-text' : 'text-faint'}`}>{current ?? 'Choose a folder…'}</span>
-          <ChevronsUpDown size={15} className="shrink-0 text-faint" aria-hidden />
-        </button>
-        {value && (
-          <p className="truncate font-mono text-[11.5px] text-muted" data-tooltip={value}>
-            {tildify(value, home)}
-          </p>
-        )}
-      </div>
+  // ⌘1 to ⌘9 pick the tiles in view, wherever focus is (the prompt usually has it).
+  const shownRef = useRef(shown);
+  shownRef.current = shown;
+  const chooseRef = useRef(choose);
+  chooseRef.current = choose;
+  useEffect(() => {
+    if (!shortcuts) return;
+    const onKey = (event: globalThis.KeyboardEvent) => {
+      if (!event.metaKey || event.shiftKey || event.altKey || event.ctrlKey || !/^[1-9]$/.test(event.key)) return;
+      if (document.querySelector('[role=dialog], [role=alertdialog], [role=menu]')) return;
+      const folder = shownRef.current[Number(event.key) - 1];
+      if (!folder) return;
+      event.preventDefault();
+      chooseRef.current(folder);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [shortcuts]);
 
-      {open && (
-        <div className={`absolute left-[58px] z-40 flex max-h-96 w-[min(27rem,calc(100%-58px))] ${upward ? 'bottom-full mb-1 flex-col-reverse' : 'top-full -mt-3 flex-col'}`} data-folder-panel>
-          <div className="flex max-h-96 min-h-0 flex-1 flex-col overflow-hidden rounded-lg border overlay" data-folder-list>
+  // Typing a letter on a tile opens the full list filtered by it: "start typing its name".
+  const typeToSearch = (e: KeyboardEvent) => {
+    if (open || e.metaKey || e.ctrlKey || e.altKey || e.key.length !== 1 || e.key === ' ') return;
+    e.preventDefault();
+    setFilter(e.key);
+    setOpen(true);
+  };
+
+  const tile = (folder: string, index: number) => {
+    const status = statusOf(folder);
+    const branch = branches.get(folder);
+    const selected = folder === value;
+    const highlighted = open && index === active;
+    return (
+      <button
+        key={folder}
+        id={open ? optionId(index) : undefined}
+        type="button"
+        role={open ? 'option' : undefined}
+        tabIndex={open ? -1 : undefined}
+        aria-selected={open ? selected : undefined}
+        aria-pressed={open ? undefined : selected}
+        data-folder-option={folder}
+        data-active={open ? highlighted : undefined}
+        data-tooltip={`${tildify(folder, home)}${branch ? ` · ${branch}` : ''}`}
+        onMouseMove={open ? () => setActive(index) : undefined}
+        onClick={() => (open ? pick(index) : choose(folder))}
+        className={`flex min-w-0 flex-col gap-1.5 rounded-lg border p-2.5 text-left transition-colors ${
+          selected ? 'border-accent-ink/70 bg-selected' : highlighted ? 'border-border bg-border/45' : 'border-border bg-card hover:bg-border/45'
+        }`}
+      >
+        <span className="flex items-center justify-between gap-2">
+          <ProjectIcon project={projects.get(folder)} root={folder} size={24} />
+          {index < 9 && <kbd className="font-sans text-meta text-faint">⌘{index + 1}</kbd>}
+        </span>
+        <span className="block truncate text-ui font-semibold text-text">{nameOf(folder)}</span>
+        <span className={`flex min-w-0 items-center gap-1.5 text-meta ${TONE_TEXT[status.tone]}`}>
+          <span aria-hidden className={`size-1.5 shrink-0 rounded-full ${TONE_DOT[status.tone]}`} />
+          <span className="truncate">{status.label}</span>
+        </span>
+      </button>
+    );
+  };
+
+  const dashed = 'flex min-w-0 flex-col items-center justify-center gap-1 rounded-lg border border-dashed border-border p-2.5 text-center text-ui text-muted hover:bg-border/45 hover:text-text';
+
+  return (
+    <div className="grid gap-2" data-project-header>
+      {open ? (
+        <div className="grid gap-2" data-folder-list>
+          <label className="flex h-8 items-center gap-2 rounded-lg border border-border bg-card px-2.5 focus-within:border-accent-ink/60">
+            <Search size={14} className="shrink-0 text-faint" aria-hidden />
+            {/* The toggle tile is gone while the list is open, so the field carries its smoke hooks (value, expanded). */}
             <input
               autoFocus
               role="combobox"
               aria-expanded
+              data-folder-select
+              data-value={value ?? ''}
               aria-controls={`${id}-list`}
               aria-activedescendant={optionId(active)}
               aria-autocomplete="list"
               value={filter}
               onChange={(e) => setFilter(e.target.value)}
               onKeyDown={(e) => {
-                if (e.key === 'Escape') (e.stopPropagation(), setOpen(false), trigger.current?.focus());
-                else if (e.key === 'ArrowDown') (e.preventDefault(), setActive((i) => Math.min(count - 1, i + 1)));
-                else if (e.key === 'ArrowUp') (e.preventDefault(), setActive((i) => Math.max(0, i - 1)));
+                const move = (delta: number) => (e.preventDefault(), setActive((i) => Math.min(count - 1, Math.max(0, i + delta))));
+                if (e.key === 'Escape') (e.preventDefault(), e.stopPropagation(), close(true));
+                else if (e.key === 'ArrowDown') move(COLUMNS);
+                else if (e.key === 'ArrowUp') move(-COLUMNS);
+                // Left and right move the caret while there is text to edit.
+                else if (e.key === 'ArrowRight' && !filter) move(1);
+                else if (e.key === 'ArrowLeft' && !filter) move(-1);
                 else if (e.key === 'Enter') (e.preventDefault(), pick(active));
-                else if (e.key === 'Tab') setOpen(false);
               }}
               placeholder="Filter projects, or type a path"
               aria-label="Filter projects, or type a path"
               spellCheck={false}
-              // Type to filter: the field only shows once there is something in it.
-              className={filter ? 'h-9 shrink-0 border-b border-border bg-transparent px-3 text-[12.5px] text-text outline-none placeholder:text-faint' : 'sr-only'}
+              className="min-w-0 flex-1 bg-transparent text-ui text-text outline-none placeholder:text-faint"
             />
-            <div ref={listRef} id={`${id}-list`} role="listbox" aria-label="Your projects" className="min-h-0 flex-1 overflow-y-auto py-1">
-              {!filter && (
-                <p role="presentation" className="px-3 pt-1.5 pb-1 text-[10px] tracking-wide text-faint uppercase">
-                  Your projects
-                </p>
-              )}
-              {options.length === 0 && (
-                <p role="presentation" className="px-3 py-2 text-[12px] text-muted">
-                  No project matches.
-                </p>
-              )}
-              {options.map((folder, index) => {
-                const branch = branches.get(folder);
-                return (
-                  <button
-                    key={folder}
-                    id={optionId(index)}
-                    type="button"
-                    role="option"
-                    tabIndex={-1}
-                    aria-selected={folder === value}
-                    data-folder-option={folder}
-                    data-active={index === active}
-                    onMouseMove={() => setActive(index)}
-                    onClick={() => pick(index)}
-                    className={`flex w-full items-center gap-2.5 px-3 py-1.5 text-left ${index === active ? 'bg-accent/15' : ''}`}
-                  >
-                    <ProjectIcon project={projects.get(folder)} root={folder} size={22} />
-                    <span className="min-w-0 flex-1">
-                      <span className="block truncate text-[12.5px] text-text">{projects.get(folder)?.name ?? basename(folder)}</span>
-                      <span className="block truncate font-mono text-[11px] text-muted">
-                        {tildify(folder, home)}
-                        {branch && ` · ${branch}`}
-                      </span>
-                    </span>
-                    {folder === value && <Check size={14} className="shrink-0 text-accent-ink" aria-hidden />}
-                  </button>
-                );
-              })}
-              <button
-                id={optionId(options.length)}
-                type="button"
-                role="option"
-                tabIndex={-1}
-                aria-selected={false}
-                data-active={active === options.length}
-                onMouseMove={() => setActive(options.length)}
-                onClick={() => pick(options.length)}
-                className={`mt-1 flex h-9 w-full items-center gap-2.5 border-t border-border px-3 text-left text-[12.5px] text-muted ${active === options.length ? 'bg-accent/15' : ''}`}
-              >
-                <FolderPlus size={15} className="shrink-0" aria-hidden />
-                Open another folder…
-              </button>
-            </div>
+          </label>
+          <div ref={listRef} id={`${id}-list`} role="listbox" aria-label="Your projects" className="grid max-h-80 grid-cols-5 gap-2 overflow-y-auto p-px">
+            {options.map(tile)}
+            <button
+              id={optionId(options.length)}
+              type="button"
+              role="option"
+              tabIndex={-1}
+              aria-selected={false}
+              data-active={active === options.length}
+              data-choose-folder
+              onMouseMove={() => setActive(options.length)}
+              onClick={() => pick(options.length)}
+              className={`${dashed} ${active === options.length ? 'bg-border/45 text-text' : ''}`}
+            >
+              <FolderPlus size={16} aria-hidden />
+              Other folder…
+            </button>
           </div>
+          {options.length === 0 && <p className="px-1 text-meta text-muted">No project matches.</p>}
+          <button
+            ref={toggleRef}
+            type="button"
+            data-folder-select
+            data-value={value ?? ''}
+            aria-expanded
+            onClick={() => close(true)}
+            className="justify-self-end rounded-md px-1.5 text-meta text-muted hover:bg-border/50 hover:text-text"
+          >
+            Show fewer
+          </button>
+        </div>
+      ) : (
+        <div role="group" aria-label="Recent projects" className="grid grid-cols-5 gap-2" onKeyDown={typeToSearch}>
+          {quick.map(tile)}
+          <button
+            ref={toggleRef}
+            type="button"
+            data-folder-select
+            data-value={value ?? ''}
+            aria-expanded={false}
+            onClick={() => setOpen(true)}
+            className={dashed}
+          >
+            {more > 0 ? <Plus size={16} aria-hidden /> : <Search size={15} aria-hidden />}
+            {more > 0 ? `${more} more projects` : quick.length ? 'Other folder…' : 'Choose a folder…'}
+          </button>
         </div>
       )}
     </div>

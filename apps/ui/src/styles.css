@@ -18,6 +18,12 @@
   --sb-ok: #00806f;
   --sb-warn: #d1186b;
   --sb-error: #d73a49;
+  /* Finished with something you haven't read yet. Blue, so yellow only ever means "working". */
+  --sb-unread: #005cc5;
+  /* A level that is getting high (usage bars, the context ring): between ok and error. */
+  --sb-caution: #b35900;
+  /* The selected row in a list: a neutral fill (a yellow tint disappears on the light sidebar). */
+  --sb-selected: #e3e7ee;
   /* Claude profile colours (dots and tags that tell accounts apart). */
   --sb-profile-yellow: #b08300;
   --sb-profile-blue: #1f6feb;
@@ -52,6 +58,9 @@
     --sb-ok: #51cf66;
     --sb-warn: #ed217c;
     --sb-error: #ff6b6b;
+    --sb-unread: #74c0fc;
+    --sb-caution: #ffa94d;
+    --sb-selected: #2d3142;
     --sb-profile-yellow: #ffd43b;
     --sb-profile-blue: #74c0fc;
     --sb-profile-green: #51cf66;
@@ -83,6 +92,9 @@
   --color-ok: var(--sb-ok);
   --color-warn: var(--sb-warn);
   --color-error: var(--sb-error);
+  --color-unread: var(--sb-unread);
+  --color-caution: var(--sb-caution);
+  --color-selected: var(--sb-selected);
   --color-profile-yellow: var(--sb-profile-yellow);
   --color-profile-blue: var(--sb-profile-blue);
   --color-profile-green: var(--sb-profile-green);
@@ -94,6 +106,22 @@
   --color-scrim: var(--sb-scrim);
   --font-sans: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Inter', system-ui, sans-serif;
   --font-mono: 'SF Mono', ui-monospace, Menlo, monospace;
+  /*
+   * The type scale: four sizes for everything in the UI (see AGENTS.md, Design system).
+   * text-meta: ages, branches, counts, usage. text-ui: buttons, chips, menus, rows.
+   * text-body: messages and the message box. text-title: view and dialog titles.
+   */
+  --text-meta: 11px;
+  --text-meta--line-height: 1.45;
+  --text-ui: 12px;
+  --text-ui--line-height: 1.5;
+  --text-body: 13.5px;
+  --text-body--line-height: 1.6;
+  --text-title: 15px;
+  --text-title--line-height: 1.4;
+  /* Only for the one heading of a focused view (Home, New session). */
+  --text-hero: 20px;
+  --text-hero--line-height: 1.3;
 }
 
 /*

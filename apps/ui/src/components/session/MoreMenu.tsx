@@ -1,17 +1,24 @@
-import { Bot, Ellipsis, Square } from 'lucide-react';
+import { Bot, Ellipsis, Sparkles, Square } from 'lucide-react';
 import { useCallback, useRef, useState } from 'react';
+import { useEngineConnection } from '../../engine/useEngine.ts';
 import { useMultipleProfiles, useProfile } from '../../state/profilesStore.ts';
 import { useSessions } from '../../state/sessionsStore.ts';
+import { openTerminal } from '../../state/terminalsStore.ts';
 import { useActionsMenu } from '../actions/useActionsMenu.tsx';
+import { ACTION_ICON, ariaShortcut, formatShortcut } from '../actions/useActions.ts';
 import { Menu, useMenu, type MenuEntry } from '../Menu.tsx';
+import { useOpenInEntries } from '../OpenInButton.tsx';
 import { ProfileDot } from '../profiles/ProfileBadge.tsx';
 import type { DisplayItem } from '../transcript/displayItems.ts';
 import { AgentsDialog, useAgentRuns } from '../transcript/AgentsDialog.tsx';
 
 const MENU_WIDTH = 260;
+/** How many project actions get a button in the header; the rest are in the ⋯ menu. */
+const QUICK_ACTIONS = 3;
 
 /**
- * The session header's "⋯" menu: the project's actions (and "Edit actions…"), the agents Claude
+ * The session header's "⋯" menu: opening the folder in an editor, terminal or Finder (⌘O opens the
+ * default one), opening the session in Claude Code's terminal interface, the project's actions (and "Edit actions…"), the agents Claude
  * started, the Claude profile the session bills to, and stopping the session's Claude Code process.
  * A dot on the button says agents are running.
  */
@@ -42,9 +49,26 @@ export function MoreMenu({
   const closeAgents = useCallback(() => setAgentsOpen(false), []);
   const multipleProfiles = useMultipleProfiles();
   const profile = useProfile(profileId);
+  const connection = useEngineConnection();
+  const client = connection.status === 'connected' ? connection.client : null;
 
-  const entries: MenuEntry[] = [...actions.entries];
-  if (entries.length) entries.push('separator');
+  const openIn = useOpenInEntries(cwd);
+
+  // Claude Code's own terminal interface on this session, in the terminal panel: with the editors under "Open in", before Copy path.
+  const claudeTui: MenuEntry = {
+    label: openIn.entries.length ? 'Claude Code' : 'Open in Claude Code',
+    icon: <Sparkles size={13} />,
+    hint: 'Terminal',
+    disabled: !client || !cwd,
+    onSelect: () => void (client && cwd && openTerminal(client, sessionId, cwd, 'claude')),
+    data: { 'data-open-claude-tui': true, 'data-tooltip': "This session in Claude Code's terminal interface, in the terminal panel (mods, status line and every CLI feature)" },
+  };
+  const copyPath = openIn.entries.findIndex((e) => typeof e === 'object' && 'data' in e && e.data?.['data-copy-path']);
+  const entries: MenuEntry[] = [...openIn.entries];
+  entries.splice(copyPath < 0 ? entries.length : copyPath, 0, claudeTui);
+  entries.push('separator');
+  entries.push(...actions.entries);
+  if (actions.entries.length) entries.push('separator');
   // Like the profile badges elsewhere: only worth showing with more than one profile.
   if (multipleProfiles && profile) {
     entries.push({
@@ -74,14 +98,40 @@ export function MoreMenu({
     },
   );
 
-  const label = `More: project actions, agents${running ? ` (${running} running)` : ''}, stop session`;
+  const label = `More: open in, project actions, agents${running ? ` (${running} running)` : ''}, stop session`;
+  const error = actions.error ?? openIn.error;
   return (
-    <div className="no-drag relative flex shrink-0" data-actions-bar>
+    <div className="no-drag relative flex shrink-0 items-center" data-actions-bar>
       {/* A failed action run: on the button's tooltip, and said out loud. */}
       {actions.error && (
         <span role="alert" className="sr-only">
           {actions.error}
         </span>
+      )}
+      {openIn.status}
+      {/* The first few project actions sit in the header, one click away; all of them (and Edit actions…) stay in the menu. */}
+      {actions.actions.length > 0 && (
+        <div className="mr-1 flex items-center gap-0.5" role="group" aria-label="Project actions" data-quick-actions>
+          {actions.actions.slice(0, QUICK_ACTIONS).map((action) => {
+            const Icon = ACTION_ICON[action.icon];
+            const shortcut = action.shortcut ? formatShortcut(action.shortcut) : null;
+            return (
+              <button
+                key={action.id}
+                type="button"
+                onClick={() => actions.run(action)}
+                data-quick-action={action.id}
+                data-tooltip={`${action.type === 'prompt' ? 'Ask Claude: ' : ''}${action.command}${shortcut ? ` (${shortcut})` : ''}`}
+                aria-label={action.name}
+                aria-keyshortcuts={action.shortcut ? ariaShortcut(action.shortcut) : undefined}
+                className="flex h-7 max-w-36 items-center gap-1.5 rounded-md px-2 text-ui text-muted hover:bg-border/50 hover:text-text @max-[860px]:px-1.5"
+              >
+                <Icon size={14} className="shrink-0" aria-hidden />
+                <span className="truncate @max-[860px]:sr-only">{action.name}</span>
+              </button>
+            );
+          })}
+        </div>
       )}
       <button
         ref={buttonRef}
@@ -94,11 +144,11 @@ export function MoreMenu({
           if (menu.at || !rect) menu.close();
           else menu.openAt(rect.right - MENU_WIDTH, rect.bottom + 4);
         }}
-        data-tooltip={actions.error ?? (running ? `More · ${running === 1 ? '1 agent' : `${running} agents`} running` : 'More: project actions, agents, stop session')}
+        data-tooltip={error ?? (running ? `More · ${running === 1 ? '1 agent' : `${running} agents`} running` : 'More: open in, project actions, agents, stop session')}
         aria-label={label}
         aria-haspopup="menu"
         aria-expanded={menu.at !== null}
-        className={`relative flex size-7 items-center justify-center rounded-md hover:bg-border/50 hover:text-text ${menu.at ? 'bg-border/50 text-text' : actions.error ? 'text-error' : 'text-muted'}`}
+        className={`relative flex size-7 items-center justify-center rounded-md hover:bg-border/50 hover:text-text ${menu.at ? 'bg-border/50 text-text' : error ? 'text-error' : 'text-muted'}`}
       >
         <Ellipsis size={15} aria-hidden />
         {running > 0 && <span className="absolute top-0.5 right-0.5 size-1.5 animate-pulse rounded-full bg-accent-ink" aria-hidden />}

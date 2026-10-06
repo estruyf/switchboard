@@ -1,5 +1,6 @@
-import { ChevronRight, ExternalLink, RefreshCw, Undo2, WrapText, X } from 'lucide-react';
-import { memo, useEffect, useMemo, useState } from 'react';
+import { ChevronRight, ExternalLink, Maximize2, Minimize2, RefreshCw, Undo2, WrapText, X } from 'lucide-react';
+import { memo, useEffect, useMemo, useState, type KeyboardEvent, type PointerEvent } from 'react';
+import { create } from 'zustand';
 import type { ChangedFile, ChangesBase, GitChanges } from '@switchboard/protocol/client';
 import { useEngineConnection } from '../../engine/useEngine.ts';
 import { parseUnifiedDiff } from '../../lib/unifiedDiff.ts';
@@ -8,6 +9,42 @@ import { ConfirmDialog } from '../ConfirmDialog.tsx';
 import { useOpenIn } from '../OpenInButton.tsx';
 import { Checkbox } from '../ui/Checkbox.tsx';
 import { RadioGroup } from '../ui/Radio.tsx';
+import { CHANGES_DEFAULT_WIDTH, CHANGES_MAX_SHARE, CHANGES_MIN_WIDTH, changesWidthForKey, clampChangesWidth } from './changesWidth.ts';
+
+const WIDTH_KEY = 'ui.changesWidth';
+
+/** The panel's width (remembered in this browser profile) and whether it fills the session view. */
+interface ChangesLayout {
+  width: number;
+  /** The panel takes the whole session view (the conversation is hidden until it goes back). */
+  expanded: boolean;
+  setWidth(width: number): void;
+  toggleExpanded(expanded?: boolean): void;
+}
+
+const readWidth = () => {
+  try {
+    const stored = Number(localStorage.getItem(WIDTH_KEY));
+    return stored > 0 ? stored : CHANGES_DEFAULT_WIDTH;
+  } catch {
+    return CHANGES_DEFAULT_WIDTH;
+  }
+};
+
+export const useChangesLayout = create<ChangesLayout>()((set) => ({
+  width: readWidth(),
+  expanded: false,
+  setWidth: (width) => {
+    const next = clampChangesWidth(width, window.innerWidth);
+    try {
+      localStorage.setItem(WIDTH_KEY, String(next));
+    } catch {
+      // Remembering the width is a convenience.
+    }
+    set({ width: next });
+  },
+  toggleExpanded: (expanded) => set((s) => ({ expanded: expanded ?? !s.expanded })),
+}));
 
 const STATUS: Record<ChangedFile['status'], { letter: string; tone: string; label: string }> = {
   added: { letter: 'A', tone: 'text-ok', label: 'Added' },
@@ -43,19 +80,19 @@ const FileDiff = memo(function FileDiff({ id, cwd, base, path, version }: { id: 
 
   if (!state)
     return (
-      <p id={id} className="px-3 py-2 text-[11.5px] text-muted">
+      <p id={id} className="px-3 py-2 text-meta text-muted">
         Loading…
       </p>
     );
   if ('error' in state)
     return (
-      <p id={id} role="alert" className="px-3 py-2 text-[11.5px] text-error">
+      <p id={id} role="alert" className="px-3 py-2 text-meta text-error">
         {state.error}
       </p>
     );
   if (rows.length === 0)
     return (
-      <p id={id} className="px-3 py-2 text-[11.5px] text-muted">
+      <p id={id} className="px-3 py-2 text-meta text-muted">
         No line changes (only the file mode changed, or the file is empty).
       </p>
     );
@@ -63,7 +100,7 @@ const FileDiff = memo(function FileDiff({ id, cwd, base, path, version }: { id: 
   // width while scrolling sideways; the line numbers stay put.
   const gutter = 'sticky left-0 z-[1] flex shrink-0 self-stretch bg-bg';
   return (
-    <div id={id} className="overflow-x-auto overscroll-x-contain border-t border-border font-mono text-[11px] leading-[1.55] select-text" data-file-diff data-diff-wrap={wrap}>
+    <div id={id} className="overflow-x-auto overscroll-x-contain border-t border-border font-mono text-ui select-text" data-file-diff data-diff-wrap={wrap}>
       <div className={wrap ? '' : 'w-max min-w-full'}>
         {rows.map((row, i) =>
           row.kind === 'hunk' ? (
@@ -122,6 +159,10 @@ export function ChangesPanel({
   const [error, setError] = useState<string | null>(null);
   const wrap = useOverlay((s) => s.diffWrap);
   const toggleWrap = useOverlay((s) => s.toggleDiffWrap);
+  const width = useChangesLayout((s) => s.width);
+  const setWidth = useChangesLayout((s) => s.setWidth);
+  const expanded = useChangesLayout((s) => s.expanded);
+  const toggleExpanded = useChangesLayout((s) => s.toggleExpanded);
   const files = changes?.files ?? [];
   const added = files.reduce((n, f) => n + f.additions, 0);
   const removed = files.reduce((n, f) => n + f.deletions, 0);
@@ -142,11 +183,58 @@ export function ChangesPanel({
       return next;
     });
 
+  // Closing the panel (or moving it to the other pane) brings the conversation back.
+  useEffect(() => () => useChangesLayout.getState().toggleExpanded(false), []);
+
+  // Drag the left edge to resize; ← → do the same from the keyboard.
+  const startResize = (event: PointerEvent<HTMLDivElement>) => {
+    const startX = event.clientX;
+    const startWidth = width;
+    const target = event.currentTarget;
+    target.setPointerCapture(event.pointerId);
+    const move = (e: globalThis.PointerEvent) => setWidth(startWidth + (startX - e.clientX));
+    const up = () => {
+      target.removeEventListener('pointermove', move);
+      target.removeEventListener('pointerup', up);
+    };
+    target.addEventListener('pointermove', move);
+    target.addEventListener('pointerup', up);
+  };
+  const resizeByKey = (event: KeyboardEvent<HTMLDivElement>) => {
+    const next = changesWidthForKey(event.key, width, window.innerWidth);
+    if (next === null) return;
+    event.preventDefault();
+    setWidth(next);
+  };
+
   return (
-    <aside aria-label="Changes" className="flex w-[440px] max-w-[45vw] shrink-0 flex-col border-l border-border bg-bg" data-changes-panel>
+    <aside
+      aria-label="Changes"
+      // Expanded, it fills the session view; otherwise its own width, leaving the conversation some room in a narrow pane.
+      className={`relative flex min-w-0 flex-col border-l border-border bg-bg ${expanded ? 'flex-1' : 'max-w-[85%] shrink-0'}`}
+      style={expanded ? undefined : { width }}
+      data-changes-panel
+      data-changes-expanded={expanded}
+    >
+      {!expanded && (
+        <div
+          role="separator"
+          aria-orientation="vertical"
+          aria-label="Changes panel width"
+          aria-valuenow={width}
+          aria-valuemin={CHANGES_MIN_WIDTH}
+          aria-valuemax={Math.round(window.innerWidth * CHANGES_MAX_SHARE)}
+          tabIndex={0}
+          onPointerDown={startResize}
+          onKeyDown={resizeByKey}
+          className="absolute inset-y-0 -left-0.5 z-10 w-1 cursor-col-resize hover:bg-accent/40 focus-visible:bg-accent/40"
+          data-tooltip="Drag (or use ← →) to resize"
+          data-changes-resize
+        />
+      )}
       <div className="flex h-10 shrink-0 items-center gap-2 border-b border-border px-3">
         {/* Arrow keys move between the two, like any radio group; only the chosen one is a Tab stop. */}
-        <RadioGroup label="Changes to show" className="flex rounded-md border border-border p-0.5 text-[11.5px]">
+        <RadioGroup label="Changes to show" className="flex rounded-md border border-border p-0.5 text-meta">
           {(['uncommitted', 'branch'] as const).map((value) => (
             <button
               key={value}
@@ -163,7 +251,7 @@ export function ChangesPanel({
             </button>
           ))}
         </RadioGroup>
-        <span className="min-w-0 flex-1 truncate text-[11.5px] text-muted">
+        <span className="min-w-0 flex-1 truncate text-meta text-muted">
           <span aria-hidden>
             {files.length} {files.length === 1 ? 'file' : 'files'} <span className="text-ok">+{added}</span> <span className="text-error">−{removed}</span>
           </span>
@@ -182,6 +270,17 @@ export function ChangesPanel({
         >
           <WrapText size={13} />
         </button>
+        <button
+          type="button"
+          onClick={() => toggleExpanded()}
+          aria-pressed={expanded}
+          data-tooltip={expanded ? 'Back to a side panel' : 'Expand to the whole view'}
+          aria-label={expanded ? 'Back to a side panel' : 'Expand changes to the whole view'}
+          data-changes-expand
+          className={`flex size-6 items-center justify-center rounded hover:bg-border/60 hover:text-text ${expanded ? 'bg-accent/15 text-accent-ink' : 'text-muted'}`}
+        >
+          {expanded ? <Minimize2 size={13} aria-hidden /> : <Maximize2 size={13} aria-hidden />}
+        </button>
         <button type="button" onClick={onRefresh} data-tooltip="Check git for changes again" aria-label="Refresh changes" className="flex size-6 items-center justify-center rounded text-muted hover:bg-border/60 hover:text-text">
           <RefreshCw size={12} />
         </button>
@@ -191,16 +290,16 @@ export function ChangesPanel({
       </div>
 
       {(error ?? changes?.error) && (
-        <p role="alert" className="border-b border-border px-3 py-2 text-[11.5px] text-error">
+        <p role="alert" className="border-b border-border px-3 py-2 text-meta text-error">
           {error ?? changes?.error}
         </p>
       )}
 
       <div className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto">
         {changes === null ? (
-          <p className="p-4 text-[12px] text-muted">Loading…</p>
+          <p className="p-4 text-ui text-muted">Loading…</p>
         ) : files.length === 0 ? (
-          <p className="p-4 text-[12px] text-muted">{base === 'uncommitted' ? 'No uncommitted changes.' : `Nothing on ${changes.branch ?? 'this branch'} that isn't on ${changes.baseBranch ?? 'its base'}.`}</p>
+          <p className="p-4 text-ui text-muted">{base === 'uncommitted' ? 'No uncommitted changes.' : `Nothing on ${changes.branch ?? 'this branch'} that isn't on ${changes.baseBranch ?? 'its base'}.`}</p>
         ) : (
           files.map((file) => {
             const status = STATUS[file.status];
@@ -210,7 +309,7 @@ export function ChangesPanel({
             const diffId = `diff-${file.path}`;
             return (
               <div key={file.path} className="border-b border-border" data-changed-file={file.path}>
-                <div className="group flex h-8 items-center gap-2 pr-2 pl-1.5 text-[12px] hover:bg-border/30">
+                <div className="group flex h-8 items-center gap-2 pr-2 pl-1.5 text-ui hover:bg-border/30">
                   {editable && (
                     <Checkbox
                       checked={file.staged}
@@ -230,7 +329,7 @@ export function ChangesPanel({
                     className="flex min-w-0 flex-1 items-center gap-1.5 text-left"
                   >
                     <ChevronRight size={12} className={`shrink-0 text-muted transition-transform ${isOpen ? 'rotate-90' : ''}`} />
-                    <span aria-hidden className={`w-3 shrink-0 text-center font-mono text-[11px] font-semibold ${status.tone}`} data-tooltip={status.label}>
+                    <span aria-hidden className={`w-3 shrink-0 text-center font-mono text-meta font-semibold ${status.tone}`} data-tooltip={status.label}>
                       {status.letter}
                     </span>
                     <span className="sr-only">{status.label}:</span>
@@ -239,7 +338,7 @@ export function ChangesPanel({
                       <span className="text-text">{name}</span>
                     </span>
                   </button>
-                  <span className="shrink-0 font-mono text-[11px] tabular-nums">
+                  <span className="shrink-0 font-mono text-meta tabular-nums">
                     <span aria-hidden>
                       {file.additions > 0 && <span className="text-ok">+{file.additions}</span>} {file.deletions > 0 && <span className="text-error">−{file.deletions}</span>}
                     </span>
@@ -267,7 +366,7 @@ export function ChangesPanel({
       </div>
 
       {editable && files.length > 0 && client && (
-        <div className="flex h-10 shrink-0 items-center gap-2 border-t border-border px-3 text-[12px]">
+        <div className="flex h-10 shrink-0 items-center gap-2 border-t border-border px-3 text-ui">
           <button
             type="button"
             onClick={() => run(client.call('git.stage', { cwd, paths: files.map((f) => f.path), staged: !allStaged }), allStaged ? 'unstage the files' : 'stage the files')}

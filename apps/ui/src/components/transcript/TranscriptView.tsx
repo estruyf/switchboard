@@ -1,5 +1,5 @@
 import { useVirtualizer } from '@tanstack/react-virtual';
-import { Blocks, FileDiff, GitBranch, SquareTerminal, X } from 'lucide-react';
+import { Blocks, ChevronDown, FileDiff, GitBranch, ListTodo, LoaderCircle, SquareTerminal, X } from 'lucide-react';
 import { lazy, Suspense, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { ChangesBase, GitChanges, ImageAttachment, PermissionRequest, RewindResult, SlashCommand } from '@switchboard/protocol/client';
 import { useEngineConnection } from '../../engine/useEngine.ts';
@@ -17,13 +17,12 @@ import { useTerminals } from '../../state/terminalsStore.ts';
 const TerminalPanel = lazy(() => import('../terminal/TerminalPanel.tsx').then((m) => ({ default: m.TerminalPanel })));
 import { Composer } from '../composer/Composer.tsx';
 import { CapabilitiesDialog } from '../capabilities/CapabilitiesDialog.tsx';
-import { ChangesPanel } from '../changes/ChangesPanel.tsx';
+import { ChangesPanel, useChangesLayout } from '../changes/ChangesPanel.tsx';
 import { ContextMeter } from '../session/ContextMeter.tsx';
 import { BranchMenu } from '../worktree/BranchMenu.tsx';
 import { inWorktree } from '../worktree/branchMenu.ts';
 import { WorktreeMenu } from '../worktree/WorktreeMenu.tsx';
 import { ConfirmDialog } from '../ConfirmDialog.tsx';
-import { OpenInButton } from '../OpenInButton.tsx';
 import { GitButton } from '../git/GitButton.tsx';
 import { ProjectIcon } from '../ProjectIcon.tsx';
 import { PermissionCard, permissionTitle } from '../session/PermissionCard.tsx';
@@ -45,6 +44,9 @@ const ORIGIN_LABEL = { cli: 'Terminal', desktop: 'Claude desktop', ide: 'IDE', s
 
 /** The status word in the header's meta line takes the colour of its dot. */
 const STATUS_TONE = { running: 'text-accent-ink', 'needs-you': 'text-warn', idle: 'text-ok' } as const;
+
+/** One half of the header's Changes | Terminal control. */
+const segment = 'flex h-full shrink-0 items-center gap-1.5 rounded px-2 text-ui @max-[860px]:px-1.5';
 
 /** The dot between the parts of the header's meta line (a narrow pane shows only the status dot and the branch, no separators). */
 const Sep = () => (
@@ -73,7 +75,7 @@ function StreamingBlock({ sessionId, since, showIndicator }: { sessionId: string
   const label = block?.kind === 'tool' ? `Using ${block.text}` : block?.kind === 'thinking' ? 'Thinking' : 'Working';
   return (
     <div className="mx-auto max-w-3xl px-6 pt-3 pb-2" data-streaming>
-      <p className="flex min-w-0 items-center gap-2 text-[12.5px] text-muted">
+      <p className="flex min-w-0 items-center gap-2 text-ui text-muted">
         <span className="flex w-4 shrink-0 justify-center">
           <WorkingDots />
         </span>
@@ -202,7 +204,8 @@ export function TranscriptView({ sessionId, pane = null, active = true }: { sess
     }
     return [];
   }, [items]);
-  const [todosOpen, setTodosOpen] = useState(true);
+  // The task list starts folded into its pill; the pill says how far along it is.
+  const [todosOpen, setTodosOpen] = useState(false);
   const todosId = useId();
 
   const activeHost = isActiveHost(host) ? host : null;
@@ -210,6 +213,8 @@ export function TranscriptView({ sessionId, pane = null, active = true }: { sess
   const openElsewhere = !activeHost && registryLive !== null;
   const cwd = activeHost?.cwd ?? summary?.cwd ?? registryLive?.cwd ?? null;
   const running = activeHost?.state === 'running' || activeHost?.state === 'needs-you';
+  const showTodos = todos.some((t) => t.status !== 'completed') && (live !== null || activeHost !== null);
+  const backgroundTasks = activeHost?.backgroundTasks ?? [];
   /** The Claude profile (account) the session bills to. */
   const profileId = activeHost?.profileId ?? summary?.profileId ?? registryLive?.profileId ?? null;
 
@@ -224,8 +229,12 @@ export function TranscriptView({ sessionId, pane = null, active = true }: { sess
   const { changes, isRepo, refresh: refreshChanges } = useGitChanges(cwd, changesBase, `${items.length}:${live?.status ?? ''}:${branchSwitches}`);
   // The badge on the Changes button counts uncommitted files only (the panel can compare with a branch too).
   const changedCount = changesBase === 'uncommitted' && changes ? changes.files.length : 0;
+  const showChanges = Boolean(changesOpen && active && cwd && isRepo);
+  const changesExpanded = useChangesLayout((s) => s.expanded);
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
+      // Behind the Settings sheet the session stays mounted (inert); its shortcuts wait until Settings closes.
+      if (useSessions.getState().view !== 'session') return;
       if (active && event.metaKey && event.shiftKey && !event.altKey && event.key.toLowerCase() === 'd') {
         event.preventDefault();
         toggleChanges();
@@ -478,17 +487,17 @@ export function TranscriptView({ sessionId, pane = null, active = true }: { sess
     <div className="@container flex h-full min-h-0 flex-col" data-current-session={sessionId} data-drop-zone>
       {/* With two panes, the active one has an accent line along the top. */}
       <header
-        className={`drag flex h-13 shrink-0 items-center gap-3 overflow-hidden border-b border-border px-6 @max-[860px]:gap-2 @max-[860px]:px-4 ${pane && active ? 'shadow-[inset_0_2px_0_var(--sb-accent)]' : ''} ${pane && !active ? 'opacity-75' : ''}`}
+        className={`drag flex h-13 shrink-0 items-center gap-3 overflow-hidden border-b border-border px-6 @max-[860px]:gap-2 @max-[860px]:px-4 ${pane && active ? 'shadow-[inset_0_2px_0_var(--sb-accent)]' : ''}`}
         data-pane={pane ?? undefined}
         data-pane-active={pane ? active : undefined}
       >
         {projectRoot && <ProjectIcon project={project} root={projectRoot} size={22} />}
         <div className="min-w-24 flex-1">
-          <h1 className="truncate text-[13px] font-semibold" data-tooltip={titleTooltip}>
+          <h1 className="truncate text-body leading-snug font-semibold" data-tooltip={titleTooltip}>
             {title}
           </h1>
           {/* Status · project · branch. In a narrow pane: the dot and the branch. */}
-          <div className="flex min-w-0 items-center gap-1.5 text-[11.5px] text-muted" data-session-meta>
+          <div className="flex min-w-0 items-center gap-1.5 text-meta text-muted" data-session-meta>
             <span className={`flex shrink-0 items-center gap-1.5 ${statusTone}`} data-session-status>
               {live ? <StatusDot live={live} /> : <span className={`inline-block size-2 shrink-0 rounded-full ${failed ? 'bg-error' : 'bg-faint'}`} aria-hidden />}
               <span className="@max-[860px]:sr-only" data-tooltip={failed ? (host?.error ?? undefined) : undefined}>
@@ -524,35 +533,39 @@ export function TranscriptView({ sessionId, pane = null, active = true }: { sess
             )}
           </div>
         </div>
-        {cwd && isRepo && (
+        {/* Changes | Terminal: the two side panels as one segmented control. */}
+        <div role="group" aria-label="Panels" className="no-drag flex h-7 shrink-0 items-center gap-0.5 rounded-md border border-border p-0.5" data-panel-toggles>
+          {cwd && isRepo && (
+            <button
+              type="button"
+              data-toggle-changes
+              onClick={() => toggleChanges()}
+              data-tooltip={`${changesOpen ? 'Hide' : 'Show'} changed files (⌘⇧D)`}
+              aria-label={`${changesOpen ? 'Hide' : 'Show'} changed files${changedCount ? `, ${changedCount} changed` : ''} (⌘⇧D)`}
+              aria-keyshortcuts="Meta+Shift+D"
+              aria-expanded={changesOpen && active}
+              className={`${segment} ${changesOpen ? 'bg-selected text-text' : 'text-muted hover:bg-border/50 hover:text-text'}`}
+            >
+              <FileDiff size={13} aria-hidden />
+              <span className="@max-[860px]:hidden">Changes</span>
+              {changedCount > 0 && <span className="rounded-full bg-border px-1.5 text-meta leading-4 text-text tabular-nums">{changedCount}</span>}
+            </button>
+          )}
           <button
             type="button"
-            data-toggle-changes
-            onClick={() => toggleChanges()}
-            data-tooltip={`${changesOpen ? 'Hide' : 'Show'} changed files (⌘⇧D)`}
-            aria-label={`${changesOpen ? 'Hide' : 'Show'} changed files${changedCount ? `, ${changedCount} changed` : ''} (⌘⇧D)`}
-            aria-keyshortcuts="Meta+Shift+D"
-            aria-expanded={changesOpen && active}
-            className={`no-drag flex h-7 shrink-0 items-center gap-1 rounded-md px-1.5 text-[12px] hover:bg-border/50 hover:text-text ${changesOpen ? 'bg-accent/15 text-text' : 'text-muted'}`}
+            data-toggle-terminal
+            onClick={() => togglePanel()}
+            data-tooltip={`${panelOpen ? 'Hide' : 'Show'} terminal (⌘J)${terminalCount ? ` · ${terminalCount} running` : ''}`}
+            aria-label={`${panelOpen ? 'Hide' : 'Show'} terminal${terminalCount ? `, ${terminalCount} running` : ''} (⌘J)`}
+            aria-keyshortcuts="Meta+J"
+            aria-expanded={panelOpen && active}
+            className={`${segment} relative ${panelOpen ? 'bg-selected text-text' : 'text-muted hover:bg-border/50 hover:text-text'}`}
           >
-            <FileDiff size={15} aria-hidden />
-            {changedCount > 0 && <span className="tabular-nums">{changedCount}</span>}
+            <SquareTerminal size={13} aria-hidden />
+            <span className="@max-[860px]:hidden">Terminal</span>
+            {terminalCount > 0 && <span className="size-1.5 shrink-0 rounded-full bg-ok" aria-hidden />}
           </button>
-        )}
-        <button
-          type="button"
-          data-toggle-terminal
-          onClick={() => togglePanel()}
-          data-tooltip={`${panelOpen ? 'Hide' : 'Show'} terminal (⌘J)${terminalCount ? ` · ${terminalCount} running` : ''}`}
-          aria-label={`${panelOpen ? 'Hide' : 'Show'} terminal${terminalCount ? `, ${terminalCount} running` : ''} (⌘J)`}
-          aria-keyshortcuts="Meta+J"
-          aria-expanded={panelOpen && active}
-          className={`no-drag relative flex size-7 shrink-0 items-center justify-center rounded-md hover:bg-border/50 hover:text-text ${panelOpen ? 'bg-accent/15 text-text' : 'text-muted'}`}
-        >
-          <SquareTerminal size={15} aria-hidden />
-          {terminalCount > 0 && <span className="absolute top-0.5 right-0.5 size-1.5 rounded-full bg-ok" aria-hidden />}
-        </button>
-        <span className="h-5 w-px shrink-0 bg-border" aria-hidden />
+        </div>
         {cwd && isRepo && (
           <GitButton
             sessionId={sessionId}
@@ -569,7 +582,6 @@ export function TranscriptView({ sessionId, pane = null, active = true }: { sess
             }}
           />
         )}
-        <OpenInButton path={cwd} />
         <MoreMenu
           sessionId={sessionId}
           projectRoot={projectRoot}
@@ -584,7 +596,7 @@ export function TranscriptView({ sessionId, pane = null, active = true }: { sess
             type="button"
             data-close-session
             onClick={() => useSessions.getState().closeSession()}
-            data-tooltip="Close session (it keeps running)"
+            data-tooltip="Close session and go Home (it keeps running)"
             aria-label="Close session"
             className="no-drag flex size-7 shrink-0 items-center justify-center rounded-md text-muted hover:bg-border/50 hover:text-text"
           >
@@ -607,7 +619,8 @@ export function TranscriptView({ sessionId, pane = null, active = true }: { sess
       </header>
 
       <div className="flex min-h-0 flex-1">
-        <div className="relative flex min-w-0 flex-1 flex-col">
+        {/* An expanded Changes panel takes the whole view; the conversation stays mounted (scroll position, drafts) but hidden. */}
+        <div className={`relative min-w-0 flex-1 flex-col ${showChanges && changesExpanded ? 'hidden' : 'flex'}`}>
           {findQuery !== null && (
             <FindBar
               query={findQuery}
@@ -633,11 +646,11 @@ export function TranscriptView({ sessionId, pane = null, active = true }: { sess
               data-transcript
             >
               {status === 'loading' ? (
-                <p className="p-8 text-center text-[12px] text-muted" role="status">
+                <p className="p-8 text-center text-ui text-muted" role="status">
                   Loading the conversation…
                 </p>
               ) : items.length === 0 && !activeHost ? (
-                <p className="p-8 text-center text-[12px] text-muted">This session has no messages yet.</p>
+                <p className="p-8 text-center text-ui text-muted">This session has no messages yet.</p>
               ) : (
                 <div className="relative mx-auto max-w-3xl px-6" style={{ height: virtualizer.getTotalSize() }}>
                   {virtualizer.getVirtualItems().map((row) => (
@@ -687,14 +700,14 @@ export function TranscriptView({ sessionId, pane = null, active = true }: { sess
                   <p>Files go back to how they were before this message. The conversation stays as it is.</p>
                   {rewinding.preview && rewinding.preview.files.length > 0 && (
                     <>
-                      <ul className="mt-2 max-h-40 overflow-y-auto font-mono text-[11.5px] text-text" data-rewind-files>
+                      <ul className="mt-2 max-h-40 overflow-y-auto font-mono text-meta text-text" data-rewind-files>
                         {rewinding.preview.files.map((file) => (
                           <li key={file} className="truncate">
                             {cwd && file.startsWith(`${cwd}/`) ? file.slice(cwd.length + 1) : file}
                           </li>
                         ))}
                       </ul>
-                      <p className="mt-1.5 text-[11.5px]">
+                      <p className="mt-1.5 text-meta">
                         <span className="text-ok">+{rewinding.preview.insertions}</span> <span className="text-error">−{rewinding.preview.deletions}</span>
                       </p>
                     </>
@@ -712,44 +725,62 @@ export function TranscriptView({ sessionId, pane = null, active = true }: { sess
           <div className="shrink-0 border-t border-border bg-bg">
             {/* minmax(0,1fr): the column stays as wide as the pane, so long lines truncate instead of pushing it wider. */}
             <div className="mx-auto grid max-w-3xl grid-cols-[minmax(0,1fr)] gap-2 px-6 pt-3 pb-1.5 @max-[860px]:px-4">
-              {todos.some((t) => t.status !== 'completed') && (live || activeHost) && (
-                <div className="rounded-lg border border-border bg-card px-3 py-2" data-todo-strip>
-                  <button
-                    type="button"
-                    onClick={() => setTodosOpen((o) => !o)}
-                    aria-expanded={todosOpen}
-                    aria-controls={todosOpen ? todosId : undefined}
-                    data-tooltip={todosOpen ? 'Hide Claude’s task list' : 'Show Claude’s task list'}
-                    className="flex w-full items-center gap-2 text-left text-[11px] text-muted hover:text-text"
-                  >
-                    <span className={`inline-block text-[8px] transition-transform ${todosOpen ? 'rotate-90' : ''}`} aria-hidden>
-                      ▶
-                    </span>
-                    Tasks · {todos.filter((t) => t.status === 'completed').length} of {todos.length} done
-                  </button>
-                  {todosOpen && (
-                    <div id={todosId} className="mt-1.5 max-h-40 overflow-y-auto">
+              {(showTodos || backgroundTasks.length > 0) && (
+                <div className="grid gap-1.5">
+                  {/* Claude's task list and its background tasks, as small pills; the task list opens below them. */}
+                  <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+                    {showTodos && (
+                      <button
+                        type="button"
+                        onClick={() => setTodosOpen((o) => !o)}
+                        aria-expanded={todosOpen}
+                        aria-controls={todosOpen ? todosId : undefined}
+                        data-tooltip={todosOpen ? 'Hide Claude’s task list' : 'Show Claude’s task list'}
+                        className={`flex h-6 shrink-0 items-center gap-1.5 rounded-full border border-border px-2.5 text-meta hover:bg-border/50 hover:text-text ${todosOpen ? 'bg-selected text-text' : 'text-muted'}`}
+                        data-todo-strip
+                      >
+                        <ListTodo size={12} aria-hidden />
+                        <span className="tabular-nums">
+                          Tasks {todos.filter((t) => t.status === 'completed').length} of {todos.length}
+                        </span>
+                        <ChevronDown size={11} className={`transition-transform ${todosOpen ? 'rotate-180' : ''}`} aria-hidden />
+                      </button>
+                    )}
+                    {backgroundTasks.length > 0 && (
+                      <span
+                        className="flex h-6 min-w-0 items-center gap-1.5 rounded-full border border-ok/40 bg-ok/10 px-2.5 text-meta text-ok"
+                        data-tooltip={backgroundTasks.map((t) => t.description).join('\n')}
+                        data-status-background
+                      >
+                        <LoaderCircle size={11} className="shrink-0 animate-[spin_2s_linear_infinite]" aria-hidden />
+                        <span className="truncate">{backgroundTasks.length === 1 ? '1 background task' : `${backgroundTasks.length} background tasks`}</span>
+                      </span>
+                    )}
+                  </div>
+                  {showTodos && todosOpen && (
+                    <div id={todosId} className="max-h-40 overflow-y-auto px-1" data-todo-list>
                       <TodoList todos={todos} compact />
                     </div>
                   )}
                 </div>
               )}
               {/* Long questions scroll inside here, so the window itself never scrolls. */}
+              {/* Padding (cancelled by the negative margin) so the cards' pink ring isn't clipped by the scroll box. */}
               {permissions.length > 0 && (
-                <div className="grid max-h-[55vh] gap-2 overflow-y-auto" data-permissions>
+                <div className="-m-1 grid max-h-[55vh] gap-2 overflow-y-auto p-1" data-permissions>
                   {permissions.map((request) => (
                     <PermissionCard key={request.requestId} request={request} cwd={cwd} />
                   ))}
                 </div>
               )}
               {openElsewhere && (
-                <p className="rounded-lg border border-border bg-card px-3 py-2 text-[12px] text-muted">
+                <p className="rounded-lg border border-border bg-card px-3 py-2 text-ui text-muted">
                   This session is open in {ORIGIN_LABEL[registryLive.origin] || 'another Claude Code window'} right now. Sending here starts a{' '}
                   <strong className="font-medium text-text">fork</strong>: a new session that continues from this conversation, leaving the original untouched.
                 </p>
               )}
               {actionError && (
-                <p className="flex items-start gap-2 rounded-lg border border-error/40 bg-error/5 px-3 py-2 text-[12px] text-error" role="alert">
+                <p className="flex items-start gap-2 rounded-lg border border-error/40 bg-error/5 px-3 py-2 text-ui text-error" role="alert">
                   <span className="min-w-0 flex-1">{actionError}</span>
                   <button type="button" onClick={() => setActionError(null)} className="shrink-0 text-muted hover:text-text">
                     Dismiss
@@ -774,7 +805,7 @@ export function TranscriptView({ sessionId, pane = null, active = true }: { sess
                   activeHost ? (
                     <SessionControls host={activeHost} />
                   ) : (
-                    <span className="min-w-0 truncate px-1.5 text-[11.5px] text-muted" data-tooltip={host?.state === 'error' ? (host.error ?? undefined) : undefined} data-session-elsewhere>
+                    <span className="min-w-0 truncate px-1.5 text-meta text-muted" data-tooltip={host?.state === 'error' ? (host.error ?? undefined) : undefined} data-session-elsewhere>
                       {host?.state === 'error' ? (
                         <span className="text-error">Last run failed: {host.error}</span>
                       ) : registryLive ? (
@@ -802,7 +833,7 @@ export function TranscriptView({ sessionId, pane = null, active = true }: { sess
                 }
               />
               {/* One quiet line: plan usage (of the session's profile, which is a chip in the box) and how full the context is. */}
-              <div className="flex min-h-6 items-center gap-3 px-1 text-[11.5px] text-muted" data-session-footer>
+              <div className="flex min-h-6 items-center gap-3 px-1 text-meta text-muted" data-session-footer>
                 <div className="flex min-w-0 flex-1 items-center gap-3 overflow-hidden">
                   <UsageBand profileId={profileId} footer />
                 </div>
@@ -825,7 +856,7 @@ export function TranscriptView({ sessionId, pane = null, active = true }: { sess
             </Suspense>
           )}
         </div>
-        {changesOpen && active && cwd && isRepo && (
+        {showChanges && cwd && (
           <ChangesPanel cwd={cwd} changes={changes} base={changesBase} onBase={setChangesBase} onRefresh={refreshChanges} onClose={() => toggleChanges(false)} />
         )}
       </div>

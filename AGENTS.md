@@ -57,6 +57,49 @@ Run `npm run check` after every change, and `npm run smoke` after UI or engine c
 - **Long lists are virtualised** (`@tanstack/react-virtual`): rows outside the viewport aren't in the DOM.
 - **Preferences** (theme, sidebar style, tool activity, quit prompt) live in main (`apps/desktop/src/main/preferences.ts`); the preload reads them synchronously so the first paint is right. Add new ones to `Preferences` in `packages/protocol/src/bridge.ts`.
 
+### Design system
+
+Every screen follows the same few rules. New UI uses them; don't invent new sizes, colours or patterns for a single spot.
+
+**Type scale.** Four sizes (plus one hero size), as Tailwind tokens from `styles.css`. Use these instead of `text-[12.5px]`-style arbitrary values:
+
+| Token | Size | For |
+|---|---|---|
+| `text-meta` | 11px | ages, branches, counts, usage, hints under a control |
+| `text-ui` | 12px | buttons, chips, menus, list rows, form fields |
+| `text-body` | 13.5px | messages in the conversation, the message box, session titles in the sidebar |
+| `text-title` | 15px | view and dialog titles (`font-semibold`) |
+| `text-hero` | 20px | only the single heading of a focused view (Home, New session) |
+
+Monospace (`font-mono`) is for paths, commands, branches in menus and diffs, at `text-ui` or `text-meta`.
+
+**Status colours.** Each colour means one thing, everywhere: the sidebar, headers, cards and notifications.
+
+| State | Token | Shape |
+|---|---|---|
+| Needs you (a permission or a question) | `warn` (pink) | 3px rail on the row, pulsing dot, pink frame on the card |
+| Working | `accent-ink` (yellow) | rail, spinner or the three working dots |
+| Running in the background | `ok` (green) | slow spinner |
+| Finished, unread | `unread` (blue) | rail and dot, bold title |
+| Failed | `error` | `!` badge |
+| Idle | `faint` | no rail |
+
+Yellow is never used for "unread". Green, orange (`caution`) and red (`error`) are only for levels: use `levelOf()` and `LEVEL_FILL` / `LEVEL_TEXT` / `LEVEL_COLOR` from `lib/levels.ts` (green under 60%, orange to 85%, red from 85%) for usage bars, the context ring and anything else that fills up.
+
+**Selection and hover.** A selected row is `bg-selected` (a neutral fill) plus its status rail; hover is `hover:bg-border/45`. Don't use `bg-accent/15` for selection: it vanishes on the light sidebar. A yellow tint is fine for a pressed toggle or a highlighted menu option.
+
+**Buttons.** One primary action per area, as a yellow fill (`bg-accent text-on-accent font-semibold`, 28px high in toolbars, 30-32px in cards and the message box). Everything else is a quiet button: text or icon in `text-muted`, `hover:bg-border/50 hover:text-text`, or `border border-border` when it needs an edge. Related toggles sit together in one segmented control (see Changes | Terminal in the session header). Put actions people use less often in the `⋯` menu rather than adding another icon. Things people run all the time stay one click away: the first three project actions are quiet buttons in the session header (icon and name, icon only in a narrow pane), and every action is also in the `⋯` menu.
+
+**Keyboard first.** Every primary action has a shortcut, and the button shows it in a `<kbd>` (`⌘↵`, `Esc`, `⌘1`). Choices in a list can be picked with number keys.
+
+**Surfaces and borders.** Cards (`rounded-xl border border-border bg-card`) are for things that need a decision or hold input: your prompt, a plan, a permission or question card, the message box. Tool runs, agent reports and to-do lists in the conversation are a quiet timeline without borders. Floating things (menus, popovers, dialogs, sheets) use the `overlay` utility.
+
+**Layout.** Group lists by what needs attention first (Needs you, Working), then by time (Today, Yesterday, Earlier). Centre focused views (New session, Home) in the window with a `max-w-3xl` column. Side panels that show content (Changes, terminal) can be resized by dragging, and from the keyboard.
+
+**Copy.** Plain, short sentences. Say what something does ("Allow", "Start session"), not how. No em dashes.
+
+The design mockups these rules come from are in the Switchboard UI suggestions canvas; when a new view needs a pattern that isn't here, add it to this section in the same change.
+
 ### Smoke test
 
 `apps/desktop/src/main/index.ts` holds the smoke steps (`run…Step` functions), and `apps/desktop/scripts/smoke.ts` prints their results. Steps find elements by `data-*` attributes, so give new UI a `data-` hook when you add it. Steps must be **read-only on real data**: the app runs against the user's real `~/.claude` and projects, with a throwaway app profile. Never stage, revert, delete or send anything outside the sandbox.

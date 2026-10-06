@@ -13,6 +13,7 @@ import {
   Search,
   Settings,
   SquarePen,
+  House,
   SquareTerminal,
   StopCircle,
   Sun,
@@ -86,6 +87,7 @@ export function CommandPalette() {
   const items = useMemo<Item[]>(() => {
     const setView = useSessions.getState().setView;
     const commands: Item[] = [
+      { id: 'home', group: 'Commands', label: 'Home', hint: '⌘⇧H', keywords: 'start overview dashboard', icon: icon(House), run: () => useSessions.getState().goHome() },
       { id: 'new', group: 'Commands', label: 'New session', hint: '⌘N', icon: icon(SquarePen), run: () => useSessions.getState().openNewSession() },
       { id: 'search', group: 'Commands', label: 'Search conversations', keywords: 'find text', hint: '⌘⇧F', icon: icon(Search), run: () => useOverlay.getState().show('search') },
       { id: 'settings', group: 'Commands', label: 'Settings', keywords: 'preferences', hint: '⌘,', icon: icon(Settings), run: () => useSessions.getState().openSettings() },

@@ -15,7 +15,15 @@ import { ACTION_ICON, formatShortcut, shortcutFromEvent, useProjectActionList } 
  * from their shortcuts and from the command palette. Shell actions open a terminal tab; prompt
  * actions message Claude. `error`: the last run that failed.
  */
-export function useActionsMenu({ sessionId, projectRoot, cwd }: { sessionId: string; projectRoot: string | null; cwd: string | null }): { entries: MenuEntry[]; overlays: ReactNode; error: string | null } {
+export function useActionsMenu({ sessionId, projectRoot, cwd }: { sessionId: string; projectRoot: string | null; cwd: string | null }): {
+  entries: MenuEntry[];
+  overlays: ReactNode;
+  error: string | null;
+  /** The project's actions, for the quick buttons in the session header. */
+  actions: ListedAction[];
+  /** Runs an action (asking first when it needs trust or confirmation). */
+  run: (action: ListedAction) => void;
+} {
   const connection = useEngineConnection();
   const client = connection.status === 'connected' ? connection.client : null;
   const { actions, sharedFile, errors, reload } = useProjectActionList(projectRoot);
@@ -74,7 +82,7 @@ export function useActionsMenu({ sessionId, projectRoot, cwd }: { sessionId: str
     return () => window.removeEventListener('keydown', onKey);
   }, [actions]);
 
-  if (!projectRoot) return { entries: [], overlays: null, error: null };
+  if (!projectRoot) return { entries: [], overlays: null, error: null, actions: [], run };
   const entries: MenuEntry[] = [
     { heading: 'Project actions' },
     ...actions.map((a) => {
@@ -136,5 +144,5 @@ export function useActionsMenu({ sessionId, projectRoot, cwd }: { sessionId: str
       )}
     </>
   );
-  return { entries, overlays, error };
+  return { entries, overlays, error, actions, run };
 }
