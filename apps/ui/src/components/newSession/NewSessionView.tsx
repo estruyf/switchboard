@@ -9,10 +9,12 @@ import { MODE_DESCRIPTION, MODE_DOT, routeHint } from './route.ts';
 import { basename, guessHome } from '../../lib/format.ts';
 import { MODE_CHOICES, MODE_LABEL, nextMode, worktreeSlug } from '../../lib/modes.ts';
 import { useHosts } from '../../state/hostsStore.ts';
+import { usePreferences } from '../../state/preferencesStore.ts';
 import { useProfiles } from '../../state/profilesStore.ts';
 import { addedProjects } from '../../state/projectList.ts';
 import { useProjects } from '../../state/projectsStore.ts';
 import { realBranch, toRows, useSessions } from '../../state/sessionsStore.ts';
+import { inScope } from '../../state/sidebarRows.ts';
 import { Composer } from '../composer/Composer.tsx';
 import { PROFILE_DOT } from '../profiles/ProfileBadge.tsx';
 import { Checkbox } from '../ui/Checkbox.tsx';
@@ -72,6 +74,7 @@ export function NewSessionView() {
   const focusRequest = useSessions((s) => s.newSessionRequest);
   const hosts = useHosts((s) => s.hosts);
   const live = useSessions((s) => s.live);
+  const scope = usePreferences((s) => s.prefs.sessionScope);
   const [cwd, setCwd] = useState<string | null>(null);
   const [globals, setGlobals] = useState<GlobalChoices>(INITIAL_CHOICES);
   const [d, setD] = useState<Choices>({ ...INITIAL_CHOICES, branch: '' });
@@ -209,10 +212,11 @@ export function NewSessionView() {
     setSavedNote(`Saved as ${project?.name ?? basename(cwd)}'s defaults`);
   };
 
-  // Sessions with a Claude Code process in this project right now, newest first.
+  // Sessions with a Claude Code process in this project right now, newest first. Like the
+  // sidebar, sessions started outside Switchboard only count when the scope shows them.
   const running = useMemo(
-    () => (cwd ? toRows(sessions, live, hosts).filter((row) => row.live && row.projectRoot === cwd).sort((a, b) => b.updatedAt - a.updatedAt) : []),
-    [sessions, live, hosts, cwd],
+    () => (cwd ? toRows(sessions, live, hosts).filter((row) => row.live && row.projectRoot === cwd && inScope(row, scope)).sort((a, b) => b.updatedAt - a.updatedAt) : []),
+    [sessions, live, hosts, cwd, scope],
   );
 
   const create = async (text: string, attachments: ImageAttachment[]) => {
