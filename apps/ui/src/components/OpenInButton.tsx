@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useId, useRef, useState, type KeyboardEvent } from 'react';
+import { ChevronDown } from 'lucide-react';
 import type { EditorInfo } from '@switchboard/protocol/client';
 import { useEngineConnection } from '../engine/useEngine.ts';
 import { useHosts } from '../state/hostsStore.ts';
@@ -132,7 +133,7 @@ export function OpenInButton({ path, shortcut = true }: { path: string | null; /
         ref={toggleRef}
         type="button"
         onClick={toggle}
-        className="rounded-r-md border border-l-0 border-border px-1.5 text-[10px] text-muted hover:bg-border/50"
+        className="flex items-center rounded-r-md border border-l-0 border-border px-1.5 text-muted hover:bg-border/50 hover:text-text"
         aria-label="Open in another app"
         data-tooltip="Open in another app"
         aria-haspopup="menu"
@@ -140,7 +141,7 @@ export function OpenInButton({ path, shortcut = true }: { path: string | null; /
         aria-controls={open ? menuId : undefined}
         data-open-in-menu
       >
-        <span aria-hidden>▾</span>
+        <ChevronDown size={13} aria-hidden />
       </button>
       {/* The tooltip only shows on hover; say it out loud too. */}
       {error && (

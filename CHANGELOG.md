@@ -14,6 +14,10 @@ All notable changes to Switchboard are listed here. Each release is also on the 
 - A prompt you start typing in **New session** is still there when you come back from a session or Settings. A **Clear** link under the message box empties it.
 - **Open in** (VS Code, another editor, a terminal, Finder or GitHub) is at the top of **New session** too, to look around the project before you start.
 
+### Fixes
+
+- The arrow that opens the **Open in** menu is now a proper chevron instead of a tiny glyph sitting off-centre.
+
 ## [0.0.5] - 2026-10-06
 
 ### Sessions
