@@ -52,6 +52,6 @@ export const WorktreeStatus = z.object({
 });
 export type WorktreeStatus = z.infer<typeof WorktreeStatus>;
 
-/** `pull` and `push` sync the branch with its upstream; `pr` pushes and opens a pull request with gh. */
-export const GitSyncAction = z.enum(['pull', 'push', 'pr']);
+/** `fetch` updates the remote branches; `pull` and `push` sync the branch with its upstream; `pr` pushes and opens a pull request with gh. */
+export const GitSyncAction = z.enum(['fetch', 'pull', 'push', 'pr']);
 export type GitSyncAction = z.infer<typeof GitSyncAction>;

@@ -337,12 +337,18 @@ export const contract = {
     'git.revert': { params: z.object({ cwd: AbsolutePath, paths: z.array(z.string().max(4096)).min(1).max(5000) }), result: z.object({}) },
 
     /**
-     * Pulls, pushes, or pushes and opens a pull request (`gh pr create --fill --web`) for the branch
+     * Fetches, pulls, pushes, or pushes and opens a pull request (`gh pr create --fill --web`) for the branch
      * checked out at `cwd`, in a terminal tab of the session so you can see the result. A branch
      * without an upstream is pushed with `-u`. Pull is refused (SESSION_BUSY) while Claude is working
      * in this checkout, and a pull request from the base branch is refused (WRONG_BRANCH).
      */
     'git.sync': { params: z.object({ sessionId: SessionId, cwd: AbsolutePath, action: GitSyncAction }), result: z.object({ terminalId: z.string() }) },
+    /**
+     * Commits with your message, in a terminal tab of the session so hooks and their output stay
+     * visible. Commits what is staged; with nothing staged, every change (new files too) is staged
+     * first. Refused (SESSION_BUSY) while Claude is working in this checkout, and NOTHING_TO_COMMIT on a clean one.
+     */
+    'git.commit': { params: z.object({ sessionId: SessionId, cwd: AbsolutePath, message: z.string().trim().min(1).max(20_000) }), result: z.object({ terminalId: z.string() }) },
 
     /** Where a session's checkout stands: ahead/behind its base and its upstream, uncommitted, pushed. */
     'worktree.status': { params: z.object({ cwd: AbsolutePath }), result: WorktreeStatus },

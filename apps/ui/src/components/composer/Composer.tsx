@@ -33,6 +33,10 @@ export interface ComposerProps {
   focusRequest?: number;
   /** Controls shown in the card's bottom bar in place of the hint line (the new session view). */
   toolbar?: ReactNode;
+  /** Compact controls in the card's bottom-left corner in place of the hint line (a session's model, mode and effort). */
+  controls?: ReactNode;
+  /** Buttons in the card's bottom-right corner, before attach (a session's Tools). */
+  actions?: ReactNode;
   /** A shortcut shown on the submit button, like `⌘↵`. */
   submitHint?: string;
   /** A taller prompt that is the main thing on screen. */
@@ -336,6 +340,7 @@ export function Composer(props: ComposerProps) {
           placeholder={props.disabledReason ?? props.placeholder}
           aria-label="Message to Claude"
           aria-describedby={props.toolbar ? undefined : `${ids}-hint`}
+          aria-keyshortcuts={props.running && props.onInterrupt ? 'Escape' : undefined}
           // While the / or @ list is open, ↑ ↓ move through it without leaving the box.
           aria-autocomplete="list"
           aria-controls={palette ? `${ids}-palette` : undefined}
@@ -350,7 +355,7 @@ export function Composer(props: ComposerProps) {
           onBlur={() => setTimeout(() => setPalette(null), 100)}
           className={`block max-h-80 w-full resize-none bg-transparent leading-relaxed text-text outline-none placeholder:text-faint ${props.large ? 'min-h-24 px-1 pt-1 text-[14.5px]' : 'text-[13.5px]'}`}
         />
-        {props.toolbar && notice && (
+        {(props.toolbar || props.controls) && notice && (
           <p role="alert" className="mt-1 truncate text-[11px] text-error" data-tooltip={notice}>
             {notice}
           </p>
@@ -358,6 +363,14 @@ export function Composer(props: ComposerProps) {
         <div className={`flex items-center justify-between gap-2 ${props.toolbar ? '-mx-3 mt-2 flex-wrap border-t border-border px-2 pt-2' : 'mt-1.5'}`}>
           {props.toolbar ? (
             <div className="flex min-w-0 flex-wrap items-center gap-1">{props.toolbar}</div>
+          ) : props.controls ? (
+            <div className="-ml-1.5 flex min-w-0 flex-1 items-center">
+              {props.controls}
+              {/* The keys still get read out with the message box; the chips take the hint's place on screen. */}
+              <span id={`${ids}-hint`} className="sr-only">
+                {props.running ? 'Esc stops Claude.' : `/ for commands, @ for files${props.onCycleMode ? ', ⇧Tab to change mode' : ''}.`}
+              </span>
+            </div>
           ) : (
             <span id={`${ids}-hint`} className="min-w-0 truncate text-[11px] text-muted">
               {notice ? (
@@ -373,6 +386,7 @@ export function Composer(props: ComposerProps) {
           )}
           <div className="flex shrink-0 items-center gap-1.5">
             {props.dropHint && !text && attachments.length === 0 && !disabled && <span className="text-[11px] text-muted @max-[860px]:hidden">Paste or drop images and files</span>}
+            {props.actions}
             <input
               ref={fileRef}
               type="file"
@@ -397,8 +411,17 @@ export function Composer(props: ComposerProps) {
               <ImagePlus size={15} />
             </button>
             {props.running && props.onInterrupt && (
-              <button type="button" onClick={props.onInterrupt} data-tooltip="Stop Claude (Esc)" aria-keyshortcuts="Escape" className="rounded-md border border-border px-2.5 py-1 text-[12px] text-muted hover:text-text">
+              <button
+                type="button"
+                onClick={props.onInterrupt}
+                data-tooltip="Stop Claude (Esc)"
+                aria-keyshortcuts="Escape"
+                data-composer-stop
+                className="flex items-center gap-1.5 rounded-md border border-border px-2 py-1 text-[12px] text-text hover:bg-border/50"
+              >
+                <span className="size-2 rounded-[2px] bg-current" aria-hidden />
                 Stop
+                <kbd className="rounded border border-border px-1 font-sans text-[10.5px] text-muted @max-[860px]:hidden">Esc</kbd>
               </button>
             )}
             {/* A disabled button gets no hover, so the reason it's unavailable sits on this wrapper. */}

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { WorktreeStatus } from '@switchboard/protocol/client';
-import { planGit } from './gitPlan.ts';
+import { gitSummary, planGit, stepCount } from './gitPlan.ts';
 
 const base: WorktreeStatus = {
   path: '/repo',
@@ -18,27 +18,48 @@ const base: WorktreeStatus = {
   pushRemote: 'origin',
   mainCheckout: { branch: null, dirty: false },
 };
-const plan = (over: Partial<WorktreeStatus>, busy = false) => planGit({ ...base, ...over }, busy);
+const status = (over: Partial<WorktreeStatus>): WorktreeStatus => ({ ...base, ...over });
+const plan = (over: Partial<WorktreeStatus>, busy = false) => planGit(status(over), busy);
 
-describe('planGit', () => {
-  it('offers nothing on a checkout in sync', () => {
-    const p = plan({});
-    expect(p.primary).toBeNull();
-    expect(p.blocked).toEqual({ commit: 'Nothing to commit', pull: 'Up to date with origin/feature', push: 'Nothing to push', pr: 'No commits ahead of main' });
+describe('planGit: the primary action', () => {
+  it('pulls when behind the upstream, before anything else', () => {
+    const p = plan({ behindUpstream: 2, uncommitted: 3, ahead: 1, unpushed: 1 });
+    expect(p.primary).toBe('pull');
+    expect(stepCount(status({ behindUpstream: 2 }), 'pull')).toBe(2);
   });
 
-  it('goes pull, commit, push, PR', () => {
-    expect(plan({ behindUpstream: 2, uncommitted: 3, ahead: 1, unpushed: 1 }).primary).toBe('pull');
+  it('commits uncommitted changes', () => {
     expect(plan({ uncommitted: 3, ahead: 1, unpushed: 1 }).primary).toBe('commit');
-    expect(plan({ ahead: 1, unpushed: 1 }).primary).toBe('push');
-    expect(plan({ ahead: 1 }).primary).toBe('pr');
+    expect(stepCount(status({ uncommitted: 3 }), 'commit')).toBe(3);
   });
 
-  it('pushes a new branch with commits, and offers no PR from the base branch', () => {
+  it('pushes commits ahead of the upstream, or a new branch with commits', () => {
+    expect(plan({ ahead: 1, unpushed: 1 }).primary).toBe('push');
+    expect(stepCount(status({ ahead: 4, unpushed: 1 }), 'push')).toBe(1);
     expect(plan({ upstream: null, unpushed: null, behindUpstream: null, ahead: 2 }).primary).toBe('push');
-    const main = plan({ branch: 'main', upstream: 'origin/main', unpushed: 1 });
-    expect(main.primary).toBe('push');
-    expect(main.blocked.pr).toBe('On main, the base branch');
+    expect(stepCount(status({ upstream: null, unpushed: null, ahead: 2 }), 'push')).toBe(2);
+    expect(plan({ branch: 'main', upstream: 'origin/main', unpushed: 1 }).primary).toBe('push');
+  });
+
+  it('offers a PR when clean and pushed, on a branch or a worktree with commits', () => {
+    expect(plan({ ahead: 1 }).primary).toBe('pr');
+    expect(plan({ ahead: 1, isWorktree: true, branch: 'worktree-fix', upstream: 'origin/worktree-fix' }).primary).toBe('pr');
+  });
+
+  it('fetches when clean on the base branch, or with nothing to offer', () => {
+    expect(plan({ branch: 'main', upstream: 'origin/main' }).primary).toBe('fetch');
+    expect(plan({}).primary).toBe('fetch');
+    expect(plan({ hasRemote: false, pushRemote: null, upstream: null, unpushed: null, behindUpstream: null, ahead: 1 }).primary).toBe('fetch');
+  });
+});
+
+describe('planGit: what can run', () => {
+  it('says why each step is unavailable on a checkout in sync', () => {
+    expect(plan({}).blocked).toEqual({ fetch: null, commit: 'Nothing to commit', pull: 'Up to date with origin/feature', push: 'Nothing to push', pr: 'No commits ahead of main' });
+  });
+
+  it('offers no PR from the base branch', () => {
+    expect(plan({ branch: 'main', upstream: 'origin/main', unpushed: 1 }).blocked.pr).toBe('On main, the base branch');
   });
 
   it('blocks push and PR while behind the upstream, and says so', () => {
@@ -46,18 +67,31 @@ describe('planGit', () => {
     expect(p.blocked.push).toBe('Behind upstream. Pull first');
     expect(p.blocked.pr).toBe('Behind upstream. Pull first');
     expect(p.blocked.pull).toBeNull();
-    expect(p.note).toBe('Behind origin/feature by 1 commit. Pull first.');
+    expect(p.note).toBe('Behind upstream by 1 commit. Pull before you push.');
+    expect(plan({ behindUpstream: 2 }).note).toBe('Behind upstream by 2 commits. Pull before you push.');
   });
 
   it('waits for Claude before committing or pulling', () => {
     const p = plan({ uncommitted: 1, behindUpstream: 1 }, true);
     expect(p.blocked.commit).toBe('Claude is working');
     expect(p.blocked.pull).toBe('Claude is working in this folder');
+    expect(p.blocked.fetch).toBeNull();
   });
 
   it('needs a remote for everything but commit', () => {
     const p = plan({ hasRemote: false, pushRemote: null, upstream: null, unpushed: null, behindUpstream: null, uncommitted: 1, ahead: 1 });
-    expect(p.blocked).toMatchObject({ commit: null, pull: 'No remote', push: 'No remote', pr: 'No remote' });
-    expect(plan({ hasRemote: false, pushRemote: null, upstream: null, unpushed: null, behindUpstream: null, ahead: 1 }).primary).toBeNull();
+    expect(p.blocked).toMatchObject({ fetch: 'No remote', commit: null, pull: 'No remote', push: 'No remote', pr: 'No remote' });
+  });
+});
+
+describe('gitSummary', () => {
+  it('counts behind, ahead and changed files', () => {
+    expect(gitSummary(status({ behindUpstream: 2, unpushed: 0, uncommitted: 3 }))).toBe('↓2 behind · ↑0 ahead · 3 changed files');
+    expect(gitSummary(status({ uncommitted: 1 }))).toBe('↓0 behind · ↑0 ahead · 1 changed file');
+  });
+
+  it('says when the branch has no upstream or the repository no remote', () => {
+    expect(gitSummary(status({ upstream: null, unpushed: null, behindUpstream: null, ahead: 2 }))).toBe('Not pushed yet · ↑2 ahead of main · 0 changed files');
+    expect(gitSummary(status({ hasRemote: false, upstream: null }))).toBe('No remote · 0 changed files');
   });
 });

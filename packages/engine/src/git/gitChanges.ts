@@ -246,10 +246,12 @@ export async function worktreeStatus(cwd: string): Promise<WorktreeStatus> {
 }
 
 /**
- * The shell command for a pull, push or pull request on the checked-out branch, or why it can't run.
+ * The shell command for a fetch, pull, push or pull request on the checked-out branch, or why it can't run.
  * A branch without an upstream is pushed with `-u` to `pushRemote`.
  */
 export function syncCommand(status: WorktreeStatus, action: GitSyncAction, quote: (value: string) => string): { command: string } | { code: string; message: string } {
+  // Fetching needs a remote, not a branch: it works on a detached HEAD too.
+  if (action === 'fetch') return status.hasRemote ? { command: 'git fetch' } : { code: 'NO_REMOTE', message: 'This repository has no remote.' };
   if (!status.branch) return { code: 'DETACHED', message: 'HEAD is detached; check out a branch first.' };
   if (!status.hasRemote || !status.pushRemote) return { code: 'NO_REMOTE', message: 'This repository has no remote.' };
   const push = status.upstream ? 'git push' : `git push -u ${quote(status.pushRemote)} ${quote(status.branch)}`;
@@ -260,6 +262,19 @@ export function syncCommand(status: WorktreeStatus, action: GitSyncAction, quote
   if (action === 'push') return { command: push };
   if (status.branch === status.baseBranch) return { code: 'WRONG_BRANCH', message: `${status.branch} is the base branch; open a pull request from another branch.` };
   return { command: `${push} && gh pr create --fill --web` };
+}
+
+/**
+ * Gets a checkout ready for `git commit`: what is staged is committed, and with nothing staged every
+ * change is staged first (like VS Code's smart commit). Returns how many files the commit takes.
+ */
+export async function stageForCommit(cwd: string): Promise<number> {
+  const root = (await git(cwd, ['rev-parse', '--show-toplevel'])).trim();
+  const staged = () => git(root, ['diff', '--cached', '--name-only', '-z']).then((out) => out.split('\0').filter(Boolean).length);
+  const already = await staged();
+  if (already > 0) return already;
+  await git(root, ['add', '-A']);
+  return staged();
 }
 
 /** Removes a worktree (refuses with uncommitted changes) and optionally its branch. */

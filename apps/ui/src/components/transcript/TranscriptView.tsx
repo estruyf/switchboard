@@ -1,5 +1,5 @@
 import { useVirtualizer } from '@tanstack/react-virtual';
-import { Blocks, FileDiff, SquareTerminal, X } from 'lucide-react';
+import { Blocks, FileDiff, GitBranch, SquareTerminal, X } from 'lucide-react';
 import { lazy, Suspense, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { ChangesBase, GitChanges, ImageAttachment, PermissionRequest, RewindResult, SlashCommand } from '@switchboard/protocol/client';
 import { useEngineConnection } from '../../engine/useEngine.ts';
@@ -23,17 +23,16 @@ import { BranchMenu } from '../worktree/BranchMenu.tsx';
 import { inWorktree } from '../worktree/branchMenu.ts';
 import { WorktreeMenu } from '../worktree/WorktreeMenu.tsx';
 import { ConfirmDialog } from '../ConfirmDialog.tsx';
-import { ActionsBar } from '../actions/ActionsBar.tsx';
 import { OpenInButton } from '../OpenInButton.tsx';
 import { GitButton } from '../git/GitButton.tsx';
 import { ProjectIcon } from '../ProjectIcon.tsx';
 import { PermissionCard, permissionTitle } from '../session/PermissionCard.tsx';
-import { StatusBar } from '../session/StatusBar.tsx';
+import { MoreMenu } from '../session/MoreMenu.tsx';
+import { SessionControls } from '../session/StatusBar.tsx';
 import { ProfileBadge } from '../profiles/ProfileBadge.tsx';
 import { UsageBand } from '../UsageBand.tsx';
 import { liveLabel, StatusDot } from '../StatusDot.tsx';
 import { formatDuration, useTicker, WorkingDots } from './ActivityGroup.tsx';
-import { AgentsButton } from './AgentsButton.tsx';
 import { buildDisplayItems, groupActivity, type RenderItem } from './displayItems.ts';
 import { FindBar } from './FindBar.tsx';
 import { findMatches, searchableText, startMatch } from './findInSession.ts';
@@ -44,6 +43,16 @@ import { TranscriptItem } from './TranscriptItem.tsx';
 import { useTranscript } from './useTranscript.ts';
 
 const ORIGIN_LABEL = { cli: 'Terminal', desktop: 'Claude desktop', ide: 'IDE', sdk: 'SDK', app: 'Switchboard', unknown: '' } as const;
+
+/** The status word in the header's meta line takes the colour of its dot. */
+const STATUS_TONE = { running: 'text-accent-ink', 'needs-you': 'text-warn', idle: 'text-ok' } as const;
+
+/** The dot between the parts of the header's meta line (a narrow pane shows only the status dot and the branch, no separators). */
+const Sep = () => (
+  <span aria-hidden className="shrink-0 text-faint @max-[860px]:hidden">
+    ·
+  </span>
+);
 
 /**
  * What Claude is doing right now, before it lands in the transcript: the text it's writing,
@@ -445,14 +454,25 @@ export function TranscriptView({ sessionId, pane = null, active = true }: { sess
   const isWorktree = Boolean(summary?.worktree || (cwd && inWorktree(cwd)));
   // On this checkout the branch button shows the live branch; the transcript's is out of date once you switch.
   const branchButton = Boolean(cwd && isRepo && !isWorktree);
-  const branch = branchButton ? null : (summary?.worktree?.branch ?? realBranch(summary?.gitBranch ?? null));
+  const branch = summary?.worktree?.branch ?? realBranch(summary?.gitBranch ?? null);
+  // The git menu's "Switch branch…" (or, in a worktree, "Merge or remove worktree…") opens the branch's own menu.
+  const [branchMenuRequest, setBranchMenuRequest] = useState(0);
   const origin = summary ? ORIGIN_LABEL[summary.origin] : activeHost ? ORIGIN_LABEL.app : registryLive ? ORIGIN_LABEL[registryLive.origin] : '';
-  const meta = [
+  const title = summary?.title ?? registryLive?.name ?? 'New session';
+  // What the meta line leaves out, for the title's tooltip.
+  const titleTooltip = [
+    title,
     cwd && tildify(cwd, home),
-    branch && (summary?.worktree ? `worktree · ${branch}` : branch),
-    origin,
-    summary && (shortAge(summary.updatedAt) === 'now' ? 'updated just now' : `updated ${shortAge(summary.updatedAt)} ago`),
-  ].filter(Boolean);
+    origin && `Started in ${origin}`,
+    summary && (shortAge(summary.updatedAt) === 'now' ? 'Updated just now' : `Updated ${shortAge(summary.updatedAt)} ago`),
+  ]
+    .filter(Boolean)
+    .join('\n');
+  const projectName = project?.name ?? (projectRoot ? projectRoot.slice(projectRoot.lastIndexOf('/') + 1) : null);
+  const failed = !activeHost && host?.state === 'error';
+  const statusLabel = live ? liveLabel(live) : failed ? 'Failed' : 'Not running';
+  const statusTone = live ? STATUS_TONE[live.status] : failed ? 'text-error' : 'text-muted';
+  const gitActivity = `${items.length}:${live?.status ?? ''}:${branchSwitches}`;
 
   return (
     // `@container`: the header compacts itself when the pane is narrow (two sessions side by side).
@@ -465,21 +485,46 @@ export function TranscriptView({ sessionId, pane = null, active = true }: { sess
       >
         {projectRoot && <ProjectIcon project={project} root={projectRoot} size={22} />}
         <div className="min-w-24 flex-1">
-          <h1 className="truncate text-[13px] font-semibold">{summary?.title ?? registryLive?.name ?? 'New session'}</h1>
-          <p className="truncate text-[11px] text-muted">{meta.join('  ·  ')}</p>
+          <h1 className="truncate text-[13px] font-semibold" data-tooltip={titleTooltip}>
+            {title}
+          </h1>
+          {/* Status · project · branch. In a narrow pane: the dot and the branch. */}
+          <div className="flex min-w-0 items-center gap-1.5 text-[11.5px] text-muted" data-session-meta>
+            <span className={`flex shrink-0 items-center gap-1.5 ${statusTone}`} data-session-status>
+              {live ? <StatusDot live={live} /> : <span className={`inline-block size-2 shrink-0 rounded-full ${failed ? 'bg-error' : 'bg-faint'}`} aria-hidden />}
+              <span className="@max-[860px]:sr-only" data-tooltip={failed ? (host?.error ?? undefined) : undefined}>
+                {statusLabel}
+              </span>
+            </span>
+            {projectName && (
+              <>
+                <Sep />
+                <span className="min-w-0 shrink truncate @max-[860px]:hidden">{projectName}</span>
+              </>
+            )}
+            {cwd && isWorktree ? (
+              <>
+                <Sep />
+                <WorktreeMenu sessionId={sessionId} cwd={cwd} branch={branch} openRequest={branchMenuRequest} />
+              </>
+            ) : cwd && branchButton ? (
+              <>
+                <Sep />
+                <BranchMenu sessionId={sessionId} cwd={cwd} root={projectRoot ?? cwd} busy={working} onSwitched={refreshChanges} openRequest={branchMenuRequest} />
+              </>
+            ) : (
+              branch && (
+                <>
+                  <Sep />
+                  <span className="flex min-w-0 items-center gap-1">
+                    <GitBranch size={11} className="shrink-0" aria-hidden />
+                    <span className="truncate">{branch}</span>
+                  </span>
+                </>
+              )
+            )}
+          </div>
         </div>
-        <ProfileBadge profileId={profileId} className="rounded-full border border-border px-2 py-0.5 text-[11px] @max-[860px]:hidden" />
-        {live && (
-          <span className="flex shrink-0 items-center gap-1.5 text-[11px] text-muted" data-session-status>
-            <StatusDot live={live} />
-            {/* In a narrow pane only the dot shows (its tooltip has the words); screen readers still get them. */}
-            <span className="@max-[860px]:sr-only">{liveLabel(live)}</span>
-          </span>
-        )}
-        <AgentsButton items={items} sessionId={sessionId} cwd={cwd} sessionOpen={live !== null} />
-        {cwd && isWorktree && <WorktreeMenu sessionId={sessionId} cwd={cwd} />}
-        {cwd && branchButton && <BranchMenu sessionId={sessionId} cwd={cwd} root={projectRoot ?? cwd} busy={working} onSwitched={refreshChanges} />}
-        <ActionsBar sessionId={sessionId} projectRoot={projectRoot} cwd={cwd} />
         {cwd && isRepo && (
           <button
             type="button"
@@ -487,10 +532,11 @@ export function TranscriptView({ sessionId, pane = null, active = true }: { sess
             onClick={() => toggleChanges()}
             data-tooltip={`${changesOpen ? 'Hide' : 'Show'} changed files (⌘⇧D)`}
             aria-label={`${changesOpen ? 'Hide' : 'Show'} changed files${changedCount ? `, ${changedCount} changed` : ''} (⌘⇧D)`}
+            aria-keyshortcuts="Meta+Shift+D"
             aria-expanded={changesOpen && active}
-            className={`no-drag flex h-7 shrink-0 items-center gap-1 rounded-md border border-border px-1.5 text-[11.5px] hover:bg-border/50 ${changesOpen ? 'bg-accent/15 text-text' : 'text-muted'}`}
+            className={`no-drag flex h-7 shrink-0 items-center gap-1 rounded-md px-1.5 text-[12px] hover:bg-border/50 hover:text-text ${changesOpen ? 'bg-accent/15 text-text' : 'text-muted'}`}
           >
-            <FileDiff size={14} />
+            <FileDiff size={15} aria-hidden />
             {changedCount > 0 && <span className="tabular-nums">{changedCount}</span>}
           </button>
         )}
@@ -500,22 +546,40 @@ export function TranscriptView({ sessionId, pane = null, active = true }: { sess
           onClick={() => togglePanel()}
           data-tooltip={`${panelOpen ? 'Hide' : 'Show'} terminal (⌘J)${terminalCount ? ` · ${terminalCount} running` : ''}`}
           aria-label={`${panelOpen ? 'Hide' : 'Show'} terminal${terminalCount ? `, ${terminalCount} running` : ''} (⌘J)`}
+          aria-keyshortcuts="Meta+J"
           aria-expanded={panelOpen && active}
-          className={`no-drag relative flex size-7 shrink-0 items-center justify-center rounded-md border border-border hover:bg-border/50 ${panelOpen ? 'bg-accent/15 text-text' : 'text-muted'}`}
+          className={`no-drag relative flex size-7 shrink-0 items-center justify-center rounded-md hover:bg-border/50 hover:text-text ${panelOpen ? 'bg-accent/15 text-text' : 'text-muted'}`}
         >
-          <SquareTerminal size={14} />
-          {terminalCount > 0 && <span className="absolute -top-1 -right-1 size-2 rounded-full bg-ok" aria-hidden />}
+          <SquareTerminal size={15} aria-hidden />
+          {terminalCount > 0 && <span className="absolute top-0.5 right-0.5 size-1.5 rounded-full bg-ok" aria-hidden />}
         </button>
-        <OpenInButton path={cwd} />
+        <span className="h-5 w-px shrink-0 bg-border" aria-hidden />
         {cwd && isRepo && (
           <GitButton
             sessionId={sessionId}
             cwd={cwd}
             busy={working}
-            activity={`${items.length}:${live?.status ?? ''}:${branchSwitches}`}
+            active={active}
+            activity={gitActivity}
+            isWorktree={isWorktree}
             onCommit={() => void send('Commit the current changes with a clear, conventional commit message.', [], openElsewhere).catch((e: Error) => setActionError(e.message))}
+            onBranchMenu={() => setBranchMenuRequest((n) => n + 1)}
+            onNewWorktree={() => {
+              useProjects.getState().startIn(projectRoot ?? cwd, { worktree: true });
+              useSessions.getState().setView('new');
+            }}
           />
         )}
+        <OpenInButton path={cwd} />
+        <MoreMenu
+          sessionId={sessionId}
+          projectRoot={projectRoot}
+          cwd={cwd}
+          items={items}
+          sessionOpen={live !== null}
+          profileId={profileId}
+          onStop={activeHost ? () => void client?.call('session.close', { sessionId }) : null}
+        />
         {!pane && (
           <button
             type="button"
@@ -525,7 +589,7 @@ export function TranscriptView({ sessionId, pane = null, active = true }: { sess
             aria-label="Close session"
             className="no-drag flex size-7 shrink-0 items-center justify-center rounded-md text-muted hover:bg-border/50 hover:text-text"
           >
-            <X size={14} />
+            <X size={15} />
           </button>
         )}
         {pane && (
@@ -538,7 +602,7 @@ export function TranscriptView({ sessionId, pane = null, active = true }: { sess
             aria-label="Close this pane"
             className="no-drag flex size-7 shrink-0 items-center justify-center rounded-md text-muted hover:bg-border/50 hover:text-text"
           >
-            <X size={14} />
+            <X size={15} />
           </button>
         )}
       </header>
@@ -685,7 +749,6 @@ export function TranscriptView({ sessionId, pane = null, active = true }: { sess
                   <strong className="font-medium text-text">fork</strong>: a new session that continues from this conversation, leaving the original untouched.
                 </p>
               )}
-              <UsageBand profileId={profileId} />
               {actionError && (
                 <p className="flex items-start gap-2 rounded-lg border border-error/40 bg-error/5 px-3 py-2 text-[12px] text-error" role="alert">
                   <span className="min-w-0 flex-1">{actionError}</span>
@@ -699,7 +762,7 @@ export function TranscriptView({ sessionId, pane = null, active = true }: { sess
                 cwd={cwd}
                 commands={commands}
                 running={running}
-                placeholder={activeHost ? 'Message Claude' : 'Message Claude to resume this session'}
+                placeholder={running ? 'Message Claude. Sent now, it waits until Claude finishes.' : activeHost ? 'Message Claude' : 'Message Claude to resume this session'}
                 submitLabel={openElsewhere ? 'Fork and send' : undefined}
                 dropHint={status === 'ready' && messages.length === 0}
                 disabledReason={!client ? 'Connecting to the engine…' : !cwd ? 'The folder for this session is unknown' : null}
@@ -708,40 +771,53 @@ export function TranscriptView({ sessionId, pane = null, active = true }: { sess
                 onCycleMode={
                   activeHost ? () => void client?.call('session.setPermissionMode', { sessionId, mode: nextMode(activeHost.permissionMode) }) : undefined
                 }
-              />
-              <div className="flex items-center gap-2">
-                <div className="min-w-0 flex-1">
-                  {activeHost ? (
-                    <StatusBar host={activeHost} />
+                controls={
+                  activeHost ? (
+                    <SessionControls host={activeHost} />
                   ) : (
-                    <p className="flex h-7 items-center gap-2 px-1 text-[11px] text-muted">
-                      <span className="min-w-0 flex-1 truncate" data-tooltip={host?.state === 'error' ? (host.error ?? undefined) : undefined}>
-                        {host?.state === 'error' ? (
-                          <span className="text-error">Last run failed: {host.error}</span>
-                        ) : registryLive ? (
-                          `Open in ${ORIGIN_LABEL[registryLive.origin] || 'another Claude Code window'}, not in Switchboard.`
-                        ) : (
-                          'Not running in Switchboard. Send a message to pick it up here.'
-                        )}
-                      </span>
-                      <ContextMeter sessionId={sessionId} live={null} messages={messages} />
-                    </p>
-                  )}
+                    <span className="min-w-0 truncate px-1.5 text-[11.5px] text-muted" data-tooltip={host?.state === 'error' ? (host.error ?? undefined) : undefined} data-session-elsewhere>
+                      {host?.state === 'error' ? (
+                        <span className="text-error">Last run failed: {host.error}</span>
+                      ) : registryLive ? (
+                        `Open in ${ORIGIN_LABEL[registryLive.origin] || 'another Claude Code window'}, not in Switchboard.`
+                      ) : (
+                        'Not running in Switchboard. Send a message to pick it up here.'
+                      )}
+                    </span>
+                  )
+                }
+                actions={
+                  cwd && (
+                    <button
+                      type="button"
+                      data-open-tools
+                      onClick={() => useOverlay.getState().show('tools')}
+                      data-tooltip="Tools: the MCP servers, skills, agents and plugins this session can use"
+                      aria-label="Tools: MCP servers, skills, agents and plugins"
+                      aria-haspopup="dialog"
+                      className="rounded-md p-1 text-muted hover:bg-border/50 hover:text-text"
+                    >
+                      <Blocks size={15} aria-hidden />
+                    </button>
+                  )
+                }
+              />
+              {/* One quiet line: the profile and its plan usage, and how full the context is. */}
+              <div className="flex min-h-6 items-center gap-3 px-1 text-[11.5px] text-muted" data-session-footer>
+                <div className="flex min-w-0 flex-1 items-center gap-3 overflow-hidden">
+                  <ProfileBadge profileId={profileId} className="text-[11.5px]" />
+                  <UsageBand profileId={profileId} footer />
                 </div>
-                {cwd && (
-                  <button
-                    type="button"
-                    data-open-tools
-                    onClick={() => useOverlay.getState().show('tools')}
-                    data-tooltip="Tools: the MCP servers, skills, agents and plugins this session can use"
-                    aria-label="Tools: MCP servers, skills, agents and plugins"
-                    aria-haspopup="dialog"
-                    className="flex h-6 shrink-0 items-center gap-1 rounded-md px-1.5 text-[11px] text-muted hover:bg-border/50 hover:text-text"
-                  >
-                    <Blocks size={12} />
-                    <span className="@max-[860px]:hidden">Tools</span>
-                  </button>
-                )}
+                <ContextMeter
+                  sessionId={sessionId}
+                  live={
+                    activeHost && activeHost.contextTokens !== null && activeHost.contextMax
+                      ? { tokens: activeHost.contextTokens, max: activeHost.contextMax, percent: activeHost.contextPercent ?? (activeHost.contextTokens / activeHost.contextMax) * 100 }
+                      : null
+                  }
+                  messages={messages}
+                  onCompact={activeHost ? () => void send('/compact', []).catch((e: Error) => setActionError(e.message)) : undefined}
+                />
               </div>
             </div>
           </div>

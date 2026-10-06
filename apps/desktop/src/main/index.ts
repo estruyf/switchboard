@@ -487,21 +487,24 @@ async function runLiveSessionStep(win: BrowserWindow, cwd: string): Promise<stri
   const js = (code: string) => win.webContents.executeJavaScript(code);
   const liveId = (await js("document.querySelector('[data-current-session]').dataset.currentSession")) as string;
 
-  // An agent: the header shows "1 agent" while it runs, and the dialog shows what it's doing.
+  // An agent: the header's More menu says "1 running" while it runs, and the dialog shows what it's doing.
   // The prompt has inline code, so the user bubble must render it as code.
   await setFieldValue(win, '[data-composer]', 'Use the Agent tool (subagent_type `general-purpose`) to list the files in this folder with the Glob tool and count them. Then reply with exactly: AGENT OK');
   await js("document.querySelector('[data-composer-submit]').click()");
   if (!(await waitInPage(win, "[...document.querySelectorAll('[data-item-kind=\"user\"] code')].some((c) => c.innerText === 'general-purpose')", 10_000))) return 'inline code in your message is not styled';
-  if (!(await waitInPage(win, "document.querySelector('[data-agents-button]')", 60_000))) return 'no agents pill while the agent ran';
-  const pill = ((await js("document.querySelector('[data-agents-button]').innerText")) as string).trim();
+  const more = "document.querySelector('[data-current-session] [data-more-menu]')";
+  if (!(await waitInPage(win, `${more}?.getAttribute('aria-label').includes('running')`, 60_000))) return 'the More menu did not say an agent was running';
+  await js(`${more}.click()`);
+  if (!(await waitInPage(win, "document.querySelector('[data-agents-button]:not(:disabled)')", 3_000))) return 'no Agents item in the More menu while the agent ran';
+  const pill = ((await js("document.querySelector('[data-agents-button]').innerText")) as string).replace(/\s+/g, ' ').trim();
   await js("document.querySelector('[data-agents-button]').click()");
   if (!(await waitInPage(win, "document.querySelector('[data-agents] [data-agent-run]')", 5_000))) return 'agents dialog empty';
   await new Promise((resolve) => setTimeout(resolve, 2_000));
   await shot('agents.png');
   win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Escape' });
   if (!(await waitInPage(win, "[...document.querySelectorAll('[data-item-kind=\"text\"]')].some((el) => el.innerText.includes('AGENT OK'))", 90_000))) return 'no reply after the agent';
-  if (!(await waitInPage(win, "!document.querySelector('[data-agents-button]')", 5_000))) return 'the agents pill stayed after the agent finished';
-  console.log(`[smoke] agents pill showed ${JSON.stringify(pill)} and its run; your inline code was styled`);
+  if (!(await waitInPage(win, `!${more}.getAttribute('aria-label').includes('running')`, 5_000))) return 'the More menu still says an agent is running after it finished';
+  console.log(`[smoke] the More menu's Agents item showed ${JSON.stringify(pill)} and its run; your inline code was styled`);
 
   // Tools, live: the session runs here, so its MCP servers can be switched.
   await js("document.querySelector('[data-open-tools]').click()");
@@ -619,9 +622,10 @@ let rendering: Record<string, number> = {};
 /** Adds a project action through the editor, runs it from the header and checks it opened a terminal tab. */
 async function runActionStep(win: BrowserWindow): Promise<boolean> {
   const js = (code: string) => win.webContents.executeJavaScript(code);
-  await js("document.querySelector('[data-actions-menu]')?.click()");
-  if (!(await waitInPage(win, "[...document.querySelectorAll('[role=menuitem]')].some((b) => /action/i.test(b.innerText))", 3_000))) return false;
-  await js("[...document.querySelectorAll('[role=menuitem]')].find((b) => /action/i.test(b.innerText)).click()");
+  // Actions live in the header's More menu.
+  await js("document.querySelector('[data-current-session] [data-actions-menu]')?.click()");
+  if (!(await waitInPage(win, "document.querySelector('[role=menuitem][data-edit-actions]')", 3_000))) return false;
+  await js("document.querySelector('[role=menuitem][data-edit-actions]').click()");
   if (!(await waitInPage(win, "document.querySelector('[data-add-action]')", 3_000))) return false;
   await js("document.querySelector('[data-add-action]').click()");
   if (!(await waitInPage(win, "document.querySelector('[data-action-name]')", 3_000))) return false;
@@ -633,8 +637,10 @@ async function runActionStep(win: BrowserWindow): Promise<boolean> {
   if (!(await waitInPage(win, "[...document.querySelectorAll('[role=dialog] li')].some((li) => li.innerText.includes('Smoke action'))", 3_000))) return false;
   win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Escape' });
   win.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Escape' });
-  if (!(await waitInPage(win, "document.querySelector('[data-action=\"smoke-action\"]') && !document.querySelector('[role=dialog]')", 3_000))) return false;
-  await js("document.querySelector('[data-action=\"smoke-action\"]').click()");
+  if (!(await waitInPage(win, "!document.querySelector('[role=dialog]')", 3_000))) return false;
+  await js("document.querySelector('[data-current-session] [data-actions-menu]').click()");
+  if (!(await waitInPage(win, "document.querySelector('[role=menuitem][data-action=\"smoke-action\"]')", 3_000))) return false;
+  await js("document.querySelector('[role=menuitem][data-action=\"smoke-action\"]').click()");
   if (!(await waitInPage(win, "[...document.querySelectorAll('[data-terminal-panel] button')].some((b) => b.innerText.includes('Smoke action'))", 5_000))) return false;
   await new Promise((resolve) => setTimeout(resolve, 1_500));
   await shot(win, 'action.png');
@@ -1180,8 +1186,9 @@ async function runOpenInStep(win: BrowserWindow): Promise<string> {
 }
 
 /**
- * Read-only: the header's git button shows a step, its menu lists Commit, Push, Create PR and Pull
- * (each enabled or not as git's state says), and Escape closes it. Runs nothing.
+ * Read-only: the header's git button shows a step, its menu has the branch and where it stands, then
+ * Pull, Fetch, Commit…, Ask Claude to commit, Push, Create PR (each enabled or not as git's state
+ * says) and the branch items, and Escape closes it. Runs nothing.
  */
 async function runGitStep(win: BrowserWindow): Promise<string> {
   const js = (code: string) => win.webContents.executeJavaScript(code);
@@ -1193,15 +1200,18 @@ async function runGitStep(win: BrowserWindow): Promise<string> {
   await js("document.querySelector('[data-current-session] [data-git-menu]').click()");
   const menu = "document.querySelector('[role=\"menu\"][aria-label=\"Git\"]')";
   if (!(await waitInPage(win, `${menu}?.querySelector('[role=\"menuitem\"]')`, 2_000))) return 'menu did not open';
-  const items = (await js(`[...${menu}.querySelectorAll('[role="menuitem"]')].map((i) => (i.disabled ? '-' : '+') + i.textContent.trim())`)) as string[];
+  const items = (await js(`[...${menu}.querySelectorAll('[role="menuitem"][data-git-step]')].map((i) => (i.disabled ? '-' : '+') + i.dataset.gitStep)`)) as string[];
+  const summary = (await js(`${menu}.querySelector('[data-menu-title]')?.innerText.replace(/\\s+/g, ' ') ?? ''`)) as string;
   await new Promise((resolve) => setTimeout(resolve, 200));
   await shot(win, 'git-menu.png');
   win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Escape' });
   win.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Escape' });
-  const labels = items.map((i) => i.slice(1));
-  if (labels.join(',') !== 'Commit,Push,Create PR,Pull') return `unexpected items: ${labels.join(', ')}`;
+  const steps = items.map((i) => i.slice(1));
+  const expected = ['pull', 'fetch', 'commit-dialog', 'commit', 'push', 'pr'];
+  if (steps.slice(0, expected.length).join(',') !== expected.join(',')) return `unexpected items: ${steps.join(', ')}`;
+  if (!/behind|No remote|Not pushed/.test(summary)) return `no summary under the branch ("${summary}")`;
   if (!(await waitInPage(win, `!${menu}`, 2_000))) return 'Escape did not close the menu';
-  return `ok: shows ${face}, menu ${items.join(' ')}, Escape closed it`;
+  return `ok: shows ${face}, "${summary}", menu ${items.join(' ')}, Escape closed it`;
 }
 
 /** ⌘⇧F, type a word, open the first hit: the session opens with that message highlighted. */
@@ -1426,11 +1436,14 @@ async function runSplitStep(win: BrowserWindow): Promise<string> {
   if (!(await waitInPage(win, "document.querySelectorAll('[data-pane]').length === 2", 5_000))) return '⌥-click did not open a second pane';
   if ((await active()) !== 'split') return 'the new pane is not the active one';
   await waitInPage(win, "document.querySelectorAll('[data-transcript-item]').length > 0", 5_000);
+  // The git split button stays in a narrow pane (on a git checkout, where the Changes button shows).
+  const gitInEveryPane = "[...document.querySelectorAll('[data-current-session]')].every((pane) => !pane.querySelector('[data-toggle-changes]') || pane.querySelector('[data-git-button]'))";
+  if (!(await waitInPage(win, gitInEveryPane, 3_000))) return 'no git button in a narrow pane';
   await new Promise((resolve) => setTimeout(resolve, 300));
   await shot(win, 'split.png');
-  // Nothing may stick out past a pane's right edge (the composer and footer used to).
+  // Nothing may stick out past a pane's right edge (the composer and footer used to; the header's buttons could).
   const overflow = (await js(
-    "[...document.querySelectorAll('[data-current-session]')].flatMap((pane) => { const edge = pane.getBoundingClientRect().right + 1; return [...pane.querySelectorAll('[data-composer-submit], [data-open-tools], [data-context-meter]')].filter((el) => el.getBoundingClientRect().right > edge).map((el) => el.dataset.composerSubmit !== undefined ? 'send' : el.dataset.openTools !== undefined ? 'tools' : 'context'); })",
+    "[...document.querySelectorAll('[data-current-session]')].flatMap((pane) => { const edge = pane.getBoundingClientRect().right + 1; return [...pane.querySelectorAll('[data-composer-submit], [data-open-tools], [data-context-meter], [data-git-menu], [data-more-menu]')].filter((el) => el.getBoundingClientRect().right > edge).map((el) => el.dataset.composerSubmit !== undefined ? 'send' : el.dataset.openTools !== undefined ? 'tools' : el.dataset.gitMenu !== undefined ? 'git' : el.dataset.moreMenu !== undefined ? 'more' : 'context'); })",
   )) as string[];
   if (overflow.length) return `in split view these stick out of their pane: ${overflow.join(', ')}`;
   await js("document.querySelector('[data-pane=\"main\"]').dispatchEvent(new MouseEvent('mousedown', { bubbles: true }))");

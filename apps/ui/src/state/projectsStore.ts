@@ -22,6 +22,8 @@ interface ProjectsState {
   manageFocus: string | null;
   /** A folder the New session view should switch to when it opens (from the palette or the Projects view). */
   newSessionIn: string | null;
+  /** ...and start in a new worktree there (a session header's "New worktree…"). */
+  newSessionWorktree: boolean;
   setProjects(projects: ProjectInfo[]): void;
   setFilter(root: string | null): void;
   toggleSettled(): void;
@@ -29,7 +31,7 @@ interface ProjectsState {
   reload(): void;
   showAdd(open: boolean): void;
   setManageFocus(root: string | null): void;
-  startIn(root: string | null): void;
+  startIn(root: string | null, options?: { worktree?: boolean }): void;
 }
 
 export const useProjects = create<ProjectsState>()((set) => ({
@@ -42,6 +44,7 @@ export const useProjects = create<ProjectsState>()((set) => ({
   adding: false,
   manageFocus: null,
   newSessionIn: null,
+  newSessionWorktree: false,
   setProjects: (projects) => set({ projects: new Map(projects.map((p) => [p.root, p])), loaded: true }),
   setFilter: (filter) => set({ filter }),
   toggleSettled: () => set((s) => ({ settledOpen: !s.settledOpen })),
@@ -49,7 +52,7 @@ export const useProjects = create<ProjectsState>()((set) => ({
   reload: () => set((s) => ({ version: s.version + 1 })),
   showAdd: (adding) => set({ adding }),
   setManageFocus: (manageFocus) => set({ manageFocus }),
-  startIn: (newSessionIn) => set({ newSessionIn }),
+  startIn: (newSessionIn, options = {}) => set({ newSessionIn, newSessionWorktree: options.worktree ?? false }),
 }));
 
 /** Loads projects (with icons) whenever the set of project folders changes, and persists the filter. */

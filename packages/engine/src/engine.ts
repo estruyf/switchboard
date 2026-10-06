@@ -23,7 +23,7 @@ import { LiveRegistry } from './claude/liveRegistry.ts';
 import { createProjectResolver } from './claude/projectResolver.ts';
 import { sdkSessionSource, type SessionSource } from './claude/sessionSource.ts';
 import { findCheckout, githubPage } from './git/remotes.ts';
-import { checkoutRoot, fileDiff, listBranches, listChanges, removeWorktree, revert, stage, switchBranch, syncCommand, worktreeStatus } from './git/gitChanges.ts';
+import { checkoutRoot, fileDiff, listBranches, listChanges, removeWorktree, revert, stage, stageForCommit, switchBranch, syncCommand, worktreeStatus } from './git/gitChanges.ts';
 import { SearchIndex } from './sessions/searchIndex.ts';
 import { installedPlugins } from './host/capabilities.ts';
 import { ActionStore, expandCommand, shellQuote, suggestActions } from './actions/actionStore.ts';
@@ -823,8 +823,18 @@ export function createEngine(options: EngineOptions): Engine {
       const sync = syncCommand(status, action, shellQuote);
       if ('code' in sync) throw new RpcError(sync.code, sync.message);
       if (action === 'pull') await assertCheckoutIdle(cwd);
-      const title = action === 'pull' ? 'Pull' : action === 'push' ? 'Push' : 'Pull request';
+      const title = action === 'fetch' ? 'Fetch' : action === 'pull' ? 'Pull' : action === 'push' ? 'Push' : 'Pull request';
       return { terminalId: await runShellAction(sessionId, status.path, title, sync.command) };
+    },
+    'git.commit': async ({ sessionId, cwd, message }) => {
+      if (!resolver.resolve(cwd).gitDir) throw new RpcError('NOT_A_REPO', 'Not a git repository');
+      await assertCheckoutIdle(cwd);
+      const files = await stageForCommit(cwd).catch((error: Error) => {
+        throw new RpcError('GIT_FAILED', error.message);
+      });
+      if (files === 0) throw new RpcError('NOTHING_TO_COMMIT', 'There is nothing to commit.');
+      // In a terminal tab: commit hooks can take a while, and their output is worth seeing.
+      return { terminalId: await runShellAction(sessionId, cwd, 'Commit', `git commit -m ${shellQuote(message)}`) };
     },
     'worktree.status': async ({ cwd }) => {
       try {

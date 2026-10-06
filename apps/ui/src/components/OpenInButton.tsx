@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useId, useRef, useState, type KeyboardEvent } from 'react';
-import { ChevronDown } from 'lucide-react';
+import { ChevronDown, Copy, ExternalLink } from 'lucide-react';
 import type { EditorInfo } from '@switchboard/protocol/client';
 import { useEngineConnection } from '../engine/useEngine.ts';
 import { useHosts } from '../state/hostsStore.ts';
@@ -78,7 +78,10 @@ function onMenuKeyDown(event: KeyboardEvent<HTMLDivElement>, close: () => void) 
   items[next]!.focus();
 }
 
-/** Split button: open the folder in the default editor, or pick another app (or GitHub) from the menu. */
+/**
+ * Split button: open the folder in the default editor, or pick another app (or GitHub) from the menu,
+ * or copy the folder's path. In a narrow pane only the icon shows.
+ */
 export function OpenInButton({ path, shortcut = true }: { path: string | null; /** ⌘O opens it here (the session view). */ shortcut?: boolean }) {
   const editors = useHosts((s) => s.editors);
   const defaultId = useHosts((s) => s.defaultEditorId);
@@ -87,6 +90,7 @@ export function OpenInButton({ path, shortcut = true }: { path: string | null; /
   // The menu is a fixed popover, so the transcript below the header can't paint over it.
   const [open, setOpen] = useState<{ x: number; y: number } | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
   const wrapperRef = useRef<HTMLDivElement>(null);
   const toggleRef = useRef<HTMLButtonElement>(null);
   const menuId = useId();
@@ -120,20 +124,22 @@ export function OpenInButton({ path, shortcut = true }: { path: string | null; /
       <button
         type="button"
         onClick={() => run()}
-        className={`rounded-l-md border border-border px-2.5 py-1 text-[12px] hover:bg-border/50 ${error ? 'text-error' : 'text-text'}`}
+        className={`flex h-7 items-center gap-1.5 rounded-l-md border border-border px-2.5 text-[12px] hover:bg-border/50 @max-[860px]:rounded-md @max-[860px]:px-1.5 ${error ? 'text-error' : 'text-text'}`}
         // A failed open keeps its message on the button that failed, where hovering finds it.
         data-tooltip={error ?? `Open ${path} in ${current.name}${shortcut ? ' (⌘O)' : ''}`}
         aria-label={`Open in ${current.name}`}
+        aria-keyshortcuts={shortcut ? 'Meta+O' : undefined}
+        data-open-in
       >
-        {/* In a narrow pane (container query on the session view) only the app name stays. */}
-        <span className="@max-[860px]:hidden">Open in </span>
-        {current.name}
+        <ExternalLink size={13} className="shrink-0 text-muted" aria-hidden />
+        {/* In a narrow pane (container query on the session view) only the icon stays. */}
+        <span className="@max-[860px]:hidden">{current.name}</span>
       </button>
       <button
         ref={toggleRef}
         type="button"
         onClick={toggle}
-        className="flex items-center rounded-r-md border border-l-0 border-border px-1.5 text-muted hover:bg-border/50 hover:text-text"
+        className="flex h-7 items-center rounded-r-md border border-l-0 border-border px-1.5 text-muted hover:bg-border/50 hover:text-text @max-[860px]:hidden"
         aria-label="Open in another app"
         data-tooltip="Open in another app"
         aria-haspopup="menu"
@@ -143,6 +149,11 @@ export function OpenInButton({ path, shortcut = true }: { path: string | null; /
       >
         <ChevronDown size={13} aria-hidden />
       </button>
+      {copied && (
+        <span role="status" className="sr-only">
+          Path copied
+        </span>
+      )}
       {/* The tooltip only shows on hover; say it out loud too. */}
       {error && (
         <span role="alert" className="sr-only">
@@ -168,6 +179,30 @@ export function OpenInButton({ path, shortcut = true }: { path: string | null; /
               </div>
             );
           })}
+          <div role="group" aria-label="Path">
+            <div role="separator" className="my-1 border-t border-border" />
+            <button
+              type="button"
+              role="menuitem"
+              onClick={() => {
+                setOpen(null);
+                void navigator.clipboard.writeText(path).then(
+                  () => {
+                    setCopied(true);
+                    setTimeout(() => setCopied(false), 1_500);
+                  },
+                  () => setError("Couldn't copy the path"),
+                );
+              }}
+              className={item}
+              data-copy-path
+            >
+              <span className="flex items-center gap-2">
+                <Copy size={12} className="text-muted" aria-hidden />
+                Copy path
+              </span>
+            </button>
+          </div>
           {github && (
             <div role="group" aria-label="Web">
               <p aria-hidden className={heading}>

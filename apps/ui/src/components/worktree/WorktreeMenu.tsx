@@ -1,5 +1,5 @@
 import { ChevronDown, GitBranch, GitMerge, Trash2 } from 'lucide-react';
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { WorktreeStatus } from '@switchboard/protocol/client';
 import { useEngineConnection } from '../../engine/useEngine.ts';
 import { ConfirmDialog } from '../ConfirmDialog.tsx';
@@ -23,9 +23,10 @@ function describe(status: WorktreeStatus): string {
 
 /**
  * Finishing a worktree session: merge into the base branch, or remove the worktree (and its branch).
- * Commit, push and pull requests are on the header's git button.
+ * Its button is the worktree's branch, in the session header's meta line; a new `openRequest` (the
+ * git menu) opens it too. Commit, push and pull requests are on the header's git button.
  */
-export function WorktreeMenu({ sessionId, cwd }: { sessionId: string; cwd: string }) {
+export function WorktreeMenu({ sessionId, cwd, branch, openRequest = 0 }: { sessionId: string; cwd: string; branch: string | null; openRequest?: number }) {
   const connection = useEngineConnection();
   const client = connection.status === 'connected' ? connection.client : null;
   const menu = useMenu();
@@ -65,28 +66,42 @@ export function WorktreeMenu({ sessionId, cwd }: { sessionId: string; cwd: strin
   const why = [mergeBlocked && status && `Merge: ${mergeBlocked}.`, removeBlocked && status && `Remove: ${removeBlocked}.`].filter(Boolean) as string[];
   if (why.length) entries.push('separator', ...why.map((text) => ({ heading: text })));
 
+  const trigger = useRef<HTMLButtonElement>(null);
+  const toggle = () => {
+    if (menu.at) return menu.close();
+    load();
+    if (trigger.current) menu.openBelow(trigger.current);
+  };
+  const lastRequest = useRef(openRequest);
+  useEffect(() => {
+    if (openRequest === lastRequest.current) return;
+    lastRequest.current = openRequest;
+    if (!menu.at) toggle();
+  }, [openRequest]);
+
   const unsafeToDelete = status !== null && status.ahead > 0 && (status.unpushed === null || status.unpushed > 0);
 
   return (
     <>
       <button
+        ref={trigger}
         type="button"
         data-worktree-menu
-        onClick={(e) => {
-          load();
-          menu.openBelow(e.currentTarget);
-        }}
+        onClick={toggle}
         data-tooltip="Finish this worktree: merge or remove"
-        aria-label="Worktree: merge or remove"
+        aria-label={`Worktree${branch ? ` on ${branch}` : ''}: merge or remove`}
         aria-haspopup="menu"
         aria-expanded={menu.at !== null}
-        className="no-drag flex h-7 shrink-0 items-center gap-1 rounded-md border border-border px-1.5 text-[11.5px] text-muted hover:bg-border/50"
+        className={`no-drag inline-flex max-w-64 min-w-0 items-center gap-1 rounded px-0.5 text-muted hover:text-text ${menu.at ? 'text-text' : ''}`}
       >
-        <GitBranch size={13} />
-        <span className="@max-[860px]:hidden">Worktree</span>
-        <ChevronDown size={12} />
+        <GitBranch size={11} className="shrink-0" aria-hidden />
+        <span className="min-w-0 truncate">
+          <span className="@max-[860px]:hidden">worktree · </span>
+          {branch ?? 'worktree'}
+        </span>
+        <ChevronDown size={11} className="shrink-0 @max-[860px]:hidden" aria-hidden />
       </button>
-      {menu.at && <Menu x={menu.at.x - 120} y={menu.at.y} width={280} entries={entries} onClose={menu.close} label="Worktree" />}
+      {menu.at && <Menu x={menu.at.x} y={menu.at.y} width={280} entries={entries} onClose={menu.close} label="Worktree" />}
 
       {confirm && status && client && (
         <ConfirmDialog

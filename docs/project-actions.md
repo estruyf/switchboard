@@ -1,18 +1,18 @@
 # Project actions
 
-Project actions are buttons in a session's header for the things you do over and over: commit, run the tests, start the dev server, publish. An action either **runs a command** in a terminal tab or **asks Claude** something, as if you'd typed it.
+Project actions are in the **⋯** menu of a session's header, for the things you do over and over: commit, run the tests, start the dev server, publish. An action either **runs a command** in a terminal tab or **asks Claude** something, as if you'd typed it.
 
 [← Back to the README](../README.md)
 
 ## Adding an action
 
 1. Open a session in the project.
-2. Click **Actions** in the header (the **▾** next to your buttons once you have some), then **Add an action…**.
+2. Click **⋯** in the header, then **Add an action…** (**Edit actions…** once you have some).
 3. Pick a suggestion or fill in your own:
 
 | Field | What it means |
 |---|---|
-| **Name** and **icon** | How the button looks. |
+| **Name** and **icon** | How it looks in the menu. |
 | **Run a command** / **Ask Claude** | A command runs in your login shell in a terminal tab below the session, so your `PATH`, `nvm` and aliases work as they do in your terminal. A prompt is sent to Claude in the session, and can be a `/` command. |
 | **Saved for** | *This project*, or *All projects* for actions you want everywhere. |
 | **Runs in** | The session's folder (its worktree, if it has one) or the project root. |
@@ -20,7 +20,7 @@ Project actions are buttons in a session's header for the things you do over and
 | **Ask before running** | Shows a confirmation first. Useful for publish or deploy. |
 | **Run in every new worktree** | Runs before Claude starts in each new worktree session, for example to install dependencies. Claude's first message waits until it has finished. |
 
-The first few actions show as buttons in the header; the rest are under the **▾** menu. Use **Edit actions…** there to change or remove them.
+Your actions are listed under **Project actions** in the **⋯** menu, with their shortcuts. Use **Edit actions…** there to change or remove them.
 
 ### Suggestions
 

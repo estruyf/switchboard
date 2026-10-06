@@ -152,9 +152,12 @@ export function NewSessionView() {
       setLoaded(true);
     });
   }, [client, loaded]);
-  // The palette or Projects view asked for a folder.
+  // The palette or Projects view asked for a folder (a session's git menu: in a new worktree).
+  /** The folder that should start on "New worktree", until its defaults are in or the user changes something. */
+  const worktreeFor = useRef<string | null>(null);
   useEffect(() => {
     if (!newSessionIn) return;
+    worktreeFor.current = useProjects.getState().newSessionWorktree ? newSessionIn : null;
     setCwd(newSessionIn);
     useProjects.getState().startIn(null);
   }, [newSessionIn]);
@@ -231,7 +234,8 @@ export function NewSessionView() {
   // A new folder starts from its project's defaults (again when they arrive or change, until the user changes something).
   useEffect(() => {
     if (!loaded || touchedFor.current === cwd) return;
-    setD(startingChoices(globals, projectDefaults));
+    const choices = startingChoices(globals, projectDefaults);
+    setD(worktreeFor.current === cwd ? { ...choices, workspace: 'worktree' } : choices);
   }, [loaded, cwd, defaultsKey, globals]);
 
   // Inspect the folder (git? branch?), load its commands and branches, and pre-warm Claude Code there.

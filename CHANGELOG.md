@@ -10,9 +10,13 @@ All notable changes to Switchboard are listed here. Each release is also on the 
 - **Select several sessions** with ⌘-click (or ⇧-click and ⇧↑ ↓ for a range), then archive, settle or move them back all at once from the right-click menu or the bar under the list. Escape clears the selection.
 - Sending a message to a settled or archived session moves it back to the main list right away, instead of waiting until Claude finishes.
 
-### Session header
+### Session view
 
-- A **git button** next to **Open in**: commit (Claude writes the message), push, create a pull request or pull, without leaving the session. Its face shows the next step for the branch, such as **Pull** when it's behind its upstream, and the menu says why a step isn't available. Commit and pull request moved here from the **Worktree** menu, which now merges or removes.
+- A calmer **session header**. Under the title, one line says what the session is doing, its project and its branch; click the branch to switch (or, in a worktree, to merge or remove it). Where it was started and when it was last updated are in the title's tooltip.
+- A **git button** next to **Open in**: commit (Claude writes the message, or write your own with **Commit…**), push, create a pull request, pull or fetch, without leaving the session. Its face shows the next step and the count, such as **Pull ↓2** when the branch is behind its upstream, and **Fetch** when there's nothing to do. The menu shows where the branch stands, says when you need to pull before you push, and has **Switch branch…** and **New worktree…**. ⌘⇧L pulls. Commit and pull request moved here from the **Worktree** menu, which now merges or removes.
+- **Open in** shows your editor with an icon, and its menu can copy the folder's path.
+- A **⋯** menu holds your project actions, the agents Claude started, the Claude profile the session uses and **Stop session**.
+- The model, permission mode and effort are chips inside the message box, next to **Tools**, attach and **Stop** (with its Esc key). Under it, one quiet line has your plan usage and how full the context is; the context breakdown can compact the conversation.
 
 ### New session
 

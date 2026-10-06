@@ -29,9 +29,9 @@ It uses the Claude Code you already have installed, with your login, settings, c
 - Approve or deny permission requests, answer Claude's questions and review plans in the conversation.
 - Follow what Claude does without the noise: each run of tool calls is one line ("Reading src/app.ts…", then "Ran 3 commands and edited 2 files"), and a click shows every step, with diffs, command output, to-do lists and subagent runs.
 - Images Claude reads or you attach are shown in the conversation.
-- Press **Esc** to stop Claude, **⇧Tab** to switch permission mode, and keep typing while it works (messages queue up).
-- Change the model, permission mode and **effort** while a session runs, and see how full the **context window** is. Click it for what fills it, like `/context`.
-- **Agents** Claude starts, background ones included, show as "1 agent" in the session header; click it to watch what each one is doing.
+- Press **Esc** (or **Stop**) to stop Claude, **⇧Tab** to switch permission mode, and keep typing while it works (messages queue up). **Stop session** under **⋯** in the header ends the Claude Code process; sending a message picks it up again.
+- Change the model, permission mode and **effort** while a session runs, from the chips in the message box, and see how full the **context window** is under it. Click it for what fills it, like `/context`, and to compact the conversation.
+- **Agents** Claude starts, background ones included, are under **⋯** in the session header ("2 running"; a dot on **⋯** says some are); pick **Agents** to watch what each one is doing.
 - Continue any past session. If it's still open in a terminal, Switchboard offers to **fork** it instead, leaving the original untouched.
 - Hover over a message to go back in time:
   - **Undo file changes** since one of your prompts. You see which files would change first.
@@ -40,12 +40,12 @@ It uses the Claude Code you already have installed, with your login, settings, c
 
 **Stay on top of things**
 - A notification and Dock badge when a session needs you or finishes, so you can leave it running in the background.
-- Your plan usage above the message box: how much of your 5-hour and weekly limits you've used, and when they reset.
+- Your plan usage under the message box: how much of your 5-hour and weekly limits you've used (hover for when they reset).
 
 **Review and finish the work**
 - A **Changes** panel (⌘⇧D) with the session's git diff: what's uncommitted, or the whole branch compared with `main`. Stage, unstage or revert files, and open any diff inline. Reverted new files go to the Trash.
-- The **branch** a session's folder has checked out shows in its header, read live from git (so it's right after you or Claude switch in a terminal). Click it to switch to another local branch. Switching uses `git switch`: uncommitted changes that don't conflict come along, and when they would be overwritten git refuses and you stay where you are. Nothing is ever stashed or thrown away. It waits while Claude is working in this folder, and asks first when other sessions work in the same folder.
-- A **git button** in the session header offers the next step for the branch: **Pull** when it's behind its upstream, **Commit** when there are changes (Claude writes the commit), **Push**, or **Create PR**. Its menu has all four, and says why one isn't available. Pull, push and pull requests run in a terminal tab so you see git's output; pull requests open GitHub's page with the GitHub CLI (`gh`). Pull waits while Claude is working in the folder.
+- The **branch** a session's folder has checked out shows in its header, read live from git (so it's right after you or Claude switch in a terminal). Click it (or **Switch branch…** in the git menu) to switch to another local branch. Switching uses `git switch`: uncommitted changes that don't conflict come along, and when they would be overwritten git refuses and you stay where you are. Nothing is ever stashed or thrown away. It waits while Claude is working in this folder, and asks first when other sessions work in the same folder.
+- A **git button** in the session header offers the next step for the branch: **Pull ↓2** when it's behind its upstream, **Commit 3** when there are changes (Claude writes the commit), **Push ↑1**, **Create PR** once a branch or worktree is pushed, otherwise **Fetch**. Its menu shows where the branch stands (behind, ahead, changed files) and has every step: Pull (⌘⇧L), Fetch, **Commit…** with your own message, Ask Claude to commit, Push and Create PR, plus **Switch branch…** and **New worktree…**. It says when you need to pull before you push. Git runs in a terminal tab so you see its output; pull requests open GitHub's page with the GitHub CLI (`gh`). Pull and commit wait while Claude is working in the folder.
 - **Finish a worktree** from its **Worktree** menu: merge into the base branch, or remove the worktree, optionally with its branch. Switchboard warns you before you lose commits that aren't merged or pushed.
 
 **Everything in one place**
@@ -114,6 +114,7 @@ To stop the checks, turn off *Check for Claude Code updates automatically* in Se
 | ⌘O | Open the session's folder in your editor |
 | ⌘J | Show or hide the terminal |
 | ⌘⇧D | Show or hide the Changes panel |
+| ⌘⇧L | Pull, when the branch is behind its upstream |
 | ⌥-click | Open a session beside the current one |
 | ⌘\\ | Close the other pane |
 | ⌘, | Settings |
