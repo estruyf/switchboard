@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { LiveSession, SessionHostInfo } from '@switchboard/protocol/client';
 import { toRows, useSessions, type SessionRowData } from './sessionsStore.ts';
-import { buildSessionList, inScope, isActive, RECENT_MS, rowStatus } from './sidebarRows.ts';
+import { buildSessionList, inScope, isActive, RECENT_MS, rowStatus, startupSession } from './sidebarRows.ts';
 
 const NOW = Date.UTC(2026, 9, 5, 12);
 const HOUR = 3_600_000;
@@ -149,5 +149,21 @@ describe('panes', () => {
     expect(state()).toEqual({ main: 'a', split: 'd', active: 'split', selected: 'd' });
     s.closePane('main');
     expect(state()).toEqual({ main: 'd', split: null, active: 'main', selected: 'd' });
+  });
+});
+
+describe('startupSession', () => {
+  const rows = [row('mine', { inApp: true }), row('terminal')];
+
+  it('reopens the last session the sidebar lists', () => {
+    expect(startupSession(rows, 'mine', 'last', 'switchboard')).toBe('mine');
+    expect(startupSession(rows, 'terminal', 'last', 'all')).toBe('terminal');
+  });
+
+  it('opens New session for a hidden, missing or unknown session, or when asked to', () => {
+    expect(startupSession(rows, 'terminal', 'last', 'switchboard')).toBeNull();
+    expect(startupSession(rows, 'gone', 'last', 'all')).toBeNull();
+    expect(startupSession(rows, null, 'last', 'all')).toBeNull();
+    expect(startupSession(rows, 'mine', 'new', 'all')).toBeNull();
   });
 });

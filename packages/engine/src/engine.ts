@@ -29,6 +29,7 @@ import { UsageMonitor } from './host/usageMonitor.ts';
 import { ProjectRegistry, type FolderActivity } from './projects/projectRegistry.ts';
 import { createAppStateStore } from './db/appState.ts';
 import { ConfigDirLane } from './profiles/configDirLane.ts';
+import { AccountWatcher } from './profiles/accountWatcher.ts';
 import { ProfileStore, type ProfileRuntime } from './profiles/profileStore.ts';
 import { MultiProfileSource } from './profiles/profileSources.ts';
 import { openCacheDatabase } from './db/database.ts';
@@ -202,10 +203,20 @@ export function createEngine(options: EngineOptions): Engine {
   const watching = options.watchSessions !== false;
   syncRegistries(watching);
   if (watching) sessions.start();
+  // Signing in happens in a terminal (`/login`), outside Switchboard: follow each profile's login file.
+  const accounts = new AccountWatcher(
+    () => profiles.accountFiles(),
+    () => {
+      const snapshot = profiles.refreshAccounts();
+      if (snapshot) broadcast('profiles.changed', snapshot);
+    },
+  );
+  if (watching) accounts.start();
 
   /** Profiles were added or removed: read their folders (or stop reading them). */
   function profilesChanged() {
     syncRegistries(watching);
+    if (watching) accounts.sync();
     broadcast('sessions.live', { live: liveList() });
     void sessions.rootsChanged();
     const ids = new Set(profiles.runtimes().map((p) => p.id));
@@ -810,6 +821,7 @@ export function createEngine(options: EngineOptions): Engine {
       clearTimeout(searchTimer);
       sessions.stop();
       for (const registry of registries.values()) registry.stop();
+      accounts.stop();
       transcripts.stop();
       cache.close();
     },

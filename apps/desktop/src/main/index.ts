@@ -619,7 +619,8 @@ async function runSettingsStep(win: BrowserWindow): Promise<string> {
   const scoped = await withSettingsClosed("document.querySelector('[data-session-list]') && !document.querySelector('[data-session-id][data-in-app=\"false\"]')");
   await section('sidebar');
 
-  await section('quitting');
+  await section('general');
+  await click('[data-startup-view="new"]');
   await click('[data-confirm-quit]');
   await pause();
   Menu.getApplicationMenu()?.getMenuItemById('quit')?.click();
@@ -629,6 +630,7 @@ async function runSettingsStep(win: BrowserWindow): Promise<string> {
   const menuChecked = Menu.getApplicationMenu()?.getMenuItemById('scheme-dark')?.checked === true;
 
   await click('[data-confirm-quit]');
+  await click('[data-startup-view="last"]');
   await section('sidebar');
   await click('[data-session-scope]');
   await click('[data-sidebar-style="standard"]');
@@ -640,9 +642,9 @@ async function runSettingsStep(win: BrowserWindow): Promise<string> {
   const restored = preferences.get();
   if (!scoped) return 'other apps\' sessions stayed in the sidebar with the setting off';
   if (!quitWithoutAsking) return '⌘Q still asked with the prompt turned off';
-  if (saved.colorScheme !== 'dark' || saved.sidebarStyle !== 'compact' || saved.toolActivity !== 'steps' || saved.confirmQuit !== false || saved.sessionScope !== 'switchboard') return `not saved: ${JSON.stringify(saved)}`;
+  if (saved.colorScheme !== 'dark' || saved.sidebarStyle !== 'compact' || saved.toolActivity !== 'steps' || saved.confirmQuit !== false || saved.sessionScope !== 'switchboard' || saved.startupView !== 'new') return `not saved: ${JSON.stringify(saved)}`;
   if (!menuChecked) return 'View → Appearance did not follow';
-  if (restored.colorScheme !== 'system' || restored.sidebarStyle !== 'standard' || restored.toolActivity !== 'summary' || !restored.confirmQuit || restored.sessionScope !== 'all') return 'could not restore the defaults';
+  if (restored.colorScheme !== 'system' || restored.sidebarStyle !== 'standard' || restored.toolActivity !== 'summary' || !restored.confirmQuit || restored.sessionScope !== 'all' || restored.startupView !== 'last') return 'could not restore the defaults';
   // Escape closes Settings too.
   win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Escape' });
   if (!(await waitInPage(win, "!document.querySelector('[data-settings]')", 2_000))) return 'Escape did not close Settings';

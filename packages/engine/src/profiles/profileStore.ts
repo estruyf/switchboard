@@ -48,6 +48,9 @@ export function readAccount(globalConfigFile: string): ClaudeProfile['account'] 
   }
 }
 
+/** Where Claude Code keeps the login for a profile: see `readAccount`. */
+const accountFile = (envDir: string | undefined) => (envDir ? join(envDir, '.claude.json') : join(homedir(), '.claude.json'));
+
 const COLORS: readonly ProfileColor[] = ['yellow', 'blue', 'green', 'purple', 'red', 'orange', 'gray'];
 const asColor = (value: string): ProfileColor => (COLORS.includes(value as ProfileColor) ? (value as ProfileColor) : 'gray');
 
@@ -57,6 +60,8 @@ const asColor = (value: string): ProfileColor => (COLORS.includes(value as Profi
  */
 export class ProfileStore {
   private readonly statements;
+  /** The accounts in the last snapshot, to tell whether a login changed since. */
+  private accountsSeen = '';
 
   constructor(
     private readonly db: DatabaseSync,
@@ -124,10 +129,23 @@ export class ProfileStore {
         builtin: row.config_dir === null,
         isDefault: row.id === defaultId,
         exists: existsSync(configDir),
-        account: readAccount(envDir ? join(envDir, '.claude.json') : join(homedir(), '.claude.json')),
+        account: readAccount(accountFile(envDir)),
       };
     });
+    this.accountsSeen = JSON.stringify(profiles.map((p) => [p.id, p.account]));
     return { profiles, defaultId };
+  }
+
+  /** The `.claude.json` file each profile's login lives in. */
+  accountFiles(): string[] {
+    return this.runtimes().map((r) => accountFile(r.envDir));
+  }
+
+  /** Reads the logins again: a new snapshot when one changed since the last, else null. */
+  refreshAccounts(): ProfilesSnapshot | null {
+    const before = this.accountsSeen;
+    const snapshot = this.snapshot();
+    return this.accountsSeen === before ? null : snapshot;
   }
 
   add(name: string, color: ProfileColor, configDir: string): string {

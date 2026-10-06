@@ -1,12 +1,12 @@
-import { Activity, ChevronLeft, MessageSquare, Palette, PanelLeft, Power, Users, X, type LucideIcon } from 'lucide-react';
+import { Activity, ChevronLeft, MessageSquare, Palette, PanelLeft, SlidersHorizontal, Users, X, type LucideIcon } from 'lucide-react';
 import { useEffect, type ReactNode } from 'react';
-import type { ColorScheme, SidebarStyle, ToolActivity } from '@switchboard/protocol/bridge';
+import type { ColorScheme, SidebarStyle, StartupView, ToolActivity } from '@switchboard/protocol/bridge';
 import { usePreferences } from '../state/preferencesStore.ts';
 import { useSessions, type SettingsSection } from '../state/sessionsStore.ts';
 import { EngineDiagnostics } from './EngineDiagnostics.tsx';
 import { ProfilesSettings } from './profiles/ProfilesSettings.tsx';
 import { Choice } from './ui/Choice.tsx';
-import { RadioGroup } from './ui/Radio.tsx';
+import { Radio, RadioGroup } from './ui/Radio.tsx';
 import { Toggle } from './ui/Toggle.tsx';
 
 /** The Demo Time palettes, fixed here so each preview shows its own theme whatever is active. */
@@ -131,12 +131,17 @@ const STYLES: Array<{ value: SidebarStyle; label: string }> = [
   { value: 'compact', label: 'Compact' },
 ];
 
+const STARTUP: Array<{ value: StartupView; label: string; detail: string }> = [
+  { value: 'last', label: 'The last session', detail: 'Opens the session you had open, if the sidebar lists it. Otherwise New session.' },
+  { value: 'new', label: 'New session', detail: 'Starts ready for a new prompt.' },
+];
+
 const SECTIONS: Array<{ id: SettingsSection; label: string; icon: LucideIcon }> = [
+  { id: 'general', label: 'General', icon: SlidersHorizontal },
   { id: 'theme', label: 'Theme', icon: Palette },
   { id: 'sidebar', label: 'Sidebar', icon: PanelLeft },
   { id: 'conversation', label: 'Conversation', icon: MessageSquare },
   { id: 'profiles', label: 'Claude profiles', icon: Users },
-  { id: 'quitting', label: 'Quitting', icon: Power },
   { id: 'diagnostics', label: 'Diagnostics', icon: Activity },
 ];
 
@@ -226,17 +231,29 @@ function SectionPage({ section }: { section: SettingsSection }) {
           <ProfilesSettings />
         </Section>
       );
-    case 'quitting':
+    case 'general':
       return (
-        <Section title="Quitting">
-          <Toggle
-            label="Ask before quitting"
-            detail="⌘Q shows a prompt first; pressing ⌘Q again quits."
-            checked={prefs.confirmQuit}
-            attr="data-confirm-quit"
-            onChange={(confirmQuit) => update({ confirmQuit })}
-          />
-        </Section>
+        <>
+          <Section title="On startup" description="What Switchboard shows when it opens.">
+            <RadioGroup label="On startup" className="grid gap-2.5">
+              {STARTUP.map(({ value, label, detail }) => (
+                <Radio key={value} checked={prefs.startupView === value} onSelect={() => update({ startupView: value })} dataAttrs={{ 'data-startup-view': value }}>
+                  <span className="block text-[12.5px] text-text">{label}</span>
+                  <span className="block text-[12px] text-muted">{detail}</span>
+                </Radio>
+              ))}
+            </RadioGroup>
+          </Section>
+          <Section title="Quitting">
+            <Toggle
+              label="Ask before quitting"
+              detail="⌘Q shows a prompt first; pressing ⌘Q again quits."
+              checked={prefs.confirmQuit}
+              attr="data-confirm-quit"
+              onChange={(confirmQuit) => update({ confirmQuit })}
+            />
+          </Section>
+        </>
       );
     case 'diagnostics':
       return (

@@ -57,7 +57,7 @@ if (!String(result.controlsResult).startsWith('ok')) process.exitCode = 1;
 console.log(`${String(result.newSessionResult).startsWith('ok') ? '✓' : '✗'} new session view: ${result.newSessionResult}`);
 if (!String(result.newSessionResult).startsWith('ok')) process.exitCode = 1;
 console.log(`${result.quitGuarded ? '✓' : '✗'} ⌘Q asks first, Cancel keeps the app open, a second ⌘Q quits`);
-console.log(`${result.settingsResult === 'ok' ? '✓' : '✗'} settings: theme, sidebar style, session scope, tool activity and quit prompt apply at once and are saved${result.settingsResult === 'ok' ? '' : ` (${result.settingsResult})`}`);
+console.log(`${result.settingsResult === 'ok' ? '✓' : '✗'} settings: theme, sidebar style, session scope, tool activity, startup and quit prompt apply at once and are saved${result.settingsResult === 'ok' ? '' : ` (${result.settingsResult})`}`);
 console.log(`${result.terminalOpened ? '✓' : '✗'} terminal panel opened a shell`);
 console.log(`${result.actionRan ? '✓' : '✗'} project action added through the editor and run in a terminal tab`);
 console.log(`${String(result.projectsResult).startsWith('ok') ? '✓' : '✗'} projects: ${result.projectsResult}`);

@@ -32,6 +32,8 @@ export type SidebarStyle = 'large' | 'standard' | 'compact';
 export type ToolActivity = 'summary' | 'steps';
 /** Sessions in the sidebar: only those started or continued in Switchboard, or every Claude Code session. */
 export type SessionScope = 'switchboard' | 'all';
+/** What a new window shows: the session open last time, or New session. */
+export type StartupView = 'last' | 'new';
 
 /** App preferences, kept by main in the app's data folder. */
 export interface Preferences {
@@ -41,9 +43,10 @@ export interface Preferences {
   /** ⌘Q asks first (a second ⌘Q quits). */
   confirmQuit: boolean;
   sessionScope: SessionScope;
+  startupView: StartupView;
 }
 
-export const DEFAULT_PREFERENCES: Preferences = { colorScheme: 'system', sidebarStyle: 'standard', toolActivity: 'summary', confirmQuit: true, sessionScope: 'switchboard' };
+export const DEFAULT_PREFERENCES: Preferences = { colorScheme: 'system', sidebarStyle: 'standard', toolActivity: 'summary', confirmQuit: true, sessionScope: 'switchboard', startupView: 'last' };
 
 const oneOf = <T extends string>(values: readonly T[], value: unknown): value is T => values.includes(value as T);
 
@@ -56,6 +59,7 @@ export function sanitizePreferences(input: unknown): Partial<Preferences> {
   if (oneOf(['summary', 'steps'] as const, raw.toolActivity)) out.toolActivity = raw.toolActivity;
   if (typeof raw.confirmQuit === 'boolean') out.confirmQuit = raw.confirmQuit;
   if (oneOf(['switchboard', 'all'] as const, raw.sessionScope)) out.sessionScope = raw.sessionScope;
+  if (oneOf(['last', 'new'] as const, raw.startupView)) out.startupView = raw.startupView;
   return out;
 }
 
