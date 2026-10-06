@@ -120,9 +120,10 @@ export function ContextMeter({
           {breakdown && (
             <>
               {/* One bar, each category its own colour, like /context. The list below says the same in words. */}
-              <div className="mt-2.5 flex h-2 overflow-hidden rounded-full bg-border" aria-hidden>
+              {/* The track is outlined so the free part reads against the popup, and every category keeps a sliver so a nearly empty window still shows them. */}
+              <div className="mt-2.5 flex h-2.5 overflow-hidden rounded-full border border-faint/60 bg-bg" aria-hidden>
                 {used.map((c, i) => (
-                  <span key={c.name} style={{ width: `${(c.tokens / breakdown.maxTokens) * 100}%`, background: colorFor(c.color, i) }} data-tooltip={c.name} />
+                  <span key={c.name} className="shrink-0" style={{ width: `${(c.tokens / breakdown.maxTokens) * 100}%`, minWidth: 3, background: colorFor(c.color, i) }} data-tooltip={c.name} />
                 ))}
               </div>
               <ul className="mt-2.5 grid gap-1">
@@ -134,7 +135,7 @@ export function ContextMeter({
                   </li>
                 ))}
                 <li className="flex items-center gap-2 border-t border-border pt-1">
-                  <span className="size-2 shrink-0 rounded-sm bg-border" aria-hidden />
+                  <span className="size-2 shrink-0 rounded-sm border border-faint/60 bg-bg" aria-hidden />
                   <span className="min-w-0 flex-1 text-muted">Free</span>
                   <span className="tabular-nums">{compactTokens(Math.max(0, breakdown.maxTokens - breakdown.totalTokens))}</span>
                 </li>
@@ -149,7 +150,7 @@ export function ContextMeter({
                 onCompact();
               }}
               data-compact
-              className="mt-3 w-full rounded-md border border-border px-2 py-1 text-[12px] text-text hover:bg-border/50"
+              className="mt-3 w-full rounded-md bg-accent px-2 py-1.5 text-[12px] font-medium text-on-accent hover:bg-accent/85"
               data-tooltip="Sends /compact: Claude summarises the conversation so far to free up context"
             >
               Compact now

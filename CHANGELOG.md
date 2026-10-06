@@ -9,6 +9,7 @@ All notable changes to Switchboard are listed here. Each release is also on the 
 - **Settled** is now called **Archived**: right-click → **Archive** (or **Unarchive**). Sessions quiet for 48 hours still move there on their own. Nothing is deleted, and a session comes back when it has new activity or needs you. To remove a session for good, use **Delete session…**.
 - **Select several sessions** with ⌘-click (or ⇧-click and ⇧↑ ↓ for a range), then archive or unarchive them all at once from the right-click menu or the bar under the list. Escape clears the selection.
 - Sending a message to an archived session moves it back to the main list right away, instead of waiting until Claude finishes.
+- Archiving or unarchiving a session no longer makes rows overlap the **Archived** header.
 
 ### Session view
 
@@ -17,6 +18,7 @@ All notable changes to Switchboard are listed here. Each release is also on the 
 - **Open in** shows your editor with an icon, and its menu can copy the folder's path.
 - A **⋯** menu holds your project actions, the agents Claude started, the Claude profile the session uses and **Stop session**.
 - The message box has one row of chips, the same in a session and in **New session**: profile · model · effort · permission mode (⇧Tab still switches it), next to **Tools**, attach and **Stop** (with its Esc key). A running session's profile chip says which account it bills to. Under the box, one quiet line has your plan usage and how full the context is; the context breakdown can compact the conversation. Effort in New session is now a chip instead of the bars.
+- The **context breakdown** is easier to read: the bar has a visible outline so you can see how much is free, small categories still show up in it, and **Compact now** looks like a button.
 
 ### New session
 

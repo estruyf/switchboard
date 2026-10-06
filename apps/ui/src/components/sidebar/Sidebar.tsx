@@ -1,7 +1,7 @@
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { Archive, ArchiveRestore, ChevronRight, FolderCog, GitBranch, Pin, Search, Settings, SquarePen, X } from 'lucide-react';
 import type { SidebarStyle } from '@switchboard/protocol/bridge';
-import { memo, useEffect, useMemo, useRef, useState, type KeyboardEvent, type MouseEvent, type PointerEvent } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type MouseEvent, type PointerEvent } from 'react';
 import { useEngineConnection } from '../../engine/useEngine.ts';
 import { shortAge } from '../../lib/format.ts';
 import { useCheckoutBranches } from '../../state/checkoutBranchesStore.ts';
@@ -295,6 +295,12 @@ export function Sidebar() {
     count: rows.length,
     getScrollElement: () => scrollRef.current,
     estimateSize: (i) => (rows[i]!.kind === 'session' ? SESSION_ROW_HEIGHT[sidebarStyle] : ARCHIVED_HEADER_HEIGHT),
+    // Keyed by row, not index: archiving or unarchiving moves the header without changing the count,
+    // and the virtualiser only recomputes positions when the count or this function changes.
+    getItemKey: useCallback((i: number) => {
+      const row = rows[i]!;
+      return row.kind === 'session' ? row.data.id : 'archived-header';
+    }, [rows]),
     overscan: 10,
   });
   // Row heights change with the sidebar style.
