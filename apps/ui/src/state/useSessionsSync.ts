@@ -12,7 +12,7 @@ let started = false;
 /**
  * Keeps the sessions store in sync with the engine: one snapshot per
  * connection, then deltas. Also persists the selected session and, when the
- * window opens, shows it again or New session (the Startup preference).
+ * window opens, shows Home, that session again or New session (the Startup preference).
  */
 export function useSessionsSync(): void {
   const connection = useEngineConnection();
@@ -34,6 +34,7 @@ export function useSessionsSync(): void {
         const { startupView, sessionScope } = usePreferences.getState().prefs;
         const id = startupSession(toRows(state.sessions, state.live), value, startupView, sessionScope);
         if (id) state.select(id);
+        else if (startupView === 'home') state.goHome();
         else state.openNewSession();
       });
     }

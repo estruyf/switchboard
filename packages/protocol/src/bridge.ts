@@ -39,8 +39,8 @@ export type SidebarStyle = 'large' | 'standard' | 'compact';
 export type ToolActivity = 'summary' | 'steps';
 /** Sessions in the sidebar: only those started or continued in Switchboard, or every Claude Code session. */
 export type SessionScope = 'switchboard' | 'all';
-/** What a new window shows: the session open last time, or New session. */
-export type StartupView = 'last' | 'new';
+/** What a new window shows: Home, the session open last time, or New session. */
+export type StartupView = 'home' | 'last' | 'new';
 /** Which releases to update to: published releases, or the nightly pre-releases too. */
 export type UpdateChannel = 'stable' | 'nightly';
 
@@ -64,7 +64,7 @@ export const DEFAULT_PREFERENCES: Preferences = {
   toolActivity: 'summary',
   confirmQuit: true,
   sessionScope: 'switchboard',
-  startupView: 'last',
+  startupView: 'home',
   autoUpdate: true,
   updateChannel: 'stable',
 };
@@ -80,7 +80,7 @@ export function sanitizePreferences(input: unknown): Partial<Preferences> {
   if (oneOf(['summary', 'steps'] as const, raw.toolActivity)) out.toolActivity = raw.toolActivity;
   if (typeof raw.confirmQuit === 'boolean') out.confirmQuit = raw.confirmQuit;
   if (oneOf(['switchboard', 'all'] as const, raw.sessionScope)) out.sessionScope = raw.sessionScope;
-  if (oneOf(['last', 'new'] as const, raw.startupView)) out.startupView = raw.startupView;
+  if (oneOf(['home', 'last', 'new'] as const, raw.startupView)) out.startupView = raw.startupView;
   if (typeof raw.autoUpdate === 'boolean') out.autoUpdate = raw.autoUpdate;
   if (oneOf(['stable', 'nightly'] as const, raw.updateChannel)) out.updateChannel = raw.updateChannel;
   return out;

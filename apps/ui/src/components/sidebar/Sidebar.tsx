@@ -1,7 +1,7 @@
 import { useVirtualizer } from '@tanstack/react-virtual';
-import { Archive, ArchiveRestore, ChevronRight, FolderCog, GitBranch, House, Pin, Plus, Search, Settings, X } from 'lucide-react';
+import { Archive, ArchiveRestore, Check, ChevronRight, FolderCog, GitBranch, House, Pin, PinOff, Plus, Search, Settings, Trash2 } from 'lucide-react';
 import type { SidebarStyle } from '@switchboard/protocol/bridge';
-import { memo, useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type MouseEvent, type PointerEvent } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type MouseEvent, type PointerEvent, type ReactNode } from 'react';
 import { useEngineConnection } from '../../engine/useEngine.ts';
 import { shortAge } from '../../lib/format.ts';
 import { useCheckoutBranches } from '../../state/checkoutBranchesStore.ts';
@@ -12,8 +12,8 @@ import { toRows, useSessions, type SessionRowData } from '../../state/sessionsSt
 import { usePreferences } from '../../state/preferencesStore.ts';
 import { useSidebar } from '../../state/sidebarStore.ts';
 import { SIDEBAR_DEFAULT_WIDTH } from '../../state/sidebarWidth.ts';
-import { buildListRows, buildSessionList, GROUP_LABEL, inScope, isActive, rowStatus, waitingLabel, type RowStatus, type SessionGroup, type SidebarListRow } from '../../state/sidebarRows.ts';
-import { NO_PICKS, rangePick, stepPick, togglePick, visiblePicks, type Picks } from '../../state/sessionPicks.ts';
+import { buildListRows, buildSessionList, GROUP_LABEL, inScope, isActive, rowStatus, sessionsByHeader, waitingLabel, type HeaderKey, type RowStatus, type SessionGroup, type SidebarListRow } from '../../state/sidebarRows.ts';
+import { NO_PICKS, pickGroup, rangePick, stepPick, togglePick, visiblePicks, type Picks } from '../../state/sessionPicks.ts';
 import { ConfirmDialog } from '../ConfirmDialog.tsx';
 import { Menu, type MenuEntry } from '../Menu.tsx';
 import { useOpenIn } from '../OpenInButton.tsx';
@@ -68,6 +68,8 @@ function SidebarResizeHandle() {
 const SESSION_ROW_HEIGHT: Record<SidebarStyle, number> = { large: 52, standard: 48, compact: 34 };
 const ARCHIVED_HEADER_HEIGHT = 34;
 const GROUP_HEADER_HEIGHT = 34;
+/** The space below each session button inside its row: picked rows fill it, so a run of picks reads as one block. */
+const SESSION_ROW_GAP: Record<SidebarStyle, number> = { large: 4, standard: 4, compact: 2 };
 
 const rowHeight = (row: SidebarListRow, style: SidebarStyle) =>
   row.kind === 'session' ? SESSION_ROW_HEIGHT[style] : row.kind === 'group' ? GROUP_HEADER_HEIGHT - (row.first ? 6 : 0) : ARCHIVED_HEADER_HEIGHT;
@@ -77,7 +79,7 @@ const RAIL_TONE: Partial<Record<Exclude<RowStatus, null>, string>> = { 'needs-yo
 const AGE_TONE: Partial<Record<Exclude<RowStatus, null>, string>> = { 'needs-you': 'text-warn', running: 'text-accent-ink', unread: 'text-unread' };
 
 /** A section header in the list. Needs you and Working take their status colour and a count, so they read at a glance. */
-function GroupHeader({ group, count, first }: { group: SessionGroup; count: number; first: boolean }) {
+function GroupHeader({ group, count, first, selectAll }: { group: SessionGroup; count: number; first: boolean; selectAll: ReactNode }) {
   const tone = group === 'needs-you' ? 'text-warn' : group === 'working' ? 'text-accent-ink' : 'text-faint';
   const pill = group === 'needs-you' ? 'bg-warn/15' : group === 'working' ? 'bg-accent/20' : null;
   return (
@@ -91,7 +93,40 @@ function GroupHeader({ group, count, first }: { group: SessionGroup; count: numb
           {count}
         </span>
       )}
+      {selectAll}
     </div>
+  );
+}
+
+/** "Select all" on a header while picking: picks every session under it, or takes them all away again. */
+function SelectAllButton({ group, all, onClick }: { group: HeaderKey; all: boolean; onClick(): void }) {
+  return (
+    <button
+      type="button"
+      data-select-group={group}
+      onClick={onClick}
+      className="ml-auto self-center rounded px-1 text-ui font-medium tracking-normal text-link normal-case hover:underline"
+    >
+      {all ? 'Deselect all' : 'Select all'}
+    </button>
+  );
+}
+
+/** Where a project icon was, while picking: a round checkbox on every row, like Mail. A click toggles the row. */
+function PickBox({ on, size, onToggle }: { on: boolean; size: number; onToggle(): void }) {
+  return (
+    <span
+      data-pick-box={on}
+      onClick={(e) => {
+        e.stopPropagation();
+        onToggle();
+      }}
+      style={{ width: size, height: size }}
+      className={`flex shrink-0 items-center justify-center rounded-full ${on ? 'bg-accent text-on-accent' : 'border-[1.5px] border-faint/70 hover:border-text'}`}
+      aria-hidden
+    >
+      {on && <Check size={Math.round(size * 0.62)} strokeWidth={3} />}
+    </span>
   );
 }
 
@@ -111,10 +146,12 @@ const SessionRow = memo(function SessionRow({
   beside = false,
   archived,
   picked,
+  picking,
   now,
   tabbable,
   waitingFor,
   onClick,
+  onTogglePick,
   onMenu,
 }: {
   data: SessionRowData;
@@ -125,12 +162,15 @@ const SessionRow = memo(function SessionRow({
   archived: boolean;
   /** One of several sessions picked with ⌘- or ⇧-click. */
   picked: boolean;
+  /** Several sessions are picked: every row shows a checkbox instead of its project icon. */
+  picking: boolean;
   now: number;
   /** The list's one Tab stop (roving tabindex): ↑ ↓ move between rows from there. */
   tabbable: boolean;
   /** For a session waiting for you: what it asks for ("Permission: Bash", "Question"). */
   waitingFor: string | null;
   onClick(event: MouseEvent, data: SessionRowData): void;
+  onTogglePick(id: string): void;
   onMenu(at: { x: number; y: number }, data: SessionRowData): void;
 }) {
   const project = useProjects((s) => s.projects.get(data.projectRoot));
@@ -163,11 +203,14 @@ const SessionRow = memo(function SessionRow({
     />
   );
   const pin = data.pinned && <Pin size={11} className="shrink-0 text-faint" aria-hidden />;
-  const icon = (size: number) => (
-    <span className={`flex shrink-0 ${archived && !selected ? 'opacity-60' : ''}`}>
-      <ProjectIcon project={project} root={data.projectRoot} size={size} />
-    </span>
-  );
+  const icon = (size: number) =>
+    picking ? (
+      <PickBox on={picked} size={size} onToggle={() => onTogglePick(data.id)} />
+    ) : (
+      <span className={`flex shrink-0 ${archived && !selected ? 'opacity-60' : ''}`}>
+        <ProjectIcon project={project} root={data.projectRoot} size={size} />
+      </span>
+    );
   // Below the row's corner, for menus opened from the keyboard (or VoiceOver, which sends a contextmenu at 0,0).
   const menuAt = (el: HTMLElement) => {
     const rect = el.getBoundingClientRect();
@@ -189,18 +232,22 @@ const SessionRow = memo(function SessionRow({
       e.preventDefault();
       onMenu(e.clientX === 0 && e.clientY === 0 ? menuAt(e.currentTarget) : { x: e.clientX, y: e.clientY }, data);
     },
-    // ⇧F10 (and the menu key) open the same menu as a right-click.
+    // ⇧F10 (and the menu key) open the same menu as a right-click. While picking, Space ticks the row's checkbox.
     onKeyDown: (e: KeyboardEvent<HTMLElement>) => {
       if ((e.key === 'F10' && e.shiftKey) || e.key === 'ContextMenu') {
         e.preventDefault();
         onMenu(menuAt(e.currentTarget), data);
+      } else if (e.key === ' ' && picking) {
+        e.preventDefault();
+        onTogglePick(data.id);
       }
     },
     'data-tooltip': [data.title, style === 'compact' ? projectName : null, style === 'compact' ? waitingFor : null, multipleProfiles && profile ? `Profile: ${profile.name}` : null, data.summary?.cwd].filter(Boolean).join('\n'),
   };
-  // Selection is a neutral fill (a yellow tint vanishes on the light sidebar); picks add a ring on top.
+  // Selection is a neutral fill (a yellow tint vanishes on the light sidebar). Picked rows sit on a
+  // tinted block the list draws behind them, so they need no fill of their own.
   const surface = picked
-    ? `ring-1 ring-inset ring-accent-ink/50 ${selected ? 'bg-selected' : 'bg-border/30'}`
+    ? ''
     : selected
       ? 'bg-selected'
       : beside
@@ -307,7 +354,7 @@ export function Sidebar() {
   const openIn = useOpenIn();
   const projectIcons = useProjectIconEntries();
   const [menu, setMenu] = useState<{ x: number; y: number; entries: MenuEntry[]; label: string } | null>(null);
-  const [deleting, setDeleting] = useState<SessionRowData | null>(null);
+  const [deleting, setDeleting] = useState<SessionRowData[] | null>(null);
   const [picks, setPicks] = useState<Picks>(NO_PICKS);
   const now = useNow();
   const sidebarStyle = usePreferences((s) => s.prefs.sidebarStyle);
@@ -349,6 +396,15 @@ export function Sidebar() {
   const picked = useMemo(() => new Set(visiblePicks(picks, order)), [picks, order]);
   const pickedRows = rows.flatMap((r) => (r.kind === 'session' && picked.has(r.data.id) ? [r.data] : []));
   const multi = picked.size > 1;
+  const headerSessions = useMemo(() => sessionsByHeader(rows), [rows]);
+  const togglePicked = (id: string) => setPicks((p) => togglePick(p, id, selectedId, order));
+  /** "Select all" for a header while picking (Archived only while it's open, when its sessions are listed). */
+  const selectAll = (group: HeaderKey) => {
+    const ids = headerSessions.get(group) ?? [];
+    if (!multi || ids.length === 0) return null;
+    const all = ids.every((id) => picked.has(id));
+    return <SelectAllButton group={group} all={all} onClick={() => setPicks((p) => pickGroup(p, ids, !all))} />;
+  };
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const virtualizer = useVirtualizer({
@@ -379,7 +435,7 @@ export function Sidebar() {
 
   // ⌘-click adds a row to the selection, ⇧-click selects a range, ⌥-click opens it in the other pane.
   const rowClick = (event: MouseEvent, data: SessionRowData) => {
-    if (event.metaKey) setPicks((p) => togglePick(p, data.id, selectedId, order));
+    if (event.metaKey) togglePicked(data.id);
     else if (event.shiftKey) setPicks((p) => rangePick(p, data.id, selectedId, order));
     else {
       setPicks(NO_PICKS);
@@ -388,7 +444,8 @@ export function Sidebar() {
     }
   };
 
-  // ↑/↓ moves through visible sessions, like a native source list (⇧ extends the selection); ⌘⌫ deletes the selected one.
+  // ↑/↓ moves through visible sessions, like a native source list (⇧ extends the selection); ⌘A picks the
+  // focused row's group; ⌘⌫ deletes the picked sessions, or the selected one.
   const onKeyDown = (event: KeyboardEvent) => {
     if (event.key === 'Escape' && picked.size > 0) {
       event.preventDefault();
@@ -396,11 +453,21 @@ export function Sidebar() {
       setPicks(NO_PICKS);
       return;
     }
+    if (event.key === 'a' && event.metaKey && !event.shiftKey && !event.altKey) {
+      const focused = (event.target as HTMLElement).closest<HTMLElement>('[data-session-id]')?.dataset.sessionId ?? selectedId;
+      const group = [...headerSessions.values()].find((ids) => focused && ids.includes(focused));
+      if (group) {
+        event.preventDefault();
+        setPicks((p) => pickGroup(p, group));
+      }
+      return;
+    }
     if (event.key === 'Backspace' && event.metaKey) {
       const selected = rows.find((r) => r.kind === 'session' && r.data.id === selectedId);
-      if (selected?.kind === 'session' && selected.data.summary) {
+      const targets = multi ? pickedRows.filter((row) => row.summary) : selected?.kind === 'session' && selected.data.summary ? [selected.data] : [];
+      if (targets.length) {
         event.preventDefault();
-        setDeleting(selected.data);
+        setDeleting(targets);
       }
       return;
     }
@@ -432,20 +499,25 @@ export function Sidebar() {
   };
   const ARCHIVE: FlagChange = { archived: true, pinned: false };
 
-  /** The menu for several picked sessions: the flags that make sense for at least one of them. */
+  // What the picked sessions can do: only indexed ones have flags and a transcript to delete.
+  const pickTargets = pickedRows.filter((row) => row.summary);
+  const pickActive = pickTargets.filter((row) => isActive(row, now));
+  const pickArchived = pickTargets.filter((row) => !isActive(row, now));
+  const allPinned = pickTargets.length > 0 && pickTargets.every((row) => row.pinned);
+  const actOnPicks = (targets: SessionRowData[], change: FlagChange) => () => {
+    flagAll(targets, change);
+    setPicks(NO_PICKS);
+  };
+
+  /** The menu for several picked sessions: the same actions as the selection bar. */
   const pickedMenu = (at: { x: number; y: number }) => {
-    const targets = pickedRows.filter((row) => row.summary);
     const count = (rows: SessionRowData[]) => `${rows.length} ${rows.length === 1 ? 'session' : 'sessions'}`;
-    const activeRows = targets.filter((row) => isActive(row, Date.now()));
-    const archivedRows = targets.filter((row) => !isActive(row, Date.now()));
-    const act = (rows: SessionRowData[], change: FlagChange) => () => {
-      flagAll(rows, change);
-      setPicks(NO_PICKS);
-    };
     const entries: MenuEntry[] = [{ heading: `${picked.size} selected` }];
-    if (activeRows.length) entries.push({ label: `Archive ${count(activeRows)}`, hint: 'until new activity', onSelect: act(activeRows, ARCHIVE) });
-    if (archivedRows.length) entries.push({ label: `Unarchive ${count(archivedRows)}`, onSelect: act(archivedRows, { archived: false }) });
+    if (pickActive.length) entries.push({ label: `Archive ${count(pickActive)}`, hint: 'until new activity', onSelect: actOnPicks(pickActive, ARCHIVE) });
+    if (pickArchived.length) entries.push({ label: `Unarchive ${count(pickArchived)}`, onSelect: actOnPicks(pickArchived, { archived: false }) });
+    if (pickTargets.length) entries.push({ label: `${allPinned ? 'Unpin' : 'Pin'} ${count(pickTargets)}`, onSelect: actOnPicks(pickTargets, { pinned: !allPinned }) });
     entries.push('separator', { label: 'Clear selection', hint: 'Esc', onSelect: () => setPicks(NO_PICKS) });
+    if (pickTargets.length) entries.push('separator', { label: `Delete ${count(pickTargets)}…`, hint: '⌘⌫', danger: true, onSelect: () => setDeleting(pickTargets) });
     setMenu({ ...at, label: `${picked.size} selected sessions`, entries });
   };
 
@@ -469,7 +541,7 @@ export function Sidebar() {
         'separator',
         ...projectIcons.entries(data.projectRoot, at),
         'separator',
-        { label: 'Delete session…', hint: '⌘⌫', danger: true, disabled: !data.summary, onSelect: () => setDeleting(data) },
+        { label: 'Delete session…', hint: '⌘⌫', danger: true, disabled: !data.summary, onSelect: () => setDeleting([data]) },
       ],
     });
   };
@@ -536,7 +608,10 @@ export function Sidebar() {
         </div>
       )}
 
-      <div ref={scrollRef} onKeyDown={onKeyDown} className="min-h-0 flex-1 overflow-y-auto px-2 pb-2" data-session-list>
+      {/* Keys go to the list and the selection bar floating over it, so Esc clears picks from either. */}
+      <div onKeyDown={onKeyDown} className="relative flex min-h-0 flex-1 flex-col">
+      {/* While picking, the list scrolls far enough for its last rows to clear the floating bar. */}
+      <div ref={scrollRef} className={`min-h-0 flex-1 overflow-y-auto px-2 ${multi ? 'pb-36' : 'pb-2'}`} data-session-list>
         {loaded && rows.length === 0 ? (
           <div className="grid justify-items-start gap-2 px-2 py-4 text-ui text-muted" data-empty-sidebar>
             <p>
@@ -564,6 +639,9 @@ export function Sidebar() {
           <div role="list" aria-label="Sessions" style={{ height: virtualizer.getTotalSize(), position: 'relative' }}>
             {virtualItems.map((item) => {
               const row = rows[item.index]!;
+              const isPicked = (r: SidebarListRow | undefined) => multi && r?.kind === 'session' && picked.has(r.data.id);
+              // A run of picked rows shares one tinted block: rounded where the run starts and ends.
+              const block = isPicked(row) && { top: !isPicked(rows[item.index - 1]), bottom: !isPicked(rows[item.index + 1]) };
               return (
                 <div
                   key={item.key}
@@ -572,36 +650,49 @@ export function Sidebar() {
                   aria-posinset={item.index + 1}
                   style={{ position: 'absolute', top: 0, left: 0, right: 0, height: item.size, transform: `translateY(${item.start}px)` }}
                 >
+                  {block && (
+                    <div
+                      aria-hidden
+                      data-pick-block
+                      className={`absolute inset-x-0 top-0 border-x border-accent-ink/25 bg-accent-ink/10 ${block.top ? 'rounded-t-lg border-t' : ''} ${block.bottom ? 'rounded-b-lg border-b' : ''}`}
+                      style={{ bottom: block.bottom ? SESSION_ROW_GAP[sidebarStyle] : 0 }}
+                    />
+                  )}
                   {row.kind === 'group' ? (
-                    <GroupHeader group={row.group} count={row.count} first={row.first} />
+                    <GroupHeader group={row.group} count={row.count} first={row.first} selectAll={selectAll(row.group)} />
                   ) : row.kind === 'session' ? (
                     <SessionRow
                       data={row.data}
                       archived={row.archived}
                       picked={multi && picked.has(row.data.id)}
+                      picking={multi}
                       selected={listView === 'session' && row.data.id === selectedId}
                       beside={listView === 'session' && splitId !== null && row.data.id !== selectedId && (row.data.id === mainId || row.data.id === splitId)}
                       now={now}
                       tabbable={row.data.id === tabStopId}
                       waitingFor={rowStatus(row.data) === 'needs-you' ? waitingLabel(waitingTool.get(row.data.id)?.tool ?? null) : null}
                       onClick={rowClick}
+                      onTogglePick={togglePicked}
                       onMenu={sessionMenu}
                     />
                   ) : (
-                    <button
-                      type="button"
-                      data-archived-toggle
-                      data-open={row.open}
-                      aria-expanded={row.open}
-                      onClick={toggleArchived}
-                      data-tooltip="Quiet for 48 hours, or archived by you. They come back when there is something new."
-                      // Styled like the group headers above it, with the count in the same pill.
-                      className="mt-2 flex h-[26px] w-full items-center gap-1.5 rounded-md px-2.5 text-meta font-semibold tracking-wider text-faint uppercase hover:text-text"
-                    >
-                      Archived
-                      <span className="rounded-full bg-border/60 px-1.5 tabular-nums tracking-normal">{row.count}</span>
-                      <ChevronRight size={13} className={`transition-transform ${row.open ? 'rotate-90' : ''}`} aria-hidden />
-                    </button>
+                    <div className="mt-2 flex h-[26px] items-center pr-1">
+                      <button
+                        type="button"
+                        data-archived-toggle
+                        data-open={row.open}
+                        aria-expanded={row.open}
+                        onClick={toggleArchived}
+                        data-tooltip="Quiet for 48 hours, or archived by you. They come back when there is something new."
+                        // Styled like the group headers above it, with the count in the same pill.
+                        className="flex h-full min-w-0 flex-1 items-center gap-1.5 rounded-md px-2.5 text-meta font-semibold tracking-wider text-faint uppercase hover:text-text"
+                      >
+                        Archived
+                        <span className="rounded-full bg-border/60 px-1.5 tabular-nums tracking-normal">{row.count}</span>
+                        <ChevronRight size={13} className={`transition-transform ${row.open ? 'rotate-90' : ''}`} aria-hidden />
+                      </button>
+                      {selectAll('archived')}
+                    </div>
                   )}
                 </div>
               );
@@ -610,46 +701,51 @@ export function Sidebar() {
         )}
       </div>
       {multi && (
-        <div className="flex h-9 shrink-0 items-center gap-1 border-t border-border px-3 text-ui" role="toolbar" aria-label="Selected sessions" data-selection-bar>
-          <span className="min-w-0 flex-1 truncate text-muted" data-selection-count={picked.size}>
-            {picked.size} selected
-          </span>
-          {pickedRows.some((row) => row.summary && isActive(row, now)) ? (
+        // Floats over the list's bottom edge, like a sheet, and holds every action for the picks with its keys.
+        <div className="absolute inset-x-2 bottom-2 z-10 grid gap-2 rounded-xl border overlay p-2.5" role="toolbar" aria-label="Selected sessions" data-selection-bar>
+          <div className="flex min-w-0 items-center gap-2">
+            <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-accent px-1.5 text-meta font-semibold tabular-nums text-on-accent" data-selection-count={picked.size}>
+              {picked.size}
+            </span>
+            <span className="min-w-0 flex-1 truncate text-ui font-semibold text-text">sessions selected</span>
+            <button type="button" onClick={() => setPicks(NO_PICKS)} data-clear-selection className="flex h-6 shrink-0 items-center gap-1.5 rounded-md px-1.5 text-ui text-muted hover:bg-border/50 hover:text-text">
+              Clear <kbd className="rounded border border-edge px-1 font-sans text-meta">Esc</kbd>
+            </button>
+          </div>
+          <div className="grid grid-cols-3 gap-1.5">
+            {pickActive.length > 0 || pickArchived.length === 0 ? (
+              <button type="button" data-archive-selected disabled={pickActive.length === 0} onClick={actOnPicks(pickActive, ARCHIVE)} className="btn-secondary min-w-0 px-1.5">
+                <Archive size={13} className="shrink-0" aria-hidden /> <span className="truncate">Archive</span>
+              </button>
+            ) : (
+              <button type="button" data-unarchive-selected onClick={actOnPicks(pickArchived, { archived: false })} className="btn-secondary min-w-0 px-1.5">
+                <ArchiveRestore size={13} className="shrink-0" aria-hidden /> <span className="truncate">Unarchive</span>
+              </button>
+            )}
+            <button type="button" data-pin-selected disabled={pickTargets.length === 0} onClick={actOnPicks(pickTargets, { pinned: !allPinned })} className="btn-secondary min-w-0 px-1.5">
+              {allPinned ? <PinOff size={13} className="shrink-0" aria-hidden /> : <Pin size={13} className="shrink-0" aria-hidden />}
+              <span className="truncate">{allPinned ? 'Unpin' : 'Pin'}</span>
+            </button>
             <button
               type="button"
-              data-archive-selected
-              onClick={() => {
-                flagAll(pickedRows.filter((row) => isActive(row, Date.now())), ARCHIVE);
-                setPicks(NO_PICKS);
-              }}
-              className="flex h-7 items-center gap-1.5 rounded-md px-2 text-text hover:bg-border/60"
+              data-delete-selected
+              disabled={pickTargets.length === 0}
+              onClick={() => setDeleting(pickTargets)}
+              className="btn-secondary min-w-0 border-error/50! px-1.5 text-error! hover:bg-error/10!"
             >
-              <Archive size={13} aria-hidden /> Archive
+              <Trash2 size={13} className="shrink-0" aria-hidden /> <span className="truncate">Delete…</span>
             </button>
-          ) : (
-            <button
-              type="button"
-              data-unarchive-selected
-              onClick={() => {
-                flagAll(pickedRows, { archived: false });
-                setPicks(NO_PICKS);
-              }}
-              className="flex h-7 items-center gap-1.5 rounded-md px-2 text-text hover:bg-border/60"
-            >
-              <ArchiveRestore size={13} aria-hidden /> Unarchive
-            </button>
-          )}
-          <button
-            type="button"
-            onClick={() => setPicks(NO_PICKS)}
-            data-tooltip="Clear selection (Esc)"
-            aria-label="Clear selection"
-            className="flex size-7 items-center justify-center rounded-md text-muted hover:bg-border/60 hover:text-text"
-          >
-            <X size={14} aria-hidden />
-          </button>
+          </div>
+          <p className="flex flex-wrap gap-x-3 gap-y-1 text-meta text-faint">
+            {[['⌘A', 'all in group'], ['⇧↑↓', 'extend'], ['⌘⌫', 'delete']].map(([key, what]) => (
+              <span key={key} className="flex items-center gap-1">
+                <kbd className="rounded border border-edge px-1 font-sans">{key}</kbd> {what}
+              </span>
+            ))}
+          </p>
         </div>
       )}
+      </div>
 
       <footer className="flex h-10 shrink-0 items-center gap-2 border-t border-border px-3 text-meta text-muted">
         {/* An update to act on takes the footer's place (Switchboard's first); the session count is the lesser news. */}
@@ -695,33 +791,43 @@ export function Sidebar() {
       </p>
       {deleting && (
         <ConfirmDialog
-          title={`Delete “${deleting.title.length > 60 ? `${deleting.title.slice(0, 59)}…` : deleting.title}”?`}
+          title={
+            deleting.length === 1
+              ? `Delete “${deleting[0]!.title.length > 60 ? `${deleting[0]!.title.slice(0, 59)}…` : deleting[0]!.title}”?`
+              : `Delete ${deleting.length} sessions?`
+          }
           danger
           confirmLabel="Move to Trash"
           blockedReason={
-            deleting.live && !isActiveHost(hosts.get(deleting.id))
-              ? 'This session is open in another Claude Code window. Close it there first.'
+            deleting.some((target) => target.live && !isActiveHost(hosts.get(target.id)))
+              ? deleting.length === 1
+                ? 'This session is open in another Claude Code window. Close it there first.'
+                : 'Some of these sessions are open in another Claude Code window. Close them there first.'
               : null
           }
           body={
             <>
-              The conversation and any subagent transcripts move to the Trash, so you can restore them from Finder. Files Claude changed in your
-              project are not touched.
-              {isActiveHost(hosts.get(deleting.id)) && ' It is running in Switchboard and will be stopped first.'}
+              {deleting.length === 1 ? 'The conversation and any subagent transcripts move' : 'The conversations and any subagent transcripts move'} to the Trash, so you can
+              restore them from Finder. Files Claude changed in your project are not touched.
+              {deleting.some((target) => isActiveHost(hosts.get(target.id))) &&
+                (deleting.length === 1 ? ' It is running in Switchboard and will be stopped first.' : ' Sessions running in Switchboard will be stopped first.')}
             </>
           }
           onConfirm={async () => {
             if (!client) throw new Error('Not connected to the engine');
-            // Keep the cursor in the list: select the next session (or the previous one at the end).
-            const ids = rows.flatMap((r) => (r.kind === 'session' ? [r.data.id] : []));
-            const index = ids.indexOf(deleting.id);
-            await client.call('session.delete', { sessionId: deleting.id });
-            const panes = useSessions.getState();
-            if (panes.splitId && (deleting.id === panes.mainId || deleting.id === panes.splitId)) {
+            const gone = new Set(deleting.map((target) => target.id));
+            // Keep the cursor in the list: the next session that stays (or the previous one at the end).
+            const index = selectedId ? order.indexOf(selectedId) : -1;
+            const next = index === -1 ? null : (order.slice(index + 1).find((id) => !gone.has(id)) ?? order.slice(0, index).reverse().find((id) => !gone.has(id)) ?? null);
+            for (const target of deleting) {
+              await client.call('session.delete', { sessionId: target.id });
+              const panes = useSessions.getState();
               // Two panes: the other one takes the full width.
-              panes.closePane(deleting.id === panes.mainId ? 'main' : 'split');
-            } else if (selectedId === deleting.id) {
-              const next = ids[index + 1] ?? ids[index - 1] ?? null;
+              if (panes.splitId && (target.id === panes.mainId || target.id === panes.splitId)) panes.closePane(target.id === panes.mainId ? 'main' : 'split');
+            }
+            setPicks(NO_PICKS);
+            const current = useSessions.getState().selectedId;
+            if (current === null ? selectedId !== null && gone.has(selectedId) : gone.has(current)) {
               if (next) select(next);
               else setView('session');
             }

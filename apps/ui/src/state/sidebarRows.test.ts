@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { LiveSession, SessionHostInfo } from '@switchboard/protocol/client';
 import { toRows, useSessions, type SessionRowData } from './sessionsStore.ts';
-import { buildListRows, buildSessionList, groupSessions, inScope, isActive, RECENT_MS, rowStatus, sessionGroup, startOfDay, startupSession, waitingLabel } from './sidebarRows.ts';
+import { buildListRows, buildSessionList, groupSessions, inScope, isActive, RECENT_MS, rowStatus, sessionGroup, sessionsByHeader, startOfDay, startupSession, waitingLabel } from './sidebarRows.ts';
 
 const NOW = Date.UTC(2026, 9, 5, 12);
 const HOUR = 3_600_000;
@@ -176,6 +176,12 @@ describe('buildListRows', () => {
     expect(shape(buildListRows([], [], { now: NOW, archivedOpen: true }))).toEqual([]);
     expect(shape(buildListRows([], archived, { now: NOW, archivedOpen: true }))).toEqual(['[archived 1 open]', 'old']);
   });
+
+  it('lists the sessions under each header, for Select all', () => {
+    const open = sessionsByHeader(buildListRows(active, archived, { now: NOW, archivedOpen: true }));
+    expect([...open]).toEqual([['working', ['busy']], ['today', ['a', 'b']], ['archived', ['old']]]);
+    expect(sessionsByHeader(buildListRows(active, archived, { now: NOW, archivedOpen: false })).get('archived')).toEqual([]);
+  });
 });
 
 describe('waitingLabel', () => {
@@ -256,5 +262,6 @@ describe('startupSession', () => {
     expect(startupSession(rows, 'gone', 'last', 'all')).toBeNull();
     expect(startupSession(rows, null, 'last', 'all')).toBeNull();
     expect(startupSession(rows, 'mine', 'new', 'all')).toBeNull();
+    expect(startupSession(rows, 'mine', 'home', 'all')).toBeNull();
   });
 });

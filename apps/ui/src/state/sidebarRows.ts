@@ -161,3 +161,17 @@ export function waitingLabel(toolName: string | null): string {
   if (toolName === 'ExitPlanMode') return 'Plan to review';
   return `Permission: ${toolName}`;
 }
+
+/** The key of a header row in the list: its group, or 'archived'. */
+export type HeaderKey = SessionGroup | 'archived';
+
+/** The sessions under each header, in list order: what ⌘A and a header's "Select all" pick. */
+export function sessionsByHeader(rows: readonly SidebarListRow[]): Map<HeaderKey, string[]> {
+  const map = new Map<HeaderKey, string[]>();
+  let ids: string[] | null = null;
+  for (const row of rows) {
+    if (row.kind === 'session') ids?.push(row.data.id);
+    else map.set(row.kind === 'group' ? row.group : 'archived', (ids = []));
+  }
+  return map;
+}

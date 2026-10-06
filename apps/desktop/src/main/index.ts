@@ -780,7 +780,7 @@ async function runSettingsStep(win: BrowserWindow): Promise<string> {
   const menuChecked = Menu.getApplicationMenu()?.getMenuItemById('scheme-dark')?.checked === true;
 
   await click('[data-confirm-quit]');
-  await click('[data-startup-view="last"]');
+  await click('[data-startup-view="home"]');
   await section('sidebar');
   await click('[data-session-scope]');
   await click('[data-sidebar-style="standard"]');
@@ -794,7 +794,7 @@ async function runSettingsStep(win: BrowserWindow): Promise<string> {
   if (!quitWithoutAsking) return '⌘Q still asked with the prompt turned off';
   if (saved.colorScheme !== 'dark' || saved.sidebarStyle !== 'compact' || saved.toolActivity !== 'steps' || saved.confirmQuit !== false || saved.sessionScope !== 'switchboard' || saved.startupView !== 'new') return `not saved: ${JSON.stringify(saved)}`;
   if (!menuChecked) return 'View → Appearance did not follow';
-  if (restored.colorScheme !== 'system' || restored.sidebarStyle !== 'standard' || restored.toolActivity !== 'summary' || !restored.confirmQuit || restored.sessionScope !== 'all' || restored.startupView !== 'last') return 'could not restore the defaults';
+  if (restored.colorScheme !== 'system' || restored.sidebarStyle !== 'standard' || restored.toolActivity !== 'summary' || !restored.confirmQuit || restored.sessionScope !== 'all' || restored.startupView !== 'home') return 'could not restore the defaults';
   // Escape closes Settings too.
   win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Escape' });
   if (!(await waitInPage(win, "!document.querySelector('[data-settings]')", 2_000))) return 'Escape did not close Settings';
@@ -999,6 +999,9 @@ async function checkClaudeUpdates(win: BrowserWindow): Promise<string> {
   if (!(await js("Boolean(document.querySelector('[data-claude-update-auto]'))"))) return 'no automatic-check toggle';
   await js("document.querySelector('[data-claude-update-check]')?.click()");
   const statusOf = "document.querySelector('[data-claude-updates]')?.dataset.claudeUpdateStatus";
+  // The earlier automatic check's result is still shown right after the click; wait for this check to start
+  // (it can also finish before the first look, so a miss here is fine).
+  await waitInPage(win, `${statusOf} === 'checking'`, 1_500);
   if (!(await waitInPage(win, `['available', 'up-to-date', 'error', 'missing'].includes(${statusOf})`, 20_000))) return `the check did not finish (${await js(statusOf)})`;
   const status = (await js(statusOf)) as string;
   if (status === 'missing') return 'ok: no claude installed';
@@ -1688,6 +1691,9 @@ async function runArchiveManyStep(win: BrowserWindow): Promise<string> {
   await click(a, false);
   await click(b, true);
   if (!(await waitInPage(win, "document.querySelector('[data-selection-count]')?.dataset.selectionCount === '2'", 2_000))) return 'picking a second session with ⌘-click showed no selection bar for 2';
+  // While picking, every row shows a round checkbox in place of its project icon, and picked rows sit on a tinted block.
+  if (!(await js("[...document.querySelectorAll('[data-session-id]')].every((r) => r.querySelector('[data-pick-box]'))"))) return 'picking did not show a checkbox on every row';
+  if (!(await js(`${row(a)}?.querySelector('[data-pick-box]')?.dataset.pickBox === 'true' && !!${row(a)}?.parentElement?.querySelector('[data-pick-block]')`))) return 'the picked row has no ticked checkbox or tinted block';
   // Let the window paint the selection before capturing it.
   await pause(150);
   await shot(win, 'multi-select.png');

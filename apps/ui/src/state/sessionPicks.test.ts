@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { NO_PICKS, rangePick, stepPick, togglePick, visiblePicks } from './sessionPicks.ts';
+import { NO_PICKS, pickGroup, rangePick, stepPick, togglePick, visiblePicks } from './sessionPicks.ts';
 
 const ORDER = ['a', 'b', 'c', 'd', 'e'];
 const ids = (picks: { ids: ReadonlySet<string> }) => [...picks.ids].sort();
@@ -29,6 +29,16 @@ describe('session picks', () => {
     expect(ids(further)).toEqual(['b', 'c', 'd']);
     expect(ids(stepPick(further, -1, 'b', ORDER)!)).toEqual(['b', 'c']);
     expect(stepPick(NO_PICKS, -1, 'a', ORDER)).toBeNull();
+  });
+
+  it('picks a whole group, or takes it away', () => {
+    const one = togglePick(NO_PICKS, 'a', null, ORDER);
+    const group = pickGroup(one, ['c', 'd', 'e']);
+    expect(ids(group)).toEqual(['a', 'c', 'd', 'e']);
+    // ⇧↑/↓ carry on from the group's last row.
+    expect(group.anchor).toBe('c');
+    expect(group.end).toBe('e');
+    expect(ids(pickGroup(group, ['c', 'd', 'e'], false))).toEqual(['a']);
   });
 
   it('keeps only the picks the list still shows, in list order', () => {

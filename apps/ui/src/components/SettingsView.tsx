@@ -138,6 +138,7 @@ const STYLES: Array<{ value: SidebarStyle; label: string }> = [
 ];
 
 const STARTUP: Array<{ value: StartupView; label: string; detail: string }> = [
+  { value: 'home', label: 'Home', detail: 'Shows what needs you, what is working, and your projects.' },
   { value: 'last', label: 'The last session', detail: 'Opens the session you had open, if the sidebar lists it. Otherwise New session.' },
   { value: 'new', label: 'New session', detail: 'Starts ready for a new prompt.' },
 ];
@@ -349,7 +350,8 @@ export function SettingsView() {
         <SettingsNav />
         <div className="relative flex min-w-0 flex-1 flex-col">
           {/* The top strip keeps the window draggable, like every other view's header. */}
-          <div className="drag flex h-13 shrink-0 items-center justify-end px-4">
+          {/* Same padding as the session header, so the close button stays put when Settings opens over it. */}
+          <div className="drag flex h-13 shrink-0 items-center justify-end px-6">
             <button
               type="button"
               onClick={close}
