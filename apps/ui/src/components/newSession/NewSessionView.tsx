@@ -303,7 +303,7 @@ export function NewSessionView() {
     : !inspection ? 'Checking folder…' : !inspection.exists ? 'This folder no longer exists.' : null;
 
   return (
-    <div className="flex h-full min-h-0 flex-col">
+    <div className="flex h-full min-h-0 flex-col" data-drop-zone>
       {/* No title bar: the eyebrow names the view. The strip keeps the window draggable. */}
       <div className="drag h-13 shrink-0" />
 

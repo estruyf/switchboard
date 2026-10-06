@@ -1,11 +1,11 @@
-import { ImagePlus } from 'lucide-react';
-import { useEffect, useLayoutEffect, useRef, useState, type ClipboardEvent, type DragEvent, type KeyboardEvent, type ReactNode } from 'react';
+import { AtSign, ImageOff, ImagePlus } from 'lucide-react';
+import { useEffect, useLayoutEffect, useRef, useState, type ClipboardEvent, type KeyboardEvent, type ReactNode } from 'react';
 import type { ImageAttachment, SlashCommand } from '@switchboard/protocol/client';
 import { useEngineConnection } from '../../engine/useEngine.ts';
+import { dropMessage, dropVerdict, MAX_ATTACHMENTS, mergeAttachments, planDrop, readImage } from './images.ts';
+import { insertMentions, mentionFor } from './mentions.ts';
 import { tokenAtCaret } from './tokens.ts';
-
-const IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp'] as const;
-const MAX_IMAGE_BYTES = 7_000_000;
+import { useDropTarget } from './useDropTarget.ts';
 
 type PaletteItem = { value: string; label: string; detail: string };
 interface Palette {
@@ -35,23 +35,11 @@ export interface ComposerProps {
   submitHint?: string;
   /** A taller prompt that is the main thing on screen. */
   large?: boolean;
+  /** Say next to the attach button that images can be pasted or dropped (an empty session). */
+  dropHint?: boolean;
   onSubmit(text: string, attachments: ImageAttachment[]): Promise<void> | void;
   onInterrupt?(): void;
   onCycleMode?(): void;
-}
-
-function readImage(file: File): Promise<ImageAttachment | null> {
-  const mediaType = IMAGE_TYPES.find((t) => t === file.type);
-  if (!mediaType || file.size > MAX_IMAGE_BYTES) return Promise.resolve(null);
-  return new Promise((resolve) => {
-    const reader = new FileReader();
-    reader.onload = () => {
-      const data = String(reader.result).split(',')[1] ?? '';
-      resolve({ type: 'image', mediaType, data, name: file.name || 'pasted image' });
-    };
-    reader.onerror = () => resolve(null);
-    reader.readAsDataURL(file);
-  });
 }
 
 /** Focus is in another text field, or in a menu or dialog: a late focus request must not take it away. */
@@ -71,6 +59,7 @@ export function Composer(props: ComposerProps) {
   const [notice, setNotice] = useState<string | null>(null);
   const ref = useRef<HTMLTextAreaElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  const rootRef = useRef<HTMLDivElement>(null);
   const listRef = useRef<HTMLUListElement>(null);
   const searchSeq = useRef(0);
 
@@ -187,8 +176,11 @@ export function Composer(props: ComposerProps) {
 
   const addFiles = async (files: File[]) => {
     const images = (await Promise.all(files.map(readImage))).filter((a): a is ImageAttachment => a !== null);
-    if (images.length < files.length) setNotice('Some files were skipped: only PNG, JPEG, GIF or WebP images up to 7 MB.');
-    if (images.length) setAttachments((current) => [...current, ...images].slice(0, 20));
+    setAttachments((current) => {
+      const { next, notice } = mergeAttachments(current, images, files.length);
+      setNotice(notice);
+      return next;
+    });
   };
 
   const onPaste = (event: ClipboardEvent) => {
@@ -199,18 +191,65 @@ export function Composer(props: ComposerProps) {
     }
   };
 
-  const onDrop = (event: DragEvent) => {
-    const files = [...event.dataTransfer.files];
-    if (files.length) {
-      event.preventDefault();
-      void addFiles(files);
+  // A dropped file's place on disk, for an @ mention; empty outside the app or for files not on disk.
+  const canMention = typeof window.switchboard?.getPathForFile === 'function';
+  const pathOf = (file: File) => {
+    try {
+      return window.switchboard?.getPathForFile(file) ?? '';
+    } catch {
+      return '';
     }
   };
+
+  /** A drop: images are attached while there is room; other files, folders and the images past the limit become @ mentions. */
+  const dropFiles = async (files: File[], directories: boolean[]) => {
+    const dropped = files.map((file, i) => ({ type: file.type, size: file.size, directory: directories[i] ?? false, path: pathOf(file) }));
+    const plan = planDrop(dropped, attachments.length);
+    const read = await Promise.all(plan.attach.map((i) => readImage(files[i]!)));
+    // An image that can't be read is mentioned instead, when it has a path.
+    const unread = plan.attach.filter((_, k) => !read[k]).map((i) => dropped[i]!);
+    const mentioned = [...plan.mention, ...unread.filter((f) => f.path)];
+    const images = read.filter((a): a is ImageAttachment => a !== null);
+    if (images.length) setAttachments((current) => [...current, ...images].slice(0, MAX_ATTACHMENTS));
+    if (mentioned.length) {
+      const el = ref.current;
+      const value = el?.value ?? text;
+      const caret = el && document.activeElement === el ? el.selectionEnd : value.length;
+      const next = insertMentions(value, caret, mentioned.map((f) => mentionFor(f.path, props.cwd, f.directory)));
+      setText(next.text);
+      requestAnimationFrame(() => {
+        el?.focus();
+        el?.setSelectionRange(next.caret, next.caret);
+      });
+    }
+    const skipped = plan.skipped + unread.length - unread.filter((f) => f.path).length;
+    setNotice(skipped ? 'Some files were skipped: only images, and files and folders on disk, can be added.' : null);
+  };
+
+  // Files dragged anywhere over the session view: an overlay on the message box shows what a drop would do.
+  const drop = useDropTarget(rootRef, (drag) => dropVerdict(drag, { attached: attachments.length, disabledReason: props.disabledReason, canMention }), (files, directories) => void dropFiles(files, directories));
+  const dropOk = drop.verdict?.kind === 'ok';
+  const mentionOnly = drop.verdict?.kind === 'ok' && drop.verdict.attach === 0 && drop.verdict.mention > 0;
 
   const disabled = !!props.disabledReason;
 
   return (
-    <div className="relative" onDragOver={(e) => e.preventDefault()} onDrop={onDrop}>
+    <div ref={rootRef} className="relative">
+      {drop.verdict && (
+        <div
+          data-drop-overlay
+          data-drop-state={drop.verdict.kind}
+          data-drop-over={drop.over}
+          data-drop-mention={drop.verdict.kind === 'ok' ? drop.verdict.mention : undefined}
+          aria-live="polite"
+          className={`pointer-events-none absolute inset-0 z-20 overflow-hidden rounded-xl border-2 bg-card/95 ${dropOk ? `border-accent-ink text-accent-ink ${drop.over ? 'border-solid' : 'border-dashed'}` : 'border-dashed border-faint text-muted'}`}
+        >
+          <div className={`flex size-full items-center justify-center gap-2 px-4 text-center text-[12.5px] font-medium ${dropOk ? (drop.over ? 'bg-accent/20' : 'bg-accent/10') : ''}`}>
+            {mentionOnly ? <AtSign size={16} className="shrink-0" /> : dropOk ? <ImagePlus size={16} className="shrink-0" /> : <ImageOff size={16} className="shrink-0" />}
+            <span className="min-w-0">{dropMessage(drop.verdict)}</span>
+          </div>
+        </div>
+      )}
       {palette && (
         <ul ref={listRef} className="absolute right-0 bottom-full left-0 z-10 mb-2 max-h-72 overflow-y-auto rounded-lg border border-border bg-card shadow-lg" role="listbox" data-palette>
           {palette.items.map((item, i) => (
@@ -276,6 +315,7 @@ export function Composer(props: ComposerProps) {
             </span>
           )}
           <div className="flex shrink-0 items-center gap-1.5">
+            {props.dropHint && !text && attachments.length === 0 && !disabled && <span className="text-[11px] text-faint @max-[860px]:hidden">Paste or drop images and files</span>}
             <input
               ref={fileRef}
               type="file"
@@ -292,7 +332,7 @@ export function Composer(props: ComposerProps) {
               type="button"
               onClick={() => fileRef.current?.click()}
               disabled={disabled}
-              data-tooltip="Attach images (or paste / drop them)" aria-label="Attach images (or paste / drop them)"
+              data-tooltip="Attach images (or paste / drop them). Dropped files and folders become @ mentions." aria-label="Attach images"
               className="rounded-md p-1 text-muted hover:bg-border/50 hover:text-text disabled:opacity-40"
               data-attach
             >

@@ -485,6 +485,7 @@ let paletteResult = 'not run';
 let toolsResult = 'not run';
 let splitResult = 'not run';
 let settleResult = 'not run';
+let dropResult = 'not run';
 let controlsResult = 'not run';
 let projectsResult = 'not run';
 let profilesResult = 'not run';
@@ -970,6 +971,66 @@ async function runControlsStep(win: BrowserWindow): Promise<string> {
 }
 
 /**
+ * Dragging images over a session shows a drop target on the message box; other files offer an @ mention. Synthetic drag events only:
+ * nothing is dropped, so nothing is attached or sent.
+ */
+async function runDropStep(win: BrowserWindow): Promise<string> {
+  if (smokeSessionId) await win.webContents.executeJavaScript(`document.querySelector('[data-session-id="${smokeSessionId}"]')?.click()`);
+  if (!(await waitInPage(win, "document.querySelector('[data-current-session] [data-composer]') && !document.querySelector('[data-drop-overlay]')", 5_000))) return 'no session view to drag onto';
+  const report = (await win.webContents.executeJavaScript(`(async () => {
+    const view = document.querySelector('[data-current-session]');
+    const settle = () => new Promise((resolve) => setTimeout(resolve, 60));
+    const overlay = () => { const el = view.querySelector('[data-drop-overlay]'); return el ? el.dataset.dropState + (Number(el.dataset.dropMention) > 0 ? '+mention' : '') + (el.dataset.dropOver === 'true' ? '+over' : '') : 'none'; };
+    const drag = (type, target, extra = {}) => {
+      const data = new DataTransfer();
+      data.items.add(new File(['x'], 'smoke', { type }));
+      const event = new DragEvent(extra.kind ?? 'dragover', { bubbles: true, cancelable: true, dataTransfer: data, relatedTarget: extra.relatedTarget ?? null });
+      target.dispatchEvent(event);
+    };
+    const transcript = view.querySelector('[data-transcript]');
+    const composer = view.querySelector('[data-composer]');
+    const steps = [];
+    drag('image/png', transcript, { kind: 'dragenter' });
+    drag('image/png', transcript);
+    await settle();
+    steps.push(overlay());
+    drag('image/png', composer, { kind: 'dragenter' });
+    drag('image/png', composer);
+    await settle();
+    steps.push(overlay());
+    drag('image/png', composer, { kind: 'dragleave', relatedTarget: document.querySelector('[data-sidebar]') ?? document.body });
+    await settle();
+    steps.push(overlay());
+    drag('application/pdf', transcript, { kind: 'dragenter' });
+    drag('application/pdf', transcript);
+    await settle();
+    steps.push(overlay());
+    window.dispatchEvent(new DragEvent('dragend'));
+    await settle();
+    steps.push(overlay());
+    return steps;
+  })()`)) as string[];
+  // dropEffect can't be read back from synthetic events (it only sticks during a real drag), so this checks the overlay.
+  // A PDF can't be attached; it would be mentioned as @path instead.
+  const expected = ['ok', 'ok+over', 'none', 'ok+mention', 'none'];
+  if (report.join(' ') !== expected.join(' ')) return `drop target went ${report.join(' → ')} (expected ${expected.join(' → ')})`;
+  // Hold a drag over the message box for the screenshot, then end it.
+  await win.webContents.executeJavaScript(`(() => {
+    const composer = document.querySelector('[data-current-session] [data-composer]');
+    const data = new DataTransfer();
+    data.items.add(new File(['x'], 'smoke.png', { type: 'image/png' }));
+    composer.dispatchEvent(new DragEvent('dragenter', { bubbles: true, cancelable: true, dataTransfer: data }));
+    window.__smokeDrag = setInterval(() => composer.dispatchEvent(new DragEvent('dragover', { bubbles: true, cancelable: true, dataTransfer: data })), 50);
+  })()`);
+  if (!(await waitInPage(win, "document.querySelector('[data-drop-overlay]')", 1_000))) return 'no overlay while a drag is held over the message box';
+  await new Promise((resolve) => setTimeout(resolve, 150));
+  await shot(win, 'drop-target.png');
+  await win.webContents.executeJavaScript("clearInterval(window.__smokeDrag); window.dispatchEvent(new DragEvent('dragend'))");
+  if (!(await waitInPage(win, "!document.querySelector('[data-drop-overlay]')", 1_000))) return 'the overlay stayed after the drag ended';
+  return 'ok: overlay on enter, stronger over the message box, gone on leave, offers to mention a PDF, cleared on dragend';
+}
+
+/**
  * Right-click → Settle moves a session out of the main list, even one that's working (its updates
  * used to bring it straight back); "Move back" returns it. Flags live in the throwaway profile.
  */
@@ -1082,6 +1143,7 @@ async function runSmokeStep(win: BrowserWindow | null): Promise<void> {
     toolsResult = await runToolsStep(win).catch((error: Error) => `failed: ${error.message}`);
     splitResult = await runSplitStep(win).catch((error: Error) => `failed: ${error.message}`);
     settleResult = await runSettleStep(win).catch((error: Error) => `failed: ${error.message}`);
+    dropResult = await runDropStep(win).catch((error: Error) => `failed: ${error.message}`);
     controlsResult = await runControlsStep(win).catch((error: Error) => `failed: ${error.message}`);
     newSessionResult = await runNewSessionStep(win).catch((error: Error) => `failed: ${error.message}`);
     usageBand = (await waitInPage(win, "document.querySelector('[data-usage-band]')", 15_000))
@@ -1127,6 +1189,7 @@ async function runSmokeStep(win: BrowserWindow | null): Promise<void> {
         toolsResult,
         splitResult,
         settleResult,
+        dropResult,
         controlsResult,
         newSessionResult,
         liveSession,

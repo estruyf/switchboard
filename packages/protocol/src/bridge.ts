@@ -85,6 +85,8 @@ export interface SwitchboardBridge {
   onSelectSession(listener: (sessionId: string) => void): () => void;
   /** Native image picker (for project icons). Resolves to null when cancelled. */
   pickImage(defaultPath?: string): Promise<string | null>;
+  /** The path on disk of a dropped file or folder; empty for files that aren't on disk (made in the page, pasted). */
+  getPathForFile(file: File): string;
   /** ⌘Q was pressed: show the quit prompt. Pressing ⌘Q again while it's open quits without it. */
   onQuitRequested(listener: () => void): () => void;
   answerQuit(answer: 'quit' | 'cancel'): void;
