@@ -1,6 +1,7 @@
 import { mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { DatabaseSync } from 'node:sqlite';
 import { afterEach, describe, expect, it } from 'vitest';
 import { createAppStateStore } from './appState.ts';
 import { openCacheDatabase, schemaVersion } from './database.ts';
@@ -43,6 +44,23 @@ describe('cache database', () => {
     expect(cache.recovered).toBe(true);
     expect(schemaVersion(cache.db)).toBe(migrations.length);
     expect(readdirSync(dir).some((f) => f.startsWith('cache.sqlite.broken-'))).toBe(true);
+    cache.close();
+  });
+
+  it('folds settled and archived sessions into one archived moment, the later of the two', () => {
+    const path = join(tempDir(), 'cache.sqlite');
+    const old = new DatabaseSync(path);
+    for (const migration of migrations.slice(0, 12)) old.exec(migration);
+    old.exec('PRAGMA user_version = 12');
+    old.exec("INSERT INTO session_flags (id, pinned, settled_at, archived_at) VALUES ('a', 1, NULL, NULL), ('b', 0, 42, NULL), ('c', 0, NULL, 7), ('d', 0, 3, 9)");
+    old.close();
+    const cache = openCacheDatabase(path);
+    expect(cache.db.prepare('SELECT id, pinned, archived_at FROM session_flags ORDER BY id').all()).toEqual([
+      { id: 'a', pinned: 1, archived_at: null },
+      { id: 'b', pinned: 0, archived_at: 42 },
+      { id: 'c', pinned: 0, archived_at: 7 },
+      { id: 'd', pinned: 0, archived_at: 9 },
+    ]);
     cache.close();
   });
 

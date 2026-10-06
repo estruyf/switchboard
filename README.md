@@ -13,8 +13,8 @@ It uses the Claude Code you already have installed, with your login, settings, c
 ## What you can do
 
 **Keep track of every session**
-- One list of all your sessions, newest first, across every project. Sessions you haven't touched for a while move to **Settled**, out of the way. You can settle one yourself too, even while it works: it comes back when it needs you or has finished. **Archive** the ones you're done with to take them out of the list altogether (they wait under **Archived**, and nothing is deleted).
-- Select several sessions with ⌘-click or ⇧-click to archive or settle them together.
+- One list of all your sessions, newest first, across every project. Sessions you haven't touched for a while move to **Archived**, out of the way. You can archive one yourself too, even while it works: it comes back when it needs you or has finished. Nothing is deleted; to remove a session for good, delete it (it goes to the Trash).
+- Select several sessions with ⌘-click or ⇧-click to archive or unarchive them together.
 - See at a glance which sessions are **working**, **waiting for you**, **finished** or **unread**.
 - Filter by one of your projects, filter by title, and pin the sessions you keep coming back to.
 - **Search every conversation** (⌘⇧F): your prompts and Claude's replies across all sessions, with the matching words highlighted. Pick a result to jump straight to that message.
@@ -29,9 +29,9 @@ It uses the Claude Code you already have installed, with your login, settings, c
 - Approve or deny permission requests, answer Claude's questions and review plans in the conversation.
 - Follow what Claude does without the noise: each run of tool calls is one line ("Reading src/app.ts…", then "Ran 3 commands and edited 2 files"), and a click shows every step, with diffs, command output, to-do lists and subagent runs.
 - Images Claude reads or you attach are shown in the conversation.
-- Press **Esc** to stop Claude, **⇧Tab** to switch permission mode, and keep typing while it works (messages queue up).
-- Change the model, permission mode and **effort** while a session runs, and see how full the **context window** is. Click it for what fills it, like `/context`.
-- **Agents** Claude starts, background ones included, show as "1 agent" in the session header; click it to watch what each one is doing.
+- Press **Esc** (or **Stop**) to stop Claude, **⇧Tab** to switch permission mode, and keep typing while it works (messages queue up). **Stop session** under **⋯** in the header ends the Claude Code process; sending a message picks it up again.
+- Change the model, permission mode and **effort** while a session runs, from the chips in the message box, and see how full the **context window** is under it. Click it for what fills it, like `/context`, and to compact the conversation.
+- **Agents** Claude starts, background ones included, are under **⋯** in the session header ("2 running"; a dot on **⋯** says some are); pick **Agents** to watch what each one is doing.
 - Continue any past session. If it's still open in a terminal, Switchboard offers to **fork** it instead, leaving the original untouched.
 - Hover over a message to go back in time:
   - **Undo file changes** since one of your prompts. You see which files would change first.
@@ -40,12 +40,12 @@ It uses the Claude Code you already have installed, with your login, settings, c
 
 **Stay on top of things**
 - A notification and Dock badge when a session needs you or finishes, so you can leave it running in the background.
-- Your plan usage above the message box: how much of your 5-hour and weekly limits you've used, and when they reset.
+- Your plan usage under the message box: how much of your 5-hour and weekly limits you've used (hover for when they reset).
 
 **Review and finish the work**
 - A **Changes** panel (⌘⇧D) with the session's git diff: what's uncommitted, or the whole branch compared with `main`. Stage, unstage or revert files, and open any diff inline. Reverted new files go to the Trash.
-- The **branch** a session's folder has checked out shows in its header, read live from git (so it's right after you or Claude switch in a terminal). Click it to switch to another local branch. Switching uses `git switch`: uncommitted changes that don't conflict come along, and when they would be overwritten git refuses and you stay where you are. Nothing is ever stashed or thrown away. It waits while Claude is working in this folder, and asks first when other sessions work in the same folder.
-- A **git button** in the session header offers the next step for the branch: **Pull** when it's behind its upstream, **Commit** when there are changes (Claude writes the commit), **Push**, or **Create PR**. Its menu has all four, and says why one isn't available. Pull, push and pull requests run in a terminal tab so you see git's output; pull requests open GitHub's page with the GitHub CLI (`gh`). Pull waits while Claude is working in the folder.
+- The **branch** a session's folder has checked out shows in its header, read live from git (so it's right after you or Claude switch in a terminal). Click it (or **Switch branch…** in the git menu) to switch to another local branch. Switching uses `git switch`: uncommitted changes that don't conflict come along, and when they would be overwritten git refuses and you stay where you are. Nothing is ever stashed or thrown away. It waits while Claude is working in this folder, and asks first when other sessions work in the same folder.
+- A **git button** in the session header offers the next step for the branch: **Pull ↓2** when it's behind its upstream, **Commit 3** when there are changes (Claude writes the commit), **Push ↑1**, **Create PR** once a branch or worktree is pushed, otherwise **Fetch**. Its menu shows where the branch stands (behind, ahead, changed files) and has every step: Pull (⌘⇧L), Fetch, **Commit…** with your own message, Ask Claude to commit, Push and Create PR, plus **Switch branch…** and **New worktree…**. It says when you need to pull before you push. Git runs in a terminal tab so you see its output; pull requests open GitHub's page with the GitHub CLI (`gh`). Pull and commit wait while Claude is working in the folder.
 - **Finish a worktree** from its **Worktree** menu: merge into the base branch, or remove the worktree, optionally with its branch. Switchboard warns you before you lose commits that aren't merged or pushed.
 
 **Everything in one place**
@@ -97,7 +97,7 @@ To stop the checks, turn off *Check for Claude Code updates automatically* in Se
 
 1. **Open Switchboard.** The sidebar lists the sessions you start or continue in Switchboard. To see your sessions from the terminal, Claude desktop and your editor too, turn on *Show sessions from other apps* in Settings.
 2. **Pick a session** to read it, or type below it to continue.
-3. **Start something new** with ⌘N: pick the project, write what Claude should work on, and choose where it runs: this checkout or a new worktree. Model, effort and permission mode sit right under the prompt.
+3. **Start something new** with ⌘N: pick the project, write what Claude should work on, and choose where it runs: this checkout or a new worktree. Model, permission mode and effort are chips inside the message box, as they are in a session.
 4. When a session needs you (a permission or a question), it's marked in the sidebar and you get a notification.
 
 ## Keyboard shortcuts
@@ -114,6 +114,7 @@ To stop the checks, turn off *Check for Claude Code updates automatically* in Se
 | ⌘O | Open the session's folder in your editor |
 | ⌘J | Show or hide the terminal |
 | ⌘⇧D | Show or hide the Changes panel |
+| ⌘⇧L | Pull, when the branch is behind its upstream |
 | ⌥-click | Open a session beside the current one |
 | ⌘\\ | Close the other pane |
 | ⌘, | Settings |
@@ -122,7 +123,7 @@ To stop the checks, turn off *Check for Claude Code updates automatically* in Se
 | `/` and `@` | Commands and file mentions in the message box |
 | ⌘Q | Quit (Switchboard asks first; press ⌘Q again to quit) |
 
-Right-click a session for more: open it beside, pin, settle, archive, open its folder, copy its ID, or delete it. With several sessions selected, right-click one of them to archive, settle or move them all back at once.
+Right-click a session for more: open it beside, pin, archive, open its folder, copy its ID, or delete it. With several sessions selected, right-click one of them to archive or unarchive them all at once.
 
 Drag the sidebar's right edge to make it wider or narrower; double-click the edge to reset it. Switchboard remembers the width.
 
@@ -144,7 +145,7 @@ Open Settings with ⌘, or the gear at the bottom of the sidebar. While it is op
 
 To move to a new Mac, restore your setup after a reset, or share a set of actions with someone, use **Settings → Backup** (or *Export settings…* and *Import settings…* in the command palette).
 
-- **Export** saves the parts you tick to one `.json` file: preferences, projects (in your order, with their icons and defaults), project actions (global and per project, with shortcuts and worktree setup), and app choices such as your default editor. Pinned, settled and archived sessions are left out unless you tick them; they're only useful on the same Mac, or when you copy `~/.claude` too. Your sessions themselves are never in the file.
+- **Export** saves the parts you tick to one `.json` file: preferences, projects (in your order, with their icons and defaults), project actions (global and per project, with shortcuts and worktree setup), and app choices such as your default editor. Pinned and archived sessions are left out unless you tick them; they're only useful on the same Mac, or when you copy `~/.claude` too. Your sessions themselves are never in the file.
 - **Import** shows what the file would add, change or skip before anything happens. *Merge* (the default) adds what's missing and keeps your own values; *Replace* makes your projects, actions and preferences match the file. A project folder that doesn't exist on this Mac (a different user name, say) can be pointed at another folder, or skipped.
 - Imported shell actions ask for your approval the first time they run, even if you approved them on the other Mac, so a settings file can't run a command you haven't seen.
 - Before importing, Switchboard saves your current settings in the `backups` folder of its app data. To undo an import, import that file with *Replace*.

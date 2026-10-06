@@ -6,7 +6,7 @@ export { STATUS_LABEL };
 /**
  * One glance per session: a spinning ring while Claude works, a pulsing amber
  * dot when it waits for you, red when it failed, accent for unread, a slow green
- * ring while a background task runs, green when open and idle. Nothing for settled, read sessions.
+ * ring while a background task runs, green when open and idle. Nothing for archived, read sessions.
  * Each is a labelled image, so the state never rests on colour or motion alone.
  */
 export function StatusIcon({ status }: { status: RowStatus }) {

@@ -129,7 +129,6 @@ export interface SessionRowData {
   live: LiveSession | null;
   summary: SessionSummary | null;
   pinned: boolean;
-  settledAt: number | null;
   archivedAt: number | null;
   unread: boolean;
   /** Started, forked or continued in Switchboard, or running in it now. */
@@ -164,7 +163,6 @@ export function toRows(
       live: l,
       summary: s,
       pinned: s.pinned,
-      settledAt: s.settledAt,
       archivedAt: s.archivedAt,
       unread: s.unread,
       inApp: s.inApp || l?.origin === 'app',
@@ -194,7 +192,6 @@ export function toRows(
       live: l,
       summary: null,
       pinned: false,
-      settledAt: null,
       archivedAt: null,
       unread: false,
       inApp: l.origin === 'app',

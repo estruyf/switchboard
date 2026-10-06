@@ -6,23 +6,28 @@ All notable changes to Switchboard are listed here. Each release is also on the 
 
 ### Sidebar
 
-- **Archive** sessions you don't need to see any more: right-click → **Archive**. They leave the list, Settled included, and wait under a collapsed **Archived** section. Nothing is deleted, and a session comes back on its own when it has new activity or needs you.
-- **Select several sessions** with ⌘-click (or ⇧-click and ⇧↑ ↓ for a range), then archive, settle or move them back all at once from the right-click menu or the bar under the list. Escape clears the selection.
-- Sending a message to a settled or archived session moves it back to the main list right away, instead of waiting until Claude finishes.
+- **Settled** is now called **Archived**: right-click → **Archive** (or **Unarchive**). Sessions quiet for 48 hours still move there on their own. Nothing is deleted, and a session comes back when it has new activity or needs you. To remove a session for good, use **Delete session…**.
+- **Select several sessions** with ⌘-click (or ⇧-click and ⇧↑ ↓ for a range), then archive or unarchive them all at once from the right-click menu or the bar under the list. Escape clears the selection.
+- Sending a message to an archived session moves it back to the main list right away, instead of waiting until Claude finishes.
 
-### Session header
+### Session view
 
-- A **git button** next to **Open in**: commit (Claude writes the message), push, create a pull request or pull, without leaving the session. Its face shows the next step for the branch, such as **Pull** when it's behind its upstream, and the menu says why a step isn't available. Commit and pull request moved here from the **Worktree** menu, which now merges or removes.
+- A calmer **session header**. Under the title, one line says what the session is doing, its project and its branch; click the branch to switch (or, in a worktree, to merge or remove it). Where it was started and when it was last updated are in the title's tooltip.
+- A **git button** next to **Open in**: commit (Claude writes the message, or write your own with **Commit…**), push, create a pull request, pull or fetch, without leaving the session. Its face shows the next step and the count, such as **Pull ↓2** when the branch is behind its upstream, and **Fetch** when there's nothing to do. The menu shows where the branch stands, says when you need to pull before you push, and has **Switch branch…** and **New worktree…**. ⌘⇧L pulls. Commit and pull request moved here from the **Worktree** menu, which now merges or removes.
+- **Open in** shows your editor with an icon, and its menu can copy the folder's path.
+- A **⋯** menu holds your project actions, the agents Claude started, the Claude profile the session uses and **Stop session**.
+- The message box has one row of chips, the same in a session and in **New session**: profile · model · effort · permission mode (⇧Tab still switches it), next to **Tools**, attach and **Stop** (with its Esc key). A running session's profile chip says which account it bills to. Under the box, one quiet line has your plan usage and how full the context is; the context breakdown can compact the conversation. Effort in New session is now a chip instead of the bars.
 
 ### New session
 
 - A prompt you start typing in **New session** is still there when you come back from a session or Settings. A **Clear** link under the message box empties it.
 - **Open in** (VS Code, another editor, a terminal, Finder or GitHub) is at the top of **New session** too, to look around the project before you start.
+- A simpler bar under the message box with two dropdowns: where the edits go (**Current checkout** or **New worktree**, with **Save as project default** at the end) and the branch, which you can search. For a new worktree it shows the branch it starts from, such as **From origin/main**. Your plan usage and the sessions already running in the project sit on one quiet line below it.
 
 ### Fixes
 
 - The arrow that opens the **Open in** menu is now a proper chevron instead of a tiny glyph sitting off-centre.
-- **New session** no longer counts settled or archived sessions in "running here", so the number matches what the sidebar shows.
+- **New session** no longer counts archived sessions in "running here", so the number matches what the sidebar shows.
 
 ## [0.0.5] - 2026-10-06
 

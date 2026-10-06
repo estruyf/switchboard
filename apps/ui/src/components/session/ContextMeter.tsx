@@ -33,11 +33,22 @@ function Ring({ percent }: { percent: number }) {
 }
 
 /**
- * How full the context window is, like Claude Code's /context: a ring and used/total tokens.
- * For a session running here, click for the breakdown by category. Otherwise it shows what
- * the last turn used, from the transcript.
+ * How full the context window is, like Claude Code's /context: a ring, "Context 42%" and used/total
+ * tokens. For a session running here, click for the breakdown by category and to compact the
+ * conversation (`onCompact`). Otherwise it shows what the last turn used, from the transcript.
  */
-export function ContextMeter({ sessionId, live, messages }: { sessionId: string; live: { tokens: number; max: number; percent: number } | null; messages: readonly TranscriptMessage[] }) {
+export function ContextMeter({
+  sessionId,
+  live,
+  messages,
+  onCompact,
+}: {
+  sessionId: string;
+  live: { tokens: number; max: number; percent: number } | null;
+  messages: readonly TranscriptMessage[];
+  /** Sends /compact. */
+  onCompact?: () => void;
+}) {
   const connection = useEngineConnection();
   const client = connection.status === 'connected' ? connection.client : null;
   const [open, setOpen] = useState(false);
@@ -72,8 +83,8 @@ export function ContextMeter({ sessionId, live, messages }: { sessionId: string;
         data-tooltip="Tokens in Claude’s context window (what it keeps in mind for this conversation) at the end of the last turn"
         data-context-meter
       >
-        ≈{compactTokens(tokens)}
-        <span className="sr-only"> tokens of</span> context
+        Context <span className="text-faint">≈{compactTokens(tokens)}</span>
+        <span className="sr-only"> tokens</span>
       </span>
     );
   }
@@ -89,11 +100,14 @@ export function ContextMeter({ sessionId, live, messages }: { sessionId: string;
         aria-controls={open ? popupId : undefined}
         // The ring and a bare percentage mean little on their own: say what they measure.
         aria-label={`Context window ${Math.round(live.percent)}% full, ${compactTokens(live.tokens)} of ${compactTokens(live.max)} tokens: show what fills it`}
-        data-tooltip="How full Claude’s context window is (what it keeps in mind for this conversation). Click for what fills it."
+        data-tooltip={`How full Claude’s context window is (what it keeps in mind for this conversation). Click for what fills it${onCompact ? ', and to compact it' : ''}.`}
         className={`flex h-6 shrink-0 items-center gap-1.5 rounded-md px-1.5 whitespace-nowrap tabular-nums hover:bg-border/50 hover:text-text ${live.percent >= 75 ? 'text-warn' : ''}`}
       >
         <Ring percent={live.percent} />
-        {Math.round(live.percent)}%<span className="@max-[860px]:hidden"> · {compactTokens(live.tokens)} / {compactTokens(live.max)}</span>
+        Context {Math.round(live.percent)}%
+        <span className="text-faint @max-[860px]:hidden">
+          {compactTokens(live.tokens)} / {compactTokens(live.max)}
+        </span>
       </button>
       {open && (
         <div id={popupId} role="dialog" aria-label="Context window" className="absolute right-0 bottom-full z-30 mb-1.5 w-72 rounded-lg border overlay p-3 text-[12px] text-text" data-context-breakdown>
@@ -126,6 +140,20 @@ export function ContextMeter({ sessionId, live, messages }: { sessionId: string;
                 </li>
               </ul>
             </>
+          )}
+          {onCompact && (
+            <button
+              type="button"
+              onClick={() => {
+                setOpen(false);
+                onCompact();
+              }}
+              data-compact
+              className="mt-3 w-full rounded-md border border-border px-2 py-1 text-[12px] text-text hover:bg-border/50"
+              data-tooltip="Sends /compact: Claude summarises the conversation so far to free up context"
+            >
+              Compact now
+            </button>
           )}
         </div>
       )}

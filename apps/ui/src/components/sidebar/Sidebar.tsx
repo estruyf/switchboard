@@ -12,7 +12,7 @@ import { toRows, useSessions, type SessionRowData } from '../../state/sessionsSt
 import { usePreferences } from '../../state/preferencesStore.ts';
 import { useSidebar } from '../../state/sidebarStore.ts';
 import { SIDEBAR_DEFAULT_WIDTH } from '../../state/sidebarWidth.ts';
-import { buildSessionList, inScope, isActive, isArchived, rowStatus } from '../../state/sidebarRows.ts';
+import { buildSessionList, inScope, isActive, rowStatus } from '../../state/sidebarRows.ts';
 import { NO_PICKS, rangePick, stepPick, togglePick, visiblePicks, type Picks } from '../../state/sessionPicks.ts';
 import { ConfirmDialog } from '../ConfirmDialog.tsx';
 import { Menu, type MenuEntry } from '../Menu.tsx';
@@ -66,16 +66,10 @@ function SidebarResizeHandle() {
   );
 }
 
-type ListSection = 'settled' | 'archived';
-type ListRow = { kind: 'session'; data: SessionRowData; section: ListSection | null } | { kind: 'header'; section: ListSection; count: number; open: boolean };
-
-const SECTION_TOOLTIP: Record<ListSection, string> = {
-  settled: 'Quiet for 48 hours, or settled by you. They come back when there is something new.',
-  archived: 'Archived by you. They come back when there is something new.',
-};
+type ListRow = { kind: 'session'; data: SessionRowData; archived: boolean } | { kind: 'header'; count: number; open: boolean };
 
 const SESSION_ROW_HEIGHT: Record<SidebarStyle, number> = { large: 70, standard: 70, compact: 36 };
-const SETTLED_HEADER_HEIGHT = 34;
+const ARCHIVED_HEADER_HEIGHT = 34;
 
 /** Re-renders relative ages (and the 48 h cut-off) once a minute. */
 function useNow(intervalMs = 60_000): number {
@@ -91,7 +85,7 @@ const SessionRow = memo(function SessionRow({
   data,
   selected,
   beside = false,
-  section,
+  archived,
   picked,
   now,
   tabbable,
@@ -102,8 +96,8 @@ const SessionRow = memo(function SessionRow({
   selected: boolean;
   /** Shown in the other (inactive) pane. */
   beside?: boolean;
-  /** Listed under Settled or Archived. */
-  section: ListSection | null;
+  /** Listed under Archived. */
+  archived: boolean;
   /** One of several sessions picked with ⌘- or ⇧-click. */
   picked: boolean;
   now: number;
@@ -112,7 +106,6 @@ const SessionRow = memo(function SessionRow({
   onClick(event: MouseEvent, data: SessionRowData): void;
   onMenu(at: { x: number; y: number }, data: SessionRowData): void;
 }) {
-  const settled = section !== null;
   const project = useProjects((s) => s.projects.get(data.projectRoot));
   const style = usePreferences((s) => s.prefs.sidebarStyle);
   const status = rowStatus(data);
@@ -123,7 +116,7 @@ const SessionRow = memo(function SessionRow({
   const emphasised = status !== null && status !== 'idle';
   const ageTone = status === 'needs-you' ? 'text-warn' : status === 'running' || status === 'unread' ? 'text-accent-ink' : 'text-faint';
   const projectName = project?.name ?? data.projectRoot.split('/').pop();
-  const titleTone = emphasised || selected ? 'font-semibold text-text' : settled ? 'text-muted' : 'text-text/80';
+  const titleTone = emphasised || selected ? 'font-semibold text-text' : archived ? 'text-muted' : 'text-text/80';
   const age = <span className={`shrink-0 tabular-nums ${ageTone}`}>{shortAge(data.updatedAt, now)}</span>;
   const pin = data.pinned && <Pin size={11} className="shrink-0 text-faint" aria-hidden />;
   // Below the row's corner, for menus opened from the keyboard (or VoiceOver, which sends a contextmenu at 0,0).
@@ -138,10 +131,10 @@ const SessionRow = memo(function SessionRow({
     tabIndex: tabbable ? 0 : -1,
     'aria-current': selected ? ('true' as const) : undefined,
     // The visible lines lean on icons, colour and short ages; this says the same in words.
-    // Indexed sessions have a transcript, so they can be pinned, settled and archived.
+    // Indexed sessions have a transcript, so they can be pinned and archived.
     'data-indexed': data.summary !== null,
     'data-picked': picked || undefined,
-    'aria-label': sessionRowLabel({ title: data.title, project: projectName, status, pinned: data.pinned, settled: section === 'settled', archived: section === 'archived', picked, beside, updatedAt: data.updatedAt, now }),
+    'aria-label': sessionRowLabel({ title: data.title, project: projectName, status, pinned: data.pinned, archived, picked, beside, updatedAt: data.updatedAt, now }),
     onClick: (e: MouseEvent) => onClick(e, data),
     onContextMenu: (e: MouseEvent<HTMLElement>) => {
       e.preventDefault();
@@ -255,9 +248,8 @@ export function Sidebar() {
   const view = useSessions((s) => s.view);
   const { setFilter: setSearch, select, setView } = useSessions.getState();
   const projectFilter = useProjects((s) => s.filter);
-  const settledOpen = useProjects((s) => s.settledOpen);
   const archivedOpen = useProjects((s) => s.archivedOpen);
-  const { toggleSettled, toggleArchived } = useProjects.getState();
+  const { toggleArchived } = useProjects.getState();
   const noProjects = useProjects((s) => s.loaded && addedProjects(s.projects).length === 0);
   const openIn = useOpenIn();
   const projectIcons = useProjectIconEntries();
@@ -271,32 +263,26 @@ export function Sidebar() {
   const width = useSidebar((s) => s.width);
 
   const all = useMemo(() => toRows(sessions, live, hosts).filter((row) => inScope(row, scope)), [sessions, live, hosts, scope]);
-  const { active, settled, archived } = useMemo(() => buildSessionList(all, { search, project: projectFilter, now }), [all, search, projectFilter, now]);
+  const { active, archived } = useMemo(() => buildSessionList(all, { search, project: projectFilter, now }), [all, search, projectFilter, now]);
   const counts = useMemo(() => {
     const map = new Map<string, { total: number; active: number }>();
     for (const row of all) {
       const entry = map.get(row.projectRoot) ?? { total: 0, active: 0 };
       entry.total++;
-      if (isActive(row, now) && !isArchived(row)) entry.active++;
+      if (isActive(row, now)) entry.active++;
       map.set(row.projectRoot, entry);
     }
     return map;
   }, [all, now]);
 
   const rows = useMemo<ListRow[]>(() => {
-    const list: ListRow[] = active.map((data) => ({ kind: 'session', data, section: null }));
-    // While searching, settled and archived matches are shown too.
-    const searching = search.trim() !== '';
-    const sections = [
-      { section: 'settled' as const, rows: settled, open: settledOpen || searching },
-      { section: 'archived' as const, rows: archived, open: archivedOpen || searching },
-    ];
-    for (const { section, rows: sectionRows, open } of sections) {
-      if (sectionRows.length) list.push({ kind: 'header', section, count: sectionRows.length, open });
-      if (open) for (const data of sectionRows) list.push({ kind: 'session', data, section });
-    }
+    const list: ListRow[] = active.map((data) => ({ kind: 'session', data, archived: false }));
+    // While searching, archived matches are shown too.
+    const open = archivedOpen || search.trim() !== '';
+    if (archived.length) list.push({ kind: 'header', count: archived.length, open });
+    if (open) for (const data of archived) list.push({ kind: 'session', data, archived: true });
     return list;
-  }, [active, settled, archived, settledOpen, archivedOpen, search]);
+  }, [active, archived, archivedOpen, search]);
 
   // The sessions on screen, in list order: what ⇧-click ranges run over, and the picks that still count.
   const order = useMemo(() => rows.flatMap((r) => (r.kind === 'session' ? [r.data.id] : [])), [rows]);
@@ -308,7 +294,7 @@ export function Sidebar() {
   const virtualizer = useVirtualizer({
     count: rows.length,
     getScrollElement: () => scrollRef.current,
-    estimateSize: (i) => (rows[i]!.kind === 'session' ? SESSION_ROW_HEIGHT[sidebarStyle] : SETTLED_HEADER_HEIGHT),
+    estimateSize: (i) => (rows[i]!.kind === 'session' ? SESSION_ROW_HEIGHT[sidebarStyle] : ARCHIVED_HEADER_HEIGHT),
     overscan: 10,
   });
   // Row heights change with the sidebar style.
@@ -373,7 +359,7 @@ export function Sidebar() {
     focusRow(next.id);
   };
 
-  type FlagChange = { pinned?: boolean; settled?: boolean; archived?: boolean };
+  type FlagChange = { pinned?: boolean; archived?: boolean };
   // Only indexed sessions have flags; a session still starting has nothing to keep them against.
   const flagAll = (targets: SessionRowData[], change: FlagChange) => {
     for (const target of targets) if (target.summary) void client?.call('sessions.setFlags', { sessionId: target.id, ...change });
@@ -384,19 +370,15 @@ export function Sidebar() {
   const pickedMenu = (at: { x: number; y: number }) => {
     const targets = pickedRows.filter((row) => row.summary);
     const count = (rows: SessionRowData[]) => `${rows.length} ${rows.length === 1 ? 'session' : 'sessions'}`;
-    const archivedRows = targets.filter(isArchived);
-    const unarchived = targets.filter((row) => !isArchived(row));
-    const activeRows = unarchived.filter((row) => isActive(row, Date.now()));
-    const settledRows = unarchived.filter((row) => !isActive(row, Date.now()));
+    const activeRows = targets.filter((row) => isActive(row, Date.now()));
+    const archivedRows = targets.filter((row) => !isActive(row, Date.now()));
     const act = (rows: SessionRowData[], change: FlagChange) => () => {
       flagAll(rows, change);
       setPicks(NO_PICKS);
     };
     const entries: MenuEntry[] = [{ heading: `${picked.size} selected` }];
-    if (unarchived.length) entries.push({ label: `Archive ${count(unarchived)}`, hint: 'until new activity', onSelect: act(unarchived, ARCHIVE) });
+    if (activeRows.length) entries.push({ label: `Archive ${count(activeRows)}`, hint: 'until new activity', onSelect: act(activeRows, ARCHIVE) });
     if (archivedRows.length) entries.push({ label: `Unarchive ${count(archivedRows)}`, onSelect: act(archivedRows, { archived: false }) });
-    if (activeRows.length) entries.push({ label: `Settle ${count(activeRows)}`, hint: 'until new activity', onSelect: act(activeRows, { settled: true, pinned: false }) });
-    if (settledRows.length) entries.push({ label: `Move ${count(settledRows)} back to the main list`, onSelect: act(settledRows, { settled: false }) });
     entries.push('separator', { label: 'Clear selection', hint: 'Esc', onSelect: () => setPicks(NO_PICKS) });
     setMenu({ ...at, label: `${picked.size} selected sessions`, entries });
   };
@@ -404,8 +386,7 @@ export function Sidebar() {
   const sessionMenu = (at: { x: number; y: number }, data: SessionRowData) => {
     if (multi && picked.has(data.id)) return pickedMenu(at);
     setPicks(NO_PICKS);
-    const settledNow = !isActive(data, Date.now());
-    const archivedNow = isArchived(data);
+    const archivedNow = !isActive(data, Date.now());
     const flag = (change: FlagChange) => flagAll([data], change);
     const cwd = data.summary?.cwd ?? data.live?.cwd ?? null;
     setMenu({
@@ -413,13 +394,6 @@ export function Sidebar() {
       label: `Session “${data.title}”`,
       entries: [
         { label: data.pinned ? 'Unpin' : 'Pin to top', onSelect: () => flag({ pinned: !data.pinned }), disabled: !data.summary },
-        ...(archivedNow
-          ? []
-          : [
-              settledNow
-                ? { label: 'Move back to the main list', onSelect: () => flag({ settled: false }), disabled: !data.summary }
-                : { label: 'Settle', hint: 'until new activity', onSelect: () => flag({ settled: true, pinned: false }), disabled: !data.summary },
-            ]),
         archivedNow
           ? { label: 'Unarchive', onSelect: () => flag({ archived: false }), disabled: !data.summary }
           : { label: 'Archive', hint: 'until new activity', onSelect: () => flag(ARCHIVE), disabled: !data.summary },
@@ -434,9 +408,9 @@ export function Sidebar() {
     });
   };
 
-  // Only open sessions the main list shows: a process idling elsewhere sits under Settled and
+  // Only open sessions the main list shows: a process idling elsewhere sits under Archived and
   // would make the count disagree with what's visible.
-  const liveCount = all.filter((row) => row.live !== null && isActive(row, now) && !isArchived(row)).length;
+  const liveCount = all.filter((row) => row.live !== null && isActive(row, now)).length;
   const waitingNotice = useWaitingAnnouncement(all, loaded);
   const hasUpdatePill = useUpdates((s) => updatePill(s.state) !== null);
   const hasClaudePill = useClaudeUpdate((s) => claudeUpdateNotice(s.state) !== null);
@@ -527,7 +501,7 @@ export function Sidebar() {
                       {row.kind === 'session' ? (
                         <SessionRow
                           data={row.data}
-                          section={row.section}
+                          archived={row.archived}
                           picked={multi && picked.has(row.data.id)}
                           selected={view === 'session' && row.data.id === selectedId}
                           beside={view === 'session' && splitId !== null && row.data.id !== selectedId && (row.data.id === mainId || row.data.id === splitId)}
@@ -539,14 +513,14 @@ export function Sidebar() {
                       ) : (
                         <button
                           type="button"
-                          {...{ [`data-${row.section}-toggle`]: '' }}
+                          data-archived-toggle
                           data-open={row.open}
                           aria-expanded={row.open}
-                          onClick={row.section === 'settled' ? toggleSettled : toggleArchived}
-                          data-tooltip={SECTION_TOOLTIP[row.section]}
+                          onClick={toggleArchived}
+                          data-tooltip="Quiet for 48 hours, or archived by you. They come back when there is something new."
                           className="mt-1 flex h-[30px] w-full items-center gap-1.5 rounded-md px-2.5 text-[12px] text-muted hover:text-text"
                         >
-                          {row.section === 'settled' ? 'Settled' : 'Archived'} ({row.count})
+                          Archived ({row.count})
                           <ChevronRight size={13} className={`transition-transform ${row.open ? 'rotate-90' : ''}`} aria-hidden />
                         </button>
                       )}
@@ -561,12 +535,12 @@ export function Sidebar() {
               <span className="min-w-0 flex-1 truncate text-muted" data-selection-count={picked.size}>
                 {picked.size} selected
               </span>
-              {pickedRows.some((row) => row.summary && !isArchived(row)) ? (
+              {pickedRows.some((row) => row.summary && isActive(row, now)) ? (
                 <button
                   type="button"
                   data-archive-selected
                   onClick={() => {
-                    flagAll(pickedRows.filter((row) => !isArchived(row)), ARCHIVE);
+                    flagAll(pickedRows.filter((row) => isActive(row, Date.now())), ARCHIVE);
                     setPicks(NO_PICKS);
                   }}
                   className="flex h-7 items-center gap-1.5 rounded-md px-2 text-text hover:bg-border/60"

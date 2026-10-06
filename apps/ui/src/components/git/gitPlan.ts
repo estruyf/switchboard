@@ -1,11 +1,11 @@
 import type { WorktreeStatus } from '@switchboard/protocol/client';
 
 /** What the session header's git button can do. Commit asks Claude; the others run git in a terminal tab. */
-export type GitStep = 'commit' | 'pull' | 'push' | 'pr';
+export type GitStep = 'fetch' | 'pull' | 'commit' | 'push' | 'pr';
 
 export interface GitPlan {
-  /** The step the button offers on its face: the next thing the checkout needs (possibly blocked, see `blocked`), or null when it is in sync. */
-  primary: GitStep | null;
+  /** The step the button offers on its face: the next thing the checkout needs (possibly blocked, see `blocked`), else Fetch. */
+  primary: GitStep;
   /** Why each step can't run now, or null when it can. */
   blocked: Record<GitStep, string | null>;
   /** A warning for the menu, such as being behind the upstream. */
@@ -23,6 +23,7 @@ export function planGit(status: WorktreeStatus, busy: boolean): GitPlan {
   const onBase = status.branch !== null && status.branch === status.baseBranch;
 
   const blocked: Record<GitStep, string | null> = {
+    fetch: noRemote,
     commit: status.uncommitted === 0 ? 'Nothing to commit' : busy ? 'Claude is working' : null,
     pull: noRemote ?? detached ?? (!status.upstream ? 'No upstream branch yet' : behind === 0 ? `Up to date with ${status.upstream}` : busy ? 'Claude is working in this folder' : null),
     push: noRemote ?? detached ?? pullFirst ?? (status.upstream && status.unpushed === 0 ? 'Nothing to push' : null),
@@ -35,17 +36,37 @@ export function planGit(status: WorktreeStatus, busy: boolean): GitPlan {
   };
 
   // The order a branch usually goes through: catch up, commit, push, then open a pull request.
-  const wants: Record<GitStep, boolean> = {
+  // A pull request is for a worktree or a branch other than the base one, once it has commits to offer.
+  const wants: Record<Exclude<GitStep, 'fetch'>, boolean> = {
     pull: behind > 0,
     commit: status.uncommitted > 0,
     push: status.hasRemote && (status.upstream ? (status.unpushed ?? 0) > 0 : !onBase && status.ahead > 0),
-    pr: status.hasRemote && !onBase && status.ahead > 0,
+    pr: status.hasRemote && (status.isWorktree || !onBase) && status.ahead > 0,
   };
-  const order: GitStep[] = ['pull', 'commit', 'push', 'pr'];
-  const primary = order.find((step) => wants[step]) ?? null;
+  const order = ['pull', 'commit', 'push', 'pr'] as const;
+  // Nothing to do: fetching shows whether the upstream moved on.
+  const primary: GitStep = order.find((step) => wants[step]) ?? 'fetch';
 
-  const note = behind > 0 ? `Behind ${status.upstream} by ${plural(behind, 'commit', 'commits')}. Pull first.` : null;
+  const note = behind > 0 ? `Behind upstream by ${plural(behind, 'commit', 'commits')}. Pull before you push.` : null;
   return { primary, blocked, note };
 }
 
-export const STEP_LABEL: Record<GitStep, string> = { commit: 'Commit', pull: 'Pull', push: 'Push', pr: 'Create PR' };
+/** The number next to a step on the button's face (↓2 to pull, 3 files to commit, ↑1 to push), or null. */
+export function stepCount(status: WorktreeStatus, step: GitStep): number | null {
+  if (step === 'pull') return status.behindUpstream ?? null;
+  if (step === 'commit') return status.uncommitted;
+  if (step === 'push') return status.unpushed ?? status.ahead;
+  return null;
+}
+
+/** The line under the branch name in the git menu: "↓2 behind · ↑0 ahead · 3 changed files". */
+export function gitSummary(status: WorktreeStatus): string {
+  const sync = status.upstream
+    ? `↓${status.behindUpstream ?? 0} behind · ↑${status.unpushed ?? 0} ahead`
+    : status.hasRemote
+      ? `Not pushed yet · ↑${status.ahead} ahead of ${status.baseBranch ?? 'base'}`
+      : 'No remote';
+  return `${sync} · ${plural(status.uncommitted, 'changed file', 'changed files')}`;
+}
+
+export const STEP_LABEL: Record<GitStep, string> = { fetch: 'Fetch', commit: 'Commit', pull: 'Pull', push: 'Push', pr: 'Create PR' };

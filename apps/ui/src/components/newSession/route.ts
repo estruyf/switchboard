@@ -18,11 +18,6 @@ export const MODE_DESCRIPTION: Partial<Record<PermissionMode, string>> = {
   auto: 'Claude only asks when it matters',
 };
 
-/** The effort dial: clicking the selected step again goes back to the default effort. */
-export function toggleEffort(current: Effort | '', clicked: Effort): Effort | '' {
-  return current === clicked ? '' : clicked;
-}
-
 /** The plain-language line under the route tray: where the edits of this session land. */
 export function routeHint(route: { worktree: boolean; isGitRepo: boolean; branch: string | null; name: string }): string {
   if (route.worktree) return `Isolated in .claude/worktrees/${route.name || '<name>'} · your checkout stays untouched`;

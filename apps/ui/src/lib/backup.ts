@@ -6,7 +6,7 @@ export const SECTION_INFO: Record<BackupSection, { label: string; detail: string
   projects: { label: 'Projects', detail: 'Your projects in order, with their icons and defaults for new sessions.' },
   actions: { label: 'Project actions', detail: 'Global and per-project actions, with their shortcuts and worktree setup.' },
   choices: { label: 'App choices', detail: 'Default editor, New session defaults, Claude Code update checks.' },
-  sessions: { label: 'Pinned, settled and archived sessions', detail: 'Only useful on this Mac, or when ~/.claude is copied too.' },
+  sessions: { label: 'Pinned and archived sessions', detail: 'Only useful on this Mac, or when ~/.claude is copied too.' },
 };
 
 /** Sessions are left out by default: their ids only mean something where the same transcripts are. */

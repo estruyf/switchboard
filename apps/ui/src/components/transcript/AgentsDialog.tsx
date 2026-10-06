@@ -62,49 +62,26 @@ function AgentRow({ run, sessionId, cwd, now, initiallyOpen }: { run: AgentRun; 
   );
 }
 
-/**
- * Agents Claude started in this session, as a pill in the header while any are running
- * ("2 agents"). Click it to see each one's progress and what it's doing.
- */
-export function AgentsButton({ items, sessionId, cwd, sessionOpen }: { items: readonly DisplayItem[]; sessionId: string; cwd: string | null; sessionOpen: boolean }) {
+/** Agents Claude started in this session, newest first, and how many are still running. */
+export function useAgentRuns(items: readonly DisplayItem[], sessionOpen: boolean): { agents: AgentRun[]; running: number } {
   const agents = useMemo(() => agentRuns(items, sessionOpen).reverse(), [items, sessionOpen]);
-  const running = agents.filter((a) => a.running);
-  const [open, setOpen] = useState(false);
-  const now = useTicker(open && running.length > 0);
-  const label = `${running.length} ${running.length === 1 ? 'agent' : 'agents'}`;
-
-  useEffect(() => {
-    if (!open) return;
-    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && setOpen(false);
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [open]);
-
-  if (running.length === 0 && !open) return null;
-  return (
-    <>
-      <button
-        type="button"
-        data-agents-button
-        onClick={() => setOpen(true)}
-        aria-haspopup="dialog"
-        aria-label={`${label} running: show what they’re doing`}
-        data-tooltip="Agents Claude started in this session: click to see what each is doing"
-        className="no-drag flex h-7 shrink-0 items-center gap-1.5 rounded-full border border-accent-ink/40 bg-accent/10 px-2.5 text-[11.5px] text-text hover:bg-accent/20"
-      >
-        <Bot size={13} className="text-accent-ink" />
-        {label}
-      </button>
-      {open && <AgentsDialog agents={agents} running={running.length} sessionId={sessionId} cwd={cwd} now={now} onClose={() => setOpen(false)} />}
-    </>
-  );
+  return { agents, running: agents.filter((a) => a.running).length };
 }
 
-/** The list of agents, as a modal: Tab stays inside, and focus goes back to the pill when it closes. */
-function AgentsDialog({ agents, running, sessionId, cwd, now, onClose }: { agents: AgentRun[]; running: number; sessionId: string; cwd: string | null; now: number; onClose(): void }) {
+/**
+ * The agents Claude started in this session (from the header's More menu), with each one's progress
+ * and what it's doing, as a modal: Tab stays inside, and Esc closes it.
+ */
+export function AgentsDialog({ agents, running, sessionId, cwd, onClose }: { agents: AgentRun[]; running: number; sessionId: string; cwd: string | null; onClose(): void }) {
   const ref = useRef<HTMLDivElement>(null);
   const titleId = useId();
+  const now = useTicker(running > 0);
   useModalFocus(ref);
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose]);
   return (
     <div className="no-drag fixed inset-0 z-[60] flex items-start justify-center bg-scrim pt-[10vh]" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
       <div ref={ref} role="dialog" aria-modal="true" aria-labelledby={titleId} tabIndex={-1} className="flex max-h-[76vh] w-[720px] max-w-[92vw] flex-col overflow-hidden rounded-xl border overlay outline-none" data-agents>

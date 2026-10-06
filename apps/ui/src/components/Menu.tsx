@@ -7,10 +7,15 @@ export interface MenuItem {
   hint?: string;
   danger?: boolean;
   disabled?: boolean;
+  /** `data-*` attributes for the item's button (test hooks). */
+  data?: Record<`data-${string}`, string | boolean>;
   onSelect(): void;
 }
-/** `note`: a sentence under the items, such as why some are unavailable. */
-export type MenuEntry = MenuItem | 'separator' | { heading: string } | { note: string; tone?: 'warn' };
+/**
+ * `heading`: a small label over a group of items. `title`: the menu's subject in bold, with a line
+ * about it (a branch and where it stands). `note`: a sentence under the items, such as why some are unavailable.
+ */
+export type MenuEntry = MenuItem | 'separator' | { heading: string } | { title: string; detail?: string } | { note: string; tone?: 'warn' };
 
 /** The enabled items of a menu, in order. */
 function menuItems(menu: HTMLElement | null): HTMLElement[] {
@@ -63,8 +68,18 @@ export function Menu({ x, y, entries, onClose, width = 220, above = false, label
           <p key={i} role="presentation" className="px-3 pt-1.5 pb-0.5 text-[11px] tracking-wide text-muted uppercase">
             {entry.heading}
           </p>
+        ) : 'title' in entry ? (
+          <div key={i} role="presentation" className="px-3 pt-1.5 pb-1" data-menu-title>
+            <p className="truncate text-[12.5px] font-semibold text-text">{entry.title}</p>
+            {entry.detail && <p className="truncate text-[11.5px] text-muted tabular-nums">{entry.detail}</p>}
+          </div>
         ) : 'note' in entry ? (
-          <p key={i} role="presentation" className={`px-3 pt-1 pb-1.5 text-[12px] ${entry.tone === 'warn' ? 'text-warn' : 'text-muted'}`} data-menu-note>
+          <p
+            key={i}
+            role="presentation"
+            className={`text-[12px] ${entry.tone === 'warn' ? 'mx-2 my-1 rounded-md bg-warn/10 px-2.5 py-1.5 text-warn' : 'px-3 pt-1 pb-1.5 text-muted'}`}
+            data-menu-note
+          >
             {entry.note}
           </p>
         ) : (
@@ -73,6 +88,7 @@ export function Menu({ x, y, entries, onClose, width = 220, above = false, label
             type="button"
             role="menuitem"
             disabled={entry.disabled}
+            {...entry.data}
             onClick={() => {
               onClose();
               entry.onSelect();

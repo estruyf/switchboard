@@ -1,27 +1,26 @@
-import { ChevronDown, Settings2 } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
+import { Settings2 } from 'lucide-react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import type { ListedAction } from '@switchboard/protocol/client';
 import { useEngineConnection } from '../../engine/useEngine.ts';
 import { useOverlay } from '../../state/overlayStore.ts';
 import { useTerminals } from '../../state/terminalsStore.ts';
 import { ConfirmDialog } from '../ConfirmDialog.tsx';
-import { Menu, type MenuEntry } from '../Menu.tsx';
+import type { MenuEntry } from '../Menu.tsx';
 import { ActionEditor } from './ActionEditor.tsx';
-import { ACTION_ICON, ariaShortcut, formatShortcut, shortcutFromEvent, useProjectActionList } from './useActions.ts';
-
-const VISIBLE = 3;
+import { ACTION_ICON, formatShortcut, shortcutFromEvent, useProjectActionList } from './useActions.ts';
 
 /**
- * Project actions in the session header: the first few as buttons, the rest
- * in a menu. Shell actions open a terminal tab; prompt actions message Claude.
+ * Project actions for the session header's More menu: an entry per action (with its shortcut) and
+ * "Edit actions…", plus the dialogs they open (`overlays`, rendered by the caller). Also runs actions
+ * from their shortcuts and from the command palette. Shell actions open a terminal tab; prompt
+ * actions message Claude. `error`: the last run that failed.
  */
-export function ActionsBar({ sessionId, projectRoot, cwd }: { sessionId: string; projectRoot: string | null; cwd: string | null }) {
+export function useActionsMenu({ sessionId, projectRoot, cwd }: { sessionId: string; projectRoot: string | null; cwd: string | null }): { entries: MenuEntry[]; overlays: ReactNode; error: string | null } {
   const connection = useEngineConnection();
   const client = connection.status === 'connected' ? connection.client : null;
   const { actions, sharedFile, errors, reload } = useProjectActionList(projectRoot);
   const togglePanel = useTerminals((s) => s.togglePanel);
   const setActive = useTerminals((s) => s.setActive);
-  const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
   const [editor, setEditor] = useState(false);
   const [pending, setPending] = useState<{ action: ListedAction; reason: 'confirm' | 'trust' } | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -75,62 +74,25 @@ export function ActionsBar({ sessionId, projectRoot, cwd }: { sessionId: string;
     return () => window.removeEventListener('keydown', onKey);
   }, [actions]);
 
-  if (!projectRoot) return null;
-  const visible = actions.slice(0, VISIBLE);
+  if (!projectRoot) return { entries: [], overlays: null, error: null };
   const entries: MenuEntry[] = [
-    ...actions.slice(VISIBLE).map((a) => {
+    { heading: 'Project actions' },
+    ...actions.map((a) => {
       const Icon = ACTION_ICON[a.icon];
-      return { label: a.name, icon: <Icon size={13} />, ...(a.shortcut ? { hint: formatShortcut(a.shortcut) } : {}), onSelect: () => run(a) } satisfies MenuEntry;
+      return {
+        label: a.name,
+        icon: <Icon size={13} />,
+        ...(a.shortcut ? { hint: formatShortcut(a.shortcut) } : {}),
+        onSelect: () => run(a),
+        // What it runs, as on the buttons it used to have.
+        data: { 'data-action': a.id, 'data-tooltip': `${a.type === 'prompt' ? 'Ask Claude: ' : ''}${a.command}` },
+      } satisfies MenuEntry;
     }),
-    ...(actions.length > VISIBLE ? ['separator' as const] : []),
-    { label: actions.length ? 'Edit actions…' : 'Add an action…', icon: <Settings2 size={13} />, onSelect: () => setEditor(true) },
+    { label: actions.length ? 'Edit actions…' : 'Add an action…', icon: <Settings2 size={13} />, onSelect: () => setEditor(true), data: { 'data-edit-actions': true } },
   ];
 
-  return (
-    <div className="no-drag flex shrink-0 items-center gap-1" data-actions-bar>
-      {/* A failed run shows on the buttons' tooltips (hover finds a button's own tooltip, not the bar's); say it out loud too. */}
-      {error && (
-        <span role="alert" className="sr-only">
-          {error}
-        </span>
-      )}
-      {visible.map((action) => {
-        const Icon = ACTION_ICON[action.icon];
-        return (
-          <button
-            key={action.id}
-            type="button"
-            data-action={action.id}
-            onClick={() => run(action)}
-            data-tooltip={`${error ? `${error}\n\n` : ''}${action.type === 'prompt' ? 'Ask Claude: ' : ''}${action.command}${action.shortcut ? `  (${formatShortcut(action.shortcut)})` : ''}`}
-            // The name hides in a narrow pane; it stays the button's name.
-            aria-label={action.name}
-            aria-keyshortcuts={action.shortcut ? ariaShortcut(action.shortcut) : undefined}
-            className={`flex h-7 items-center gap-1.5 rounded-md border px-2 text-[12px] hover:bg-border/50 ${error ? 'border-error/50' : 'border-border'}`}
-          >
-            <Icon size={13} className="text-muted" />
-            <span className="@max-[860px]:hidden">{action.name}</span>
-          </button>
-        );
-      })}
-      <button
-        type="button"
-        data-actions-menu
-        onClick={(e) => {
-          const rect = e.currentTarget.getBoundingClientRect();
-          setMenu(menu ? null : { x: rect.right - 220, y: rect.bottom + 4 });
-        }}
-        data-tooltip={actions.length ? 'More actions' : 'Add project actions (Commit, Test, Publish…)'}
-        aria-label={actions.length ? 'More actions' : 'Project actions'}
-        aria-haspopup="menu"
-        aria-expanded={menu !== null}
-        className="flex h-7 items-center gap-1 rounded-md border border-border px-1.5 text-[12px] text-muted hover:bg-border/50"
-      >
-        {actions.length === 0 && 'Actions'}
-        <ChevronDown size={12} />
-      </button>
-
-      {menu && <Menu x={menu.x} y={menu.y} entries={entries} onClose={() => setMenu(null)} label="Project actions" />}
+  const overlays = (
+    <>
       {editor && (
         <ActionEditor
           projectRoot={projectRoot}
@@ -172,6 +134,7 @@ export function ActionsBar({ sessionId, projectRoot, cwd }: { sessionId: string;
           onClose={() => setPending(null)}
         />
       )}
-    </div>
+    </>
   );
+  return { entries, overlays, error };
 }

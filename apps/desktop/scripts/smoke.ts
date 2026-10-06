@@ -56,10 +56,10 @@ console.log(`${String(result.toolsResult).startsWith('ok') ? '✓' : '✗'} tool
 if (!String(result.toolsResult).startsWith('ok')) process.exitCode = 1;
 console.log(`${String(result.splitResult).startsWith('ok') ? '✓' : '✗'} split panes: ${result.splitResult}`);
 if (!String(result.splitResult).startsWith('ok')) process.exitCode = 1;
-console.log(`${String(result.settleResult).startsWith('ok') ? '✓' : '✗'} settle: ${result.settleResult}`);
-if (!String(result.settleResult).startsWith('ok')) process.exitCode = 1;
-console.log(`${String(result.archiveResult).startsWith('ok') ? '✓' : '✗'} multi-select and archive: ${result.archiveResult}`);
+console.log(`${String(result.archiveResult).startsWith('ok') ? '✓' : '✗'} archive: ${result.archiveResult}`);
 if (!String(result.archiveResult).startsWith('ok')) process.exitCode = 1;
+console.log(`${String(result.archiveManyResult).startsWith('ok') ? '✓' : '✗'} multi-select and archive: ${result.archiveManyResult}`);
+if (!String(result.archiveManyResult).startsWith('ok')) process.exitCode = 1;
 console.log(`${String(result.dropResult).startsWith('ok') ? '✓' : '✗'} drop target: ${result.dropResult}`);
 if (!String(result.dropResult).startsWith('ok')) process.exitCode = 1;
 console.log(`${String(result.controlsResult).startsWith('ok') ? '✓' : '✗'} controls: ${result.controlsResult}`);

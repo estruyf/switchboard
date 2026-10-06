@@ -213,4 +213,12 @@ export const migrations: readonly string[] = [
   `
   ALTER TABLE session_flags ADD COLUMN archived_at INTEGER;
   `,
+
+  // v13: settling and archiving become one thing, called archiving. A session hidden either way stays hidden,
+  // from the later of the two moments, so activity after it still brings it back. A user choice: keep it.
+  `
+  UPDATE session_flags SET settled_at = MAX(COALESCE(settled_at, 0), archived_at) WHERE archived_at IS NOT NULL;
+  ALTER TABLE session_flags DROP COLUMN archived_at;
+  ALTER TABLE session_flags RENAME COLUMN settled_at TO archived_at;
+  `,
 ];

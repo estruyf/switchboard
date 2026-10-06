@@ -102,20 +102,20 @@ describe('SessionIndex', () => {
     expect(second.index.snapshot()).toMatchObject({ complete: false, sessions: [{ id: ID_A }] });
   });
 
-  it('tracks pins, settling, archiving and unread state, and keeps them across restarts', async () => {
+  it('tracks pins, archiving and unread state, and keeps them across restarts', async () => {
     const db = openCacheDatabase(join(tempDir(), 'cache.sqlite'));
     const t = setup([info(ID_A, { lastModified: 1000 }), info(ID_B, { lastModified: 9_000 })], db);
     await t.index.refresh();
     // Older than the baseline → read; newer → unread until viewed.
-    expect(t.index.get(ID_A)).toMatchObject({ unread: false, pinned: false, settledAt: null, archivedAt: null });
+    expect(t.index.get(ID_A)).toMatchObject({ unread: false, pinned: false, archivedAt: null });
     expect(t.index.get(ID_B)!.unread).toBe(true);
     t.index.markViewed(ID_B);
     expect(t.index.get(ID_B)).toMatchObject({ unread: false });
-    t.index.setFlags(ID_A, { pinned: true, settled: true });
+    t.index.setFlags(ID_A, { pinned: true, archived: true });
     expect(t.changes.at(-1)!.upserted[0]).toMatchObject({ id: ID_A, pinned: true });
-    expect(t.index.get(ID_A)!.settledAt).toBeGreaterThan(0);
-    t.index.setFlags(ID_A, { settled: false });
-    expect(t.index.get(ID_A)).toMatchObject({ pinned: true, settledAt: null });
+    expect(t.index.get(ID_A)!.archivedAt).toBeGreaterThan(0);
+    t.index.setFlags(ID_A, { archived: false });
+    expect(t.index.get(ID_A)).toMatchObject({ pinned: true, archivedAt: null });
     t.index.setFlags(ID_B, { archived: true });
     expect(t.index.get(ID_B)!.archivedAt).toBeGreaterThan(0);
     t.index.stop();
@@ -125,15 +125,14 @@ describe('SessionIndex', () => {
     expect(again.index.get(ID_B)!.archivedAt).toBeGreaterThan(0);
   });
 
-  it('brings a settled or archived session back when the user writes to it', async () => {
+  it('brings an archived session back when the user writes to it', async () => {
     const t = setup([info(ID_A), info(ID_B)]);
     await t.index.refresh();
-    t.index.setFlags(ID_A, { pinned: true, settled: true });
-    t.index.setFlags(ID_B, { archived: true });
+    t.index.setFlags(ID_A, { pinned: true, archived: true });
     t.index.wake(ID_A);
     t.index.wake(ID_B);
-    expect(t.index.get(ID_A)).toMatchObject({ pinned: true, settledAt: null, archivedAt: null });
-    expect(t.index.get(ID_B)).toMatchObject({ settledAt: null, archivedAt: null });
+    expect(t.index.get(ID_A)).toMatchObject({ pinned: true, archivedAt: null });
+    expect(t.index.get(ID_B)).toMatchObject({ archivedAt: null });
   });
 
   it('dates a session by its last message, so Claude Code exiting does not make it unread', async () => {

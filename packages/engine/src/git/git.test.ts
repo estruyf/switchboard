@@ -2,7 +2,7 @@ import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileS
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { baseBranch, fileDiff, git, insideRepo, listBranches, listChanges, removeWorktree, revert, stage, switchBranch, syncCommand, worktreeStatus } from './gitChanges.ts';
+import { baseBranch, fileDiff, git, insideRepo, listBranches, listChanges, removeWorktree, revert, stage, stageForCommit, switchBranch, syncCommand, worktreeStatus } from './gitChanges.ts';
 
 let repo: string;
 const write = (path: string, text: string) => writeFileSync(join(repo, path), text);
@@ -153,6 +153,31 @@ describe('sync', () => {
 
   it('refuses without a remote', async () => {
     expect(syncCommand(await worktreeStatus(repo), 'push', (v) => v)).toMatchObject({ code: 'NO_REMOTE' });
+    expect(syncCommand(await worktreeStatus(repo), 'fetch', (v) => v)).toMatchObject({ code: 'NO_REMOTE' });
+  });
+
+  it('fetches with a remote, also on a detached HEAD', async () => {
+    await run('remote', 'add', 'origin', repo);
+    await run('switch', '-q', '--detach');
+    expect(syncCommand(await worktreeStatus(repo), 'fetch', (v) => v)).toEqual({ command: 'git fetch' });
+  });
+});
+
+describe('stageForCommit', () => {
+  it('keeps what is staged, and stages everything when nothing is', async () => {
+    write('a.txt', 'changed\n');
+    write('new.txt', 'new\n');
+    await run('add', 'a.txt');
+    expect(await stageForCommit(repo)).toBe(1);
+    expect((await run('diff', '--cached', '--name-only')).trim()).toBe('a.txt');
+
+    await run('restore', '--staged', 'a.txt');
+    expect(await stageForCommit(repo)).toBe(2);
+    expect((await run('diff', '--cached', '--name-only')).trim().split('\n')).toEqual(['a.txt', 'new.txt']);
+  });
+
+  it('stages nothing on a clean checkout', async () => {
+    expect(await stageForCommit(repo)).toBe(0);
   });
 });
 

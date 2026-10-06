@@ -9,10 +9,12 @@ import { Popover } from '../ui/Popover.tsx';
 import { branchButton, FILTER_FROM, filterBranches, sharedWarning, sharingCheckout } from './branchMenu.ts';
 
 /**
- * The branch checked out in a session's folder (not a worktree), read live from git, with a menu to
- * switch to another local branch. `busy`: Claude is working in this session, so switching waits.
+ * The branch checked out in a session's folder (not a worktree), read live from git, as a small text
+ * button in the session header's meta line, with a menu to switch to another local branch.
+ * `busy`: Claude is working in this session, so switching waits. A new `openRequest` (the git menu's
+ * "Switch branch…") opens the menu as if the button was clicked.
  */
-export function BranchMenu({ sessionId, cwd, root, busy, onSwitched }: { sessionId: string; cwd: string; root: string; busy: boolean; onSwitched(): void }) {
+export function BranchMenu({ sessionId, cwd, root, busy, onSwitched, openRequest = 0 }: { sessionId: string; cwd: string; root: string; busy: boolean; onSwitched(): void; openRequest?: number }) {
   const connection = useEngineConnection();
   const client = connection.status === 'connected' ? connection.client : null;
   const current = useCheckoutBranches((s) => s.byCwd.get(cwd));
@@ -105,6 +107,21 @@ export function BranchMenu({ sessionId, cwd, root, busy, onSwitched }: { session
     (filter ?? panel.current?.querySelector<HTMLButtonElement>('[aria-checked=true]') ?? panel.current?.querySelector<HTMLButtonElement>('[role=menuitemradio]'))?.focus();
   }, [open]);
 
+  const toggle = () => {
+    if (busy) return;
+    if (open) return close(false);
+    setError(null);
+    load();
+    const rect = trigger.current?.getBoundingClientRect();
+    if (rect) setOpen({ x: rect.left, y: rect.bottom + 4 });
+  };
+  const lastRequest = useRef(openRequest);
+  useEffect(() => {
+    if (openRequest === lastRequest.current) return;
+    lastRequest.current = openRequest;
+    if (!open) toggle();
+  }, [openRequest]);
+
   const onKeyDown = (event: KeyboardEvent) => {
     const items = [...(panel.current?.querySelectorAll<HTMLButtonElement>('[role=menuitemradio]') ?? [])];
     const index = items.indexOf(document.activeElement as HTMLButtonElement);
@@ -135,19 +152,12 @@ export function BranchMenu({ sessionId, cwd, root, busy, onSwitched }: { session
         // The tooltip alone drops the branch name while Claude works; screen readers get both.
         aria-label={busy ? `On ${label}. ${tooltip}` : tooltip}
         data-tooltip={tooltip}
-        onClick={(e) => {
-          if (busy) return;
-          if (open) return close(false);
-          setError(null);
-          load();
-          const rect = e.currentTarget.getBoundingClientRect();
-          setOpen({ x: rect.left, y: rect.bottom + 4 });
-        }}
-        className={`no-drag flex h-7 max-w-48 min-w-0 shrink-0 items-center gap-1 rounded-md border border-border px-1.5 text-[11.5px] text-muted ${busy ? 'cursor-default opacity-50' : 'hover:bg-border/50'} ${open ? 'bg-border/50 text-text' : ''}`}
+        onClick={toggle}
+        className={`no-drag inline-flex max-w-56 min-w-0 items-center gap-1 rounded px-0.5 text-muted ${busy ? 'cursor-default' : 'hover:text-text'} ${open ? 'text-text' : ''}`}
       >
-        <GitBranch size={13} className="shrink-0" />
-        <span className="min-w-0 truncate font-mono @max-[860px]:hidden">{label}</span>
-        <ChevronDown size={12} className="shrink-0 @max-[860px]:hidden" />
+        <GitBranch size={11} className="shrink-0" aria-hidden />
+        <span className="min-w-0 truncate">{label}</span>
+        <ChevronDown size={11} className="shrink-0 @max-[860px]:hidden" aria-hidden />
       </button>
       {open && (
         <Popover x={open.x} y={open.y} width={280} anchor={trigger} onClose={() => close(false)} role="menu" aria-label="Switch branch" data-menu="branch" onKeyDown={onKeyDown}>

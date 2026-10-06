@@ -73,12 +73,16 @@ function Ring({ percent, severity }: { percent: number; severity: string }) {
 const money = (minorUnits: number, currency: string | null) =>
   new Intl.NumberFormat(undefined, { style: 'currency', currency: currency ?? 'USD', maximumFractionDigits: 2 }).format(minorUnits / 100);
 
+const BAR_TONE: Record<string, string> = { warning: 'bg-warn', critical: 'bg-error' };
+
 /**
- * Plan usage above the composer, like the claude-stats mod: one pill per window with a ring and a
- * reset countdown. Shows the limits of the given Claude profile (the default one when omitted).
+ * Plan usage, like the claude-stats mod: one pill per window with a ring and a reset countdown.
+ * Shows the limits of the given Claude profile (the default one when omitted).
  * `compact` drops the pills for a single line (`6% 5h · 4h44m`), for the new session's route tray.
+ * `footer`: tiny bars (`9% · 5h`) for the quiet line under a session's composer, reset times in the tooltips;
+ * the profile is shown next to it by the caller.
  */
-export function UsageBand({ profileId, compact = false }: { profileId?: string | null; compact?: boolean }) {
+export function UsageBand({ profileId, compact = false, footer = false }: { profileId?: string | null; compact?: boolean; footer?: boolean }) {
   const defaultId = useProfiles((s) => s.defaultId);
   const id = profileId ?? defaultId;
   const usage = useUsageFor(id);
@@ -100,7 +104,31 @@ export function UsageBand({ profileId, compact = false }: { profileId?: string |
     'aria-valuemax': 100,
   });
   const resetTitle = (limit: UsageLimit) =>
-    limit.resetsAt ? `Resets ${new Date(limit.resetsAt).toLocaleString(undefined, { weekday: 'short', hour: 'numeric', minute: '2-digit' })}` : undefined;
+    limit.resetsAt
+      ? `Resets ${new Date(limit.resetsAt).toLocaleString(undefined, { weekday: 'short', hour: 'numeric', minute: '2-digit' })} (in ${countdown(limit.resetsAt, now)})`
+      : undefined;
+
+  if (footer) {
+    return (
+      <div role="group" aria-label="Plan usage" className="flex min-w-0 items-center gap-3 text-[11.5px] text-muted" data-usage-band data-usage-profile={id}>
+        {limits.map((limit) => (
+          <div key={`${limit.kind}:${limit.scope ?? ''}`} {...meter(limit)} className="flex items-center gap-1.5 whitespace-nowrap" data-tooltip={resetTitle(limit)}>
+            <span className="h-1 w-12 overflow-hidden rounded-full bg-border @max-[860px]:hidden" aria-hidden>
+              <span className={`block h-full rounded-full ${BAR_TONE[limit.severity] ?? 'bg-ok'}`} style={{ width: `${Math.min(100, Math.max(2, limit.percent))}%` }} />
+            </span>
+            <span className={`tabular-nums ${limit.severity === 'critical' ? 'text-error' : limit.severity === 'warning' ? 'text-warn' : ''}`}>
+              {Math.round(limit.percent)}% · {limitLabel(limit)}
+            </span>
+          </div>
+        ))}
+        {extra?.enabled && extra.usedCredits !== null && extra.usedCredits > 0 && (
+          <span className="whitespace-nowrap @max-[860px]:hidden" data-tooltip={extra.monthlyLimit !== null ? `Extra usage this month, of ${money(extra.monthlyLimit, extra.currency)}` : 'Extra usage this month'}>
+            <span className="text-ok">{money(extra.usedCredits, extra.currency)}</span> extra
+          </span>
+        )}
+      </div>
+    );
+  }
 
   if (compact) {
     return (

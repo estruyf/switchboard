@@ -17,7 +17,7 @@ describe('spokenAge', () => {
 });
 
 describe('sessionRowLabel', () => {
-  const base = { title: 'Fix the login bug', project: 'switchboard', status: null, pinned: false, settled: false, beside: false, updatedAt: now - 5 * MINUTE, now };
+  const base = { title: 'Fix the login bug', project: 'switchboard', status: null, pinned: false, archived: false, beside: false, updatedAt: now - 5 * MINUTE, now };
 
   it('starts with the title and project, and ends with the age', () => {
     expect(sessionRowLabel(base)).toBe('Fix the login bug, switchboard, updated 5 minutes ago');
@@ -26,8 +26,8 @@ describe('sessionRowLabel', () => {
   it('names what the icons and colours show', () => {
     expect(sessionRowLabel({ ...base, status: 'needs-you', pinned: true })).toBe('Fix the login bug, switchboard, Waiting for you, pinned, updated 5 minutes ago');
     expect(sessionRowLabel({ ...base, archived: true, picked: true })).toBe('Fix the login bug, switchboard, archived, in the selection, updated 5 minutes ago');
-    expect(sessionRowLabel({ ...base, status: 'running', settled: true, beside: true })).toBe(
-      'Fix the login bug, switchboard, Claude is working, settled, open in the other pane, updated 5 minutes ago',
+    expect(sessionRowLabel({ ...base, status: 'running', archived: true, beside: true })).toBe(
+      'Fix the login bug, switchboard, Claude is working, archived, open in the other pane, updated 5 minutes ago',
     );
   });
 
