@@ -28,7 +28,9 @@ import { ConfirmDialog } from '../ConfirmDialog.tsx';
 import { GitButton } from '../git/GitButton.tsx';
 import { ProjectIcon } from '../ProjectIcon.tsx';
 import { Button } from '../ui/Button.tsx';
+import { Notice } from '../ui/Notice.tsx';
 import { Pill } from '../ui/Pill.tsx';
+import { SegmentedControl } from '../ui/SegmentedControl.tsx';
 import { PermissionCard, permissionTitle } from '../session/PermissionCard.tsx';
 import { MoreMenu } from '../session/MoreMenu.tsx';
 import { SessionControls } from '../session/StatusBar.tsx';
@@ -539,40 +541,44 @@ export function TranscriptView({ sessionId, pane = null, active = true }: { sess
           </div>
         </div>
         {/* Changes | Terminal: the two side panels as one compact, icon-only segmented control. */}
-        <div role="group" aria-label="Panels" className="no-drag flex h-7 shrink-0 items-center gap-0.5 rounded-lg bg-card p-0.5" data-panel-toggles>
-          {cwd && isRepo && (
-            <Button
-              variant="quiet"
-              size="sm"
-              selected={changesOpen}
-              icon={<FileDiff size={14} aria-hidden />}
-              data-toggle-changes
-              onClick={() => toggleChanges()}
-              data-tooltip={`${changesOpen ? 'Hide' : 'Show'} changed files (⌘⇧D)`}
-              aria-label={`${changesOpen ? 'Hide' : 'Show'} changed files${changedCount ? `, ${changedCount} changed` : ''} (⌘⇧D)`}
-              aria-keyshortcuts="Meta+Shift+D"
-              aria-expanded={changesOpen && active}
-              className="shrink-0"
-            >
-              {changedCount > 0 && <span className="text-meta tabular-nums">{changedCount}</span>}
-            </Button>
-          )}
-          <Button
-            variant="quiet"
-            size="sm"
-            selected={panelOpen}
-            icon={<SquareTerminal size={14} aria-hidden />}
-            data-toggle-terminal
-            onClick={() => togglePanel()}
-            data-tooltip={`${panelOpen ? 'Hide' : 'Show'} terminal (⌘J)${terminalCount ? ` · ${terminalCount} running` : ''}`}
-            aria-label={`${panelOpen ? 'Hide' : 'Show'} terminal${terminalCount ? `, ${terminalCount} running` : ''} (⌘J)`}
-            aria-keyshortcuts="Meta+J"
-            aria-expanded={panelOpen && active}
-            className="relative shrink-0"
-          >
-            {terminalCount > 0 && <span className="absolute top-1 right-1 size-1.5 rounded-full bg-ok" aria-hidden />}
-          </Button>
-        </div>
+        <SegmentedControl
+          mode="toggle"
+          label="Panels"
+          className="no-drag"
+          data-panel-toggles
+          pressed={[...(changesOpen ? ['changes' as const] : []), ...(panelOpen ? ['terminal' as const] : [])]}
+          onToggle={(panel) => (panel === 'changes' ? toggleChanges() : togglePanel())}
+          segments={[
+            ...(cwd && isRepo
+              ? [
+                  {
+                    value: 'changes' as const,
+                    label: 'Changes',
+                    icon: <FileDiff size={14} aria-hidden />,
+                    iconOnly: true,
+                    badge: changedCount,
+                    tooltip: `${changesOpen ? 'Hide' : 'Show'} changed files (⌘⇧D)`,
+                    ariaLabel: `${changesOpen ? 'Hide' : 'Show'} changed files${changedCount ? `, ${changedCount} changed` : ''} (⌘⇧D)`,
+                    kbd: '⌘⇧D',
+                    expanded: changesOpen && active,
+                    data: { 'data-toggle-changes': true },
+                  },
+                ]
+              : []),
+            {
+              value: 'terminal' as const,
+              label: 'Terminal',
+              icon: <SquareTerminal size={14} aria-hidden />,
+              iconOnly: true,
+              dot: terminalCount > 0,
+              tooltip: `${panelOpen ? 'Hide' : 'Show'} terminal (⌘J)${terminalCount ? ` · ${terminalCount} running` : ''}`,
+              ariaLabel: `${panelOpen ? 'Hide' : 'Show'} terminal${terminalCount ? `, ${terminalCount} running` : ''} (⌘J)`,
+              kbd: '⌘J',
+              expanded: panelOpen && active,
+              data: { 'data-toggle-terminal': true },
+            },
+          ]}
+        />
         {cwd && isRepo && (
           <GitButton
             sessionId={sessionId}
@@ -785,18 +791,15 @@ export function TranscriptView({ sessionId, pane = null, active = true }: { sess
                 </div>
               )}
               {openElsewhere && (
-                <p className="rounded-lg border border-border bg-card px-3 py-2 text-ui text-muted">
+                <Notice role="note" data-open-elsewhere>
                   This session is open in {ORIGIN_LABEL[registryLive.origin] || 'another Claude Code window'} right now. Sending here starts a{' '}
                   <strong className="font-medium text-text">fork</strong>: a new session that continues from this conversation, leaving the original untouched.
-                </p>
+                </Notice>
               )}
               {actionError && (
-                <p className="flex items-start gap-2 rounded-lg border border-error/40 bg-error/5 px-3 py-2 text-ui text-error" role="alert">
-                  <span className="min-w-0 flex-1">{actionError}</span>
-                  <Button variant="quiet" size="sm" onClick={() => setActionError(null)} className="-my-0.5 shrink-0">
-                    Dismiss
-                  </Button>
-                </p>
+                <Notice tone="error" onDismiss={() => setActionError(null)} data-action-error>
+                  {actionError}
+                </Notice>
               )}
               {actionsMenu.overlays}
               <Composer

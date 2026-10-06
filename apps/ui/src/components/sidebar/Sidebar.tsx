@@ -1,5 +1,5 @@
 import { useVirtualizer } from '@tanstack/react-virtual';
-import { Archive, ArchiveRestore, Check, ChevronRight, FolderCog, GitBranch, House, Pin, PinOff, Plus, Search, Settings, Trash2 } from 'lucide-react';
+import { Archive, ArchiveRestore, Check, FolderCog, GitBranch, House, Pin, PinOff, Plus, Search, Settings, Trash2 } from 'lucide-react';
 import type { SidebarStyle } from '@switchboard/protocol/bridge';
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type MouseEvent, type PointerEvent, type ReactNode } from 'react';
 import { useEngineConnection } from '../../engine/useEngine.ts';
@@ -22,7 +22,7 @@ import { useMultipleProfiles, useProfile } from '../../state/profilesStore.ts';
 import { ProjectIcon } from '../ProjectIcon.tsx';
 import { Button } from '../ui/Button.tsx';
 import { Kbd } from '../ui/Kbd.tsx';
-import { CountBadge } from '../ui/Pill.tsx';
+import { SectionHeader } from '../ui/SectionHeader.tsx';
 import { updatePill } from '../../lib/updates.ts';
 import { useUpdates } from '../../state/updatesStore.ts';
 import { useClaudeUpdate } from '../../state/claudeUpdateStore.ts';
@@ -86,16 +86,13 @@ const pickButton = 'min-w-0 px-1.5!';
 
 /** A section header in the list. Needs you and Working take their status colour and a count, so they read at a glance. */
 function GroupHeader({ group, count, first, selectAll }: { group: SessionGroup; count: number; first: boolean; selectAll: ReactNode }) {
-  const tone = group === 'needs-you' ? 'text-warn' : group === 'working' ? 'text-accent-ink' : 'text-faint';
-  const counted = group === 'needs-you' || group === 'working';
+  const status = group === 'needs-you' || group === 'working' ? group : null;
   return (
-    <div className={`flex h-full items-end gap-1.5 px-2.5 ${first ? 'pb-1' : 'pb-1.5'} text-meta font-semibold tracking-wider uppercase ${tone}`} data-session-group={group}>
-      <span role="heading" aria-level={2}>
+    // The row is taller than the label: it sits at the bottom, just above its sessions.
+    <div className={`flex h-full items-end px-2.5 ${first ? 'pb-1' : 'pb-1.5'}`}>
+      <SectionHeader tone={status ?? 'neutral'} count={status ? count : null} action={selectAll} className="flex-1" data-session-group={group}>
         {GROUP_LABEL[group]}
-        {counted && <span className="sr-only">, {count}</span>}
-      </span>
-      {counted && <CountBadge count={count} status={group} aria-hidden />}
-      {selectAll}
+      </SectionHeader>
     </div>
   );
 }
@@ -683,23 +680,19 @@ export function Sidebar() {
                       onMenu={sessionMenu}
                     />
                   ) : (
-                    <div className="mt-2 flex h-[26px] items-center pr-1">
-                      <button
-                        type="button"
-                        data-archived-toggle
-                        data-open={row.open}
-                        aria-expanded={row.open}
-                        onClick={toggleArchived}
-                        data-tooltip="Quiet for 48 hours, or archived by you. They come back when there is something new."
-                        // Styled like the group headers above it, with the count in the same pill.
-                        className="flex h-full min-w-0 flex-1 items-center gap-1.5 rounded-md px-2.5 text-meta font-semibold tracking-wider text-faint uppercase hover:text-text"
-                      >
-                        Archived
-                        <CountBadge count={row.count} />
-                        <ChevronRight size={13} className={`transition-transform ${row.open ? 'rotate-90' : ''}`} aria-hidden />
-                      </button>
-                      {selectAll('archived')}
-                    </div>
+                    <SectionHeader
+                      count={row.count}
+                      toggle={{
+                        expanded: row.open,
+                        onToggle: toggleArchived,
+                        tooltip: 'Quiet for 48 hours, or archived by you. They come back when there is something new.',
+                        data: { 'data-archived-toggle': true, 'data-open': row.open },
+                      }}
+                      action={selectAll('archived')}
+                      className="mt-2 h-[26px] pr-1 pl-2.5"
+                    >
+                      Archived
+                    </SectionHeader>
                   )}
                 </div>
               );

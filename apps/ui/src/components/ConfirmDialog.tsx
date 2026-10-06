@@ -1,6 +1,6 @@
-import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
+import { useRef, useState, type ReactNode } from 'react';
 import { Button } from './ui/Button.tsx';
-import { useModalFocus } from './ui/useModalFocus.ts';
+import { Dialog } from './ui/Dialog.tsx';
 
 export interface ConfirmDialogProps {
   title: string;
@@ -13,21 +13,11 @@ export interface ConfirmDialogProps {
   onClose(): void;
 }
 
-/** Modal confirmation for destructive actions. Enter confirms, Esc cancels. */
+/** Modal confirmation for destructive actions. Enter confirms (the confirm button has focus), Esc cancels. */
 export function ConfirmDialog(props: ConfirmDialogProps) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const confirmRef = useRef<HTMLButtonElement>(null);
-  const dialogRef = useRef<HTMLDivElement>(null);
-  const id = useId();
-  useModalFocus(dialogRef);
-
-  useEffect(() => {
-    confirmRef.current?.focus();
-    const onKey = (event: KeyboardEvent) => event.key === 'Escape' && props.onClose();
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [props.onClose]);
 
   const confirm = async () => {
     setBusy(true);
@@ -42,28 +32,29 @@ export function ConfirmDialog(props: ConfirmDialogProps) {
   };
 
   return (
-    <div className="no-drag fixed inset-0 z-[60] flex items-center justify-center bg-scrim" onMouseDown={(e) => e.target === e.currentTarget && props.onClose()}>
-      <div ref={dialogRef} role="alertdialog" aria-modal aria-labelledby={`${id}-title`} aria-describedby={`${id}-body`} className="w-[420px] max-w-[90vw] rounded-xl border overlay p-5">
-        <h2 id={`${id}-title`} className="text-[14px] font-semibold">
-          {props.title}
-        </h2>
-        <div id={`${id}-body`} className="mt-2 text-[12.5px] leading-relaxed text-muted">
-          {props.body}
-        </div>
-        {(error || props.blockedReason) && (
-          <p role="alert" className="mt-3 text-[12px] text-error">
-            {error ? `That didn't work: ${error}` : props.blockedReason}
-          </p>
-        )}
-        <div className="mt-5 flex justify-end gap-2">
+    <Dialog
+      role="alertdialog"
+      width="sm"
+      title={props.title}
+      subtitle={<div className="leading-relaxed">{props.body}</div>}
+      onClose={props.onClose}
+      initialFocus={confirmRef}
+      footer={
+        <>
           <Button onClick={props.onClose}>Cancel</Button>
           {!props.blockedReason && (
             <Button ref={confirmRef} variant={props.danger ? 'danger' : 'primary'} filled={props.danger} data-confirm disabled={busy} onClick={() => void confirm()}>
               {busy ? 'Working…' : props.confirmLabel}
             </Button>
           )}
-        </div>
-      </div>
-    </div>
+        </>
+      }
+    >
+      {(error || props.blockedReason) && (
+        <p role="alert" className="text-ui text-error">
+          {error ? `That didn't work: ${error}` : props.blockedReason}
+        </p>
+      )}
+    </Dialog>
   );
 }

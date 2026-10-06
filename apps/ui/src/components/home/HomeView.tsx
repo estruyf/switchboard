@@ -8,7 +8,7 @@ import { toRows, useSessions, type SessionRowData } from '../../state/sessionsSt
 import { inScope, waitingLabel } from '../../state/sidebarRows.ts';
 import { ProjectIcon } from '../ProjectIcon.tsx';
 import { Button } from '../ui/Button.tsx';
-import { CountBadge } from '../ui/Pill.tsx';
+import { SectionHeader } from '../ui/SectionHeader.tsx';
 import { activityByProject, latestBranches, recentFirst } from '../newSession/projectTiles.ts';
 import { WorkingDots } from '../transcript/ActivityGroup.tsx';
 import { homeSessions, homeSummary, profileActivity, profileActivityLine, projectMeta } from './homeModel.ts';
@@ -86,13 +86,6 @@ export function HomeView() {
     );
   }
 
-  const heading = (label: string, count: number, status: 'needs-you' | 'working', id: string) => (
-    <h2 id={id} className={`flex items-center gap-2 text-meta font-semibold tracking-wide uppercase ${status === 'needs-you' ? 'text-warn' : 'text-accent-ink'}`}>
-      {label}
-      <CountBadge count={count} status={status} />
-    </h2>
-  );
-
   return (
     // A container, so the columns stack when the window (or the space beside the sidebar) is narrow.
     <div className="@container flex h-full min-h-0 flex-col">
@@ -115,7 +108,9 @@ export function HomeView() {
           {(needs.length > 0 || working.length > 0) && (
             <div className="grid grid-cols-2 items-start gap-4 @max-[640px]:grid-cols-1">
               <section aria-labelledby="home-needs" className="grid gap-2">
-                {heading('Needs you', needs.length, 'needs-you', 'home-needs')}
+                <SectionHeader as="h2" headingId="home-needs" tone="needs-you" count={needs.length}>
+                  Needs you
+                </SectionHeader>
                 {needs.length === 0 && <p className="text-ui text-muted">Nothing is waiting for you.</p>}
                 {needs.map((row) => {
                   const ask = asks.get(row.id);
@@ -138,7 +133,9 @@ export function HomeView() {
                 })}
               </section>
               <section aria-labelledby="home-working" className="grid gap-2">
-                {heading('Working', working.length, 'working', 'home-working')}
+                <SectionHeader as="h2" headingId="home-working" tone="working" count={working.length}>
+                  Working
+                </SectionHeader>
                 {working.length === 0 && <p className="text-ui text-muted">Claude isn't working on anything.</p>}
                 {working.map((row) => (
                   <button
@@ -163,9 +160,9 @@ export function HomeView() {
 
           {tiles.length > 0 && (
             <section aria-labelledby="home-start" className="grid gap-2">
-              <h2 id="home-start" className="text-meta font-semibold tracking-wide text-faint uppercase">
+              <SectionHeader as="h2" headingId="home-start">
                 Start in a project
-              </h2>
+              </SectionHeader>
               <div className="grid grid-cols-4 gap-2 @max-[640px]:grid-cols-2">
                 {tiles.map((root) => (
                   <button
@@ -187,9 +184,9 @@ export function HomeView() {
 
           {profileOrder.length > 0 && (
             <section aria-labelledby="home-profiles" className="grid gap-2" data-home-profiles>
-              <h2 id="home-profiles" className="text-meta font-semibold tracking-wide text-faint uppercase">
+              <SectionHeader as="h2" headingId="home-profiles">
                 {profileOrder.length > 1 ? 'Profiles' : 'Usage'}
-              </h2>
+              </SectionHeader>
               <div className="grid grid-cols-2 gap-2 @max-[640px]:grid-cols-1">
                 {profileOrder.map((profile) => (
                   <ProfileUsageCard key={profile.id} profileId={profile.id} activity={profileActivityLine(perProfile.get(profile.id))} />

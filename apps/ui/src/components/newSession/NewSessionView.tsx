@@ -19,7 +19,10 @@ import { inScope, rowStatus } from '../../state/sidebarRows.ts';
 import { Composer } from '../composer/Composer.tsx';
 import { ComposerChipRow } from '../composer/ComposerChips.tsx';
 import { Checkbox } from '../ui/Checkbox.tsx';
+import { Button } from '../ui/Button.tsx';
 import { Kbd } from '../ui/Kbd.tsx';
+import { Notice } from '../ui/Notice.tsx';
+import { SectionHeader } from '../ui/SectionHeader.tsx';
 import { Switch } from '../ui/Toggle.tsx';
 import { ProjectIcon } from '../ProjectIcon.tsx';
 import { OpenInButton } from '../OpenInButton.tsx';
@@ -369,9 +372,9 @@ export function NewSessionView() {
 
   const projectName = cwd ? (project?.name ?? basename(cwd)) : null;
   const clearButton = (attr: 'data-clear-link-prompt' | 'data-clear-draft') => (
-    <button type="button" onClick={clearPrompt} className="shrink-0 text-link hover:underline" {...{ [attr]: true }}>
+    <Button variant="quiet" size="sm" onClick={clearPrompt} className="-my-1 shrink-0" {...{ [attr]: true }}>
       Clear
-    </button>
+    </Button>
   );
   // One notice at a time, the most pressing first: a missing folder, a prompt from a link, a saved default, a restored draft.
   const notice =
@@ -380,21 +383,17 @@ export function NewSessionView() {
         {folderProblem}
       </span>
     ) : linkPrompt !== null ? (
-      <span className="flex min-w-0 items-center gap-1.5" data-link-notice role="status">
-        <Link2 size={13} className="shrink-0 text-accent-ink" aria-hidden />
-        <span className="min-w-0 truncate">{pendingStart !== null ? 'Starting a session with the prompt from an external link…' : linkNoticeText(linkPrompt)}</span>
-        {clearButton('data-clear-link-prompt')}
-      </span>
+      <Notice inline icon={<Link2 size={13} className="text-accent-ink" aria-hidden />} actions={clearButton('data-clear-link-prompt')} data-link-notice>
+        {pendingStart !== null ? 'Starting a session with the prompt from an external link…' : linkNoticeText(linkPrompt)}
+      </Notice>
     ) : savedNote ? (
       <span role="status" className="min-w-0 truncate text-accent-ink" data-saved-note>
         {savedNote}
       </span>
     ) : restored ? (
-      <span className="flex min-w-0 items-center gap-1.5" data-draft-notice role="status">
-        <PencilLine size={13} className="shrink-0 text-accent-ink" aria-hidden />
-        <span className="min-w-0 truncate">Your unsent prompt from before.</span>
-        {clearButton('data-clear-draft')}
-      </span>
+      <Notice inline icon={<PencilLine size={13} className="text-accent-ink" aria-hidden />} actions={clearButton('data-clear-draft')} data-draft-notice>
+        Your unsent prompt from before.
+      </Notice>
     ) : null;
 
   return (
@@ -593,7 +592,9 @@ export function NewSessionView() {
 
           {cwd && pickUp.length > 0 && (
             <section aria-label={`Pick up in ${projectName}`} data-pick-up>
-              <h2 className="px-2 text-meta font-semibold tracking-wide text-faint uppercase">Pick up in {projectName}</h2>
+              <SectionHeader as="h2" className="px-2">
+                Pick up in {projectName}
+              </SectionHeader>
               <ul className="mt-1 grid">
                 {pickUp.map((row) => {
                   const status = rowStatus(row);

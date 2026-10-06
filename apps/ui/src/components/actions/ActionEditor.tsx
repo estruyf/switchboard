@@ -5,12 +5,14 @@ import { useEngineConnection } from '../../engine/useEngine.ts';
 import { ConfirmDialog } from '../ConfirmDialog.tsx';
 import { useOpenIn } from '../OpenInButton.tsx';
 import { Button } from '../ui/Button.tsx';
+import { Dialog } from '../ui/Dialog.tsx';
+import { Notice } from '../ui/Notice.tsx';
+import { SectionHeader } from '../ui/SectionHeader.tsx';
 import { Kbd } from '../ui/Kbd.tsx';
 import { Pill } from '../ui/Pill.tsx';
 import { RadioGroup } from '../ui/Radio.tsx';
 import { Select } from '../ui/Select.tsx';
 import { Switch } from '../ui/Toggle.tsx';
-import { useModalFocus } from '../ui/useModalFocus.ts';
 import {
   ACTION_VARIABLES,
   actionKey,
@@ -130,9 +132,9 @@ function Row({ selected, onClick, children, data }: { selected?: boolean; onClic
 
 function SectionTitle({ id, children }: { id: string; children: ReactNode }) {
   return (
-    <p id={id} className="mt-5 mb-1.5 px-2.5 text-meta font-semibold tracking-wider text-muted uppercase first:mt-2">
+    <SectionHeader as="h3" headingId={id} className="mt-5 mb-1.5 px-2.5 first:mt-2">
       {children}
-    </p>
+    </SectionHeader>
   );
 }
 
@@ -253,11 +255,9 @@ export function ActionEditor({
   const [error, setError] = useState<string | null>(null);
   /** The action waiting for "Delete?" to be confirmed. */
   const [deleting, setDeleting] = useState<ListedAction | null>(null);
-  const dialogRef = useRef<HTMLDivElement>(null);
   const nameRef = useRef<HTMLInputElement>(null);
   const commandRef = useRef<HTMLTextAreaElement>(null);
   const id = useId();
-  useModalFocus(dialogRef);
 
   const readOnly = selected?.scope === 'shared';
   const { yours, shared } = groupActions(actions);
@@ -271,17 +271,6 @@ export function ActionEditor({
   useEffect(() => {
     if (!selected) nameRef.current?.focus();
   }, [selected]);
-
-  // Escape closes. Not while recording a shortcut (it stops the recording), a dropdown is open (it
-  // closes the dropdown) or the delete confirmation is up.
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key !== 'Escape' || e.defaultPrevented || deleting || document.querySelector('[role=listbox]')) return;
-      onClose();
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [deleting, onClose]);
 
   const edit = (next: Partial<ActionDraft>) => {
     setDraft((d) => ({ ...d, ...next }));
@@ -382,29 +371,21 @@ export function ActionEditor({
   };
 
   return (
-    <div className="no-drag fixed inset-0 z-[60] flex items-center justify-center bg-scrim" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
-      <div
-        ref={dialogRef}
-        role="dialog"
-        aria-modal
-        aria-labelledby={`${id}-title ${id}-project`}
-        className="flex h-[650px] max-h-[85vh] w-[900px] max-w-[92vw] flex-col overflow-hidden rounded-xl border overlay"
-        onKeyDown={(e) => {
-          // ⌘↵ saves from any field. The shortcut recorder marks the keys it takes as handled.
-          if (e.key !== 'Enter' || !(e.metaKey || e.ctrlKey) || e.defaultPrevented || readOnly) return;
-          e.preventDefault();
-          void save();
-        }}
+    <>
+      {/*
+       * Escape closes, except while a shortcut is being recorded (it stops the recording), a dropdown
+       * is open, or the delete confirmation is on top. ⌘↵ saves from any field; the recorder marks the
+       * keys it takes as handled.
+       */}
+      <Dialog
+        width="lg"
+        flush
+        title="Project actions"
+        subtitle={<span data-tooltip={projectRoot}>{projectName(projectRoot)}</span>}
+        onClose={onClose}
+        onSubmit={readOnly ? undefined : () => void save()}
+        className="h-[650px]"
       >
-        <header className="flex shrink-0 items-baseline gap-2.5 border-b border-edge px-5 py-3.5">
-          <h2 id={`${id}-title`} className="text-title font-semibold">
-            Project actions
-          </h2>
-          <span id={`${id}-project`} className="min-w-0 flex-1 truncate text-ui text-muted" data-tooltip={projectRoot}>
-            {projectName(projectRoot)}
-          </span>
-          <Button variant="quiet" size="sm" iconOnly icon={<X size={15} aria-hidden />} kbd="Esc" onClick={onClose} aria-label="Close" className="self-center" />
-        </header>
 
         <div className="flex min-h-0 flex-1">
           <nav aria-label="Actions" className="w-[280px] shrink-0 overflow-y-auto border-r border-edge px-2.5 py-2">
@@ -473,19 +454,24 @@ export function ActionEditor({
           >
             <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5">
               {errors.map((e) => (
-                <p key={e} role="alert" className="mb-3 rounded-md bg-error/10 px-2.5 py-1.5 text-ui text-error">
+                <Notice key={e} tone="error" className="mb-3">
                   {e}
-                </p>
+                </Notice>
               ))}
               {readOnly && (
-                <p className="mb-3 flex items-center gap-2 rounded-md bg-border/40 px-2.5 py-1.5 text-ui text-muted">
-                  <span className="flex-1">Shared from .switchboard.json in the repo. Edit the file to change it.</span>
-                  {sharedFile && (
-                    <Button size="sm" onClick={() => void openIn(sharedFile)} className="shrink-0">
-                      Edit file
-                    </Button>
-                  )}
-                </p>
+                <Notice
+                  role="note"
+                  className="mb-3"
+                  actions={
+                    sharedFile && (
+                      <Button size="sm" onClick={() => void openIn(sharedFile)}>
+                        Edit file
+                      </Button>
+                    )
+                  }
+                >
+                  Shared from .switchboard.json in the repo. Edit the file to change it.
+                </Notice>
               )}
               {/* A disabled fieldset makes every control read-only for a shared action in one place. */}
               <fieldset disabled={readOnly} className="grid min-w-0 gap-4">
@@ -647,9 +633,7 @@ export function ActionEditor({
                 </div>
 
                 {error && (
-                  <p role="alert" className="rounded-md bg-error/10 px-2.5 py-1.5 text-ui text-error">
-                    {error}
-                  </p>
+                  <Notice tone="error">{error}</Notice>
                 )}
               </fieldset>
             </div>
@@ -685,7 +669,7 @@ export function ActionEditor({
             Share actions with your team: commit a <code className="font-mono text-text">.switchboard.json</code> in the repo · each shared command asks for approval once.
           </span>
         </p>
-      </div>
+      </Dialog>
       {deleting && (
         <ConfirmDialog
           title={`Delete ${deleting.name}?`}
@@ -696,6 +680,6 @@ export function ActionEditor({
           onClose={() => setDeleting(null)}
         />
       )}
-    </div>
+    </>
   );
 }

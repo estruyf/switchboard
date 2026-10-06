@@ -9,7 +9,7 @@ import { ConfirmDialog } from '../ConfirmDialog.tsx';
 import { useOpenIn } from '../OpenInButton.tsx';
 import { Button } from '../ui/Button.tsx';
 import { Checkbox } from '../ui/Checkbox.tsx';
-import { RadioGroup } from '../ui/Radio.tsx';
+import { SegmentedControl } from '../ui/SegmentedControl.tsx';
 import { CHANGES_DEFAULT_WIDTH, CHANGES_MAX_SHARE, CHANGES_MIN_WIDTH, changesWidthForKey, clampChangesWidth } from './changesWidth.ts';
 
 const WIDTH_KEY = 'ui.changesWidth';
@@ -235,23 +235,17 @@ export function ChangesPanel({
       )}
       <div className="flex h-10 shrink-0 items-center gap-2 border-b border-border px-3">
         {/* Arrow keys move between the two, like any radio group; only the chosen one is a Tab stop. */}
-        <RadioGroup label="Changes to show" className="flex rounded-md border border-border p-0.5 text-meta">
-          {(['uncommitted', 'branch'] as const).map((value) => (
-            <button
-              key={value}
-              type="button"
-              role="radio"
-              aria-checked={base === value}
-              tabIndex={base === value ? 0 : -1}
-              data-changes-base={value}
-              onClick={() => onBase(value)}
-              className={`rounded px-2 py-0.5 ${base === value ? 'bg-accent/15 text-text' : 'text-muted hover:text-text'}`}
-              data-tooltip={value === 'branch' ? `Everything since this branch left ${changes?.baseBranch ?? 'its base'}` : 'Changes not committed yet'}
-            >
-              {value === 'uncommitted' ? 'Uncommitted' : `vs ${changes?.baseBranch ?? 'base'}`}
-            </button>
-          ))}
-        </RadioGroup>
+        <SegmentedControl
+          mode="radio"
+          size="sm"
+          label="Changes to show"
+          value={base}
+          onChange={onBase}
+          segments={[
+            { value: 'uncommitted', label: 'Uncommitted', tooltip: 'Changes not committed yet', data: { 'data-changes-base': 'uncommitted' } },
+            { value: 'branch', label: `vs ${changes?.baseBranch ?? 'base'}`, tooltip: `Everything since this branch left ${changes?.baseBranch ?? 'its base'}`, data: { 'data-changes-base': 'branch' } },
+          ]}
+        />
         <span className="min-w-0 flex-1 truncate text-meta text-muted">
           <span aria-hidden>
             {files.length} {files.length === 1 ? 'file' : 'files'} <span className="text-ok">+{added}</span> <span className="text-error">−{removed}</span>

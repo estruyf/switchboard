@@ -6,6 +6,9 @@ const FOCUSABLE = ['button:not(:disabled)', '[href]', 'input:not(:disabled)', 't
 /** Open modals, innermost last: only the top one traps Tab. */
 const stack: HTMLElement[] = [];
 
+/** Whether `root` is the modal on top, the one keys such as Escape belong to. */
+export const isTopModal = (root: HTMLElement | null) => root !== null && stack[stack.length - 1] === root;
+
 /** The elements Tab can reach inside `root`, in document order. */
 export function focusableIn(root: HTMLElement): HTMLElement[] {
   return Array.from(root.querySelectorAll<HTMLElement>(FOCUSABLE)).filter((el) => !el.closest('[inert], [aria-hidden="true"]') && el.getClientRects().length > 0);

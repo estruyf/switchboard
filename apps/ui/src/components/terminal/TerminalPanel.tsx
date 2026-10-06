@@ -4,6 +4,7 @@ import type { TerminalInfo, TerminalKind } from '@switchboard/protocol/client';
 import { useEngineConnection } from '../../engine/useEngine.ts';
 import { openTerminal, useTerminals } from '../../state/terminalsStore.ts';
 import { Button } from '../ui/Button.tsx';
+import { Notice } from '../ui/Notice.tsx';
 import { XTerm } from './XTerm.tsx';
 
 /**
@@ -179,20 +180,29 @@ export function TerminalPanel({ sessionId, cwd }: { sessionId: string; cwd: stri
       </div>
 
       {notice && (
-        <div role="alert" className="mx-2 mb-1 flex flex-wrap items-center gap-2 rounded-md border border-warn/40 bg-warn/10 px-2.5 py-1.5 text-[12px]" data-terminal-notice>
-          <span className="min-w-0 flex-1">{notice.message}</span>
-          {blocked?.code === 'SESSION_RUNNING_HERE' && (
-            <Button size="sm" onClick={() => void stopAndOpen()}>
-              Stop it here and open
-            </Button>
-          )}
-          {blocked && (
-            <Button size="sm" onClick={() => void open('claude', { fork: true })}>
-              Open a fork
-            </Button>
-          )}
-          <Button variant="quiet" size="sm" iconOnly icon={<X size={12} />} onClick={() => setNotice(sessionId, null)} aria-label="Dismiss" />
-        </div>
+        <Notice
+          tone="warn"
+          role="alert"
+          className="mx-2 mb-1"
+          data-terminal-notice
+          onDismiss={() => setNotice(sessionId, null)}
+          actions={
+            <>
+              {blocked?.code === 'SESSION_RUNNING_HERE' && (
+                <Button size="sm" onClick={() => void stopAndOpen()}>
+                  Stop it here and open
+                </Button>
+              )}
+              {blocked && (
+                <Button size="sm" onClick={() => void open('claude', { fork: true })}>
+                  Open a fork
+                </Button>
+              )}
+            </>
+          }
+        >
+          {notice.message}
+        </Notice>
       )}
 
       <div className="relative min-h-0 flex-1">
