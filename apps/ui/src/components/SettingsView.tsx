@@ -1,6 +1,9 @@
-import type { ReactNode } from 'react';
+import { Activity, MessageSquare, Palette, PanelLeft, Power, Users, X, type LucideIcon } from 'lucide-react';
+import { useEffect, type ReactNode } from 'react';
 import type { ColorScheme, SidebarStyle, ToolActivity } from '@switchboard/protocol/bridge';
 import { usePreferences } from '../state/preferencesStore.ts';
+import { useSessions, type SettingsSection } from '../state/sessionsStore.ts';
+import { EngineDiagnostics } from './EngineDiagnostics.tsx';
 import { ProfilesSettings } from './profiles/ProfilesSettings.tsx';
 import { Choice } from './ui/Choice.tsx';
 import { RadioGroup } from './ui/Radio.tsx';
@@ -101,7 +104,7 @@ function ActivityPreview({ mode }: { mode: ToolActivity }) {
 
 function Section({ title, description, children }: { title: string; description?: string; children: ReactNode }) {
   return (
-    <section className="grid gap-3 border-b border-border py-6 last:border-b-0">
+    <section className="grid gap-3 py-6">
       <div>
         <h2 className="text-[13px] font-semibold">{title}</h2>
         {description && <p className="mt-0.5 text-[12px] text-muted">{description}</p>}
@@ -128,82 +131,164 @@ const STYLES: Array<{ value: SidebarStyle; label: string }> = [
   { value: 'compact', label: 'Compact' },
 ];
 
-export function SettingsView() {
+const SECTIONS: Array<{ id: SettingsSection; label: string; icon: LucideIcon }> = [
+  { id: 'theme', label: 'Theme', icon: Palette },
+  { id: 'sidebar', label: 'Sidebar', icon: PanelLeft },
+  { id: 'conversation', label: 'Conversation', icon: MessageSquare },
+  { id: 'profiles', label: 'Claude profiles', icon: Users },
+  { id: 'quitting', label: 'Quitting', icon: Power },
+  { id: 'diagnostics', label: 'Diagnostics', icon: Activity },
+];
+
+const close = () => useSessions.getState().setView('session');
+
+/** Escape closes Settings, unless it belongs to an open dialog, menu or dropdown, or to a field being edited. */
+function useEscapeToClose() {
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape' || event.defaultPrevented) return;
+      if (document.querySelector('[role=dialog], [role=alertdialog], [role=menu], [role=listbox]')) return;
+      if (event.target instanceof HTMLElement && event.target.closest('input, textarea, [contenteditable=true]')) return;
+      close();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
+}
+
+/** One page of Settings: everything for the section chosen in its sidebar. */
+function SectionPage({ section }: { section: SettingsSection }) {
   const prefs = usePreferences((s) => s.prefs);
   const update = usePreferences((s) => s.update);
 
+  switch (section) {
+    case 'theme':
+      return (
+        <Section title="Theme" description="Colours from the Demo Time theme. Match System follows macOS.">
+          <RadioGroup label="Theme" className="grid grid-cols-3 gap-4">
+            {SCHEMES.map(({ value, label }) => (
+              <Choice key={value} value={value} current={prefs.colorScheme} label={label} attr="data-color-scheme" onSelect={(colorScheme) => update({ colorScheme })}>
+                {value === 'system' ? (
+                  <>
+                    <ThemePreview theme="light" />
+                    <span className="absolute inset-0" style={{ clipPath: 'polygon(100% 0, 100% 100%, 0 100%)' }}>
+                      <ThemePreview theme="dark" />
+                    </span>
+                  </>
+                ) : (
+                  <ThemePreview theme={value} />
+                )}
+              </Choice>
+            ))}
+          </RadioGroup>
+        </Section>
+      );
+    case 'sidebar':
+      return (
+        <Section title="Sidebar" description="How sessions are listed. Large icons makes each session's project easy to spot.">
+          <RadioGroup label="Sidebar style" className="grid grid-cols-3 gap-4">
+            {STYLES.map(({ value, label }) => (
+              <Choice key={value} value={value} current={prefs.sidebarStyle} label={label} attr="data-sidebar-style" onSelect={(sidebarStyle) => update({ sidebarStyle })}>
+                <RowPreview style={value} />
+              </Choice>
+            ))}
+          </RadioGroup>
+          <Toggle
+            label="Show sessions from other apps"
+            detail="Also list sessions from Terminal, Claude desktop and your editor. Off shows only sessions you started or continued in Switchboard."
+            checked={prefs.sessionScope === 'all'}
+            attr="data-session-scope"
+            onChange={(all) => update({ sessionScope: all ? 'all' : 'switchboard' })}
+          />
+        </Section>
+      );
+    case 'conversation':
+      return (
+        <Section
+          title="Conversation"
+          description="Summarised shows each run of tool calls as one line, like Claude Code: what Claude is doing, or what it did. Click it to see the steps."
+        >
+          <RadioGroup label="Tool activity" className="grid grid-cols-3 gap-4">
+            {ACTIVITY.map(({ value, label }) => (
+              <Choice key={value} value={value} current={prefs.toolActivity} label={label} attr="data-tool-activity" onSelect={(toolActivity) => update({ toolActivity })}>
+                <ActivityPreview mode={value} />
+              </Choice>
+            ))}
+          </RadioGroup>
+        </Section>
+      );
+    case 'profiles':
+      return (
+        <Section
+          title="Claude profiles"
+          description="Use more than one Claude account, for example a personal plan and a work one. Each profile is a Claude Code config folder with its own login. Link a project to a profile from its menu or the Projects view; other projects use the default."
+        >
+          <ProfilesSettings />
+        </Section>
+      );
+    case 'quitting':
+      return (
+        <Section title="Quitting">
+          <Toggle
+            label="Ask before quitting"
+            detail="⌘Q shows a prompt first; pressing ⌘Q again quits."
+            checked={prefs.confirmQuit}
+            attr="data-confirm-quit"
+            onChange={(confirmQuit) => update({ confirmQuit })}
+          />
+        </Section>
+      );
+    case 'diagnostics':
+      return (
+        <Section title="Diagnostics" description="The engine behind Switchboard, the Claude Code it runs, and its recent log.">
+          <EngineDiagnostics />
+        </Section>
+      );
+  }
+}
+
+export function SettingsView() {
+  const section = useSessions((s) => s.settingsSection);
+  const openSettings = useSessions((s) => s.openSettings);
+  useEscapeToClose();
+
   return (
-    <div className="flex h-full min-h-0 flex-col" data-settings>
-      <header className="drag flex h-13 shrink-0 items-center border-b border-border px-6">
-        <h1 className="text-[13px] font-semibold">Settings</h1>
+    <div className="@container flex h-full min-h-0 flex-col" data-settings>
+      <header className="drag flex h-13 shrink-0 items-center border-b border-border pr-3 pl-6">
+        <h1 className="flex-1 text-[13px] font-semibold">Settings</h1>
+        <button
+          type="button"
+          onClick={close}
+          data-close-settings
+          data-tooltip="Close (Esc)" aria-label="Close settings"
+          className="no-drag flex size-7 items-center justify-center rounded-md text-muted hover:bg-border/60 hover:text-text"
+        >
+          <X size={15} />
+        </button>
       </header>
-      <div className="min-h-0 flex-1 overflow-y-auto">
-        <div className="mx-auto max-w-2xl px-6">
-          <Section title="Theme" description="Colours from the Demo Time theme. Match System follows macOS.">
-            <RadioGroup label="Theme" className="grid grid-cols-3 gap-4">
-              {SCHEMES.map(({ value, label }) => (
-                <Choice key={value} value={value} current={prefs.colorScheme} label={label} attr="data-color-scheme" onSelect={(colorScheme) => update({ colorScheme })}>
-                  {value === 'system' ? (
-                    <>
-                      <ThemePreview theme="light" />
-                      <span className="absolute inset-0" style={{ clipPath: 'polygon(100% 0, 100% 100%, 0 100%)' }}>
-                        <ThemePreview theme="dark" />
-                      </span>
-                    </>
-                  ) : (
-                    <ThemePreview theme={value} />
-                  )}
-                </Choice>
-              ))}
-            </RadioGroup>
-          </Section>
-
-          <Section title="Sidebar" description="How sessions are listed. Large icons makes each session's project easy to spot.">
-            <RadioGroup label="Sidebar style" className="grid grid-cols-3 gap-4">
-              {STYLES.map(({ value, label }) => (
-                <Choice key={value} value={value} current={prefs.sidebarStyle} label={label} attr="data-sidebar-style" onSelect={(sidebarStyle) => update({ sidebarStyle })}>
-                  <RowPreview style={value} />
-                </Choice>
-              ))}
-            </RadioGroup>
-            <Toggle
-              label="Show sessions from other apps"
-              detail="Also list sessions from Terminal, Claude desktop and your editor. Off shows only sessions you started or continued in Switchboard."
-              checked={prefs.sessionScope === 'all'}
-              attr="data-session-scope"
-              onChange={(all) => update({ sessionScope: all ? 'all' : 'switchboard' })}
-            />
-          </Section>
-
-          <Section
-            title="Conversation"
-            description="Summarised shows each run of tool calls as one line, like Claude Code: what Claude is doing, or what it did. Click it to see the steps."
-          >
-            <RadioGroup label="Tool activity" className="grid grid-cols-3 gap-4">
-              {ACTIVITY.map(({ value, label }) => (
-                <Choice key={value} value={value} current={prefs.toolActivity} label={label} attr="data-tool-activity" onSelect={(toolActivity) => update({ toolActivity })}>
-                  <ActivityPreview mode={value} />
-                </Choice>
-              ))}
-            </RadioGroup>
-          </Section>
-
-          <Section
-            title="Claude profiles"
-            description="Use more than one Claude account, for example a personal plan and a work one. Each profile is a Claude Code config folder with its own login. Link a project to a profile from its menu or the Projects view; other projects use the default."
-          >
-            <ProfilesSettings />
-          </Section>
-
-          <Section title="Quitting">
-            <Toggle
-              label="Ask before quitting"
-              detail="⌘Q shows a prompt first; pressing ⌘Q again quits."
-              checked={prefs.confirmQuit}
-              attr="data-confirm-quit"
-              onChange={(confirmQuit) => update({ confirmQuit })}
-            />
-          </Section>
+      <div className="flex min-h-0 flex-1">
+        <nav aria-label="Settings sections" className="flex w-48 shrink-0 flex-col gap-0.5 overflow-y-auto border-r border-border bg-sidebar p-2 @max-[640px]:w-12">
+          {SECTIONS.map(({ id, label, icon: Icon }) => (
+            <button
+              key={id}
+              type="button"
+              onClick={() => openSettings(id)}
+              aria-current={section === id ? 'page' : undefined}
+              aria-label={label}
+              data-settings-section={id}
+              className={`flex h-8 items-center gap-2.5 rounded-md px-2.5 text-left text-[12.5px] @max-[640px]:justify-center @max-[640px]:px-0 ${
+                section === id ? 'bg-accent/15 font-medium text-text' : 'text-muted hover:bg-border/50 hover:text-text'
+              }`}
+            >
+              <Icon size={15} className={`shrink-0 ${section === id ? 'text-accent-ink' : ''}`} />
+              <span className="truncate @max-[640px]:hidden">{label}</span>
+            </button>
+          ))}
+        </nav>
+        <div className="min-h-0 min-w-0 flex-1 overflow-y-auto">
+          <div className={`mx-auto px-6 ${section === 'diagnostics' ? 'max-w-3xl' : 'max-w-2xl'}`} data-settings-page={section}>
+            <SectionPage section={section} />
+          </div>
         </div>
       </div>
     </div>

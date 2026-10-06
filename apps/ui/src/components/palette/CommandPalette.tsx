@@ -78,10 +78,10 @@ export function CommandPalette() {
     const commands: Item[] = [
       { id: 'new', group: 'Commands', label: 'New session', hint: '⌘N', icon: icon(SquarePen), run: () => useSessions.getState().openNewSession() },
       { id: 'search', group: 'Commands', label: 'Search conversations', keywords: 'find text', hint: '⌘⇧F', icon: icon(Search), run: () => useOverlay.getState().show('search') },
-      { id: 'settings', group: 'Commands', label: 'Settings', keywords: 'preferences', hint: '⌘,', icon: icon(Settings), run: () => setView('settings') },
+      { id: 'settings', group: 'Commands', label: 'Settings', keywords: 'preferences', hint: '⌘,', icon: icon(Settings), run: () => useSessions.getState().openSettings() },
       { id: 'projects', group: 'Commands', label: 'Manage projects', keywords: 'folders defaults', icon: icon(FolderCog), run: () => setView('projects') },
       { id: 'add-project', group: 'Commands', label: 'Add project…', keywords: 'folder', icon: icon(FolderPlus), run: () => useProjects.getState().showAdd(true) },
-      { id: 'diagnostics', group: 'Commands', label: 'Engine diagnostics', icon: icon(Activity), run: () => setView('diagnostics') },
+      { id: 'diagnostics', group: 'Commands', label: 'Engine diagnostics', keywords: 'settings log version', icon: icon(Activity), run: () => useSessions.getState().openSettings('diagnostics') },
       { id: 'theme-system', group: 'Commands', label: 'Theme: Match System', keywords: 'appearance', icon: icon(Monitor), run: () => updatePrefs({ colorScheme: 'system' }) },
       { id: 'theme-light', group: 'Commands', label: 'Theme: Light', keywords: 'appearance', icon: icon(Sun), run: () => updatePrefs({ colorScheme: 'light' }) },
       { id: 'theme-dark', group: 'Commands', label: 'Theme: Dark', keywords: 'appearance', icon: icon(Moon), run: () => updatePrefs({ colorScheme: 'dark' }) },

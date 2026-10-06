@@ -1,5 +1,5 @@
 import { useVirtualizer } from '@tanstack/react-virtual';
-import { Activity, ChevronRight, FolderCog, GitBranch, Pin, Search, Settings, SquarePen } from 'lucide-react';
+import { ChevronRight, FolderCog, GitBranch, Pin, Search, Settings, SquarePen } from 'lucide-react';
 import type { SidebarStyle } from '@switchboard/protocol/bridge';
 import { memo, useEffect, useMemo, useRef, useState, type KeyboardEvent, type MouseEvent, type PointerEvent } from 'react';
 import { useEngineConnection } from '../../engine/useEngine.ts';
@@ -377,19 +377,11 @@ export function Sidebar() {
         <button
           type="button"
           data-open-settings
-          onClick={() => setView(view === 'settings' ? 'session' : 'settings')}
+          onClick={() => (view === 'settings' ? setView('session') : useSessions.getState().openSettings())}
           data-tooltip="Settings (⌘,)" aria-label="Settings (⌘,)"
           className={`flex size-7 items-center justify-center rounded-md hover:bg-border/60 hover:text-text ${view === 'settings' ? 'bg-border/60 text-text' : 'text-muted'}`}
         >
           <Settings size={15} />
-        </button>
-        <button
-          type="button"
-          onClick={() => setView(view === 'diagnostics' ? 'session' : 'diagnostics')}
-          data-tooltip="Diagnostics" aria-label="Diagnostics"
-          className={`flex size-7 items-center justify-center rounded-md hover:bg-border/60 hover:text-text ${view === 'diagnostics' ? 'bg-border/60 text-text' : 'text-muted'}`}
-        >
-          <Activity size={15} />
         </button>
       </footer>
 

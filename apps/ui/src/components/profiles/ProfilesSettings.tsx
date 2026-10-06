@@ -1,4 +1,4 @@
-import { Check, Copy, FolderOpen, Plus, X } from 'lucide-react';
+import { Check, ChevronRight, Copy, FolderOpen, Plus, X } from 'lucide-react';
 import { useState } from 'react';
 import { PROFILE_COLORS, type ClaudeProfile, type ProfileColor } from '@switchboard/protocol/client';
 import { useEngineConnection } from '../../engine/useEngine.ts';
@@ -199,6 +199,60 @@ function AddProfileForm({ home, onDone }: { home: string | null; onDone(): void 
   );
 }
 
+/** Step by step, how to make a second Claude Code login on this Mac and use it for some projects. Folded away by default. */
+function SetupGuide() {
+  const [open, setOpen] = useState(false);
+  const folder = '~/.claude-work';
+  // Not a grid: list items need display: list-item to keep their numbers.
+  const step = 'space-y-1 pl-1 *:block';
+  return (
+    <div className="rounded-lg border border-border" data-profile-guide>
+      <button
+        type="button"
+        onClick={() => setOpen(!open)}
+        aria-expanded={open}
+        className="flex w-full items-center gap-1.5 px-3 py-2 text-left text-[12px] text-muted hover:text-text"
+        data-profile-guide-toggle
+      >
+        <ChevronRight size={13} className={`shrink-0 transition-transform ${open ? 'rotate-90' : ''}`} />
+        How to set up another profile
+      </button>
+      {open && (
+        <ol className="grid list-decimal gap-3 border-t border-border py-3 pr-3 pl-8 text-[12px] text-muted marker:text-faint">
+          <li className={step}>
+            <span className="font-medium text-text">Create a config folder and sign in.</span>
+            <span>
+              Open Terminal and run <CopyCommand command={`CLAUDE_CONFIG_DIR=${folder} claude`} />. Claude Code creates the folder the first time. Type{' '}
+              <code className="font-mono">/login</code> and sign in with the other account.
+            </span>
+          </li>
+          <li className={step}>
+            <span className="font-medium text-text">Add it here.</span>
+            <span>
+              Choose <span className="text-text">Add profile</span>, give it a name and colour, and pick the folder <code className="font-mono">{folder}</code>. Its sessions
+              show up in the sidebar. You can also add the profile first: Switchboard creates the folder and shows the sign-in command on the profile.
+            </span>
+          </li>
+          <li className={step}>
+            <span className="font-medium text-text">Link your projects.</span>
+            <span>
+              In the Projects view, set a project’s <span className="text-text">Claude profile</span>, or use <span className="text-text">⋯</span> next to the project in the
+              sidebar’s project list. New sessions there use that account; other projects use the default. New session also lets you choose a profile for one session.
+            </span>
+          </li>
+          <li className={step}>
+            <span className="font-medium text-text">Optional: a shortcut for the terminal.</span>
+            <span>
+              Add <CopyCommand command={`alias claude-work='CLAUDE_CONFIG_DIR=${folder} claude'`} /> to <code className="font-mono">~/.zshrc</code> to start Claude Code with that
+              account outside Switchboard too.
+            </span>
+          </li>
+        </ol>
+      )}
+    </div>
+  );
+}
+
 /** Settings → Claude profiles: one Claude Code login per config folder, and which one is the default. */
 export function ProfilesSettings() {
   const profiles = useProfiles((s) => s.profiles);
@@ -224,6 +278,7 @@ export function ProfilesSettings() {
           <Plus size={13} /> Add profile
         </button>
       )}
+      <SetupGuide />
       {removing && (
         <ConfirmDialog
           title={`Remove the ${removing.name} profile?`}

@@ -1,5 +1,4 @@
 import { useEffect } from 'react';
-import { EngineDiagnostics } from './components/EngineDiagnostics.tsx';
 import { NewSessionView } from './components/newSession/NewSessionView.tsx';
 import { TooltipLayer } from './components/ui/Tooltip.tsx';
 import { useOpenIn } from './components/OpenInButton.tsx';
@@ -120,7 +119,7 @@ function useWindowFocus() {
   }, [view, selectedId]);
   useEffect(() => window.switchboard?.onSelectSession((id) => useSessions.getState().select(id)), []);
   // Switchboard → Settings… (⌘,) in the menu bar.
-  useEffect(() => window.switchboard?.onOpenSettings(() => useSessions.getState().setView('settings')), []);
+  useEffect(() => window.switchboard?.onOpenSettings(() => useSessions.getState().openSettings()), []);
 }
 
 export function App() {
@@ -146,16 +145,7 @@ export function App() {
     <div className="flex h-full">
       <Sidebar />
       <main className="flex min-w-0 flex-1 flex-col overflow-hidden">
-        {view === 'diagnostics' ? (
-          <>
-            <header className="drag flex h-13 shrink-0 items-center border-b border-border px-6">
-              <h1 className="text-[13px] font-semibold">Engine diagnostics</h1>
-            </header>
-            <div className="flex-1 overflow-y-auto">
-              <EngineDiagnostics />
-            </div>
-          </>
-        ) : view === 'settings' ? (
+        {view === 'settings' ? (
           <SettingsView />
         ) : view === 'projects' ? (
           <ProjectManagerView />

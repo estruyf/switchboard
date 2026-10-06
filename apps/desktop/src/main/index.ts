@@ -571,33 +571,46 @@ async function runSettingsStep(win: BrowserWindow): Promise<string> {
   const rowHeight = "document.querySelector('[data-session-id]').offsetHeight";
   const pause = () => new Promise((resolve) => setTimeout(resolve, 300));
 
+  const section = async (id: string) => {
+    await click(`[data-settings-section="${id}"]`);
+    return waitInPage(win, `document.querySelector('[data-settings-page="${id}"]')`, 2_000);
+  };
+
   await click('[data-open-settings]');
   if (!(await waitInPage(win, "document.querySelector('[data-settings]')", 3_000))) return 'settings view did not open';
+  if (!(await section('theme'))) return 'the Theme section did not open';
   await click('[data-color-scheme="light"]');
   if (!(await waitInPage(win, `${background} === 'rgb(255, 255, 255)'`, 2_000))) return 'Light did not apply';
+  if (!(await section('sidebar'))) return 'the Sidebar section did not open';
   await click('[data-sidebar-style="large"]');
   if (!(await waitInPage(win, `${rowHeight} === 66 && [...document.querySelectorAll('[data-session-id] > *')].some((el) => el.offsetWidth === 34)`, 2_000))) return 'Large icons did not apply';
   await pause();
   await shot(win, 'settings-light.png');
+  await section('theme');
   await click('[data-color-scheme="dark"]');
   if (!(await waitInPage(win, `${background} === 'rgb(21, 24, 31)'`, 2_000))) return 'Dark did not apply';
+  await section('sidebar');
   await click('[data-sidebar-style="compact"]');
   if (!(await waitInPage(win, `${rowHeight} === 32`, 2_000))) return 'Compact did not apply';
   await pause();
   await shot(win, 'settings-dark.png');
 
+  // The close button leaves Settings; opening it again returns to the same section.
+  await section('conversation');
   await click('[data-tool-activity="steps"]');
   await pause();
+  await click('[data-close-settings]');
+  const everyStep = await waitInPage(win, "!document.querySelector('[data-settings]') && !document.querySelector('[data-activity]') && document.querySelector('[data-tool]')", 3_000);
   await click('[data-open-settings]');
-  const everyStep = await waitInPage(win, "!document.querySelector('[data-activity]') && document.querySelector('[data-tool]')", 3_000);
-  await click('[data-open-settings]');
-  if (!(await waitInPage(win, "document.querySelector('[data-settings]')", 3_000))) return 'settings view did not reopen';
-  if (!everyStep) return 'Every step did not show the tool cards';
+  if (!(await waitInPage(win, "document.querySelector('[data-settings-page=\"conversation\"]')", 3_000))) return 'settings did not reopen on the same section';
+  if (!everyStep) return 'Every step did not show the tool cards, or Close did not leave Settings';
 
   // Turning off "sessions from other apps" leaves only Switchboard's own in the sidebar.
+  await section('sidebar');
   await click('[data-session-scope]');
   const scoped = await waitInPage(win, "!document.querySelector('[data-session-id][data-in-app=\"false\"]')", 2_000);
 
+  await section('quitting');
   await click('[data-confirm-quit]');
   await pause();
   Menu.getApplicationMenu()?.getMenuItemById('quit')?.click();
@@ -607,9 +620,12 @@ async function runSettingsStep(win: BrowserWindow): Promise<string> {
   const menuChecked = Menu.getApplicationMenu()?.getMenuItemById('scheme-dark')?.checked === true;
 
   await click('[data-confirm-quit]');
+  await section('sidebar');
   await click('[data-session-scope]');
-  await click('[data-color-scheme="system"]');
   await click('[data-sidebar-style="standard"]');
+  await section('theme');
+  await click('[data-color-scheme="system"]');
+  await section('conversation');
   await click('[data-tool-activity="summary"]');
   await pause();
   const restored = preferences.get();
@@ -618,7 +634,9 @@ async function runSettingsStep(win: BrowserWindow): Promise<string> {
   if (saved.colorScheme !== 'dark' || saved.sidebarStyle !== 'compact' || saved.toolActivity !== 'steps' || saved.confirmQuit !== false || saved.sessionScope !== 'switchboard') return `not saved: ${JSON.stringify(saved)}`;
   if (!menuChecked) return 'View → Appearance did not follow';
   if (restored.colorScheme !== 'system' || restored.sidebarStyle !== 'standard' || restored.toolActivity !== 'summary' || !restored.confirmQuit || restored.sessionScope !== 'all') return 'could not restore the defaults';
-  await click('[data-open-settings]');
+  // Escape closes Settings too.
+  win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Escape' });
+  if (!(await waitInPage(win, "!document.querySelector('[data-settings]')", 2_000))) return 'Escape did not close Settings';
   return 'ok';
 }
 
@@ -699,7 +717,13 @@ async function runProfilesStep(win: BrowserWindow): Promise<string> {
   const folder = join(app.getPath('userData'), 'smoke-claude-work');
   if (await js("!!document.querySelector('[data-profile-badge]')")) return 'profile badges shown with a single profile';
   await click('[data-open-settings]');
+  await click('[data-settings-section="profiles"]');
   if (!(await waitInPage(win, "document.querySelectorAll('[data-profiles] [data-profile]').length === 1", 3_000))) return 'Settings did not list the built-in profile';
+  await click('[data-profile-guide-toggle]');
+  if (!(await waitInPage(win, "document.querySelector('[data-profile-guide] ol')?.innerText.includes('CLAUDE_CONFIG_DIR=')", 2_000))) return 'the setup guide did not open';
+  await new Promise((resolve) => setTimeout(resolve, 300));
+  await shot(win, 'profile-guide.png');
+  await click('[data-profile-guide-toggle]');
   await click('[data-add-profile]');
   if (!(await waitInPage(win, "document.querySelector('[data-new-profile-folder]')", 3_000))) return 'the add profile form did not open';
   await setFieldValue(win, '[data-new-profile-name]', 'Smoke work');
@@ -725,6 +749,7 @@ async function runProfilesStep(win: BrowserWindow): Promise<string> {
   win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Escape' });
 
   await click('[data-open-settings]');
+  await click('[data-settings-section="profiles"]');
   if (!(await waitInPage(win, `document.querySelector(${JSON.stringify(`${card} [data-remove-profile]`)})`, 3_000))) return 'no way to remove the profile';
   await click(`${card} [data-remove-profile]`);
   if (!(await waitInPage(win, "document.querySelector('[data-confirm]')", 3_000))) return 'no confirmation before removing';
@@ -1156,11 +1181,13 @@ async function runSmokeStep(win: BrowserWindow | null): Promise<void> {
     actionRan = await runActionStep(win);
     projectsResult = await runProjectsStep(win).catch((error: Error) => `failed: ${error.message}`);
     profilesResult = await runProfilesStep(win).catch((error: Error) => `failed: ${error.message}`);
-    // Diagnostics renders a sample through Shiki, which loads in its own chunks on first use.
-    await win.webContents.executeJavaScript("[...document.querySelectorAll('footer button')].find((b) => b.getAttribute('aria-label') === 'Diagnostics')?.click()");
+    // Diagnostics (in Settings) renders a sample through Shiki, which loads in its own chunks on first use.
+    await win.webContents.executeJavaScript("document.querySelector('[data-open-settings]').click()");
+    await waitInPage(win, "document.querySelector('[data-settings-section=\"diagnostics\"]')", 3_000);
+    await win.webContents.executeJavaScript("document.querySelector('[data-settings-section=\"diagnostics\"]').click()");
     highlighted = await waitInPage(win, "document.querySelector('[data-rendering-check] .shiki span[style*=\"--shiki\"]')", 5_000);
     await shot(win, 'diagnostics.png');
-    await win.webContents.executeJavaScript("[...document.querySelectorAll('footer button')].find((b) => b.getAttribute('aria-label') === 'Diagnostics')?.click()");
+    await win.webContents.executeJavaScript("document.querySelector('[data-close-settings]').click()");
     rendering = await win.webContents.executeJavaScript(
       "({ diffs: document.querySelectorAll('[data-diff]').length, highlighted: document.querySelectorAll('.shiki').length, codeBlocks: document.querySelectorAll('.code-block').length, todos: document.querySelectorAll('[data-todos]').length, images: document.querySelectorAll('[data-transcript-image] img').length })",
     );

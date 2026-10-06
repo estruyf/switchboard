@@ -73,7 +73,7 @@ export function EngineDiagnostics() {
     );
 
   return (
-    <div className="mx-auto grid max-w-3xl gap-4 p-6">
+    <div className="grid gap-4">
       {error && (
         <div className="rounded-lg border border-error/40 bg-error/10 px-4 py-2.5 text-error">{error}</div>
       )}

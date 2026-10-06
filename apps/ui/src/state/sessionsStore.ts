@@ -2,7 +2,9 @@ import { create } from 'zustand';
 import type { LiveSession, SessionHostInfo, SessionsChanged, SessionsSnapshot, SessionSummary } from '@switchboard/protocol/client';
 import { hostAsLive, isActiveHost } from './hostsStore.ts';
 
-export type MainView = 'session' | 'new' | 'diagnostics' | 'settings' | 'projects';
+export type MainView = 'session' | 'new' | 'settings' | 'projects';
+/** The pages of Settings, listed in its own sidebar. */
+export type SettingsSection = 'theme' | 'sidebar' | 'conversation' | 'profiles' | 'quitting' | 'diagnostics';
 export type Pane = 'main' | 'split';
 
 const other = (pane: Pane): Pane => (pane === 'main' ? 'split' : 'main');
@@ -24,6 +26,8 @@ interface SessionsState {
   splitId: string | null;
   activePane: Pane;
   view: MainView;
+  /** The Settings page shown when Settings opens; kept while the app runs, so ⌘, returns to it. */
+  settingsSection: SettingsSection;
   /** Bumped each time New session is asked for (⌘N, the sidebar, the palette), so the view focuses its prompt even when already open. */
   newSessionRequest: number;
   filter: string;
@@ -39,6 +43,8 @@ interface SessionsState {
   closePane(pane?: Pane): void;
   focusPane(pane: Pane): void;
   setView(view: MainView): void;
+  /** Opens Settings, on a given page or the last one shown. */
+  openSettings(section?: SettingsSection): void;
   /** Opens the New session view and asks it to focus the prompt. */
   openNewSession(): void;
   setFilter(filter: string): void;
@@ -57,6 +63,7 @@ export const useSessions = create<SessionsState>()((set) => ({
   splitId: null,
   activePane: 'main',
   view: 'session',
+  settingsSection: 'theme',
   newSessionRequest: 0,
   filter: '',
 
@@ -103,6 +110,7 @@ export const useSessions = create<SessionsState>()((set) => ({
     }),
   focusPane: (pane) => set((s) => (s.activePane === pane || (pane === 'split' && !s.splitId) ? {} : panes({ ...s, activePane: pane }))),
   setView: (view) => set({ view }),
+  openSettings: (section) => set((s) => ({ view: 'settings', settingsSection: section ?? s.settingsSection })),
   openNewSession: () => set((s) => ({ view: 'new', newSessionRequest: s.newSessionRequest + 1 })),
   setFilter: (filter) => set({ filter }),
 }));
