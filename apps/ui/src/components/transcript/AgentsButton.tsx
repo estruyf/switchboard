@@ -77,8 +77,8 @@ export function AgentsButton({ items, sessionId, cwd, sessionOpen }: { items: re
         {running.length} {running.length === 1 ? 'agent' : 'agents'}
       </button>
       {open && (
-        <div className="no-drag fixed inset-0 z-[60] flex items-start justify-center bg-black/40 pt-[10vh]" onMouseDown={(e) => e.target === e.currentTarget && setOpen(false)}>
-          <div role="dialog" aria-label="Agents" className="flex max-h-[76vh] w-[720px] max-w-[92vw] flex-col overflow-hidden rounded-xl border border-border bg-card shadow-2xl" data-agents>
+        <div className="no-drag fixed inset-0 z-[60] flex items-start justify-center bg-scrim pt-[10vh]" onMouseDown={(e) => e.target === e.currentTarget && setOpen(false)}>
+          <div role="dialog" aria-label="Agents" className="flex max-h-[76vh] w-[720px] max-w-[92vw] flex-col overflow-hidden rounded-xl border overlay" data-agents>
             <div className="flex h-11 shrink-0 items-center gap-2 border-b border-border px-4">
               <Bot size={15} className="text-accent-ink" />
               <h2 className="text-[13px] font-semibold">Agents</h2>

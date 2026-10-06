@@ -119,7 +119,7 @@ export function FolderPicker({
 
       {open && (
         <div className={`absolute left-[58px] z-40 flex max-h-96 w-[min(27rem,calc(100%-58px))] ${upward ? 'bottom-full mb-1 flex-col-reverse' : 'top-full -mt-3 flex-col'}`} data-folder-panel>
-          <div className="flex max-h-96 min-h-0 flex-1 flex-col overflow-hidden rounded-lg border border-border bg-card shadow-xl" data-folder-list role="menu" aria-label="Your projects">
+          <div className="flex max-h-96 min-h-0 flex-1 flex-col overflow-hidden rounded-lg border overlay" data-folder-list role="menu" aria-label="Your projects">
             <input
               autoFocus
               value={filter}

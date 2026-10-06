@@ -65,7 +65,7 @@ function EmojiPicker({ x, y, root, onClose }: { x: number; y: number; root: stri
     onClose();
   };
   return (
-    <div style={{ left: x, top: y }} className="no-drag fixed z-50 w-56 rounded-lg border border-border bg-card p-2 shadow-xl" onMouseDown={(e) => e.stopPropagation()}>
+    <div style={{ left: x, top: y }} className="no-drag fixed z-50 w-56 rounded-lg border overlay p-2" onMouseDown={(e) => e.stopPropagation()}>
       <div className="grid grid-cols-8 gap-0.5">
         {SUGGESTED.map((emoji) => (
           <button key={emoji} type="button" onClick={() => apply(emoji)} className="rounded py-0.5 text-[15px] hover:bg-accent/15">
@@ -201,7 +201,7 @@ export function ProjectFilter({ counts }: { counts: Map<string, { total: number;
       {open && (
         <div
           style={{ left: open.x, top: open.y }}
-          className="no-drag fixed z-40 max-h-[60vh] w-64 overflow-y-auto rounded-lg border border-border bg-card py-1 shadow-xl"
+          className="no-drag fixed z-40 max-h-[60vh] w-64 overflow-y-auto rounded-lg border overlay py-1"
         >
           <DismissLayer onDismiss={() => setOpen(null)} />
           <FilterRow selected={!filter} onSelect={() => (setFilter(null), setOpen(null))} icon={<Layers size={14} />} label="All projects" />

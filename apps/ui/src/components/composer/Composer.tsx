@@ -268,7 +268,7 @@ export function Composer(props: ComposerProps) {
         </div>
       )}
       {palette && (
-        <ul ref={listRef} className="absolute right-0 bottom-full left-0 z-10 mb-2 max-h-72 overflow-y-auto rounded-lg border border-border bg-card shadow-lg" role="listbox" data-palette>
+        <ul ref={listRef} className="absolute right-0 bottom-full left-0 z-10 mb-2 max-h-72 overflow-y-auto rounded-lg border overlay" role="listbox" data-palette>
           {palette.items.map((item, i) => (
             <li key={item.value} role="option" aria-selected={i === palette.active}>
               <button

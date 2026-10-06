@@ -75,7 +75,7 @@ export function OpenInButton({ path }: { path: string | null }) {
         ▾
       </button>
       {open && (
-        <div className="absolute top-full right-0 z-20 mt-1 w-52 overflow-hidden rounded-lg border border-border bg-card py-1 shadow-lg">
+        <div className="absolute top-full right-0 z-20 mt-1 w-52 overflow-hidden rounded-lg border overlay py-1">
           {GROUPS.map((group) => {
             const items = editors.filter((e) => e.kind === group.kind);
             if (items.length === 0) return null;

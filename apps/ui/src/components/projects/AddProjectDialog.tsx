@@ -47,8 +47,8 @@ export function AddProjectDialog({ onClose }: { onClose(): void }) {
   };
 
   return (
-    <div className="no-drag fixed inset-0 z-[60] flex items-start justify-center bg-black/40 pt-[12vh]" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
-      <div role="dialog" aria-modal aria-label="Add project" className="flex max-h-[70vh] w-[600px] max-w-[92vw] flex-col overflow-hidden rounded-xl border border-border bg-card shadow-2xl" data-add-project-dialog>
+    <div className="no-drag fixed inset-0 z-[60] flex items-start justify-center bg-scrim pt-[12vh]" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
+      <div role="dialog" aria-modal aria-label="Add project" className="flex max-h-[70vh] w-[600px] max-w-[92vw] flex-col overflow-hidden rounded-xl border overlay" data-add-project-dialog>
         <header className="flex items-center justify-between gap-3 border-b border-border px-4 py-3">
           <div className="min-w-0">
             <h2 className="text-[14px] font-semibold">Add project</h2>

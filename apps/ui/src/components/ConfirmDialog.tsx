@@ -37,8 +37,8 @@ export function ConfirmDialog(props: ConfirmDialogProps) {
   };
 
   return (
-    <div className="no-drag fixed inset-0 z-[60] flex items-center justify-center bg-black/40" onMouseDown={(e) => e.target === e.currentTarget && props.onClose()}>
-      <div role="alertdialog" aria-modal className="w-[420px] max-w-[90vw] rounded-xl border border-border bg-card p-5 shadow-2xl">
+    <div className="no-drag fixed inset-0 z-[60] flex items-center justify-center bg-scrim" onMouseDown={(e) => e.target === e.currentTarget && props.onClose()}>
+      <div role="alertdialog" aria-modal className="w-[420px] max-w-[90vw] rounded-xl border overlay p-5">
         <h2 className="text-[14px] font-semibold">{props.title}</h2>
         <div className="mt-2 text-[12.5px] leading-relaxed text-muted">{props.body}</div>
         {(error || props.blockedReason) && <p className="mt-3 text-[12px] text-error">{error ?? props.blockedReason}</p>}

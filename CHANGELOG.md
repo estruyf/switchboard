@@ -11,6 +11,7 @@ All notable changes to Switchboard are listed here. Each release is also on the 
 - A new **About** section in Settings shows the version you're running and the commit it was built from, links to its release notes and the changelog, and has the update settings: automatic checks on or off, and the *Stable* or *Nightly* channel. The version also shows at the bottom of the Settings sidebar, and in the About Switchboard window.
 - Back up and move your settings. **Settings → Backup** (or *Export settings…* in the command palette) saves your preferences, projects with their icons, project actions and app choices to a file; *Import settings…* shows what a file would change before anything happens, merges by default or replaces, and lets you point folders that aren't on this Mac at new ones. Your current settings are backed up first, and imported shell actions ask for approval before they run.
 - A session keeps its permission mode (such as *Auto*) when it picks up again after being stopped, idling for a while or rewinding, instead of falling back to *Default*. The mode shown also follows changes Claude Code makes on its own, such as leaving plan mode.
+- Menus, dropdowns, popovers and dialogs stand out more from what's behind them, especially in dark mode: they have a lighter surface, a clearer border and a stronger shadow, and dialogs dim the app further.
 
 ## [0.0.3] - 2026-10-06
 

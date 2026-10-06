@@ -92,8 +92,8 @@ export function CapabilitiesDialog({ sessionId, cwd, profileId, onClose }: { ses
   ];
 
   return (
-    <div className="no-drag fixed inset-0 z-[60] flex items-start justify-center bg-black/40 pt-[10vh]" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
-      <div role="dialog" aria-label="Tools" className="flex max-h-[76vh] w-[640px] max-w-[92vw] flex-col overflow-hidden rounded-xl border border-border bg-card shadow-2xl" data-capabilities>
+    <div className="no-drag fixed inset-0 z-[60] flex items-start justify-center bg-scrim pt-[10vh]" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
+      <div role="dialog" aria-label="Tools" className="flex max-h-[76vh] w-[640px] max-w-[92vw] flex-col overflow-hidden rounded-xl border overlay" data-capabilities>
         <div className="flex h-11 shrink-0 items-center gap-3 border-b border-border px-4">
           <h2 className="text-[13px] font-semibold">Tools</h2>
           {/* Plugins, MCP servers and skills differ per Claude profile. */}

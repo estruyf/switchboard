@@ -89,7 +89,7 @@ export function TooltipLayer() {
       ref={ref}
       role="tooltip"
       style={{ left: position?.left ?? 0, top: position?.top ?? 0, visibility: position ? 'visible' : 'hidden' }}
-      className="pointer-events-none fixed z-[100] max-w-[320px] rounded-md border border-border bg-card px-2 py-1 text-[11.5px] leading-snug whitespace-pre-line text-text shadow-lg"
+      className="pointer-events-none fixed z-[100] max-w-[320px] rounded-md border overlay px-2 py-1 text-[11.5px] leading-snug whitespace-pre-line text-text"
       data-tooltip-layer
     >
       {shown.text}

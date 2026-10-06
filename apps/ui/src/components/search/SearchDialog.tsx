@@ -98,8 +98,8 @@ export function SearchDialog() {
   }, [active]);
 
   return (
-    <div className="no-drag fixed inset-0 z-[60] flex items-start justify-center bg-black/40 pt-[12vh]" onMouseDown={(e) => e.target === e.currentTarget && close()}>
-      <div role="dialog" aria-label="Search conversations" className="flex max-h-[70vh] w-[680px] max-w-[92vw] flex-col overflow-hidden rounded-xl border border-border bg-card shadow-2xl" data-search>
+    <div className="no-drag fixed inset-0 z-[60] flex items-start justify-center bg-scrim pt-[12vh]" onMouseDown={(e) => e.target === e.currentTarget && close()}>
+      <div role="dialog" aria-label="Search conversations" className="flex max-h-[70vh] w-[680px] max-w-[92vw] flex-col overflow-hidden rounded-xl border overlay" data-search>
         <label className="flex h-12 shrink-0 items-center gap-2.5 border-b border-border px-4">
           <Search size={16} className="shrink-0 text-faint" />
           <input

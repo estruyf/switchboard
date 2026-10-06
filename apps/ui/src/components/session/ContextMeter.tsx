@@ -85,7 +85,7 @@ export function ContextMeter({ sessionId, live, messages }: { sessionId: string;
         {Math.round(live.percent)}%<span className="@max-[860px]:hidden"> · {compactTokens(live.tokens)} / {compactTokens(live.max)}</span>
       </button>
       {open && (
-        <div className="absolute right-0 bottom-full z-30 mb-1.5 w-72 rounded-lg border border-border bg-card p-3 text-[12px] text-text shadow-xl" data-context-breakdown>
+        <div className="absolute right-0 bottom-full z-30 mb-1.5 w-72 rounded-lg border overlay p-3 text-[12px] text-text" data-context-breakdown>
           <p className="font-semibold">Context window</p>
           <p className="mt-0.5 text-[11.5px] text-muted">
             {compactTokens(live.tokens)} of {compactTokens(live.max)} tokens ({Math.round(live.percent)}%){breakdown ? ` · ${breakdown.model}` : ''}

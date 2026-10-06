@@ -120,8 +120,8 @@ export function ActionEditor({
   const used = new Set(actions.map((a) => a.command));
 
   return (
-    <div className="no-drag fixed inset-0 z-[60] flex items-center justify-center bg-black/40" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
-      <div role="dialog" aria-modal className="flex max-h-[85vh] w-[560px] max-w-[92vw] flex-col rounded-xl border border-border bg-card shadow-2xl">
+    <div className="no-drag fixed inset-0 z-[60] flex items-center justify-center bg-scrim" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
+      <div role="dialog" aria-modal className="flex max-h-[85vh] w-[560px] max-w-[92vw] flex-col rounded-xl border overlay">
         <header className="flex items-center justify-between border-b border-border px-5 py-3">
           <h2 className="text-[14px] font-semibold">Project actions</h2>
           <button type="button" onClick={onClose} className="text-faint hover:text-text" aria-label="Close">

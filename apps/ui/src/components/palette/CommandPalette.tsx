@@ -173,8 +173,8 @@ export function CommandPalette() {
   };
 
   return (
-    <div className="no-drag fixed inset-0 z-[60] flex items-start justify-center bg-black/40 pt-[14vh]" onMouseDown={(e) => e.target === e.currentTarget && close()}>
-      <div role="dialog" aria-label="Command palette" className="flex max-h-[60vh] w-[560px] max-w-[92vw] flex-col overflow-hidden rounded-xl border border-border bg-card shadow-2xl" data-palette>
+    <div className="no-drag fixed inset-0 z-[60] flex items-start justify-center bg-scrim pt-[14vh]" onMouseDown={(e) => e.target === e.currentTarget && close()}>
+      <div role="dialog" aria-label="Command palette" className="flex max-h-[60vh] w-[560px] max-w-[92vw] flex-col overflow-hidden rounded-xl border overlay" data-palette>
         <input
           autoFocus
           value={query}
