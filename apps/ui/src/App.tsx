@@ -2,6 +2,7 @@ import { useEffect } from 'react';
 import { NewSessionView } from './components/newSession/NewSessionView.tsx';
 import { TooltipLayer } from './components/ui/Tooltip.tsx';
 import { useOpenIn } from './components/OpenInButton.tsx';
+import { LinkError } from './components/LinkError.tsx';
 import { QuitPrompt } from './components/QuitPrompt.tsx';
 import { CommandPalette } from './components/palette/CommandPalette.tsx';
 import { SearchDialog } from './components/search/SearchDialog.tsx';
@@ -13,6 +14,7 @@ import { Sidebar } from './components/sidebar/Sidebar.tsx';
 import { TranscriptView } from './components/transcript/TranscriptView.tsx';
 import { useReadyReport } from './engine/useReadyReport.ts';
 import { isActiveHost, useHosts } from './state/hostsStore.ts';
+import { useLinksSync } from './state/linksStore.ts';
 import { useSessions } from './state/sessionsStore.ts';
 import { useOverlay } from './state/overlayStore.ts';
 import { usePreferencesSync } from './state/preferencesStore.ts';
@@ -133,6 +135,8 @@ export function App() {
   useSidebarSync();
   useUsageSync();
   usePreferencesSync();
+  // Listen for links before telling main the window is ready: main hands over waiting links then.
+  useLinksSync();
   useReadyReport();
   useShortcuts();
   useWindowFocus();
@@ -170,6 +174,7 @@ export function App() {
         )}
       </main>
       <QuitPrompt />
+      <LinkError />
       {overlay === 'search' && <SearchDialog />}
       {overlay === 'palette' && <CommandPalette />}
       {adding && <AddProjectDialog onClose={() => useProjects.getState().showAdd(false)} />}

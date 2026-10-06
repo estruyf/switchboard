@@ -41,6 +41,10 @@ mac:
   entitlementsInherit: build/entitlements.mac.plist
 dmg:
   title: Switchboard
+# switchboard:// links (docs/deep-links.md): declared in Info.plist so macOS opens them with the app.
+protocols:
+  - name: Switchboard link
+    schemes: [switchboard]
 # The update feed: packaged apps get app-update.yml pointing here, and the build writes latest-mac.yml
 # (nightly-mac.yml when built with -c.publish.channel=nightly, as the release workflow does for a -nightly. version).
 # Nothing is uploaded by electron-builder (--publish never);

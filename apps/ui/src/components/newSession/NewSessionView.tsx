@@ -1,4 +1,4 @@
-import { Cpu, GitBranch } from 'lucide-react';
+import { Cpu, GitBranch, Link2 } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import type { ImageAttachment, ProjectInspection, SlashCommand } from '@switchboard/protocol/client';
 import { useEngineConnection } from '../../engine/useEngine.ts';
@@ -9,6 +9,7 @@ import { MODE_DESCRIPTION, MODE_DOT, routeHint } from './route.ts';
 import { basename, guessHome } from '../../lib/format.ts';
 import { MODE_CHOICES, MODE_LABEL, nextMode, worktreeSlug } from '../../lib/modes.ts';
 import { useHosts } from '../../state/hostsStore.ts';
+import { useLinks } from '../../state/linksStore.ts';
 import { usePreferences } from '../../state/preferencesStore.ts';
 import { useProfiles } from '../../state/profilesStore.ts';
 import { addedProjects } from '../../state/projectList.ts';
@@ -19,6 +20,7 @@ import { Composer } from '../composer/Composer.tsx';
 import { PROFILE_DOT } from '../profiles/ProfileBadge.tsx';
 import { Checkbox } from '../ui/Checkbox.tsx';
 import { UsageBand } from '../UsageBand.tsx';
+import { linkNoticeText } from './linkNotice.ts';
 import { globalPatch, INITIAL_CHOICES, readGlobals, sameDefaults, startingChoices, toProjectDefaults, type Choices, type GlobalChoices } from './choices.ts';
 
 const DEFAULTS_KEY = 'newSession.defaults';
@@ -93,6 +95,21 @@ export function NewSessionView() {
   const defaultProfile = useProfiles((s) => s.defaultId);
   /** The folder the user changed options for: until the folder changes, late-arriving defaults never override their choices. */
   const touchedFor = useRef<string | null>(null);
+  /** A `switchboard://` link chose the folder (or chose to leave it empty): the remembered or preferred folder must not fill it. */
+  const folderFromLink = useRef(false);
+  const linkRequest = useLinks((s) => s.newSession);
+  /** Replaces the prompt: a link's prompt, or clearing it. */
+  const [preset, setPreset] = useState<{ text: string; seq: number } | undefined>(undefined);
+  const presets = useRef(0);
+  /** The prompt came from a link and hasn't been sent or cleared: its length, to say so under the message box. */
+  const [linkPrompt, setLinkPrompt] = useState<number | null>(null);
+  /** A link's `repo`: being looked up, or not found among your checkouts. */
+  const [linkRepo, setLinkRepo] = useState<{ repo: string; state: 'looking' | 'missing' } | null>(null);
+  /** The link named no folder: rather than guess, the folder is left empty and the picker opens. */
+  const [linkNoFolder, setLinkNoFolder] = useState(false);
+  const [pickerRequest, setPickerRequest] = useState(0);
+  /** An `autostart` link's prompt, sent as soon as its folder and the project's defaults are in place. */
+  const [pendingStart, setPendingStart] = useState<string | null>(null);
 
   const projects = useProjects((s) => s.projects);
   const projectFilter = useProjects((s) => s.filter);
@@ -124,7 +141,7 @@ export function NewSessionView() {
     void client.call('appState.get', { key: DEFAULTS_KEY }).then(({ value }) => {
       const stored = readGlobals(value);
       setGlobals(stored.globals);
-      setCwd((current) => current ?? stored.cwd);
+      if (!folderFromLink.current) setCwd((current) => current ?? stored.cwd);
       setLoaded(true);
     });
   }, [client, loaded]);
@@ -137,8 +154,68 @@ export function NewSessionView() {
   useEffect(() => {
     // Only fills an empty field. A project filtered in the sidebar is the natural default.
     const preferred = projectFilter && folders.includes(projectFilter) ? projectFilter : folders[0];
-    if (loaded && !cwd && preferred) setCwd((c) => c ?? preferred);
+    if (loaded && !cwd && preferred && !folderFromLink.current) setCwd((c) => c ?? preferred);
   }, [loaded, folders, cwd, projectFilter]);
+  // A `switchboard://new-session` link: fill in its folder and prompt. Unless it says `autostart`, nothing
+  // is sent; the user reads it and presses Enter.
+  useEffect(() => {
+    if (!linkRequest) return;
+    const link = useLinks.getState().take();
+    if (!link) return;
+    // The store has already turned a project name into its folder.
+    folderFromLink.current = true;
+    touchedFor.current = null;
+    setProfileOverride(null);
+    setAddAsProject(true);
+    setCwd(link.cwd);
+    setLinkRepo(link.repo ? { repo: link.repo, state: 'looking' } : null);
+    setLinkNoFolder(!link.cwd && !link.repo);
+    if (!link.cwd && !link.repo) setPickerRequest((n) => n + 1);
+    // Starting needs a folder the link chose; a link without one waits for the user like any other.
+    setPendingStart(link.autostart && link.prompt && (link.cwd || link.repo) ? link.prompt : null);
+    if (link.prompt) {
+      setPreset({ text: link.prompt, seq: ++presets.current });
+      setDraftPrompt(link.prompt);
+      setLinkPrompt(link.prompt.length);
+    }
+  }, [linkRequest]);
+  // Find a checkout of the link's repository among your projects and folders with sessions.
+  const lookingFor = linkRepo?.state === 'looking' ? linkRepo.repo : null;
+  useEffect(() => {
+    if (!client || !lookingFor) return;
+    let cancelled = false;
+    client.call('projects.findByRepo', { repo: lookingFor }).then(
+      ({ root }) => {
+        if (cancelled) return;
+        if (root) {
+          setCwd(root);
+          setLinkRepo(null);
+        } else {
+          setLinkRepo({ repo: lookingFor, state: 'missing' });
+          setPendingStart(null);
+        }
+      },
+      () => {
+        if (cancelled) return;
+        setLinkRepo({ repo: lookingFor, state: 'missing' });
+        setPendingStart(null);
+      },
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, [client, lookingFor]);
+  // Clearing the prompt ends the notice: whatever is typed next is the user's own.
+  useEffect(() => {
+    if (linkPrompt !== null && !draftPrompt) setLinkPrompt(null);
+  }, [draftPrompt, linkPrompt]);
+  const clearLinkPrompt = () => {
+    setPendingStart(null);
+    setPreset({ text: '', seq: ++presets.current });
+    setDraftPrompt('');
+    setLinkPrompt(null);
+  };
+
   // A new folder starts from its project's defaults (again when they arrive or change, until the user changes something).
   useEffect(() => {
     if (!loaded || touchedFor.current === cwd) return;
@@ -184,6 +261,9 @@ export function NewSessionView() {
   };
   const changeFolder = (folder: string) => {
     touchedFor.current = null;
+    setLinkRepo(null);
+    setLinkNoFolder(false);
+    setPendingStart(null);
     setProfileOverride(null);
     setCwd(folder);
     setAddAsProject(true);
@@ -219,7 +299,8 @@ export function NewSessionView() {
     [sessions, live, hosts, cwd, scope],
   );
 
-  const create = async (text: string, attachments: ImageAttachment[]) => {
+  /** `fromLink`: started by an `autostart` link, which never adds the folder to your projects. */
+  const create = async (text: string, attachments: ImageAttachment[], fromLink = false) => {
     if (!client || !cwd) throw new Error('Choose a folder first');
     const { sessionId } = await client.call('session.create', {
       cwd,
@@ -232,11 +313,24 @@ export function NewSessionView() {
       checkoutBranch,
       profileId,
     });
-    if (!isProject && addAsProject && inspection?.exists) {
+    if (!isProject && addAsProject && !fromLink && inspection?.exists) {
       await client.call('projects.add', { path: cwd }).then(reloadProjects, () => {});
     }
     select(sessionId);
   };
+
+  // An `autostart` link: start once the folder is checked and the options are the project's defaults
+  // (they settle a render after the folder changes), exactly as if the user had pressed Enter.
+  const projectsLoaded = useProjects((s) => s.loaded);
+  const settled = JSON.stringify(d) === JSON.stringify(startingChoices(globals, projectDefaults));
+  useEffect(() => {
+    if (pendingStart === null || !client || !cwd || !loaded || !projectsLoaded || !settled || lookingFor || inspection?.path !== cwd) return;
+    const text = pendingStart;
+    setPendingStart(null);
+    // A folder that is gone can't start; the prompt stays filled in to start elsewhere.
+    if (!inspection.exists) return;
+    create(text, [], true).catch((error: Error) => useLinks.getState().fail(`Couldn't start the session: ${error.message}`));
+  }, [pendingStart, client, cwd, loaded, projectsLoaded, settled, lookingFor, inspection]);
 
   const modelLabel = d.model ? (models.find((m) => m.value === d.model)?.displayName ?? d.model) : 'Default model';
   const toolbar = (
@@ -301,7 +395,13 @@ export function NewSessionView() {
   );
 
   const folderProblem = !cwd
-    ? folders.length
+    ? linkNoFolder
+      ? "The link doesn't say which project. Pick where Claude should work."
+      : linkRepo
+      ? linkRepo.state === 'looking'
+        ? `Looking for a checkout of ${linkRepo.repo}…`
+        : `None of your folders is a checkout of ${linkRepo.repo}. Pick where Claude should work.`
+      : folders.length
       ? 'Pick where Claude should work.'
       : 'Pick where Claude should work. Folders you add as projects are listed here.'
     : !inspection ? 'Checking folder…' : !inspection.exists ? 'This folder no longer exists.' : null;
@@ -313,7 +413,7 @@ export function NewSessionView() {
 
       <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
         <div className="mx-auto my-auto grid w-full max-w-3xl grid-cols-[minmax(0,1fr)] gap-5 px-6 pt-2 pb-12" data-new-session-view>
-          <FolderPicker value={cwd} folders={folders} home={home} branches={folderBranches} onChange={changeFolder} onChooseOther={() => void chooseFolder()} />
+          <FolderPicker value={cwd} folders={folders} home={home} branches={folderBranches} onChange={changeFolder} onChooseOther={() => void chooseFolder()} openRequest={pickerRequest} />
 
           <div>
             <div onInput={(e) => setDraftPrompt((e.target as HTMLTextAreaElement).value ?? '')} className="relative z-10">
@@ -326,6 +426,7 @@ export function NewSessionView() {
                 large
                 autoFocus
                 focusRequest={focusRequest}
+                preset={preset}
                 toolbar={toolbar}
                 onCycleMode={() => update({ permissionMode: nextMode(d.permissionMode) })}
                 disabledReason={!client ? 'Connecting to the engine…' : !cwd ? 'Choose a folder first' : inspection && !inspection.exists ? 'That folder no longer exists' : null}
@@ -412,6 +513,16 @@ export function NewSessionView() {
               </span>
             </div>
           </div>
+
+          {linkPrompt !== null && (
+            <div className="-mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 px-4 text-[11.5px] text-muted" data-link-notice role="status">
+              <Link2 size={13} className="shrink-0 text-accent-ink" aria-hidden />
+              <span className="min-w-0">{pendingStart !== null ? 'Starting a session with the prompt from an external link…' : linkNoticeText(linkPrompt)}</span>
+              <button type="button" onClick={clearLinkPrompt} className="text-link hover:underline" data-clear-link-prompt>
+                Clear
+              </button>
+            </div>
+          )}
 
           <div className="-mt-1 flex flex-wrap items-center justify-between gap-x-4 gap-y-2 px-4 text-[11.5px] text-faint" data-route-hint>
             <span className="min-w-0 truncate">

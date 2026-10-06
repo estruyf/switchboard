@@ -56,6 +56,8 @@ console.log(`${String(result.controlsResult).startsWith('ok') ? '✓' : '✗'} c
 if (!String(result.controlsResult).startsWith('ok')) process.exitCode = 1;
 console.log(`${String(result.newSessionResult).startsWith('ok') ? '✓' : '✗'} new session view: ${result.newSessionResult}`);
 if (!String(result.newSessionResult).startsWith('ok')) process.exitCode = 1;
+console.log(`${String(result.deepLinkResult).startsWith('ok') ? '✓' : '✗'} links: ${result.deepLinkResult}`);
+if (!String(result.deepLinkResult).startsWith('ok')) process.exitCode = 1;
 console.log(`${result.quitGuarded ? '✓' : '✗'} ⌘Q asks first, Cancel keeps the app open, a second ⌘Q quits`);
 console.log(`${result.settingsResult === 'ok' ? '✓' : '✗'} settings: theme, sidebar style, session scope, tool activity, startup and quit prompt apply at once and are saved${result.settingsResult === 'ok' ? '' : ` (${result.settingsResult})`}`);
 console.log(`${result.terminalOpened ? '✓' : '✗'} terminal panel opened a shell`);

@@ -55,6 +55,7 @@ It uses the Claude Code you already have installed, with your login, settings, c
 - A built-in terminal per session (⌘J), with a tab for your shell and one for the full Claude Code terminal interface.
 - **Project actions**: one-click buttons for things like *Commit*, *Test* or *Publish*, running a command or sending Claude a prompt. See [Project actions](docs/project-actions.md).
 - **Open in** your editor, terminal or Finder (⌘O), and click any file path in the conversation to open it at that line.
+- **Links** that open Switchboard: `switchboard://new-session?project=payments&prompt=…` (or `cwd=/path`, or `repo=owner/name`) opens New session with the project and prompt filled in, and `switchboard://session/<id>` opens a session. Put them in runbooks, alerts, READMEs or Raycast and Alfred scripts. By default you read the prompt and press Enter; add `autostart=1` to start right away. See [Links](docs/deep-links.md).
 - Delete sessions you don't need. They go to the Trash, so you can get them back.
 
 ## Requirements
@@ -134,6 +135,7 @@ Switchboard reads the session files Claude Code already keeps in `~/.claude` (an
 ## Documentation
 
 - [Project actions](docs/project-actions.md): add buttons for your own commands and prompts, and share them with your team.
+- [Links](docs/deep-links.md): open Switchboard from a `switchboard://` URL, with examples for the shell, READMEs, Raycast, Alfred and alerts.
 - [Building, signing and notarisation](docs/building-and-signing.md): packaging the app, and signing it with an Apple Developer ID.
 - [Development](docs/development.md): running from source, tests, and how the code is organised.
 - [Changelog](CHANGELOG.md): what's new in each release.

@@ -17,6 +17,7 @@ export function FolderPicker({
   branches,
   onChange,
   onChooseOther,
+  openRequest = 0,
 }: {
   value: string | null;
   folders: string[];
@@ -25,6 +26,8 @@ export function FolderPicker({
   branches: Map<string, string | null>;
   onChange(folder: string): void;
   onChooseOther(): void;
+  /** Changing it opens the list (a link that didn't say which project). */
+  openRequest?: number;
 }) {
   const projects = useProjects((s) => s.projects);
   const [open, setOpen] = useState(false);
@@ -61,6 +64,11 @@ export function FolderPicker({
     // Start on the current folder when opening, and on the best match while filtering.
     setActive(filter.trim() ? 0 : Math.max(0, value ? options.indexOf(value) : 0));
   }, [open, filter]);
+  useEffect(() => {
+    if (!openRequest || !trigger.current) return;
+    setUpward(window.innerHeight - trigger.current.getBoundingClientRect().bottom < 340);
+    setOpen(true);
+  }, [openRequest]);
   useEffect(() => {
     listRef.current?.querySelector('[data-active="true"]')?.scrollIntoView({ block: 'nearest' });
   }, [active, open]);

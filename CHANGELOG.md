@@ -4,6 +4,7 @@ All notable changes to Switchboard are listed here. Each release is also on the 
 
 ## [Unreleased]
 
+- Open Switchboard from a link. `switchboard://new-session?project=payments&prompt=…` opens New session in that project with the prompt filled in. Use `cwd=/path` for any folder, or `repo=owner/name` and Switchboard finds your checkout of that GitHub repository. A link that doesn't say where opens the project list instead of guessing. By default you read the prompt and press Enter (a note under the message box says it came from a link); add `autostart=1` to start the session right away. `switchboard://session/<id>` opens a session. Links Switchboard can't use show why and change nothing. See [Links](docs/deep-links.md) for the format and examples.
 - A running action's terminal tab has a **Stop** button, and ⌃C in it stops the action like in any terminal. An action stopped this way shows exit code 130 instead of 0.
 - **Restart** on a finished action now runs it again in the same tab. If the action was edited, the new command runs; if it comes from `.switchboard.json` and changed, it has to be approved again (run it from the actions bar) before it restarts.
 - Switchboard updates itself. It checks for a new release shortly after it opens and every few hours; a pill at the bottom of the sidebar offers the update, shows what's new, downloads it when you click, and restarts into it (asking first if sessions are running). **Switchboard → Check for Updates…** checks right away.

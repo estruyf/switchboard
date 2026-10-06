@@ -228,6 +228,14 @@ Personal overrides shared, which overrides global. **Safety:** commands from a r
 - **Reading:** the SDK's transcript readers take the folder from `process.env.CLAUDE_CONFIG_DIR` only, so `ConfigDirLane` runs calls for one folder at a time. `MultiProfileSource` merges the profiles' sessions and routes each read to the folder it was found in; the index, search and live registry cover every folder, and every session records its `profileId`.
 - **UI:** Settings → Claude profiles (add with a folder, colour, default, sign-in command; the account comes from Claude Code's `.claude.json`). With more than one profile: a dot on sidebar rows, a tag in the session header and Tools, a profile picker in New session, per-project links, and the usage band for the session's profile. With one, nothing shows outside Settings.
 
+### 5.6 Links ✅ ([#5](https://github.com/estruyf/switchboard/issues/5))
+
+- **`switchboard://new-session?prompt=…&cwd=…|project=name|repo=owner/name[&autostart=1]`** fills in New session (`cwd` > `project` > `repo`); **`switchboard://session/<id>`** opens a session. By default nothing is sent and the message box says the prompt came from a link until it is sent or cleared; `autostart=1` starts it once the folder and the project's defaults are in place, only when the link names the folder, and without adding the folder to your projects. A link naming no folder leaves it empty and opens the project list. `project` matches your projects' names (then folder names) in the renderer, before anything changes. Format and examples in [docs/deep-links.md](docs/deep-links.md).
+- **Main** validates the URL in a pure module (`deepLink.ts`): prompt ≤ 5,000 characters without control or invisible characters, `cwd` absolute and local without `.`/`..`, `repo` as `owner/name`. Unknown parameters are ignored, a bad value refuses the link with a short message. Links arriving before the renderer is ready (cold start via `open-url`, engine restart) are queued and handed over on `rendererReady`.
+- **Engine:** `projects.findByRepo` matches GitHub remotes (`git config --local`) of your projects, then other folders with sessions, a few at a time.
+- **Registration:** `protocols` in `electron-builder.yml` (Info.plist) plus `setAsDefaultProtocolClient` in packaged builds only; development and smoke builds don't touch the system's handlers.
+- Later: `model` and `permissionMode` from a link, limited to safe values (never `bypassPermissions`).
+
 ### v0.2: power features
 - ✅ **Embedded terminal** per session (xterm.js on node-pty), plus a raw `claude` TUI tab for anything the GUI doesn't cover (including mods). Built ahead of schedule; project actions will reuse it.
 - **Diff panel:** the session's git diff against its starting point, with stage, revert and **rewind to message** (`rewindFiles`).

@@ -135,6 +135,11 @@ export const contract = {
     'projects.setDefaults': { params: z.object({ root: AbsolutePath, defaults: ProjectDefaults }), result: z.object({}) },
     /** Puts your projects in this order (roots not listed keep their place after these). */
     'projects.reorder': { params: z.object({ roots: z.array(AbsolutePath).max(5000) }), result: z.object({}) },
+    /**
+     * A local checkout of GitHub's `owner/name`: the first of your projects, then the other folders with
+     * sessions (most recently active first), with a git remote on that repository. Null when none has one.
+     */
+    'projects.findByRepo': { params: z.object({ repo: z.string().max(200).regex(/^[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+$/) }), result: z.object({ root: AbsolutePath.nullable() }) },
     // --- Claude profiles (one login per config folder) --------------------------------------
     'profiles.list': { params: z.object({}), result: ProfilesSnapshot },
     /** Adds a profile for a config folder (created when missing). Sign in there with `CLAUDE_CONFIG_DIR=<folder> claude`. */

@@ -33,3 +33,13 @@ export function moveRoot(roots: string[], root: string, delta: -1 | 1): string[]
 
 /** A project's display name for a folder that may not be a project. */
 export const folderName = (projects: Map<string, ProjectInfo>, root: string) => projects.get(root)?.name ?? basename(root);
+
+/**
+ * One of your projects by name, for a `project=` link: its name, else its folder's name, ignoring
+ * case. With several matches, the first in your order wins. Folders you haven't added never match.
+ */
+export function projectByName(projects: Map<string, ProjectInfo>, name: string): ProjectInfo | null {
+  const wanted = name.trim().toLowerCase();
+  const yours = addedProjects(projects);
+  return yours.find((p) => p.name.toLowerCase() === wanted) ?? yours.find((p) => basename(p.root).toLowerCase() === wanted) ?? null;
+}

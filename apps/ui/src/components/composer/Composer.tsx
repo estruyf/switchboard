@@ -19,6 +19,8 @@ interface Palette {
 export interface ComposerProps {
   /** Text to start with (Edit and resend). */
   initialText?: string;
+  /** Replaces the text whenever `seq` changes (a prompt from a `switchboard://` link, or clearing it). */
+  preset?: { text: string; seq: number };
   cwd: string | null;
   commands: SlashCommand[];
   placeholder: string;
@@ -62,6 +64,21 @@ export function Composer(props: ComposerProps) {
   const rootRef = useRef<HTMLDivElement>(null);
   const listRef = useRef<HTMLUListElement>(null);
   const searchSeq = useRef(0);
+
+  const presetSeq = props.preset?.seq;
+  useEffect(() => {
+    if (presetSeq === undefined) return;
+    const value = props.preset!.text;
+    setText(value);
+    setPalette(null);
+    requestAnimationFrame(() => {
+      const el = ref.current;
+      if (el && !el.disabled) {
+        el.focus();
+        el.setSelectionRange(value.length, value.length);
+      }
+    });
+  }, [presetSeq]);
 
   // Grow with the content up to a limit, then scroll.
   useLayoutEffect(() => {

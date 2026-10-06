@@ -26,6 +26,7 @@ export const IpcChannel = {
   getUpdateState: 'switchboard:get-update-state',
   updateState: 'switchboard:update-state',
   updateCommand: 'switchboard:update-command',
+  deepLink: 'switchboard:deep-link',
 } as const;
 
 /** Appearance: follow macOS, or always light or dark. */
@@ -130,6 +131,29 @@ export interface UpdateState {
 /** What the renderer can ask the updater to do. `retry` repeats whatever failed; `dismiss` clears "Updated to vX". */
 export type UpdateCommand = 'check' | 'download' | 'install' | 'retry' | 'dismiss';
 
+/**
+ * A validated `switchboard://` link, from main to the renderer. It opens New session with the folder and
+ * prompt filled in (and starts the session only with `autostart`), or shows an existing session.
+ */
+export type DeepLink =
+  | {
+      action: 'new-session';
+      /** Text for the message box (at most 5,000 characters). */
+      prompt: string | null;
+      /** An absolute local folder. */
+      cwd: string | null;
+      /** One of your projects, by name; only when there is no `cwd`. */
+      project: string | null;
+      /** GitHub `owner/name`, resolved to a known checkout; only when there is neither `cwd` nor `project`. */
+      repo: string | null;
+      /** Start the session at once instead of waiting for Enter. Needs a prompt and a folder the link names. */
+      autostart: boolean;
+    }
+  | { action: 'session'; sessionId: string };
+
+/** A link to act on, or why one was refused (shown briefly; nothing changes). */
+export type DeepLinkMessage = { link: DeepLink } | { error: string };
+
 /** Sent once per engine connection by the renderer. Used for startup timing and the smoke test. */
 export interface RendererReadyReport {
   /** Epoch ms when the first ping came back, i.e. when the UI could talk to the engine. */
@@ -178,4 +202,6 @@ export interface SwitchboardBridge {
   update(command: UpdateCommand): void;
   /** Saves the channel in Preferences and checks again right away. */
   setUpdateChannel(channel: UpdateChannel): void;
+  /** A `switchboard://` link was opened (main holds links until this window's renderer is ready). */
+  onDeepLink(listener: (message: DeepLinkMessage) => void): () => void;
 }

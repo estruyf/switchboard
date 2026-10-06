@@ -20,6 +20,7 @@ import {
 import { LiveRegistry } from './claude/liveRegistry.ts';
 import { createProjectResolver } from './claude/projectResolver.ts';
 import { sdkSessionSource, type SessionSource } from './claude/sessionSource.ts';
+import { findCheckout } from './git/remotes.ts';
 import { fileDiff, listBranches, listChanges, removeWorktree, revert, stage, switchBranch, worktreeStatus } from './git/gitChanges.ts';
 import { SearchIndex } from './sessions/searchIndex.ts';
 import { installedPlugins } from './host/capabilities.ts';
@@ -415,6 +416,19 @@ export function createEngine(options: EngineOptions): Engine {
   const defaultEditorKey = 'editor.default';
   const editorEnv = () => shell.forLookup();
 
+  /** Session count and latest activity per project folder, for the project list. */
+  const folderActivity = () => {
+    const activity = new Map<string, FolderActivity>();
+    for (const s of sessions.snapshot().sessions) {
+      const entry = activity.get(s.projectRoot);
+      if (entry) {
+        entry.count++;
+        entry.lastActivity = Math.max(entry.lastActivity, s.updatedAt);
+      } else activity.set(s.projectRoot, { count: 1, lastActivity: s.updatedAt });
+    }
+    return activity;
+  };
+
   const handlers: Handlers<Contract> = {
     'system.info': async (): Promise<SystemInfo> => {
       const described = await shell.describe();
@@ -464,16 +478,10 @@ export function createEngine(options: EngineOptions): Engine {
       sessions.markViewed(sessionId);
       return {};
     },
-    'projects.list': () => {
-      const activity = new Map<string, FolderActivity>();
-      for (const s of sessions.snapshot().sessions) {
-        const entry = activity.get(s.projectRoot);
-        if (entry) {
-          entry.count++;
-          entry.lastActivity = Math.max(entry.lastActivity, s.updatedAt);
-        } else activity.set(s.projectRoot, { count: 1, lastActivity: s.updatedAt });
-      }
-      return { projects: projects.list(activity) };
+    'projects.list': () => ({ projects: projects.list(folderActivity()) }),
+    'projects.findByRepo': async ({ repo }) => {
+      const folders = projects.list(folderActivity()).filter((p) => p.exists).map((p) => p.root);
+      return { root: await findCheckout(folders, repo) };
     },
     'projects.add': ({ path }) => {
       projects.add(path);

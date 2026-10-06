@@ -2,9 +2,10 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 
 import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { app, BrowserWindow, dialog, ipcMain, Menu, MessageChannelMain, nativeTheme, shell, type MenuItemConstructorOptions } from 'electron';
-import { IpcChannel, sanitizePreferences, type AppInfo, type RendererReadyReport, type UpdateCommand } from '@switchboard/protocol/bridge';
+import { IpcChannel, sanitizePreferences, type AppInfo, type DeepLinkMessage, type RendererReadyReport, type UpdateCommand } from '@switchboard/protocol/bridge';
 import { EngineProcess } from './engineProcess.ts';
 import type { AttentionEvent } from './attention.ts';
+import { DEEP_LINK_SCHEME, linkFromArgv, parseDeepLink } from './deepLink.ts';
 import { Notifier } from './notifier.ts';
 import { PreferencesStore, windowBackground } from './preferences.ts';
 import { QuitGuard } from './quitGuard.ts';
@@ -149,6 +150,29 @@ const quitGuard = new QuitGuard({
 ipcMain.on(IpcChannel.quitAnswer, (_event, answer: unknown) => {
   if (answer === 'quit' || answer === 'cancel') quitGuard.answer(answer);
 });
+
+/** Links that arrived before a window could take them: one that launched the app, or one during an engine restart. */
+const pendingLinks: DeepLinkMessage[] = [];
+
+/**
+ * Opens a `switchboard://` link. It is validated here, then handed to the window, which fills in New
+ * session (never sends) or shows the session. A refused link only shows why.
+ */
+function openDeepLink(url: string): void {
+  const parsed = parseDeepLink(url);
+  const message: DeepLinkMessage = parsed.ok ? { link: parsed.link } : { error: parsed.error };
+  console.log(`[main] link: ${parsed.ok ? parsed.link.action : `refused (${parsed.error})`}`);
+  if (!app.isReady()) {
+    pendingLinks.push(message);
+    return;
+  }
+  const win = BrowserWindow.getAllWindows()[0] ?? createWindow();
+  if (win.isMinimized()) win.restore();
+  win.show();
+  win.focus();
+  if (readyRenderers.has(win.webContents.id)) win.webContents.send(IpcChannel.deepLink, message);
+  else pendingLinks.push(message);
+}
 
 // The smoke test checks quitting without ending its own run.
 const quitApp = () => (smokeOutDir ? (quitRecorded = true) : app.quit());
@@ -310,6 +334,7 @@ ipcMain.on(IpcChannel.rendererReady, (event, report: RendererReadyReport) => {
   };
   readyReports.push(timed);
   readyRenderers.add(event.sender.id);
+  for (const message of pendingLinks.splice(0)) event.sender.send(IpcChannel.deepLink, message);
   if (readyReports.length === 1) {
     console.log(`[main] engine connected ${timed.connectedMs}ms, diagnostics loaded ${timed.loadedMs}ms after process start`);
   }
@@ -542,6 +567,7 @@ let projectsResult = 'not run';
 let profilesResult = 'not run';
 let aboutResult = 'not run';
 let newSessionResult = 'not run';
+let deepLinkResult = 'not run';
 let rendering: Record<string, number> = {};
 
 /** Adds a project action through the editor, runs it from the header and checks it opened a terminal tab. */
@@ -986,6 +1012,67 @@ async function runNewSessionStep(win: BrowserWindow): Promise<string> {
   return `ok: ${hint}`;
 }
 
+/**
+ * `switchboard://` links, fed to the handler directly (no `open`, so the system's link handlers are
+ * untouched). A new-session link fills in the folder and prompt and says where the prompt came from,
+ * but sends nothing; a bad link shows why and changes nothing; a repo with no checkout leaves the folder
+ * empty; a session link opens the session under test again.
+ */
+async function runDeepLinkStep(win: BrowserWindow): Promise<string> {
+  const js = (code: string) => win.webContents.executeJavaScript(code);
+  const prompt = 'Smoke test from a link:\nsummarise this folder.';
+  const folder = homedir();
+  const composer = "document.querySelector('[data-new-session-view] [data-composer]')";
+  openDeepLink(`switchboard://new-session?prompt=${encodeURIComponent(prompt)}&cwd=${encodeURIComponent(folder)}`);
+  if (!(await waitInPage(win, `${composer}?.value === ${JSON.stringify(prompt)} && document.querySelector('[data-folder-select]')?.dataset.value === ${JSON.stringify(folder)}`, 5_000))) {
+    return `the link did not fill in New session (${String(await js(`${composer}?.value + ' in ' + document.querySelector('[data-folder-select]')?.dataset.value`))})`;
+  }
+  if (!(await waitInPage(win, "document.querySelector('[data-link-notice]')?.innerText.includes('external link')", 2_000))) return 'no notice that the prompt came from a link';
+  await new Promise((resolve) => setTimeout(resolve, 300));
+  await shot(win, 'deep-link.png');
+
+  // A refused link explains itself and leaves the prompt alone.
+  openDeepLink('switchboard://delete-everything?cwd=/');
+  if (!(await waitInPage(win, "document.querySelector('[data-link-error]')?.innerText.includes('delete-everything')", 3_000))) return 'an unknown action showed no error';
+  await new Promise((resolve) => setTimeout(resolve, 300));
+  await shot(win, 'deep-link-error.png');
+  if ((await js(`${composer}?.value`)) !== prompt) return 'a refused link changed the prompt';
+  await js("document.querySelector('[data-link-error] button').click()");
+
+  // Clear empties the prompt and ends the notice. Nothing was sent all along.
+  await js("document.querySelector('[data-clear-link-prompt]').click()");
+  if (!(await waitInPage(win, `${composer}?.value === '' && !document.querySelector('[data-link-notice]')`, 2_000))) return 'Clear did not empty the prompt and the notice';
+  if (!(await js("!!document.querySelector('[data-new-session-view]') && !document.querySelector('[data-current-session]')"))) return 'the link left New session (was something started?)';
+
+  // A project that isn't one of yours is refused before anything changes.
+  openDeepLink('switchboard://new-session?project=switchboard-smoke-no-such-project&prompt=hi');
+  if (!(await waitInPage(win, "document.querySelector('[data-link-error]')?.innerText.includes('switchboard-smoke-no-such-project')", 5_000))) return 'an unknown project showed no error';
+  if ((await js(`${composer}?.value`)) !== '') return 'an unknown project still filled in the prompt';
+  await js("document.querySelector('[data-link-error] button').click()");
+
+  // No folder in the link: nothing is guessed, the folder list opens, and even autostart waits.
+  openDeepLink('switchboard://new-session?prompt=Wait%20for%20me&autostart=1');
+  if (!(await waitInPage(win, `${composer}?.value === 'Wait for me' && document.querySelector('[data-folder-select]')?.dataset.value === '' && document.querySelector('[data-folder-select]')?.getAttribute('aria-expanded') === 'true'`, 5_000))) {
+    return 'a link without a folder did not leave it empty with the folder list open';
+  }
+  await new Promise((resolve) => setTimeout(resolve, 1_000));
+  if (!(await js("!!document.querySelector('[data-new-session-view]') && !document.querySelector('[data-current-session]') && document.querySelector('[data-link-notice]')?.innerText.includes('Read it')"))) return 'autostart without a folder did not wait';
+  await shot(win, 'deep-link-no-folder.png');
+  win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Escape' });
+  win.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Escape' });
+
+  // No checkout of this repository: the folder is left empty, with the reason.
+  openDeepLink('switchboard://new-session?repo=switchboard-smoke/no-such-repo&prompt=hi');
+  if (!(await waitInPage(win, "document.querySelector('[data-folder-select]')?.dataset.value === '' && document.querySelector('[data-route-hint]')?.innerText.includes('switchboard-smoke/no-such-repo')", 20_000))) {
+    return `a repo without a checkout did not leave the folder empty (${String(await js("document.querySelector('[data-route-hint]')?.innerText"))})`;
+  }
+
+  if (!smokeSessionId) return 'ok: filled in folder and prompt, refused a bad link, empty folder for an unknown repo (no session to open)';
+  openDeepLink(`switchboard://session/${smokeSessionId}`);
+  if (!(await waitInPage(win, `document.querySelector('[data-current-session="${smokeSessionId}"]')`, 5_000))) return 'a session link did not open the session';
+  return 'ok: filled in folder and prompt with a notice, sent nothing, refused a bad link and an unknown project, no folder (even with autostart) opens the list and waits, empty folder for an unknown repo, opened a session';
+}
+
 /** ⌘K, type "tog chan", Enter: the Changes panel toggles; again to put it back. */
 async function runPaletteStep(win: BrowserWindow): Promise<string> {
   const js = (code: string) => win.webContents.executeJavaScript(code);
@@ -1287,6 +1374,7 @@ async function runSmokeStep(win: BrowserWindow | null): Promise<void> {
     dropResult = await runDropStep(win).catch((error: Error) => `failed: ${error.message}`);
     controlsResult = await runControlsStep(win).catch((error: Error) => `failed: ${error.message}`);
     newSessionResult = await runNewSessionStep(win).catch((error: Error) => `failed: ${error.message}`);
+    deepLinkResult = await runDeepLinkStep(win).catch((error: Error) => `failed: ${error.message}`);
     usageBand = (await waitInPage(win, "document.querySelector('[data-usage-band]')", 15_000))
       ? await win.webContents.executeJavaScript("document.querySelector('[data-usage-band]').innerText.replace(/\\s+/g, ' ')")
       : null;
@@ -1336,6 +1424,7 @@ async function runSmokeStep(win: BrowserWindow | null): Promise<void> {
         dropResult,
         controlsResult,
         newSessionResult,
+        deepLinkResult,
         liveSession,
         terminalOpened,
         quitGuarded,
@@ -1389,6 +1478,11 @@ app.whenReady().then(() => {
   notifier.connect();
   createWindow();
   updater.start();
+  // The packaged app declares the scheme in Info.plist; this also takes it back if another app claimed it.
+  // Development and smoke builds leave the system's link handlers alone.
+  if (app.isPackaged && !smokeOutDir && !app.isDefaultProtocolClient(DEEP_LINK_SCHEME)) app.setAsDefaultProtocolClient(DEEP_LINK_SCHEME);
+  const launchLink = linkFromArgv(process.argv);
+  if (launchLink) openDeepLink(launchLink);
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
@@ -1396,7 +1490,16 @@ app.whenReady().then(() => {
   if (smokeOutDir) setTimeout(() => exitApp(2), process.env.SWITCHBOARD_SMOKE_LIVE_CWD ? 180_000 : 45_000).unref();
 });
 
-app.on('second-instance', () => {
+// macOS delivers links here, also the one that launched the app (before 'ready', so it waits in pendingLinks).
+app.on('open-url', (event, url) => {
+  event.preventDefault();
+  openDeepLink(url);
+});
+
+app.on('second-instance', (_event, argv) => {
+  // Elsewhere a link arrives as an argument to a second instance.
+  const link = linkFromArgv(argv);
+  if (link) return openDeepLink(link);
   const [win] = BrowserWindow.getAllWindows();
   if (win) {
     if (win.isMinimized()) win.restore();
