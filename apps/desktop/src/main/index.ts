@@ -1039,6 +1039,31 @@ async function runActivityStep(win: BrowserWindow): Promise<{ groups: number; st
  * Read-only: opens the Changes panel on the session's real checkout, expands the first file's
  * diff and closes it again. Never stages or reverts (this is the user's own project).
  */
+/**
+ * The open diff: unwrapped, every line's background spans the whole scrollable width; wrapped,
+ * nothing scrolls sideways. Leaves the wrap setting as it found it.
+ */
+async function checkDiffLayout(win: BrowserWindow): Promise<string | null> {
+  const js = (code: string) => win.webContents.executeJavaScript(code);
+  const measure = `(() => {
+    const diff = document.querySelector('[data-file-diff]');
+    const rows = [...diff.firstElementChild.children];
+    return { wrap: diff.dataset.diffWrap === 'true', scroll: diff.scrollWidth, client: diff.clientWidth, narrowest: Math.min(...rows.map((r) => r.offsetWidth)) };
+  })()`;
+  const toggle = "document.querySelector('[data-diff-wrap-toggle]')?.click()";
+  if (!(await js("Boolean(document.querySelector('[data-diff-wrap-toggle]'))"))) return 'no wrap toggle in the Changes panel';
+  const before = (await js(measure)) as { wrap: boolean; scroll: number; client: number; narrowest: number };
+  await js(toggle);
+  await new Promise((resolve) => setTimeout(resolve, 100));
+  const after = (await js(measure)) as typeof before;
+  await js(toggle);
+  const [unwrapped, wrapped] = before.wrap ? [after, before] : [before, after];
+  if (unwrapped.wrap === wrapped.wrap) return 'the wrap toggle did not change the diff';
+  if (unwrapped.narrowest < unwrapped.scroll - 1) return `diff rows are ${unwrapped.narrowest}px wide but the diff scrolls to ${unwrapped.scroll}px (colour stops short)`;
+  if (wrapped.scroll > wrapped.client + 1) return `wrapped diff still scrolls sideways (${wrapped.scroll} > ${wrapped.client}px)`;
+  return null;
+}
+
 async function runChangesStep(win: BrowserWindow): Promise<string> {
   const js = (code: string) => win.webContents.executeJavaScript(code);
   if (!(await waitInPage(win, "document.querySelector('[data-toggle-changes]')", 5_000))) return 'no Changes button (not a git checkout?)';
@@ -1049,12 +1074,14 @@ async function runChangesStep(win: BrowserWindow): Promise<string> {
   if (files > 0) {
     await js("document.querySelector('[data-file-toggle]').click()");
     if (!(await waitInPage(win, "document.querySelector('[data-file-diff] div')", 5_000))) return `${files} files, but the diff did not load`;
+    const layout = await checkDiffLayout(win);
+    if (layout) return layout;
   }
   await new Promise((resolve) => setTimeout(resolve, 300));
   await shot(win, 'changes.png');
   const messageActions = (await js("document.querySelectorAll('[data-message-actions]').length")) as number;
   if (!wasOpen) await js("document.querySelector('[data-toggle-changes]').click()");
-  return `ok: ${files} changed files${files ? ', first diff shown' : ''}; ${messageActions} messages with fork/rewind actions`;
+  return `ok: ${files} changed files${files ? ', first diff shown, rows full width, wraps on request' : ''}; ${messageActions} messages with fork/rewind actions`;
 }
 
 /**

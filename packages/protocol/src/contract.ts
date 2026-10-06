@@ -431,6 +431,8 @@ export const contract = {
     'sessions.live': z.object({ live: z.array(LiveSession) }),
     'transcript.updated': TranscriptUpdate,
     'session.host': SessionHostInfo,
+    /** Claude Code reported a new model list (replaces the one from `models.list`). */
+    'models.changed': z.object({ models: z.array(ModelOption) }),
     'session.stream': StreamDelta,
     'session.permission': PermissionRequest,
     'session.permissionResolved': z.object({ requestId: z.string(), sessionId: z.string() }),

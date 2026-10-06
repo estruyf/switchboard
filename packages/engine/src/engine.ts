@@ -13,6 +13,7 @@ import {
   type Handlers,
   type LogEntry,
   type LogLevel,
+  type ModelOption,
   type RpcServer,
   type SlashCommand,
   type SystemInfo,
@@ -27,6 +28,7 @@ import { SearchIndex } from './sessions/searchIndex.ts';
 import { installedPlugins } from './host/capabilities.ts';
 import { ActionStore, expandCommand, shellQuote, suggestActions } from './actions/actionStore.ts';
 import { HostManager, type SdkRuntime } from './host/hostManager.ts';
+import { createSessionSettingsStore } from './host/sessionSettings.ts';
 import { UsageMonitor } from './host/usageMonitor.ts';
 import { ProjectRegistry, type FolderActivity } from './projects/projectRegistry.ts';
 import { createAppStateStore } from './db/appState.ts';
@@ -336,6 +338,12 @@ export function createEngine(options: EngineOptions): Engine {
       sessions.republish(id);
     },
     installedPlugins: (profileId) => installedPlugins(profiles.runtime(profileId).configDir),
+    sessionSettings: createSessionSettingsStore(cache.db),
+    models: appState.get('models') as ModelOption[] | null,
+    onModels: (models) => {
+      appState.set('models', models);
+      broadcast('models.changed', { models });
+    },
     commandCache: {
       // Persisted for an hour; Claude Code reports fresh lists from every running session anyway.
       get: (key) => {
@@ -493,6 +501,7 @@ export function createEngine(options: EngineOptions): Engine {
       const paths = [transcript, transcript.replace(/\.jsonl$/, '')].filter((p) => existsSync(p));
       await trash(paths, { configDir: profiles.runtime(sessionProfile(sessionId)).configDir });
       sessions.forget(sessionId);
+      hosts.forget(sessionId);
       owned.delete(sessionId);
       unmarkOwned.run(sessionId);
       continued.delete(sessionId);

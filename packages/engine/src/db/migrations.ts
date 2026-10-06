@@ -197,4 +197,15 @@ export const migrations: readonly string[] = [
   `
   ALTER TABLE project_actions ADD COLUMN imported INTEGER NOT NULL DEFAULT 0;
   `,
+
+  // v11: what each session last ran with (its permission mode, and the model and effort you picked), so a resume
+  // after Stop, the idle timeout or an app restart carries on the same way. User choices: keep them.
+  `
+  CREATE TABLE session_settings (
+    id              TEXT PRIMARY KEY,
+    permission_mode TEXT,
+    model           TEXT,
+    effort          TEXT
+  );
+  `,
 ];

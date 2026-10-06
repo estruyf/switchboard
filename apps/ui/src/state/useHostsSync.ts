@@ -15,6 +15,7 @@ export function useHostsSync(): void {
       client.on('session.stream', (delta) => store().applyStream(delta)),
       client.on('session.permission', (request) => store().addPermission(request)),
       client.on('session.permissionResolved', ({ requestId }) => store().removePermission(requestId)),
+      client.on('models.changed', ({ models }) => store().setModels(models)),
     ];
     void client.call('hosts.list', {}).then(({ hosts, permissions }) => store().reset(hosts, permissions));
     void client.call('models.list', {}).then(({ models }) => store().setModels(models));

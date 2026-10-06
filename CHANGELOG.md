@@ -11,6 +11,9 @@ All notable changes to Switchboard are listed here. Each release is also on the 
 
 ### Fixes
 
+- Diffs in the Changes panel scroll sideways with the line numbers kept in view, and added or removed lines are coloured across the whole width. A new button in the panel's header wraps long lines instead; Switchboard remembers your choice.
+- A session that starts again (after Stop, a while idle, or restarting Switchboard) keeps its permission mode, and the model and effort you picked for it, instead of going back to your defaults.
+- The model picker under a session shows the model it runs, such as Opus 5.5, instead of an extra row with the raw model id.
 - Switchboard no longer closes a session that has been idle for a while when a background task is still running in it. That used to stop the task before Claude could report back.
 - The permission mode picker under a session shows the same coloured dot as New session.
 - A session you just started goes to the top of the sidebar, even while another session is working.

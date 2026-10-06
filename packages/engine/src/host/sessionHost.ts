@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import type { CanUseTool, Options, Query, SDKMessage, SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
+import type { CanUseTool, ModelInfo, Options, Query, SDKMessage, SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
 import type {
   Effort,
   HostState,
@@ -88,6 +88,17 @@ function toRaw(message: Extract<SDKMessage, { type: 'assistant' | 'user' }>): Ra
     message: message.message,
     parent_tool_use_id: message.parent_tool_use_id ?? null,
     timestamp: new Date().toISOString(),
+  };
+}
+
+/** Claude Code's model row, as the window shows it. */
+export function toModelOption(m: ModelInfo): ModelOption {
+  return {
+    value: m.value,
+    resolvedModel: m.resolvedModel,
+    displayName: m.displayName,
+    description: m.description,
+    supportsEffort: m.supportsEffort ?? false,
   };
 }
 
@@ -408,13 +419,9 @@ export class SessionHost {
       if (!query) return;
       const [commands, models] = await Promise.all([query.supportedCommands(), query.supportedModels()]);
       this.commands = commands.map((c) => ({ name: c.name, description: c.description, argumentHint: c.argumentHint }));
-      this.models = models.map((m) => ({
-        value: m.value,
-        resolvedModel: m.resolvedModel,
-        displayName: m.displayName,
-        description: m.description,
-        supportsEffort: m.supportsEffort ?? false,
-      }));
+      this.models = models.map(toModelOption);
+      // Let the manager see the new lists (it passes the models on to the window).
+      this.events.info(this.info);
     } catch (error) {
       this.events.log('debug', `Loading commands/models failed: ${(error as Error).message}`);
     }
