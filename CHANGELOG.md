@@ -22,6 +22,7 @@ All notable changes to Switchboard are listed here. Each release is also on the 
 ### Fixes
 
 - The arrow that opens the **Open in** menu is now a proper chevron instead of a tiny glyph sitting off-centre.
+- **New session** no longer counts settled or archived sessions in "running here", so the number matches what the sidebar shows.
 
 ## [0.0.5] - 2026-10-06
 

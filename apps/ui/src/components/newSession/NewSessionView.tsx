@@ -15,7 +15,7 @@ import { useProfiles } from '../../state/profilesStore.ts';
 import { addedProjects } from '../../state/projectList.ts';
 import { useProjects } from '../../state/projectsStore.ts';
 import { realBranch, toRows, useSessions } from '../../state/sessionsStore.ts';
-import { inScope } from '../../state/sidebarRows.ts';
+import { inScope, isActive, isArchived } from '../../state/sidebarRows.ts';
 import { Composer } from '../composer/Composer.tsx';
 import { PROFILE_DOT } from '../profiles/ProfileBadge.tsx';
 import { Checkbox } from '../ui/Checkbox.tsx';
@@ -305,9 +305,16 @@ export function NewSessionView() {
   };
 
   // Sessions with a Claude Code process in this project right now, newest first. Like the
-  // sidebar, sessions started outside Switchboard only count when the scope shows them.
+  // sidebar's live count, only those the main list shows: sessions started outside Switchboard
+  // only count when the scope shows them, and settled or archived ones don't count at all.
   const running = useMemo(
-    () => (cwd ? toRows(sessions, live, hosts).filter((row) => row.live && row.projectRoot === cwd && inScope(row, scope)).sort((a, b) => b.updatedAt - a.updatedAt) : []),
+    () => {
+      if (!cwd) return [];
+      const now = Date.now();
+      return toRows(sessions, live, hosts)
+        .filter((row) => row.live && row.projectRoot === cwd && inScope(row, scope) && isActive(row, now) && !isArchived(row))
+        .sort((a, b) => b.updatedAt - a.updatedAt);
+    },
     [sessions, live, hosts, cwd, scope],
   );
 
