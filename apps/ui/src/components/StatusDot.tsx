@@ -6,17 +6,30 @@ const label: Record<LiveSession['status'], string> = {
   idle: 'Open, idle',
 };
 
-/** Live state of a session: pulsing while working, amber when it needs you, green when open and idle. */
+const backgroundCount = (live: LiveSession) => (live.status === 'idle' ? (live.background?.length ?? 0) : 0);
+
+/**
+ * Live state of a session: pulsing while working, amber when it needs you, green when open and
+ * idle, and slowly pulsing green when idle while background tasks still run.
+ */
 export function StatusDot({ live, className = '' }: { live: LiveSession | null; className?: string }) {
   if (!live) return <span className={`inline-block size-2 shrink-0 ${className}`} aria-hidden />;
-  const tone = live.status === 'running' ? 'bg-accent-ink animate-pulse' : live.status === 'needs-you' ? 'bg-warn' : 'bg-ok';
+  const background = backgroundCount(live);
+  const tone =
+    live.status === 'running' ? 'bg-accent-ink animate-pulse' : live.status === 'needs-you' ? 'bg-warn' : background ? 'bg-ok animate-[pulse_2.5s_ease-in-out_infinite]' : 'bg-ok';
+  const tasks = background ? `\n${live.background!.join('\n')}` : '';
   return (
     <span
       className={`inline-block size-2 shrink-0 rounded-full ${tone} ${className}`}
-      data-tooltip={`${label[live.status]} (${live.rawStatus})`}
-      aria-label={label[live.status]}
+      data-tooltip={`${liveLabel(live)} (${live.rawStatus})${tasks}`}
+      aria-label={liveLabel(live)}
+      data-background-tasks={background || undefined}
     />
   );
 }
 
-export const liveLabel = (live: LiveSession) => label[live.status];
+export function liveLabel(live: LiveSession): string {
+  const background = backgroundCount(live);
+  if (!background) return label[live.status];
+  return `Open, ${background === 1 ? '1 background task' : `${background} background tasks`} running`;
+}

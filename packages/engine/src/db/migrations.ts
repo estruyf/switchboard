@@ -191,4 +191,21 @@ export const migrations: readonly string[] = [
   );
   ALTER TABLE project_settings ADD COLUMN profile_id TEXT;
   `,
+
+  // v10: actions brought in from a settings file. Imported shell actions need approval before they run,
+  // like shared ones; approving or editing one clears the flag.
+  `
+  ALTER TABLE project_actions ADD COLUMN imported INTEGER NOT NULL DEFAULT 0;
+  `,
+
+  // v11: what each session last ran with (its permission mode, and the model and effort you picked), so a resume
+  // after Stop, the idle timeout or an app restart carries on the same way. User choices: keep them.
+  `
+  CREATE TABLE session_settings (
+    id              TEXT PRIMARY KEY,
+    permission_mode TEXT,
+    model           TEXT,
+    effort          TEXT
+  );
+  `,
 ];

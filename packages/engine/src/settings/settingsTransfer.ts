@@ -1,0 +1,420 @@
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { basename, extname, join } from 'node:path';
+import type { DatabaseSync } from 'node:sqlite';
+import {
+  DEFAULT_PREFERENCES,
+  ExportedProject,
+  ICON_EXTENSIONS,
+  ProjectAction,
+  RpcError,
+  SETTINGS_FILE_FORMAT,
+  parseSettingsFile,
+  sanitizePreferences,
+  type BackupSection,
+  type ExportedIcon,
+  type FolderMapping,
+  type ImportChange,
+  type ImportMode,
+  type ImportPreview,
+  type Preferences,
+  type SettingsFile,
+} from '@switchboard/protocol';
+import type { ActionStore } from '../actions/actionStore.ts';
+import type { AppStateStore, JsonValue } from '../db/appState.ts';
+import { parseDefaults, type ProjectRegistry, type StoredIcon } from '../projects/projectRegistry.ts';
+
+/**
+ * App choices a settings file carries, with their names in the import preview. The rest of app_state is
+ * cache or belongs to this Mac (window layout, the open session, command lists, the shell's PATH).
+ */
+export const CHOICE_KEYS: Record<string, string> = {
+  'editor.default': 'Default editor',
+  'newSession.defaults': 'New session defaults',
+  'claudeUpdate.enabled': 'Check for Claude Code updates',
+};
+
+const PREFERENCE_LABELS: Record<keyof Preferences, string> = {
+  colorScheme: 'Theme',
+  sidebarStyle: 'Sidebar style',
+  toolActivity: 'Tool activity',
+  confirmQuit: 'Ask before quitting',
+  sessionScope: 'Sessions in the sidebar',
+  startupView: 'On startup',
+  autoUpdate: 'Automatic updates',
+  updateChannel: 'Update channel',
+};
+
+/** What the settings file is read from and written to. */
+export interface SettingsStores {
+  db: DatabaseSync;
+  appState: AppStateStore;
+  projects: ProjectRegistry;
+  actions: ActionStore;
+}
+
+export interface ExportOptions {
+  sections: readonly BackupSection[];
+  /** Main keeps the preferences; the renderer passes them in. */
+  preferences: unknown;
+  appVersion: string;
+  now?: Date;
+}
+
+const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
+const showValue = (value: unknown) => (typeof value === 'boolean' ? (value ? 'on' : 'off') : String(value));
+
+/** A stored icon as it travels in a file; an image that is gone or unreadable falls back to the detected icon. */
+function exportIcon(icon: StoredIcon | null): ExportedIcon | null {
+  if (!icon) return null;
+  if (icon.kind !== 'file') return icon;
+  const ext = extname(icon.path).toLowerCase();
+  if (!(ICON_EXTENSIONS as readonly string[]).includes(ext)) return null;
+  try {
+    return { kind: 'image', ext: ext as (typeof ICON_EXTENSIONS)[number], data: readFileSync(icon.path).toString('base64') };
+  } catch {
+    return null;
+  }
+}
+
+/** Builds a settings file from the chosen sections. Only user choices; nothing derived from ~/.claude. */
+export function exportSettings(stores: SettingsStores, options: ExportOptions): SettingsFile {
+  const want = new Set(options.sections);
+  const file: SettingsFile = {
+    kind: 'switchboard-settings',
+    format: SETTINGS_FILE_FORMAT,
+    appVersion: options.appVersion,
+    exportedAt: (options.now ?? new Date()).toISOString(),
+  };
+  if (want.has('preferences')) file.preferences = { ...DEFAULT_PREFERENCES, ...sanitizePreferences(options.preferences) };
+  if (want.has('projects')) {
+    file.projects = stores.projects.addedEntries().map((entry) => ({
+      path: entry.root,
+      icon: exportIcon(entry.icon),
+      defaults: entry.defaults && Object.values(entry.defaults).some((v) => v !== null) ? entry.defaults : null,
+    }));
+  }
+  if (want.has('actions')) {
+    const global: ProjectAction[] = [];
+    const byProject = new Map<string, ProjectAction[]>();
+    for (const { projectRoot, action } of stores.actions.all()) {
+      if (projectRoot === null) global.push(action);
+      else byProject.set(projectRoot, [...(byProject.get(projectRoot) ?? []), action]);
+    }
+    file.actions = { global, projects: [...byProject].map(([path, actions]) => ({ path, actions })) };
+  }
+  if (want.has('choices')) {
+    const choices: Record<string, JsonValue> = {};
+    for (const key of Object.keys(CHOICE_KEYS)) {
+      const value = stores.appState.get(key);
+      if (value !== null) choices[key] = value;
+    }
+    file.choices = choices;
+  }
+  if (want.has('sessions')) {
+    const ids = (sql: string) => (stores.db.prepare(sql).all() as Array<{ id: string }>).map((r) => r.id);
+    file.sessions = {
+      pinned: ids('SELECT id FROM session_flags WHERE pinned = 1 ORDER BY id'),
+      settled: stores.db.prepare('SELECT id, settled_at AS at FROM session_flags WHERE settled_at IS NOT NULL ORDER BY id').all() as Array<{ id: string; at: number }>,
+      owned: ids('SELECT id FROM owned_sessions ORDER BY id'),
+      continued: ids('SELECT id FROM continued_sessions ORDER BY id'),
+    };
+  }
+  return file;
+}
+
+export function writeSettingsFile(path: string, file: SettingsFile): void {
+  writeFileSync(path, `${JSON.stringify(file, null, 2)}\n`);
+}
+
+/** Reads and validates a settings file; errors are worded for the person importing it. */
+export function readSettingsFile(path: string): SettingsFile {
+  let raw: unknown;
+  try {
+    raw = JSON.parse(readFileSync(path, 'utf8'));
+  } catch (error) {
+    const missing = (error as NodeJS.ErrnoException).code === 'ENOENT';
+    throw new RpcError(missing ? 'NOT_FOUND' : 'INVALID', missing ? `No file at ${path}` : 'This file is not valid JSON, so it is not a Switchboard settings file.');
+  }
+  const parsed = parseSettingsFile(raw);
+  if ('error' in parsed) throw new RpcError('INVALID', parsed.error);
+  return parsed.file;
+}
+
+const BACKUPS_KEPT = 10;
+
+/** Writes the current settings next to the app's data before an import, keeping the newest few. Returns its path. */
+export function writeBackup(dir: string, file: SettingsFile, now = new Date()): string {
+  mkdirSync(dir, { recursive: true });
+  const stamp = now.toISOString().replace(/[:.]/g, '-');
+  const path = join(dir, `switchboard-settings-before-import-${stamp}.json`);
+  writeSettingsFile(path, file);
+  const old = readdirSync(dir)
+    .filter((name) => name.startsWith('switchboard-settings-before-import-') && name.endsWith('.json'))
+    .sort()
+    .reverse()
+    .slice(BACKUPS_KEPT);
+  for (const name of old) rmSync(join(dir, name), { force: true });
+  return path;
+}
+
+export interface ImportOptions {
+  sections: readonly BackupSection[];
+  mode: ImportMode;
+  /** Project folders from the file pointed at folders on this Mac. */
+  relocate: readonly FolderMapping[];
+  /** The current preferences (from main), to compare with. */
+  preferences: unknown;
+}
+
+export interface ImportPlan {
+  preview: ImportPreview;
+  /** Applies the import. Returns the preferences for main to apply (null when they weren't imported). */
+  apply(): { preferences: Partial<Preferences> | null };
+}
+
+const isFolder = (path: string) => existsSync(path) && statSync(path).isDirectory();
+
+/**
+ * Works out what importing a file would change and how. Merge adds what is missing and keeps your
+ * values where both have one; Replace makes projects, actions, app choices and preferences match the
+ * file. Sessions are only ever added. Imported shell actions need approval before they run, unless the
+ * same command is already yours here.
+ */
+export function planImport(stores: SettingsStores, file: SettingsFile, options: ImportOptions): ImportPlan {
+  const replace = options.mode === 'replace';
+  const want = new Set(options.sections);
+  const present = (['preferences', 'projects', 'actions', 'choices', 'sessions'] as const).filter((s) => file[s] !== undefined);
+  const has = (section: BackupSection) => want.has(section) && file[section] !== undefined;
+  const relocated = new Map(options.relocate.map((m) => [m.from, m.to]));
+  const target = (path: string) => relocated.get(path) ?? path;
+
+  const changes: ImportChange[] = [];
+  let unchanged = 0;
+  const missing = new Set<string>();
+  /** Database writes, run in one transaction. */
+  const writes: Array<() => void> = [];
+  /** Run after the transaction (they open their own). */
+  const after: Array<() => void> = [];
+  const note = (section: BackupSection, label: string, change: ImportChange['change'], detail: string | null = null) => changes.push({ section, label, change, detail });
+  /** Where a folder from the file is on this Mac, or null (then noted as missing). */
+  const locate = (path: string): string | null => {
+    const to = target(path);
+    if (isFolder(to)) return to;
+    missing.add(path);
+    return null;
+  };
+  const relocatedNote = (from: string, to: string) => (from === to ? null : `from ${from}`);
+
+  // --- Preferences --------------------------------------------------------------------------
+  let preferences: Partial<Preferences> | null = null;
+  if (has('preferences')) {
+    preferences = {};
+    const current: Preferences = { ...DEFAULT_PREFERENCES, ...sanitizePreferences(options.preferences) };
+    const incoming = sanitizePreferences(file.preferences);
+    for (const key of Object.keys(incoming) as Array<keyof Preferences>) {
+      const value = incoming[key];
+      if (same(current[key], value)) unchanged++;
+      // A preference still at its default counts as never set: Merge fills it in.
+      else if (replace || same(current[key], DEFAULT_PREFERENCES[key])) {
+        Object.assign(preferences, { [key]: value });
+        note('preferences', PREFERENCE_LABELS[key], 'change', `${showValue(current[key])} → ${showValue(value)}`);
+      } else note('preferences', PREFERENCE_LABELS[key], 'keep', `yours: ${showValue(current[key])}, file: ${showValue(value)}`);
+    }
+  }
+
+  // --- Projects -----------------------------------------------------------------------------
+  if (has('projects')) {
+    const current = new Map(stores.projects.addedEntries().map((e) => [e.root, e]));
+    const order: string[] = [];
+    for (const [index, raw] of file.projects!.entries()) {
+      const parsed = ExportedProject.safeParse(raw);
+      if (!parsed.success) {
+        note('projects', `Project ${index + 1}`, 'skip', 'not readable');
+        continue;
+      }
+      const entry = parsed.data;
+      const root = locate(entry.path);
+      if (!root) {
+        note('projects', entry.path, 'skip', 'folder not found on this Mac');
+        continue;
+      }
+      if (order.includes(root)) continue;
+      order.push(root);
+      const defaults = entry.defaults ? parseDefaults(entry.defaults) : null;
+      const usefulDefaults = defaults && Object.values(defaults).some((v) => v !== null) ? defaults : null;
+      const setIcon = () => {
+        const icon = entry.icon;
+        if (!icon) stores.projects.setIcon(root, { kind: 'auto' });
+        else if (icon.kind === 'image') {
+          try {
+            stores.projects.setIconImage(root, icon.ext, Buffer.from(icon.data, 'base64'));
+          } catch {
+            // An unusable image: the project keeps the detected icon.
+            stores.projects.setIcon(root, { kind: 'auto' });
+          }
+        } else stores.projects.setIcon(root, icon);
+      };
+      const setDefaults = () => stores.projects.setDefaults(root, usefulDefaults ?? parseDefaults({}));
+      const existing = current.get(root);
+      if (!existing) {
+        note('projects', root, 'add', relocatedNote(entry.path, root));
+        writes.push(() => {
+          stores.projects.add(root);
+          setIcon();
+          setDefaults();
+        });
+        continue;
+      }
+      const iconDiffers = !same(exportIcon(existing.icon), entry.icon);
+      const defaultsDiffer = !same(existing.defaults, usefulDefaults);
+      if (!iconDiffers && !defaultsDiffer) {
+        unchanged++;
+        continue;
+      }
+      const what = [iconDiffers && 'icon', defaultsDiffer && 'defaults for new sessions'].filter(Boolean).join(' and ');
+      // Merge fills in only what isn't set here.
+      const takeIcon = iconDiffers && (replace || existing.icon === null);
+      const takeDefaults = defaultsDiffer && (replace || existing.defaults === null);
+      if (takeIcon || takeDefaults) {
+        note('projects', root, 'change', what);
+        writes.push(() => {
+          if (takeIcon) setIcon();
+          if (takeDefaults) setDefaults();
+        });
+      } else note('projects', root, 'keep', `your ${what} differ`);
+    }
+    if (replace) {
+      for (const root of current.keys()) {
+        if (order.includes(root)) continue;
+        note('projects', root, 'remove', 'off the list; nothing on disk changes');
+        writes.push(() => stores.projects.remove(root));
+      }
+      after.push(() => stores.projects.reorder(order));
+    }
+  }
+
+  // --- Actions ------------------------------------------------------------------------------
+  if (has('actions')) {
+    const key = (scope: string | null, id: string) => `${scope ?? ''}\0${id}`;
+    const current = new Map(stores.actions.all().map((e) => [key(e.projectRoot, e.action.id), e]));
+    const seen = new Set<string>();
+    const scopes: Array<{ path: string | null; actions: unknown[] }> = [
+      { path: null, actions: file.actions!.global },
+      ...file.actions!.projects,
+    ];
+    for (const scope of scopes) {
+      const root = scope.path === null ? null : locate(scope.path);
+      const where = scope.path === null ? 'all projects' : basename(root ?? scope.path);
+      for (const [index, raw] of scope.actions.entries()) {
+        const parsed = ProjectAction.safeParse(raw);
+        const name = (raw as { name?: unknown })?.name;
+        const label = `${parsed.success ? parsed.data.name : typeof name === 'string' ? name : `Action ${index + 1}`} · ${where}`;
+        if (!parsed.success) {
+          note('actions', label, 'skip', 'not readable');
+          continue;
+        }
+        if (scope.path !== null && !root) {
+          note('actions', label, 'skip', 'folder not found on this Mac');
+          continue;
+        }
+        const action = parsed.data;
+        const k = key(root, action.id);
+        if (seen.has(k)) continue;
+        seen.add(k);
+        const existing = current.get(k);
+        const shell = action.type === 'shell';
+        if (!existing) {
+          note('actions', label, 'add', shell ? 'needs your approval before it runs' : null);
+          writes.push(() => stores.actions.save(root, action, undefined, shell));
+        } else if (same(existing.action, action)) unchanged++;
+        else if (replace) {
+          // Approval is for a command: one you already have here (and approved) stays approved.
+          const needsApproval = shell && (existing.imported || existing.action.type !== 'shell' || existing.action.command !== action.command);
+          note('actions', label, 'change', needsApproval ? 'needs your approval before it runs' : null);
+          writes.push(() => stores.actions.save(root, action, undefined, needsApproval));
+        } else note('actions', label, 'keep', 'yours differs');
+      }
+    }
+    if (replace) {
+      for (const [k, entry] of current) {
+        if (seen.has(k)) continue;
+        note('actions', `${entry.action.name} · ${entry.projectRoot === null ? 'all projects' : basename(entry.projectRoot)}`, 'remove');
+        writes.push(() => stores.actions.remove(entry.projectRoot, entry.action.id));
+      }
+    }
+  }
+
+  // --- App choices --------------------------------------------------------------------------
+  if (has('choices')) {
+    for (const [choice, label] of Object.entries(CHOICE_KEYS)) {
+      if (!Object.hasOwn(file.choices!, choice)) continue;
+      const value = file.choices![choice] as JsonValue;
+      const existing = stores.appState.get(choice);
+      if (same(existing, value)) unchanged++;
+      else if (existing === null || replace) {
+        note('choices', label, existing === null ? 'add' : 'change');
+        writes.push(() => stores.appState.set(choice, value));
+      } else note('choices', label, 'keep', 'yours differs');
+    }
+  }
+
+  // --- Sessions (only ever added) -------------------------------------------------------------
+  if (has('sessions')) {
+    const { pinned, settled, owned, continued } = file.sessions!;
+    const ids = (sql: string) => new Set((stores.db.prepare(sql).all() as Array<{ id: string }>).map((r) => r.id));
+    const groups = [
+      { label: 'pinned', ids: pinned, have: ids('SELECT id FROM session_flags WHERE pinned = 1'), sql: 'INSERT INTO session_flags (id, pinned) VALUES (?, 1) ON CONFLICT (id) DO UPDATE SET pinned = 1' },
+      { label: 'started in Switchboard', ids: owned, have: ids('SELECT id FROM owned_sessions'), sql: 'INSERT OR IGNORE INTO owned_sessions (id, created_at) VALUES (?, ?)' },
+      { label: 'continued in Switchboard', ids: continued, have: ids('SELECT id FROM continued_sessions'), sql: 'INSERT OR IGNORE INTO continued_sessions (id, created_at) VALUES (?, ?)' },
+    ];
+    for (const group of groups) {
+      const add = [...new Set(group.ids)].filter((id) => !group.have.has(id));
+      unchanged += group.ids.length - add.length;
+      if (add.length === 0) continue;
+      note('sessions', `${add.length} ${add.length === 1 ? 'session' : 'sessions'} ${group.label}`, 'add', 'shows only where their transcripts are');
+      writes.push(() => {
+        const statement = stores.db.prepare(group.sql);
+        const at = Date.now();
+        for (const id of add) (group.sql.includes('created_at') ? statement.run(id, at) : statement.run(id));
+      });
+    }
+    const settledHere = ids('SELECT id FROM session_flags WHERE settled_at IS NOT NULL');
+    const settle = settled.filter((s) => !settledHere.has(s.id));
+    unchanged += settled.length - settle.length;
+    if (settle.length > 0) {
+      note('sessions', `${settle.length} ${settle.length === 1 ? 'session' : 'sessions'} settled`, 'add', 'shows only where their transcripts are');
+      writes.push(() => {
+        const statement = stores.db.prepare(
+          'INSERT INTO session_flags (id, settled_at) VALUES (?, ?) ON CONFLICT (id) DO UPDATE SET settled_at = COALESCE(session_flags.settled_at, excluded.settled_at)',
+        );
+        for (const { id, at } of settle) statement.run(id, at);
+      });
+    }
+  }
+
+  const preview: ImportPreview = {
+    format: file.format,
+    appVersion: file.appVersion,
+    exportedAt: file.exportedAt,
+    sections: present,
+    changes,
+    unchanged,
+    missingFolders: [...missing],
+  };
+
+  return {
+    preview,
+    apply() {
+      stores.db.exec('BEGIN');
+      try {
+        for (const write of writes) write();
+        stores.db.exec('COMMIT');
+      } catch (error) {
+        stores.db.exec('ROLLBACK');
+        throw error;
+      }
+      for (const step of after) step();
+      return { preferences };
+    },
+  };
+}

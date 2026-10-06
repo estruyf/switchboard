@@ -44,5 +44,8 @@ export function useProjectActionList(projectRoot: string | null) {
     };
   }, [client, projectRoot, version]);
 
+  // An import (in any window) can add, change or remove actions.
+  useEffect(() => client?.on('settings.imported', () => setVersion((v) => v + 1)), [client]);
+
   return { ...state, reload: useCallback(() => setVersion((v) => v + 1), []) };
 }

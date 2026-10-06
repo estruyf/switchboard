@@ -18,6 +18,7 @@
     "check": "npm run typecheck && npm run test",
     "dist": "npm run dist -w @switchboard/desktop",
     "smoke:packaged": "npm run smoke:packaged -w @switchboard/desktop",
+    "dist:preview": "npm run dist:preview -w @switchboard/desktop",
     "dist:notarized": "npm run dist:notarized -w @switchboard/desktop"
   },
   "devDependencies": {

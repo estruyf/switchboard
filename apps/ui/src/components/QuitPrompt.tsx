@@ -5,8 +5,8 @@ import { ConfirmDialog } from './ConfirmDialog.tsx';
 
 const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
 
-/** What quitting would stop, in one sentence (or null when nothing is open). */
-function useQuitImpact(): string | null {
+/** What quitting would stop, in one sentence (or null when nothing is open). Restarting to update asks with it too. */
+export function useQuitImpact(): string | null {
   const hosts = useHosts((s) => s.hosts);
   const terminals = useTerminals((s) => s.terminals.size);
   const open = [...hosts.values()].filter(isActiveHost);

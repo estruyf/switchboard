@@ -9,6 +9,14 @@ export const MODE_LABEL: Record<PermissionMode, string> = {
   bypassPermissions: 'Bypass permissions',
 };
 
+/** The status dot per mode, as a theme colour. */
+export const MODE_DOT: Partial<Record<PermissionMode, string>> = {
+  default: 'bg-ok',
+  acceptEdits: 'bg-link',
+  plan: 'bg-faint',
+  auto: 'bg-accent-ink',
+};
+
 /** Modes offered in menus. Bypass is left out on purpose. */
 export const MODE_CHOICES: PermissionMode[] = ['default', 'acceptEdits', 'plan', 'auto'];
 

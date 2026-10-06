@@ -33,6 +33,8 @@ import { ActionRunResult, ActionSuggestion, ListedAction, ProjectAction } from '
 import { ChangesBase, GitChanges, WorktreeStatus } from './git.ts';
 import { Capabilities } from './capabilities.ts';
 import { ProfileColor, ProfilesSnapshot } from './profiles.ts';
+import { ClaudeUpdateState } from './claudeUpdate.ts';
+import { BackupSectionSchema, FolderMapping, ImportMode, ImportPreview } from './backup.ts';
 
 export const ClaudeInstall = z.object({
   path: z.string(),
@@ -83,6 +85,9 @@ const AbsolutePath = z.string().min(1).max(4096).startsWith('/');
 const Prompt = z.string().max(200_000);
 const ProfileId = z.string().min(1).max(100);
 const ProfileName = z.string().trim().min(1).max(60);
+const SettingsFilePath = AbsolutePath.regex(/\.json$/i, 'Settings files end in .json');
+/** The app's preferences, which main keeps: the renderer passes them in and applies what comes back. */
+const PreferencesRecord = z.record(z.string(), z.unknown());
 
 /** Every request the UI can make and every event the engine can push. */
 export const contract = {
@@ -135,6 +140,11 @@ export const contract = {
     'projects.setDefaults': { params: z.object({ root: AbsolutePath, defaults: ProjectDefaults }), result: z.object({}) },
     /** Puts your projects in this order (roots not listed keep their place after these). */
     'projects.reorder': { params: z.object({ roots: z.array(AbsolutePath).max(5000) }), result: z.object({}) },
+    /**
+     * A local checkout of GitHub's `owner/name`: the first of your projects, then the other folders with
+     * sessions (most recently active first), with a git remote on that repository. Null when none has one.
+     */
+    'projects.findByRepo': { params: z.object({ repo: z.string().max(200).regex(/^[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+$/) }), result: z.object({ root: AbsolutePath.nullable() }) },
     // --- Claude profiles (one login per config folder) --------------------------------------
     'profiles.list': { params: z.object({}), result: ProfilesSnapshot },
     /** Adds a profile for a config folder (created when missing). Sign in there with `CLAUDE_CONFIG_DIR=<folder> claude`. */
@@ -286,7 +296,7 @@ export const contract = {
       result: z.object({}),
     },
     'actions.delete': { params: z.object({ projectRoot: AbsolutePath.nullable(), id: z.string() }), result: z.object({}) },
-    /** Approves a shared action's exact command (an edited command needs approval again). */
+    /** Approves a shared action's exact command (an edited command needs approval again), or an imported action of yours. */
     'actions.trust': { params: z.object({ projectRoot: AbsolutePath, id: z.string() }), result: z.object({}) },
     /** Starter actions for a project (package.json scripts, git, gh). */
     'actions.suggest': { params: z.object({ projectRoot: AbsolutePath }), result: z.object({ suggestions: z.array(ActionSuggestion) }) },
@@ -314,6 +324,14 @@ export const contract = {
     },
     /** Local branches of the repository at `cwd`, and the one checked out (null when detached or not a repo). */
     'git.branches': { params: z.object({ cwd: AbsolutePath }), result: z.object({ current: z.string().nullable(), branches: z.array(z.string()) }) },
+    /**
+     * Checks out a local branch in the checkout at `cwd` with `git switch`: uncommitted changes that
+     * don't conflict come along, and git refuses (GIT_FAILED) when they do. Nothing is stashed or
+     * discarded. Refused (SESSION_BUSY) while Claude is working in a session in this checkout.
+     */
+    'git.switch': { params: z.object({ cwd: AbsolutePath, branch: z.string().min(1).max(250) }), result: z.object({ current: z.string().nullable() }) },
+    /** The checkout's page on github.com (at the branch when it is pushed); null when no remote is on GitHub. */
+    'git.github': { params: z.object({ cwd: AbsolutePath }), result: z.object({ repo: z.string(), url: z.string() }).nullable() },
     'git.stage': { params: z.object({ cwd: AbsolutePath, paths: z.array(z.string().max(4096)).max(5000), staged: z.boolean() }), result: z.object({}) },
     /** Puts files back to HEAD. New files go to the Trash. */
     'git.revert': { params: z.object({ cwd: AbsolutePath, paths: z.array(z.string().max(4096)).min(1).max(5000) }), result: z.object({}) },
@@ -359,6 +377,52 @@ export const contract = {
     },
     /** Kills the process (if still running) and forgets the terminal. */
     'terminal.close': { params: z.object({ id: z.string() }), result: z.object({}) },
+    /** Stops the running process like Ctrl+C (then terminates, then kills it); the tab stays open with the exit code. */
+    'terminal.stop': { params: z.object({ id: z.string() }), result: z.object({}) },
+    /**
+     * Runs an exited terminal's process again in the same tab. A project action is looked up again,
+     * so an edited command is used and one that is no longer approved is refused with UNTRUSTED.
+     */
+    'terminal.restart': { params: z.object({ id: z.string() }), result: TerminalInfo },
+
+    // --- Settings backup -----------------------------------------------------------------------
+    /** Writes the chosen kinds of user choices (never the cache) to a settings file. */
+    'settings.export': {
+      params: z.object({ path: SettingsFilePath, sections: z.array(BackupSectionSchema).min(1), preferences: PreferencesRecord, appVersion: z.string().max(100) }),
+      result: z.object({ path: z.string() }),
+    },
+    /**
+     * Reads a settings file and reports what importing it would change. With `apply`, first backs up the
+     * current settings (`backupPath`), then imports; `preferences` is what the renderer should apply.
+     * Imported shell actions need approval again before they run.
+     */
+    'settings.import': {
+      params: z.object({
+        path: SettingsFilePath,
+        sections: z.array(BackupSectionSchema),
+        mode: ImportMode.default('merge'),
+        relocate: z.array(FolderMapping).max(5000).default([]),
+        /** The current preferences, to compare with and to back up. */
+        preferences: PreferencesRecord,
+        appVersion: z.string().max(100),
+        apply: z.boolean().default(false),
+      }),
+      result: z.object({ preview: ImportPreview, backupPath: z.string().nullable(), preferences: PreferencesRecord.nullable() }),
+    },
+
+    // --- Claude Code updates -----------------------------------------------------------------
+    'claudeUpdate.get': { params: z.object({}), result: ClaudeUpdateState },
+    /** Compares the installed Claude Code with the newest on its channel now. The result arrives through `claudeUpdate.changed`. */
+    'claudeUpdate.check': { params: z.object({}), result: z.object({}) },
+    /**
+     * Runs the update command for the install method, streaming its output through `claudeUpdate.changed`, then finds
+     * `claude` again so new sessions use the new version. Refused (UNSUPPORTED) when Switchboard can't run it, BUSY while running.
+     */
+    'claudeUpdate.update': { params: z.object({}), result: z.object({}) },
+    /** Hides the notice until a newer version than the one on offer, and clears "Updated to". */
+    'claudeUpdate.dismiss': { params: z.object({}), result: z.object({}) },
+    /** Turns automatic checks on or off (remembered). */
+    'claudeUpdate.setEnabled': { params: z.object({ enabled: z.boolean() }), result: z.object({}) },
   },
   events: {
     'engine.log': LogEntry,
@@ -367,6 +431,8 @@ export const contract = {
     'sessions.live': z.object({ live: z.array(LiveSession) }),
     'transcript.updated': TranscriptUpdate,
     'session.host': SessionHostInfo,
+    /** Claude Code reported a new model list (replaces the one from `models.list`). */
+    'models.changed': z.object({ models: z.array(ModelOption) }),
     'session.stream': StreamDelta,
     'session.permission': PermissionRequest,
     'session.permissionResolved': z.object({ requestId: z.string(), sessionId: z.string() }),
@@ -377,6 +443,9 @@ export const contract = {
     'profiles.changed': ProfilesSnapshot,
     /** Full list whenever terminals start, exit or close. */
     'terminals.changed': z.object({ terminals: z.array(TerminalInfo) }),
+    'claudeUpdate.changed': ClaudeUpdateState,
+    /** Settings were imported: reload projects and actions. */
+    'settings.imported': z.object({}),
   },
 } as const satisfies ContractShape;
 

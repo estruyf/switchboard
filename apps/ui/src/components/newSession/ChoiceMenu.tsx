@@ -102,7 +102,7 @@ export function ChoiceMenu<T extends string>({
           role="menu"
           data-menu={name}
           style={{ width }}
-          className={`absolute left-0 z-40 max-h-80 overflow-y-auto rounded-lg border border-border bg-card py-1 shadow-xl ${upward ? 'bottom-full mb-1.5' : 'top-full mt-1.5'}`}
+          className={`absolute left-0 z-40 max-h-80 overflow-y-auto rounded-lg border overlay py-1 ${upward ? 'bottom-full mb-1.5' : 'top-full mt-1.5'}`}
         >
           {heading && <p className="px-3 pt-1.5 pb-1 text-[10px] tracking-wide text-faint uppercase">{heading}</p>}
           {choices.map((choice) => (

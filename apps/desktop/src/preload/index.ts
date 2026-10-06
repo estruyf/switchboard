@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron';
-import { ENGINE_PORT_MESSAGE, IpcChannel, type Preferences, type RendererReadyReport, type SwitchboardBridge } from '@switchboard/protocol/bridge';
+import { ENGINE_PORT_MESSAGE, IpcChannel, type AppInfo, type DeepLinkMessage, type Preferences, type RendererReadyReport, type SwitchboardBridge, type UpdateState } from '@switchboard/protocol/bridge';
 
 // MessagePorts can't cross contextBridge, so forward them to the page with window.postMessage.
 ipcRenderer.on(IpcChannel.enginePort, (event) => {
@@ -17,6 +17,8 @@ const bridge: SwitchboardBridge = {
   reportReady: (report: RendererReadyReport) => ipcRenderer.send(IpcChannel.rendererReady, report),
   pickFolder: (defaultPath?: string) => ipcRenderer.invoke(IpcChannel.pickFolder, defaultPath) as Promise<string | null>,
   pickImage: (defaultPath?: string) => ipcRenderer.invoke(IpcChannel.pickImage, defaultPath) as Promise<string | null>,
+  chooseExportFile: (defaultName: string) => ipcRenderer.invoke(IpcChannel.chooseExportFile, defaultName) as Promise<string | null>,
+  chooseImportFile: () => ipcRenderer.invoke(IpcChannel.chooseImportFile) as Promise<string | null>,
   // File.path is gone from Electron; webUtils is how a sandboxed page learns where a dropped file lives.
   getPathForFile: (file: File) => webUtils.getPathForFile(file),
   reportFocus: (sessionId: string | null) => ipcRenderer.send(IpcChannel.focusSession, sessionId),
@@ -40,9 +42,24 @@ const bridge: SwitchboardBridge = {
     return () => ipcRenderer.off(IpcChannel.preferencesChanged, handler);
   },
   onOpenSettings(listener) {
-    const handler = () => listener();
+    const handler = (_event: unknown, section: unknown) => listener(section === 'about' ? 'about' : null);
     ipcRenderer.on(IpcChannel.openSettings, handler);
     return () => ipcRenderer.off(IpcChannel.openSettings, handler);
+  },
+  appInfo: ipcRenderer.sendSync(IpcChannel.getAppInfo) as AppInfo,
+  updateState: ipcRenderer.sendSync(IpcChannel.getUpdateState) as UpdateState,
+  onUpdateState(listener) {
+    const handler = (_event: unknown, state: UpdateState) => listener(state);
+    ipcRenderer.on(IpcChannel.updateState, handler);
+    return () => ipcRenderer.off(IpcChannel.updateState, handler);
+  },
+  update: (command) => ipcRenderer.send(IpcChannel.updateCommand, command),
+  // The channel is a preference; main checks again as soon as it changes.
+  setUpdateChannel: (channel) => ipcRenderer.send(IpcChannel.setPreferences, { updateChannel: channel }),
+  onDeepLink(listener) {
+    const handler = (_event: unknown, message: DeepLinkMessage) => listener(message);
+    ipcRenderer.on(IpcChannel.deepLink, handler);
+    return () => ipcRenderer.off(IpcChannel.deepLink, handler);
   },
 };
 

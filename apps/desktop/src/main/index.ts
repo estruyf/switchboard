@@ -1,20 +1,42 @@
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { app, BrowserWindow, dialog, ipcMain, Menu, MessageChannelMain, nativeTheme, shell, type MenuItemConstructorOptions } from 'electron';
-import { IpcChannel, sanitizePreferences, type RendererReadyReport } from '@switchboard/protocol/bridge';
+import { IpcChannel, sanitizePreferences, type AppInfo, type DeepLinkMessage, type RendererReadyReport, type UpdateCommand } from '@switchboard/protocol/bridge';
 import { EngineProcess } from './engineProcess.ts';
 import type { AttentionEvent } from './attention.ts';
+import { DEEP_LINK_SCHEME, linkFromArgv, parseDeepLink } from './deepLink.ts';
 import { Notifier } from './notifier.ts';
 import { PreferencesStore, windowBackground } from './preferences.ts';
 import { QuitGuard } from './quitGuard.ts';
 import { isConfigDir, isTrashableRepoFile, isTrashableSessionPath } from './trashGuard.ts';
+import { Updater } from './updater.ts';
+import { updatesDisabledReason } from './updateState.ts';
 
 const here = import.meta.dirname;
 const smokeOutDir = process.env.SWITCHBOARD_SMOKE_OUT;
 
+// `Switchboard --version` prints the version for scripts and support, before any window opens.
+if (process.argv.includes('--version')) {
+  process.stdout.write(`${app.getVersion()}\n`);
+  app.exit(0);
+}
+
+/** The running build. The commit is baked in at build time (electron.vite.config.ts). */
+const appInfo: AppInfo = { version: app.getVersion(), commit: __SWITCHBOARD_COMMIT__ || null, dev: !app.isPackaged };
+ipcMain.on(IpcChannel.getAppInfo, (event) => {
+  event.returnValue = appInfo;
+});
+
 // The smoke test runs against a throwaway profile so it never touches real app data.
 if (smokeOutDir) app.setPath('userData', mkdtempSync(join(tmpdir(), 'switchboard-smoke-')));
+// The engine inherits these: the Claude Code check reads a mock registry that offers a newer version, and an
+// update is refused even if one were clicked, so the user's real `claude` is never touched.
+if (smokeOutDir) {
+  process.env.SWITCHBOARD_CLAUDE_REGISTRY ??= `data:application/json,${encodeURIComponent(JSON.stringify({ latest: '999.0.0', stable: '999.0.0' }))}`;
+  process.env.SWITCHBOARD_NO_CLAUDE_UPDATE = '1';
+}
 
 if (!app.requestSingleInstanceLock()) app.quit();
 
@@ -24,9 +46,39 @@ const preferences = new PreferencesStore(join(app.getPath('userData'), 'preferen
 // The smoke steps need sessions to click; on the real ~/.claude most were started elsewhere.
 if (smokeOutDir) preferences.update({ sessionScope: 'all' });
 
+// SWITCHBOARD_MOCK_UPDATES=1 points the updater at a local feed (scripts/mock-update-server.ts).
+const mockFeedUrl = process.env.SWITCHBOARD_MOCK_UPDATES === '1' ? (process.env.SWITCHBOARD_MOCK_UPDATES_URL ?? 'http://localhost:8484') : undefined;
+const updater = new Updater({
+  currentVersion: app.getVersion(),
+  channel: preferences.get().updateChannel,
+  autoCheck: preferences.get().autoUpdate,
+  disabledReason: updatesDisabledReason({
+    env: process.env,
+    packaged: app.isPackaged,
+    devServer: Boolean(process.env.ELECTRON_RENDERER_URL),
+    hasFeed: app.isPackaged && existsSync(join(process.resourcesPath, 'app-update.yml')),
+    mockFeed: Boolean(mockFeedUrl),
+  }),
+  markerFile: join(app.getPath('userData'), 'update-marker.json'),
+  ...(mockFeedUrl ? { mockFeedUrl } : {}),
+  onState: (state) => {
+    for (const win of BrowserWindow.getAllWindows()) win.webContents.send(IpcChannel.updateState, state);
+  },
+  beforeInstall: () => engine?.stop(),
+  log: (message) => console.log(`[updater] ${message}`),
+});
+ipcMain.on(IpcChannel.getUpdateState, (event) => {
+  event.returnValue = updater.state;
+});
+ipcMain.on(IpcChannel.updateCommand, (_event, command: unknown) => {
+  if (command === 'check' || command === 'download' || command === 'install' || command === 'retry' || command === 'dismiss') updater.run(command satisfies UpdateCommand);
+});
+
 /** Applies a change from any window or the menu bar, and tells every window. */
 function updatePreferences(patch: unknown): void {
   const next = preferences.update(patch);
+  updater.setAutoCheck(next.autoUpdate);
+  updater.setChannel(next.updateChannel);
   const item = Menu.getApplicationMenu()?.getMenuItemById(`scheme-${next.colorScheme}`);
   if (item) item.checked = true;
   for (const win of BrowserWindow.getAllWindows()) win.webContents.send(IpcChannel.preferencesChanged, next);
@@ -106,15 +158,44 @@ ipcMain.on(IpcChannel.quitAnswer, (_event, answer: unknown) => {
   if (answer === 'quit' || answer === 'cancel') quitGuard.answer(answer);
 });
 
-// The smoke test checks quitting without ending its own run.
-const quitApp = () => (smokeOutDir ? (quitRecorded = true) : app.quit());
+/** Links that arrived before a window could take them: one that launched the app, or one during an engine restart. */
+const pendingLinks: DeepLinkMessage[] = [];
 
-function openSettings(): void {
+/**
+ * Opens a `switchboard://` link. It is validated here, then handed to the window, which fills in New
+ * session (never sends) or shows the session. A refused link only shows why.
+ */
+function openDeepLink(url: string): void {
+  const parsed = parseDeepLink(url);
+  const message: DeepLinkMessage = parsed.ok ? { link: parsed.link } : { error: parsed.error };
+  console.log(`[main] link: ${parsed.ok ? parsed.link.action : `refused (${parsed.error})`}`);
+  if (!app.isReady()) {
+    pendingLinks.push(message);
+    return;
+  }
   const win = BrowserWindow.getAllWindows()[0] ?? createWindow();
   if (win.isMinimized()) win.restore();
   win.show();
   win.focus();
-  win.webContents.send(IpcChannel.openSettings);
+  if (readyRenderers.has(win.webContents.id)) win.webContents.send(IpcChannel.deepLink, message);
+  else pendingLinks.push(message);
+}
+
+// The smoke test checks quitting without ending its own run.
+const quitApp = () => (smokeOutDir ? (quitRecorded = true) : app.quit());
+
+function openSettings(section: 'about' | null = null): void {
+  const win = BrowserWindow.getAllWindows()[0] ?? createWindow();
+  if (win.isMinimized()) win.restore();
+  win.show();
+  win.focus();
+  win.webContents.send(IpcChannel.openSettings, section);
+}
+
+/** Switchboard → Check for Updates…: checks, and opens Settings → About where the result shows. */
+function checkForUpdates(): void {
+  updater.run('check');
+  openSettings('about');
 }
 
 /** The standard macOS menu, except that ⌘Q goes through the quit guard. */
@@ -124,6 +205,7 @@ function installMenu(): void {
       label: 'Switchboard',
       submenu: [
         { role: 'about' },
+        { id: 'check-updates', label: 'Check for Updates…', click: () => checkForUpdates() },
         { type: 'separator' },
         { label: 'Settings…', accelerator: 'CmdOrCtrl+,', click: () => openSettings() },
         { type: 'separator' },
@@ -250,6 +332,37 @@ ipcMain.handle(IpcChannel.pickImage, async (event, defaultPath: unknown) => {
   return result.canceled ? null : (result.filePaths[0] ?? null);
 });
 
+/** The smoke run has no one to answer a file dialog: it exports to (and previews) a file in its throwaway profile. */
+const smokeSettingsFile = () => join(app.getPath('userData'), 'smoke-settings-export.json');
+
+ipcMain.handle(IpcChannel.chooseExportFile, async (event, defaultName: unknown) => {
+  if (smokeOutDir) return smokeSettingsFile();
+  const win = BrowserWindow.fromWebContents(event.sender);
+  const name = typeof defaultName === 'string' && /^[\w.-]+\.json$/.test(defaultName) ? defaultName : 'switchboard-settings.json';
+  const options: Electron.SaveDialogOptions = {
+    title: 'Export Switchboard settings',
+    defaultPath: join(app.getPath('documents'), name),
+    filters: [{ name: 'Switchboard settings', extensions: ['json'] }],
+    properties: ['createDirectory', 'showOverwriteConfirmation'],
+  };
+  const result = win ? await dialog.showSaveDialog(win, options) : await dialog.showSaveDialog(options);
+  if (result.canceled || !result.filePath) return null;
+  return result.filePath.toLowerCase().endsWith('.json') ? result.filePath : `${result.filePath}.json`;
+});
+
+ipcMain.handle(IpcChannel.chooseImportFile, async (event) => {
+  if (smokeOutDir) return smokeSettingsFile();
+  const win = BrowserWindow.fromWebContents(event.sender);
+  const options: Electron.OpenDialogOptions = {
+    title: 'Import Switchboard settings',
+    defaultPath: app.getPath('documents'),
+    properties: ['openFile'],
+    filters: [{ name: 'Switchboard settings', extensions: ['json'] }],
+  };
+  const result = win ? await dialog.showOpenDialog(win, options) : await dialog.showOpenDialog(options);
+  return result.canceled ? null : (result.filePaths[0] ?? null);
+});
+
 const readyReports: TimedReport[] = [];
 ipcMain.on(IpcChannel.rendererReady, (event, report: RendererReadyReport) => {
   const timed: TimedReport = {
@@ -259,6 +372,7 @@ ipcMain.on(IpcChannel.rendererReady, (event, report: RendererReadyReport) => {
   };
   readyReports.push(timed);
   readyRenderers.add(event.sender.id);
+  for (const message of pendingLinks.splice(0)) event.sender.send(IpcChannel.deepLink, message);
   if (readyReports.length === 1) {
     console.log(`[main] engine connected ${timed.connectedMs}ms, diagnostics loaded ${timed.loadedMs}ms after process start`);
   }
@@ -480,6 +594,8 @@ let settingsResult = 'not run';
 let transcriptAtBottom: number | null = null;
 let activity: { groups: number; steps: number; label: string } | null = null;
 let changesPanel: string = 'not run';
+let branchResult: string = 'not run';
+let openInResult: string = 'not run';
 let searchResult = 'not run';
 let paletteResult = 'not run';
 let toolsResult = 'not run';
@@ -489,7 +605,10 @@ let dropResult = 'not run';
 let controlsResult = 'not run';
 let projectsResult = 'not run';
 let profilesResult = 'not run';
+let aboutResult = 'not run';
+let backupResult = 'not run';
 let newSessionResult = 'not run';
+let deepLinkResult = 'not run';
 let rendering: Record<string, number> = {};
 
 /** Adds a project action through the editor, runs it from the header and checks it opened a terminal tab. */
@@ -619,7 +738,8 @@ async function runSettingsStep(win: BrowserWindow): Promise<string> {
   const scoped = await withSettingsClosed("document.querySelector('[data-session-list]') && !document.querySelector('[data-session-id][data-in-app=\"false\"]')");
   await section('sidebar');
 
-  await section('quitting');
+  await section('general');
+  await click('[data-startup-view="new"]');
   await click('[data-confirm-quit]');
   await pause();
   Menu.getApplicationMenu()?.getMenuItemById('quit')?.click();
@@ -629,6 +749,7 @@ async function runSettingsStep(win: BrowserWindow): Promise<string> {
   const menuChecked = Menu.getApplicationMenu()?.getMenuItemById('scheme-dark')?.checked === true;
 
   await click('[data-confirm-quit]');
+  await click('[data-startup-view="last"]');
   await section('sidebar');
   await click('[data-session-scope]');
   await click('[data-sidebar-style="standard"]');
@@ -640,9 +761,9 @@ async function runSettingsStep(win: BrowserWindow): Promise<string> {
   const restored = preferences.get();
   if (!scoped) return 'other apps\' sessions stayed in the sidebar with the setting off';
   if (!quitWithoutAsking) return '⌘Q still asked with the prompt turned off';
-  if (saved.colorScheme !== 'dark' || saved.sidebarStyle !== 'compact' || saved.toolActivity !== 'steps' || saved.confirmQuit !== false || saved.sessionScope !== 'switchboard') return `not saved: ${JSON.stringify(saved)}`;
+  if (saved.colorScheme !== 'dark' || saved.sidebarStyle !== 'compact' || saved.toolActivity !== 'steps' || saved.confirmQuit !== false || saved.sessionScope !== 'switchboard' || saved.startupView !== 'new') return `not saved: ${JSON.stringify(saved)}`;
   if (!menuChecked) return 'View → Appearance did not follow';
-  if (restored.colorScheme !== 'system' || restored.sidebarStyle !== 'standard' || restored.toolActivity !== 'summary' || !restored.confirmQuit || restored.sessionScope !== 'all') return 'could not restore the defaults';
+  if (restored.colorScheme !== 'system' || restored.sidebarStyle !== 'standard' || restored.toolActivity !== 'summary' || !restored.confirmQuit || restored.sessionScope !== 'all' || restored.startupView !== 'last') return 'could not restore the defaults';
   // Escape closes Settings too.
   win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Escape' });
   if (!(await waitInPage(win, "!document.querySelector('[data-settings]')", 2_000))) return 'Escape did not close Settings';
@@ -674,8 +795,8 @@ async function runProjectsStep(win: BrowserWindow): Promise<string> {
   win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Escape' });
   if (!(await waitInPage(win, `!document.querySelector('[data-add-project-dialog]') && ${row()} && !document.querySelector('[data-sidebar-onboarding]')`, 3_000))) return 'the project did not appear in the list';
 
-  await js(`${row('[data-project-toggle]')}.click()`);
-  if (!(await waitInPage(win, `${row('[data-default-effort]')}`, 3_000))) return 'the defaults editor did not open';
+  // Closing the dialog opens the project just added, so its profile and defaults can be set.
+  if (!(await waitInPage(win, `${row('[data-default-effort]')}`, 3_000))) return 'the new project did not open in the Projects view';
   // Themed dropdown: open with a click, ↓ moves, Escape closes and focus returns.
   const modelSelect = `${rowSelector} [data-default-model]`;
   await js(`document.querySelector(${JSON.stringify(modelSelect)}).click()`);
@@ -712,7 +833,7 @@ async function runProjectsStep(win: BrowserWindow): Promise<string> {
   await click('[data-confirm]');
   if (!(await waitInPage(win, "document.querySelector('[data-no-projects]')", 3_000))) return 'the project was not removed';
   await click('[data-open-projects]');
-  return `ok: ${known} folders offered; added one, dropdown keyboard and Escape, its defaults reached New session, saved a change back, removed it`;
+  return `ok: ${known} folders offered; added one and it opened, dropdown keyboard and Escape, its defaults reached New session, saved a change back, removed it`;
 }
 
 /**
@@ -771,6 +892,130 @@ async function runProfilesStep(win: BrowserWindow): Promise<string> {
   return 'ok: added a second profile, sessions and New session showed it, made it the default, removed it';
 }
 
+/**
+ * Settings → About shows the running version (matching app.getVersion()) and the update controls, and
+ * Check for Updates… is in the app menu. Nothing is checked, downloaded or installed: the menu item is
+ * only clicked when updates are turned off (as in an unpackaged build), where it just opens About.
+ */
+async function runAboutStep(win: BrowserWindow): Promise<string> {
+  const js = (code: string) => win.webContents.executeJavaScript(code);
+  const menuItem = Menu.getApplicationMenu()?.getMenuItemById('check-updates');
+  if (!menuItem) return 'no Check for Updates… in the app menu';
+  const off = updater.state.status === 'disabled';
+  if (off) menuItem.click();
+  else {
+    await js("document.querySelector('[data-open-settings]').click()");
+    await waitInPage(win, "document.querySelector('[data-settings-section=\"about\"]')", 3_000);
+    await js("document.querySelector('[data-settings-section=\"about\"]').click()");
+  }
+  if (!(await waitInPage(win, "document.querySelector('[data-settings-page=\"about\"] [data-about]')", 3_000))) return off ? 'Check for Updates… did not open Settings → About' : 'Settings → About did not open';
+  const shown = (await js("document.querySelector('[data-app-version]')?.dataset.appVersion ?? null")) as string | null;
+  if (shown !== app.getVersion()) return `About shows version ${shown}, the app is ${app.getVersion()}`;
+  const navVersion = (await js("document.querySelector('[data-settings-version]')?.innerText ?? ''")) as string;
+  if (app.isPackaged ? navVersion !== `v${app.getVersion()}` : !navVersion.startsWith('dev')) return `the Settings sidebar shows "${navVersion}"`;
+  const controls = (await js(
+    `['[data-check-updates]', '[data-auto-update]', '[data-update-channel="stable"][aria-checked=true]', '[data-update-channel="nightly"]', '[data-changelog-link]'].filter((s) => !document.querySelector(s))`,
+  )) as string[];
+  if (controls.length > 0) return `missing: ${controls.join(', ')}`;
+  if (off) {
+    const status = (await js("document.querySelector('[data-update-status]')?.innerText ?? ''")) as string;
+    if (!(await js("document.querySelector('[data-update-status=\"disabled\"]') && document.querySelector('[data-check-updates]').disabled"))) return 'updates are off but About does not say so';
+    if (status !== updater.state.disabledReason) return `About says "${status}" instead of the reason updates are off`;
+    if (await js("document.querySelector('[data-update-pill]')")) return 'the sidebar shows an update pill while updates are off';
+  }
+  // With the mock feed (scripts/mock-update-server.ts --fake <newer version>), check it once; never download.
+  let mockCheck = '';
+  if (mockFeedUrl) {
+    await js("document.querySelector('[data-check-updates]').click()");
+    if (!(await waitInPage(win, "['available', 'up-to-date', 'error'].includes(document.querySelector('[data-update-status]')?.dataset.updateStatus)", 10_000))) return 'the mock check did not finish';
+    if (updater.state.status === 'error') return `the mock check failed: ${updater.state.error}`;
+    if (updater.state.status === 'available' && !(await waitInPage(win, "document.querySelector('[data-update-pill=\"available\"]') && document.querySelector('[data-about-release-notes]')", 3_000))) {
+      return 'an update was found but the sidebar pill or the release notes did not show';
+    }
+    mockCheck = `, mock feed: ${updater.state.status === 'available' ? `v${updater.state.availableVersion} offered, pill shown` : 'up to date'}`;
+  }
+  const claudeCheck = await checkClaudeUpdates(win);
+  if (!claudeCheck.startsWith('ok')) return `Claude Code: ${claudeCheck}`;
+  await new Promise((resolve) => setTimeout(resolve, 300));
+  await shot(win, 'about.png');
+  await js("document.querySelector('[data-close-settings]').click()");
+  return `ok: ${navVersion}${off ? `, updates off ("${updater.state.disabledReason}")` : `, updates ${updater.state.status}`}${mockCheck}; ${claudeCheck.slice(4)}`;
+}
+
+/**
+ * Settings → About's Claude Code section, checked against the mock registry (which offers v999.0.0): the installed
+ * version and the update or the command to run show, the sidebar notice appears and Dismiss hides it. Update is
+ * never clicked, and the engine refuses it in smoke runs anyway (SWITCHBOARD_NO_CLAUDE_UPDATE).
+ */
+async function checkClaudeUpdates(win: BrowserWindow): Promise<string> {
+  const js = (code: string) => win.webContents.executeJavaScript(code);
+  if (!(await waitInPage(win, "document.querySelector('[data-claude-updates]')", 5_000))) return 'no Claude Code section in About';
+  if (!(await js("Boolean(document.querySelector('[data-claude-update-auto]'))"))) return 'no automatic-check toggle';
+  await js("document.querySelector('[data-claude-update-check]')?.click()");
+  const statusOf = "document.querySelector('[data-claude-updates]')?.dataset.claudeUpdateStatus";
+  if (!(await waitInPage(win, `['available', 'up-to-date', 'error', 'missing'].includes(${statusOf})`, 20_000))) return `the check did not finish (${await js(statusOf)})`;
+  const status = (await js(statusOf)) as string;
+  if (status === 'missing') return 'ok: no claude installed';
+  if (status !== 'available') return `expected the mock v999.0.0 to be on offer, got ${status}: ${await js("document.querySelector('[data-claude-update-text]')?.innerText")}`;
+  const installed = (await js("document.querySelector('[data-claude-installed-version]')?.dataset.claudeInstalledVersion ?? ''")) as string;
+  const how = (await js("document.querySelector('[data-claude-update-run]') ? 'update button' : document.querySelector('[data-claude-update-command]') ? 'command to copy' : null")) as string | null;
+  if (!how) return 'v999.0.0 is on offer but there is neither an Update button nor a command to copy';
+  const quiet = (await js("document.querySelector('[data-claude-updates]')?.dataset.claudeUpdateQuiet === 'true'")) as boolean;
+  if (quiet) return `ok: v${installed} installed, v999.0.0 offered (${how}), no notice (Claude Code's auto-updater is off)`;
+  // The app's own update pill takes the footer first; only look for the notice when there is none.
+  if (await js("document.querySelector('[data-update-pill]')")) return `ok: v${installed} installed, v999.0.0 offered (${how}), notice behind the app update pill`;
+  if (!(await waitInPage(win, "document.querySelector('[data-claude-update-pill=\"available\"]')", 3_000))) return 'no sidebar notice for v999.0.0';
+  await js("document.querySelector('[data-claude-update-dismiss]').click()");
+  if (!(await waitInPage(win, "!document.querySelector('[data-claude-update-pill]')", 3_000))) return 'Dismiss did not hide the notice';
+  return `ok: v${installed} installed, v999.0.0 offered (${how}), notice shown and dismissed`;
+}
+
+/**
+ * Settings → Backup: exports to a file in the throwaway profile (main skips the save dialog in a smoke run)
+ * and checks it parses, then opens the import preview of that file and cancels. Nothing is imported.
+ */
+async function runBackupStep(win: BrowserWindow): Promise<string> {
+  const js = (code: string) => win.webContents.executeJavaScript(code);
+  const click = (selector: string) => js(`document.querySelector(${JSON.stringify(selector)}).click()`);
+  const file = smokeSettingsFile();
+  rmSync(file, { force: true });
+  if (!(await js("Boolean(document.querySelector('[data-settings]'))"))) await click('[data-open-settings]');
+  if (!(await waitInPage(win, "document.querySelector('[data-settings-section=\"backup\"]')", 3_000))) return 'Settings has no Backup section';
+  await click('[data-settings-section="backup"]');
+  if (!(await waitInPage(win, "document.querySelector('[data-backup-export]')", 2_000))) return 'the Backup section did not open';
+  await click('[data-backup-export]');
+  if (!(await waitInPage(win, "document.querySelector('[data-export-dialog] [data-export-section=\"sessions\"][aria-checked=\"false\"]')", 2_000))) return 'the export dialog did not open with sessions left out';
+  await click('[data-export-settings]');
+  if (!(await waitInPage(win, "document.querySelector('[data-export-saved]')", 5_000))) return 'the export did not finish';
+  await shot(win, 'backup-export.png');
+  let exported: Record<string, unknown>;
+  try {
+    exported = JSON.parse(readFileSync(file, 'utf8')) as Record<string, unknown>;
+  } catch (error) {
+    return `the exported file does not parse: ${(error as Error).message}`;
+  }
+  if (exported.kind !== 'switchboard-settings' || exported.format !== 1) return `not a settings file: ${JSON.stringify(exported).slice(0, 200)}`;
+  if (typeof exported.preferences !== 'object' || !Array.isArray(exported.projects) || typeof exported.actions !== 'object' || 'sessions' in exported) {
+    return `unexpected sections: ${Object.keys(exported).join(', ')}`;
+  }
+  win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Escape' });
+  if (!(await waitInPage(win, "!document.querySelector('[data-export-dialog]')", 2_000))) return 'Escape did not close the export dialog';
+
+  // The preview of the file just exported: everything is already set up, so there is nothing to import.
+  await click('[data-backup-import]');
+  if (!(await waitInPage(win, "document.querySelector('[data-import-dialog] [data-import-preview]')", 5_000))) return 'the import preview did not open';
+  await click('[data-import-mode="replace"]');
+  const summary = (await js("document.querySelector('[data-import-summary]')?.textContent ?? ''")) as string;
+  const disabled = (await js("document.querySelector('[data-import-settings]')?.disabled === true")) as boolean;
+  await shot(win, 'backup-import.png');
+  win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Escape' });
+  if (!(await waitInPage(win, "!document.querySelector('[data-import-dialog]') && document.querySelector('[data-settings]')", 2_000))) return 'Escape did not close only the import dialog';
+  await click('[data-close-settings]');
+  if (existsSync(join(app.getPath('userData'), 'backups'))) return 'a backup was written without importing';
+  if (!disabled) return `importing the file just exported would change something: ${summary}`;
+  return `ok (${summary})`;
+}
+
 /** Tool calls are summarised by default: open the last finished group and count its steps. */
 async function runActivityStep(win: BrowserWindow): Promise<{ groups: number; steps: number; label: string } | null> {
   const js = (code: string) => win.webContents.executeJavaScript(code);
@@ -794,6 +1039,31 @@ async function runActivityStep(win: BrowserWindow): Promise<{ groups: number; st
  * Read-only: opens the Changes panel on the session's real checkout, expands the first file's
  * diff and closes it again. Never stages or reverts (this is the user's own project).
  */
+/**
+ * The open diff: unwrapped, every line's background spans the whole scrollable width; wrapped,
+ * nothing scrolls sideways. Leaves the wrap setting as it found it.
+ */
+async function checkDiffLayout(win: BrowserWindow): Promise<string | null> {
+  const js = (code: string) => win.webContents.executeJavaScript(code);
+  const measure = `(() => {
+    const diff = document.querySelector('[data-file-diff]');
+    const rows = [...diff.firstElementChild.children];
+    return { wrap: diff.dataset.diffWrap === 'true', scroll: diff.scrollWidth, client: diff.clientWidth, narrowest: Math.min(...rows.map((r) => r.offsetWidth)) };
+  })()`;
+  const toggle = "document.querySelector('[data-diff-wrap-toggle]')?.click()";
+  if (!(await js("Boolean(document.querySelector('[data-diff-wrap-toggle]'))"))) return 'no wrap toggle in the Changes panel';
+  const before = (await js(measure)) as { wrap: boolean; scroll: number; client: number; narrowest: number };
+  await js(toggle);
+  await new Promise((resolve) => setTimeout(resolve, 100));
+  const after = (await js(measure)) as typeof before;
+  await js(toggle);
+  const [unwrapped, wrapped] = before.wrap ? [after, before] : [before, after];
+  if (unwrapped.wrap === wrapped.wrap) return 'the wrap toggle did not change the diff';
+  if (unwrapped.narrowest < unwrapped.scroll - 1) return `diff rows are ${unwrapped.narrowest}px wide but the diff scrolls to ${unwrapped.scroll}px (colour stops short)`;
+  if (wrapped.scroll > wrapped.client + 1) return `wrapped diff still scrolls sideways (${wrapped.scroll} > ${wrapped.client}px)`;
+  return null;
+}
+
 async function runChangesStep(win: BrowserWindow): Promise<string> {
   const js = (code: string) => win.webContents.executeJavaScript(code);
   if (!(await waitInPage(win, "document.querySelector('[data-toggle-changes]')", 5_000))) return 'no Changes button (not a git checkout?)';
@@ -804,12 +1074,101 @@ async function runChangesStep(win: BrowserWindow): Promise<string> {
   if (files > 0) {
     await js("document.querySelector('[data-file-toggle]').click()");
     if (!(await waitInPage(win, "document.querySelector('[data-file-diff] div')", 5_000))) return `${files} files, but the diff did not load`;
+    const layout = await checkDiffLayout(win);
+    if (layout) return layout;
   }
   await new Promise((resolve) => setTimeout(resolve, 300));
   await shot(win, 'changes.png');
   const messageActions = (await js("document.querySelectorAll('[data-message-actions]').length")) as number;
   if (!wasOpen) await js("document.querySelector('[data-toggle-changes]').click()");
-  return `ok: ${files} changed files${files ? ', first diff shown' : ''}; ${messageActions} messages with fork/rewind actions`;
+  return `ok: ${files} changed files${files ? ', first diff shown, rows full width, wraps on request' : ''}; ${messageActions} messages with fork/rewind actions`;
+}
+
+/**
+ * Read-only: the header's branch button on a session in its project's checkout shows the branch git
+ * has checked out, and its menu lists the local branches; Escape closes it. While Claude works in the
+ * session (often the one running this test) it is disabled and says why; then the step tries the next
+ * sessions in the sidebar for the menu. Never switches branches (these are the user's own projects).
+ */
+async function runBranchStep(win: BrowserWindow): Promise<string> {
+  const js = (code: string) => win.webContents.executeJavaScript(code);
+  const button = "document.querySelector('[data-current-session] [data-branch-menu]')";
+  const notes: string[] = [];
+  try {
+    for (let i = 0; i < 8; i++) {
+      if (i > 0) {
+        const id = (await js(`(() => { const row = document.querySelectorAll('[data-session-id]')[${i}]; row?.click(); return row?.dataset.sessionId ?? null; })()`)) as string | null;
+        if (!id) break;
+        await waitInPage(win, `document.querySelector('[data-current-session="${id}"]')`, 3_000);
+      }
+      if (!(await waitInPage(win, "document.querySelector('[data-current-session] :is([data-branch-menu], [data-worktree-menu])')", i === 0 ? 5_000 : 1_500))) {
+        if (i === 0 && (await js("!!document.querySelector('[data-current-session] [data-toggle-changes]')"))) return 'no branch button on a git checkout';
+        continue;
+      }
+      if (!(await js(`!!${button}`))) continue;
+      const { branch, cwd, busyTip } = (await js(
+        `(() => { const b = ${button}; return { branch: b.dataset.branch, cwd: b.dataset.cwd, busyTip: b.getAttribute('aria-disabled') === 'true' ? b.dataset.tooltip : null }; })()`,
+      )) as { branch: string; cwd: string; busyTip: string | null };
+      const git = (args: string[]) => execFileSync('git', args, { cwd, encoding: 'utf8', env: { ...process.env, GIT_OPTIONAL_LOCKS: '0' } }).trim();
+      let current = '';
+      try {
+        current = git(['symbolic-ref', '--quiet', '--short', 'HEAD']);
+      } catch {
+        // Detached HEAD.
+      }
+      if (branch !== current) return `button shows "${branch}", git has "${current || 'detached'}"`;
+      if (busyTip !== null) {
+        if (!busyTip.startsWith('Wait for Claude')) return `disabled without saying why ("${busyTip}")`;
+        notes.push('disabled while Claude works');
+        continue;
+      }
+      const local = git(['for-each-ref', '--format=%(refname:short)', 'refs/heads']).split('\n').filter(Boolean);
+      await js(`${button}.click()`);
+      if (!(await waitInPage(win, "document.querySelector('[data-menu=\"branch\"] [data-branch-option]')", 3_000))) return 'menu did not open';
+      const options = (await js("[...document.querySelectorAll('[data-menu=\"branch\"] [data-branch-option]')].map((o) => o.dataset.branchOption)")) as string[];
+      const checked = (await js("document.querySelector('[data-menu=\"branch\"] [aria-checked=\"true\"]')?.dataset.branchOption ?? null")) as string | null;
+      await shot(win, 'branch-menu.png');
+      const missing = local.filter((b) => !options.includes(b));
+      if (missing.length) return `menu misses ${missing.slice(0, 3).join(', ')}`;
+      if (current && (options[0] !== current || checked !== current)) return `current branch is not first and ticked (${options[0]}, ${checked})`;
+      win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Escape' });
+      win.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Escape' });
+      if (!(await waitInPage(win, "!document.querySelector('[data-menu=\"branch\"]')", 2_000))) return 'Escape did not close the menu';
+      return `ok: on ${current || 'detached'}, ${options.length} branches listed, Escape closed the menu${notes.length ? `; ${notes.join(', ')} elsewhere` : ''}`;
+    }
+    return notes.length ? `ok: ${notes.join(', ')}; no idle session on a checkout to open the menu in` : 'ok: skipped (no session on a git checkout)';
+  } finally {
+    // Back to the session the other steps work with.
+    await js(`document.querySelector('[data-session-id="${smokeSessionId}"]')?.click()`);
+    await waitInPage(win, `document.querySelector('[data-current-session="${smokeSessionId}"] [data-transcript-item]')`, 5_000);
+  }
+}
+
+/**
+ * Read-only: the header's "Open in" menu opens on top of the transcript (nothing paints over it), offers
+ * GitHub with the link git's remotes give when the checkout is on GitHub, and Escape closes it. Opens
+ * nothing.
+ */
+async function runOpenInStep(win: BrowserWindow): Promise<string> {
+  const js = (code: string) => win.webContents.executeJavaScript(code);
+  const toggle = "document.querySelector('[data-current-session] [data-open-in-menu]')";
+  if (!(await waitInPage(win, toggle, 3_000))) return 'no Open in button';
+  await js(`${toggle}.click()`);
+  if (!(await waitInPage(win, "document.querySelector('[data-menu=\"open-in\"] [role=\"menuitem\"]')", 2_000))) return 'menu did not open';
+  // The middle of the menu's last item must hit the menu itself, not the transcript under the header.
+  const onTop = (await js(
+    "(() => { const menu = document.querySelector('[data-menu=\"open-in\"]'); const r = [...menu.querySelectorAll('[role=\"menuitem\"]')].at(-1).getBoundingClientRect(); return menu.contains(document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2)); })()",
+  )) as boolean;
+  const github = (await js("document.querySelector('[data-menu=\"open-in\"] [data-open-github]')?.dataset.openGithub ?? null")) as string | null;
+  // Let a frame with the menu paint before capturing.
+  await new Promise((resolve) => setTimeout(resolve, 200));
+  await shot(win, 'open-in-menu.png');
+  win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Escape' });
+  win.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Escape' });
+  if (!onTop) return 'menu is covered by the page below it';
+  if (github !== null && !/^https:\/\/github\.com\/[^/]+\/[^/]+(\/tree\/.+)?$/.test(github)) return `odd GitHub link "${github}"`;
+  if (!(await waitInPage(win, "!document.querySelector('[data-menu=\"open-in\"]')", 2_000))) return 'Escape did not close the menu';
+  return `ok: on top of the transcript, ${github ? `GitHub → ${github}` : 'no GitHub remote'}, Escape closed it`;
 }
 
 /** ⌘⇧F, type a word, open the first hit: the session opens with that message highlighted. */
@@ -882,6 +1241,67 @@ async function runNewSessionStep(win: BrowserWindow): Promise<string> {
   await js(`document.querySelector('[data-session-id="${smokeSessionId}"]')?.click()`);
   await waitInPage(win, "document.querySelector('[data-transcript-item]')", 5_000);
   return `ok: ${hint}`;
+}
+
+/**
+ * `switchboard://` links, fed to the handler directly (no `open`, so the system's link handlers are
+ * untouched). A new-session link fills in the folder and prompt and says where the prompt came from,
+ * but sends nothing; a bad link shows why and changes nothing; a repo with no checkout leaves the folder
+ * empty; a session link opens the session under test again.
+ */
+async function runDeepLinkStep(win: BrowserWindow): Promise<string> {
+  const js = (code: string) => win.webContents.executeJavaScript(code);
+  const prompt = 'Smoke test from a link:\nsummarise this folder.';
+  const folder = homedir();
+  const composer = "document.querySelector('[data-new-session-view] [data-composer]')";
+  openDeepLink(`switchboard://new-session?prompt=${encodeURIComponent(prompt)}&cwd=${encodeURIComponent(folder)}`);
+  if (!(await waitInPage(win, `${composer}?.value === ${JSON.stringify(prompt)} && document.querySelector('[data-folder-select]')?.dataset.value === ${JSON.stringify(folder)}`, 5_000))) {
+    return `the link did not fill in New session (${String(await js(`${composer}?.value + ' in ' + document.querySelector('[data-folder-select]')?.dataset.value`))})`;
+  }
+  if (!(await waitInPage(win, "document.querySelector('[data-link-notice]')?.innerText.includes('external link')", 2_000))) return 'no notice that the prompt came from a link';
+  await new Promise((resolve) => setTimeout(resolve, 300));
+  await shot(win, 'deep-link.png');
+
+  // A refused link explains itself and leaves the prompt alone.
+  openDeepLink('switchboard://delete-everything?cwd=/');
+  if (!(await waitInPage(win, "document.querySelector('[data-link-error]')?.innerText.includes('delete-everything')", 3_000))) return 'an unknown action showed no error';
+  await new Promise((resolve) => setTimeout(resolve, 300));
+  await shot(win, 'deep-link-error.png');
+  if ((await js(`${composer}?.value`)) !== prompt) return 'a refused link changed the prompt';
+  await js("document.querySelector('[data-link-error] button').click()");
+
+  // Clear empties the prompt and ends the notice. Nothing was sent all along.
+  await js("document.querySelector('[data-clear-link-prompt]').click()");
+  if (!(await waitInPage(win, `${composer}?.value === '' && !document.querySelector('[data-link-notice]')`, 2_000))) return 'Clear did not empty the prompt and the notice';
+  if (!(await js("!!document.querySelector('[data-new-session-view]') && !document.querySelector('[data-current-session]')"))) return 'the link left New session (was something started?)';
+
+  // A project that isn't one of yours is refused before anything changes.
+  openDeepLink('switchboard://new-session?project=switchboard-smoke-no-such-project&prompt=hi');
+  if (!(await waitInPage(win, "document.querySelector('[data-link-error]')?.innerText.includes('switchboard-smoke-no-such-project')", 5_000))) return 'an unknown project showed no error';
+  if ((await js(`${composer}?.value`)) !== '') return 'an unknown project still filled in the prompt';
+  await js("document.querySelector('[data-link-error] button').click()");
+
+  // No folder in the link: nothing is guessed, the folder list opens, and even autostart waits.
+  openDeepLink('switchboard://new-session?prompt=Wait%20for%20me&autostart=1');
+  if (!(await waitInPage(win, `${composer}?.value === 'Wait for me' && document.querySelector('[data-folder-select]')?.dataset.value === '' && document.querySelector('[data-folder-select]')?.getAttribute('aria-expanded') === 'true'`, 5_000))) {
+    return 'a link without a folder did not leave it empty with the folder list open';
+  }
+  await new Promise((resolve) => setTimeout(resolve, 1_000));
+  if (!(await js("!!document.querySelector('[data-new-session-view]') && !document.querySelector('[data-current-session]') && document.querySelector('[data-link-notice]')?.innerText.includes('Read it')"))) return 'autostart without a folder did not wait';
+  await shot(win, 'deep-link-no-folder.png');
+  win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Escape' });
+  win.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Escape' });
+
+  // No checkout of this repository: the folder is left empty, with the reason.
+  openDeepLink('switchboard://new-session?repo=switchboard-smoke/no-such-repo&prompt=hi');
+  if (!(await waitInPage(win, "document.querySelector('[data-folder-select]')?.dataset.value === '' && document.querySelector('[data-route-hint]')?.innerText.includes('switchboard-smoke/no-such-repo')", 20_000))) {
+    return `a repo without a checkout did not leave the folder empty (${String(await js("document.querySelector('[data-route-hint]')?.innerText"))})`;
+  }
+
+  if (!smokeSessionId) return 'ok: filled in folder and prompt, refused a bad link, empty folder for an unknown repo (no session to open)';
+  openDeepLink(`switchboard://session/${smokeSessionId}`);
+  if (!(await waitInPage(win, `document.querySelector('[data-current-session="${smokeSessionId}"]')`, 5_000))) return 'a session link did not open the session';
+  return 'ok: filled in folder and prompt with a notice, sent nothing, refused a bad link and an unknown project, no folder (even with autostart) opens the list and waits, empty folder for an unknown repo, opened a session';
 }
 
 /** ⌘K, type "tog chan", Enter: the Changes panel toggles; again to put it back. */
@@ -1177,6 +1597,8 @@ async function runSmokeStep(win: BrowserWindow | null): Promise<void> {
     writeFileSync(join(smokeOutDir, 'transcript.png'), (await win.webContents.capturePage()).toPNG());
     activity = await runActivityStep(win);
     changesPanel = await runChangesStep(win);
+    branchResult = await runBranchStep(win).catch((error: Error) => `failed: ${error.message}`);
+    openInResult = await runOpenInStep(win).catch((error: Error) => `failed: ${error.message}`);
     searchResult = await runSearchStep(win).catch((error: Error) => `failed: ${error.message}`);
     paletteResult = await runPaletteStep(win).catch((error: Error) => `failed: ${error.message}`);
     toolsResult = await runToolsStep(win).catch((error: Error) => `failed: ${error.message}`);
@@ -1185,6 +1607,7 @@ async function runSmokeStep(win: BrowserWindow | null): Promise<void> {
     dropResult = await runDropStep(win).catch((error: Error) => `failed: ${error.message}`);
     controlsResult = await runControlsStep(win).catch((error: Error) => `failed: ${error.message}`);
     newSessionResult = await runNewSessionStep(win).catch((error: Error) => `failed: ${error.message}`);
+    deepLinkResult = await runDeepLinkStep(win).catch((error: Error) => `failed: ${error.message}`);
     usageBand = (await waitInPage(win, "document.querySelector('[data-usage-band]')", 15_000))
       ? await win.webContents.executeJavaScript("document.querySelector('[data-usage-band]').innerText.replace(/\\s+/g, ' ')")
       : null;
@@ -1195,6 +1618,8 @@ async function runSmokeStep(win: BrowserWindow | null): Promise<void> {
     actionRan = await runActionStep(win);
     projectsResult = await runProjectsStep(win).catch((error: Error) => `failed: ${error.message}`);
     profilesResult = await runProfilesStep(win).catch((error: Error) => `failed: ${error.message}`);
+    aboutResult = await runAboutStep(win).catch((error: Error) => `failed: ${error.message}`);
+    backupResult = await runBackupStep(win).catch((error: Error) => `failed: ${error.message}`);
     // Diagnostics (in Settings) renders a sample through Shiki, which loads in its own chunks on first use.
     await win.webContents.executeJavaScript("document.querySelector('[data-open-settings]').click()");
     await waitInPage(win, "document.querySelector('[data-settings-section=\"diagnostics\"]')", 3_000);
@@ -1225,6 +1650,8 @@ async function runSmokeStep(win: BrowserWindow | null): Promise<void> {
         transcriptAtBottom,
         activity,
         changesPanel,
+        branchResult,
+        openInResult,
         searchResult,
         paletteResult,
         toolsResult,
@@ -1233,6 +1660,7 @@ async function runSmokeStep(win: BrowserWindow | null): Promise<void> {
         dropResult,
         controlsResult,
         newSessionResult,
+        deepLinkResult,
         liveSession,
         terminalOpened,
         quitGuarded,
@@ -1240,6 +1668,8 @@ async function runSmokeStep(win: BrowserWindow | null): Promise<void> {
         actionRan,
         projectsResult,
         profilesResult,
+        aboutResult,
+        backupResult,
         highlighted,
         usageBand,
         rendering,
@@ -1256,7 +1686,13 @@ async function runSmokeStep(win: BrowserWindow | null): Promise<void> {
 app.whenReady().then(() => {
   // Packaged builds take the icon from the bundle's icon.icns; in development, set it on the Dock.
   if (!app.isPackaged) app.dock?.setIcon(join(here, '../../build/icon.png'));
-  app.setAboutPanelOptions({ applicationName: 'Switchboard', iconPath: join(here, '../../build/icon.png') });
+  // The commit shows in brackets after the version, handy when someone reports a bug from a build.
+  app.setAboutPanelOptions({
+    applicationName: 'Switchboard',
+    applicationVersion: appInfo.dev ? `${appInfo.version} (dev)` : appInfo.version,
+    version: appInfo.commit ?? '',
+    iconPath: join(here, '../../build/icon.png'),
+  });
   engine = new EngineProcess({
     entry: join(here, 'engine.js'),
     dataDir: app.getPath('userData'),
@@ -1278,6 +1714,12 @@ app.whenReady().then(() => {
   });
   notifier.connect();
   createWindow();
+  updater.start();
+  // The packaged app declares the scheme in Info.plist; this also takes it back if another app claimed it.
+  // Development and smoke builds leave the system's link handlers alone.
+  if (app.isPackaged && !smokeOutDir && !app.isDefaultProtocolClient(DEEP_LINK_SCHEME)) app.setAsDefaultProtocolClient(DEEP_LINK_SCHEME);
+  const launchLink = linkFromArgv(process.argv);
+  if (launchLink) openDeepLink(launchLink);
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
@@ -1285,7 +1727,16 @@ app.whenReady().then(() => {
   if (smokeOutDir) setTimeout(() => exitApp(2), process.env.SWITCHBOARD_SMOKE_LIVE_CWD ? 180_000 : 45_000).unref();
 });
 
-app.on('second-instance', () => {
+// macOS delivers links here, also the one that launched the app (before 'ready', so it waits in pendingLinks).
+app.on('open-url', (event, url) => {
+  event.preventDefault();
+  openDeepLink(url);
+});
+
+app.on('second-instance', (_event, argv) => {
+  // Elsewhere a link arrives as an argument to a second instance.
+  const link = linkFromArgv(argv);
+  if (link) return openDeepLink(link);
   const [win] = BrowserWindow.getAllWindows();
   if (win) {
     if (win.isMinimized()) win.restore();
@@ -1297,4 +1748,7 @@ app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit();
 });
 
-app.on('before-quit', () => engine?.stop());
+app.on('before-quit', () => {
+  updater.stop();
+  engine?.stop();
+});

@@ -38,9 +38,15 @@ const FLUSH_MS = 8;
 /** Environment variables of an enclosing Claude Code that must not leak into the user's terminals. */
 const STRIP_ENV = ['CLAUDECODE', 'CLAUDE_CODE_ENTRYPOINT', 'CLAUDE_CODE_SSE_PORT', 'CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS'];
 
+/** How long Stop waits after ^C before it terminates, then kills, the process. */
+export const STOP_GRACE_MS = 3000;
+
 interface Terminal {
   info: TerminalInfo;
   pty: Pty;
+  /** What was spawned, so Restart can run it again in the same tab. */
+  spawn: { file: string; args: string[]; cwd: string; env: Record<string, string> };
+  stopTimers: Array<ReturnType<typeof setTimeout>>;
   replay: string[];
   replayLength: number;
   pending: string;
@@ -132,42 +138,102 @@ export class TerminalManager {
       title = basename(file);
     }
 
-    this.spawnPty ??= this.options.spawn ? this.options.spawn() : loadNodePty();
-    const pty = (await this.spawnPty)(file, args, { name: 'xterm-256color', cols: params.cols, rows: params.rows, cwd: params.cwd, env });
-    let resolveExit!: (code: number) => void;
-    const exited = new Promise<number>((resolve) => (resolveExit = resolve));
-    const terminal: Terminal = {
-      exited,
+    const terminal = {
       info: {
         id: randomUUID(),
         sessionId: params.sessionId,
         kind: params.kind,
         title,
         cwd: params.cwd,
-        pid: pty.pid,
+        pid: 0,
         cols: params.cols,
         rows: params.rows,
         exitCode: null,
         startedAt: Date.now(),
       },
-      pty,
+      spawn: { file, args, cwd: params.cwd, env },
+      stopTimers: [],
       replay: [],
       replayLength: 0,
       pending: '',
       timer: undefined,
-    };
+    } as Partial<Terminal> as Terminal;
+    await this.start(terminal);
     this.terminals.set(terminal.info.id, terminal);
-
-    pty.onData((data) => this.buffer(terminal, data));
-    pty.onExit(({ exitCode }) => {
-      this.flush(terminal);
-      terminal.info = { ...terminal.info, exitCode };
-      resolveExit(exitCode);
-      this.changed();
-    });
-    this.options.log('info', `Opened ${params.kind} terminal in ${params.cwd} (pid ${pty.pid})`);
+    this.options.log('info', `Opened ${params.kind} terminal in ${params.cwd} (pid ${terminal.pty.pid})`);
     this.changed();
     return terminal.info;
+  }
+
+  /**
+   * Runs an exited terminal's process again in the same tab, keeping its output above.
+   * `command` replaces an action's command line (it may have been edited since).
+   */
+  async restart(id: string, change: { command?: string; cwd?: string } = {}): Promise<TerminalInfo> {
+    const terminal = this.require(id);
+    if (terminal.info.exitCode === null) throw new Error('This terminal is still running');
+    if (change.command !== undefined && terminal.info.kind === 'action') terminal.spawn = { ...terminal.spawn, args: ['-ilc', change.command] };
+    if (change.cwd !== undefined) terminal.spawn = { ...terminal.spawn, cwd: change.cwd };
+    if (!existsSync(terminal.spawn.cwd)) throw new Error(`Folder not found: ${terminal.spawn.cwd}`);
+    this.buffer(terminal, '\r\n\x1b[2m── Restarted ──\x1b[0m\r\n\r\n');
+    await this.start(terminal);
+    terminal.info = { ...terminal.info, cwd: terminal.spawn.cwd, exitCode: null };
+    this.options.log('info', `Restarted ${terminal.info.kind} terminal in ${terminal.spawn.cwd} (pid ${terminal.pty.pid})`);
+    this.changed();
+    return terminal.info;
+  }
+
+  /**
+   * Stops the running process like Ctrl+C in a terminal does (SIGINT to the foreground job),
+   * then terminates and finally kills it if it ignores that. The tab stays open with the exit code.
+   */
+  stop(id: string): void {
+    const terminal = this.terminals.get(id);
+    if (!terminal || terminal.info.exitCode !== null || terminal.stopTimers.length > 0) return;
+    const pty = terminal.pty;
+    const signal = (name: NodeJS.Signals) => {
+      if (terminal.pty !== pty || terminal.info.exitCode !== null) return;
+      // The pty's process leads its own process group; signal the group so children go too.
+      try {
+        process.kill(-pty.pid, name);
+      } catch {
+        // No such group (or not ours): the process itself still gets it below.
+      }
+      try {
+        pty.kill(name);
+      } catch {
+        // Already gone.
+      }
+    };
+    pty.write('\x03');
+    terminal.stopTimers.push(
+      setTimeout(() => signal('SIGTERM'), STOP_GRACE_MS),
+      setTimeout(() => signal('SIGKILL'), STOP_GRACE_MS * 2),
+    );
+  }
+
+  /** Spawns the terminal's process and wires its output and exit. */
+  private async start(terminal: Terminal): Promise<void> {
+    this.spawnPty ??= this.options.spawn ? this.options.spawn() : loadNodePty();
+    const { file, args, cwd, env } = terminal.spawn;
+    const pty = (await this.spawnPty)(file, args, { name: 'xterm-256color', cols: terminal.info.cols, rows: terminal.info.rows, cwd, env });
+    let resolveExit!: (code: number) => void;
+    terminal.exited = new Promise<number>((resolve) => (resolveExit = resolve));
+    terminal.pty = pty;
+    terminal.info = { ...terminal.info, pid: pty.pid };
+    pty.onData((data) => {
+      if (terminal.pty === pty) this.buffer(terminal, data);
+    });
+    pty.onExit(({ exitCode, signal }) => {
+      if (terminal.pty !== pty) return;
+      this.flush(terminal);
+      terminal.stopTimers.splice(0).forEach(clearTimeout);
+      // Killed by a signal: report it the way shells do (Ctrl+C is 130), not as a clean 0.
+      const code = signal ? 128 + signal : exitCode;
+      terminal.info = { ...terminal.info, exitCode: code };
+      resolveExit(code);
+      this.changed();
+    });
   }
 
   /** Resolves with the exit code (or -1 when the terminal is closed first). */
@@ -200,6 +266,7 @@ export class TerminalManager {
     const terminal = this.terminals.get(id);
     if (!terminal) return;
     if (terminal.timer) clearTimeout(terminal.timer);
+    terminal.stopTimers.splice(0).forEach(clearTimeout);
     if (terminal.info.exitCode === null) {
       try {
         terminal.pty.kill();

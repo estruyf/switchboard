@@ -1,10 +1,11 @@
 import type { Options, PermissionResult, SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
 import { describe, expect, it } from 'vitest';
-import type { PermissionRequest, SessionHostInfo, StreamDelta } from '@switchboard/protocol';
+import type { ModelOption, PermissionRequest, SessionHostInfo, StreamDelta } from '@switchboard/protocol';
 import type { RawSessionMessage } from '../claude/transcript.ts';
 import { HostManager, type SdkRuntime } from './hostManager.ts';
 import { describeSuggestions } from './permissions.ts';
 import { buildOptions, type HostConfig } from './sessionHost.ts';
+import { createMemorySessionSettings, type SessionSettingsStore } from './sessionSettings.ts';
 
 /** Minimal async channel that can also fail, like a Claude Code process dying. */
 class Channel<T> implements AsyncIterable<T> {
@@ -123,7 +124,8 @@ const until = async (check: () => boolean, timeoutMs = 2000) => {
   }
 };
 
-function setup(opts: { openElsewhere?: string[]; cwds?: Record<string, string>; profiles?: Record<string, string> } = {}) {
+function setup(opts: { openElsewhere?: string[]; cwds?: Record<string, string>; profiles?: Record<string, string>; settings?: SessionSettingsStore } = {}) {
+  const models: ModelOption[][] = [];
   const queries: FakeQuery[] = [];
   const infos: SessionHostInfo[] = [];
   const streams: StreamDelta[] = [];
@@ -161,9 +163,11 @@ function setup(opts: { openElsewhere?: string[]; cwds?: Record<string, string>; 
     onPermission: (r) => permissions.push(r),
     onPermissionResolved: (id) => resolved.push(id),
     onCreated: (id) => created.push(id),
+    sessionSettings: opts.settings,
+    onModels: (m) => models.push(m),
     log: () => {},
   });
-  return { manager, queries, infos, streams, messages, permissions, resolved, created };
+  return { manager, queries, infos, streams, messages, permissions, resolved, created, models };
 }
 
 const base = { attachments: [], model: null, permissionMode: 'default' as const, effort: null, worktree: null, profileId: 'default' };
@@ -312,6 +316,78 @@ describe('HostManager', () => {
     t.manager.close(id);
     expect(lastState(t.infos, id)).toBe('closed');
     await until(() => t.queries[0]!.closed);
+  });
+
+  it('resumes a stopped session in the permission mode it last had', async () => {
+    const t = setup({ cwds: { old: '/w' } });
+    await t.manager.send({ sessionId: 'old', text: 'hello', attachments: [], fork: false });
+    await until(() => lastState(t.infos, 'old') === 'idle');
+    expect(t.queries[0]!.options.permissionMode).toBe('default');
+    await t.manager.setPermissionMode('old', 'auto');
+    t.manager.close('old');
+
+    await t.manager.send({ sessionId: 'old', text: 'again', attachments: [], fork: false });
+    await until(() => t.queries.length === 2);
+    expect(t.queries[1]!.options.permissionMode).toBe('auto');
+    t.manager.closeAll();
+  });
+
+  it('resumes with the mode and model a session had, after the app restarts too', async () => {
+    const settings = createMemorySessionSettings();
+    const first = setup({ cwds: { old: '/w' }, settings });
+    await first.manager.send({ sessionId: 'old', text: 'hello', attachments: [], fork: false });
+    await until(() => lastState(first.infos, 'old') === 'idle');
+    await first.manager.setPermissionMode('old', 'auto');
+    await first.manager.setModel('old', 'sonnet');
+    first.manager.closeAll();
+
+    // A new manager is a restarted engine: only the store remembers.
+    const second = setup({ cwds: { old: '/w' }, settings });
+    await second.manager.send({ sessionId: 'old', text: 'again', attachments: [], fork: false });
+    await until(() => second.queries.length === 1);
+    expect(second.queries[0]!.options).toMatchObject({ permissionMode: 'auto', model: 'sonnet' });
+    second.manager.closeAll();
+  });
+
+  it('passes on the model list Claude Code reports', async () => {
+    const t = setup();
+    const id = await t.manager.create({ ...base, cwd: '/w', prompt: 'hello' });
+    await until(() => t.models.length > 0);
+    expect(t.models.at(-1)).toEqual([{ value: 'fake', displayName: 'Fake', description: 'Test model', supportsEffort: false }]);
+    expect(t.manager.listModels()).toEqual(t.models.at(-1));
+    t.manager.close(id);
+  });
+
+  it('follows mode changes Claude Code reports on its own', async () => {
+    const t = setup();
+    const id = await t.manager.create({ ...base, cwd: '/w', prompt: 'hello' });
+    await until(() => lastState(t.infos, id) === 'idle');
+    t.queries[0]!.out.push({ type: 'system', subtype: 'status', status: null, permissionMode: 'acceptEdits', session_id: id });
+    await until(() => t.infos.at(-1)?.permissionMode === 'acceptEdits');
+    t.manager.closeAll();
+  });
+
+  it('tracks background tasks and keeps their session open while they run', async () => {
+    const t = setup();
+    const id = await t.manager.create({ ...base, cwd: '/w', prompt: 'hello' });
+    await until(() => lastState(t.infos, id) === 'idle');
+    const tasks = (list: unknown[]) => t.queries[0]!.out.push({ type: 'system', subtype: 'background_tasks_changed', tasks: list, session_id: id });
+    tasks([
+      { task_id: 'b1', task_type: 'local_bash', description: 'npm run test:links' },
+      { task_id: 'w1', task_type: 'monitor', description: 'Watching files', ambient: true },
+    ]);
+    await until(() => t.infos.at(-1)!.backgroundTasks.length > 0);
+    expect(t.infos.at(-1)).toMatchObject({ state: 'idle', backgroundTasks: [{ taskId: 'b1', type: 'local_bash', description: 'npm run test:links' }] });
+
+    // Long idle, but a task is still running: the reaper leaves it alone.
+    t.manager.reapIdle(Date.now() + 2 * 60 * 60_000);
+    expect(lastState(t.infos, id)).toBe('idle');
+
+    tasks([]);
+    await until(() => t.infos.at(-1)!.backgroundTasks.length === 0);
+    t.manager.reapIdle(Date.now() + 2 * 60 * 60_000);
+    expect(lastState(t.infos, id)).toBe('closed');
+    t.manager.closeAll();
   });
 });
 

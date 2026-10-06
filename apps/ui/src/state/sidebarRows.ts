@@ -1,14 +1,16 @@
-import type { SessionScope } from '@switchboard/protocol/bridge';
+import type { SessionScope, StartupView } from '@switchboard/protocol/bridge';
 import type { SessionRowData } from './sessionsStore.ts';
 
 /** What the status icon on a row shows, most urgent first. */
-export type RowStatus = 'needs-you' | 'running' | 'error' | 'unread' | 'idle' | null;
+export type RowStatus = 'needs-you' | 'running' | 'error' | 'unread' | 'background' | 'idle' | null;
 
 export function rowStatus(row: SessionRowData): RowStatus {
   if (row.live?.status === 'needs-you') return 'needs-you';
   if (row.live?.status === 'running') return 'running';
   if (row.error) return 'error';
   if (row.unread) return 'unread';
+  // Idle between turns, but a background command or agent is still working.
+  if (row.live?.status === 'idle' && row.live.background?.length) return 'background';
   if (row.live?.status === 'idle') return 'idle';
   return null;
 }
@@ -18,6 +20,16 @@ export const RECENT_MS = 48 * 60 * 60 * 1000;
 
 /** Whether the sidebar (and the palette) list a session under the chosen scope. */
 export const inScope = (row: SessionRowData, scope: SessionScope) => scope === 'all' || row.inApp;
+
+/**
+ * The session a new window opens with, or null for New session: the one open last time, but only
+ * while the sidebar lists it (a session from another app stays hidden while those are).
+ */
+export function startupSession(rows: SessionRowData[], lastId: unknown, startupView: StartupView, scope: SessionScope): string | null {
+  if (startupView !== 'last' || typeof lastId !== 'string') return null;
+  const last = rows.find((row) => row.id === lastId);
+  return last && inScope(last, scope) ? last.id : null;
+}
 
 /**
  * Main list or "Settled"? Anything that wants attention (working, waiting,

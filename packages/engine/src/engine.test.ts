@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { MessageChannel, type MessagePort } from 'node:worker_threads';
@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { createRpcClient, messagePortTransport, type Contract, type DomLikePort, type LogEntry, type TranscriptUpdate } from '@switchboard/protocol';
 import type { SessionSource } from './claude/sessionSource.ts';
 import { createEngine } from './engine.ts';
+import { git } from './git/gitChanges.ts';
 
 const SESSION_ID = '33333333-3333-4333-8333-333333333333';
 const fakeSource: SessionSource = {
@@ -187,6 +188,74 @@ describe('engine over a MessagePort', () => {
     await client.call('actions.trust', { projectRoot: project, id: 'shared' });
     await expect(client.call('actions.run', { sessionId: SESSION_ID, projectRoot: project, cwd: project, id: 'shared' })).resolves.toMatchObject({ kind: 'terminal' });
   });
+
+  it('stops an action terminal and restarts it in the same tab, checking the action again', async () => {
+    const spawned: Array<{ args: string[]; exit: (event: { exitCode: number; signal?: number }) => void; written: string[] }> = [];
+    const dataDir = mkdtempSync(join(tmpdir(), 'switchboard-engine-'));
+    const project = mkdtempSync(join(tmpdir(), 'switchboard-project-'));
+    const sharedFile = join(project, '.switchboard.json');
+    writeFileSync(sharedFile, JSON.stringify({ actions: [{ id: 'dev', name: 'Dev', command: 'npm run dev' }] }));
+    const engine = createEngine({
+      dataDir,
+      claudeConfigDir: join(dataDir, 'claude'),
+      shellEnv: Promise.resolve({ shell: '/bin/zsh', env: { PATH: '', SHELL: '/bin/zsh' }, resolved: false, durationMs: 0 }),
+      claudeBinary: '/nonexistent/claude',
+      sessionSource: fakeSource,
+      spawnPty: async () => (_file, args) => {
+        const entry: (typeof spawned)[number] = { args, exit: () => {}, written: [] };
+        spawned.push(entry);
+        return {
+          pid: 999_999_000 + spawned.length,
+          onData: () => ({ dispose() {} }),
+          onExit: (listener) => ((entry.exit = listener), { dispose() {} }),
+          write: (data) => void entry.written.push(data),
+          resize() {},
+          kill() {},
+        };
+      },
+    });
+    const { port1, port2 } = new MessageChannel();
+    const detach = engine.attach(messagePortTransport(asDomPort(port1)));
+    const client = createRpcClient<Contract>(messagePortTransport(asDomPort(port2)));
+    cleanups.push(() => {
+      client.dispose();
+      detach();
+      engine.close();
+      port1.close();
+      port2.close();
+      rmSync(dataDir, { recursive: true, force: true });
+      rmSync(project, { recursive: true, force: true });
+    });
+    const exitCode = async () => (await client.call('terminal.list', {})).terminals[0]!.exitCode;
+
+    await client.call('actions.trust', { projectRoot: project, id: 'dev' });
+    const run = await client.call('actions.run', { sessionId: SESSION_ID, projectRoot: project, cwd: project, id: 'dev' });
+    if (run.kind !== 'terminal') throw new Error('expected a terminal');
+    await expect(client.call('terminal.restart', { id: run.terminalId })).rejects.toMatchObject({ code: 'TERMINAL_FAILED' });
+
+    // Stop sends Ctrl+C; a process that dies of SIGINT reports 130, not 0.
+    await client.call('terminal.stop', { id: run.terminalId });
+    expect(spawned[0]!.written).toEqual(['\x03']);
+    spawned[0]!.exit({ exitCode: 0, signal: 2 });
+    expect(await exitCode()).toBe(130);
+
+    const restarted = await client.call('terminal.restart', { id: run.terminalId });
+    expect(restarted).toMatchObject({ id: run.terminalId, kind: 'action', title: 'Dev', exitCode: null });
+    expect(spawned.map((s) => s.args)).toEqual([['-ilc', 'npm run dev'], ['-ilc', 'npm run dev']]);
+    expect((await client.call('terminal.list', {})).terminals).toHaveLength(1);
+    // The first process exiting late doesn't touch the restarted one.
+    spawned[0]!.exit({ exitCode: 1 });
+    expect(await exitCode()).toBeNull();
+
+    // An edited shared command needs approval again before it reruns.
+    spawned[1]!.exit({ exitCode: 0 });
+    writeFileSync(sharedFile, JSON.stringify({ actions: [{ id: 'dev', name: 'Dev', command: 'npm run dev -- --open' }] }));
+    await expect(client.call('terminal.restart', { id: run.terminalId })).rejects.toMatchObject({ code: 'UNTRUSTED' });
+    expect(spawned).toHaveLength(2);
+    await client.call('actions.trust', { projectRoot: project, id: 'dev' });
+    await client.call('terminal.restart', { id: run.terminalId });
+    expect(spawned[2]!.args).toEqual(['-ilc', 'npm run dev -- --open']);
+  });
 });
 
 describe('Claude profiles', () => {
@@ -301,4 +370,48 @@ describe('Claude profiles', () => {
     expect((await client.call('projects.list', {})).projects.find((p) => p.root === project)).toMatchObject({ profileId: null });
     expect(existsSync(join(work, '.claude.json'))).toBe(true);
   }, 30_000);
+
+  it('switches the branch of a checkout, keeps uncommitted work and refuses while Claude works there', async () => {
+    const { client, dataDir } = connect();
+    const repo = realpathSync(mkdtempSync(join(tmpdir(), 'switchboard-switch-')));
+    cleanups.push(() => rmSync(repo, { recursive: true, force: true }));
+    const run = (...args: string[]) => git(repo, args);
+    await run('init', '-q', '-b', 'main');
+    await run('config', 'user.email', 'test@example.com');
+    await run('config', 'user.name', 'Test');
+    writeFileSync(join(repo, 'a.txt'), 'one\n');
+    await run('add', '.');
+    await run('commit', '-qm', 'initial');
+    await run('branch', 'feature');
+    await run('switch', '-qc', 'other');
+    writeFileSync(join(repo, 'a.txt'), 'committed on other\n');
+    await run('commit', '-qam', 'other');
+    await run('switch', '-q', 'main');
+
+    // Another branch, with an uncommitted new file coming along.
+    writeFileSync(join(repo, 'scratch.txt'), 'mine\n');
+    await expect(client.call('git.switch', { cwd: repo, branch: 'feature' })).resolves.toEqual({ current: 'feature' });
+    expect(readFileSync(join(repo, 'scratch.txt'), 'utf8')).toBe('mine\n');
+    // The branch already checked out: nothing to do.
+    await expect(client.call('git.switch', { cwd: repo, branch: 'feature' })).resolves.toEqual({ current: 'feature' });
+
+    // A change git would overwrite: refused, and the working tree is unchanged.
+    writeFileSync(join(repo, 'a.txt'), 'uncommitted\n');
+    await expect(client.call('git.switch', { cwd: repo, branch: 'other' })).rejects.toMatchObject({ code: 'GIT_FAILED' });
+    expect(readFileSync(join(repo, 'a.txt'), 'utf8')).toBe('uncommitted\n');
+    expect((await client.call('git.branches', { cwd: repo })).current).toBe('feature');
+    await expect(client.call('git.switch', { cwd: repo, branch: '--orphan' })).rejects.toMatchObject({ code: 'GIT_FAILED' });
+
+    // A Claude Code session working in this checkout (a subfolder counts): refused until it is idle.
+    writeFileSync(join(repo, 'a.txt'), 'one\n');
+    mkdirSync(join(repo, 'src'));
+    const registry = join(dataDir, 'claude', 'sessions');
+    mkdirSync(registry, { recursive: true });
+    const entry = (status: string) => JSON.stringify({ pid: process.pid, sessionId: '66666666-6666-4666-8666-666666666666', cwd: join(repo, 'src'), status, entrypoint: 'cli' });
+    writeFileSync(join(registry, `${process.pid}.json`), entry('busy'));
+    await expect(client.call('git.switch', { cwd: repo, branch: 'main' })).rejects.toMatchObject({ code: 'SESSION_BUSY' });
+    expect((await client.call('git.branches', { cwd: repo })).current).toBe('feature');
+    writeFileSync(join(registry, `${process.pid}.json`), entry('idle'));
+    await expect(client.call('git.switch', { cwd: repo, branch: 'main' })).resolves.toEqual({ current: 'main' });
+  });
 });

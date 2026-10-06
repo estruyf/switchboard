@@ -5,13 +5,14 @@ export const STATUS_LABEL: Record<Exclude<RowStatus, null>, string> = {
   running: 'Claude is working',
   error: 'Last run failed',
   unread: 'New activity since you last looked',
+  background: 'Ready, a background task is running',
   idle: 'Open and ready',
 };
 
 /**
  * One glance per session: a spinning ring while Claude works, a pulsing amber
- * dot when it waits for you, red when it failed, accent for unread, green when
- * open and idle. Nothing for settled, read sessions.
+ * dot when it waits for you, red when it failed, accent for unread, a slow green
+ * ring while a background task runs, green when open and idle. Nothing for settled, read sessions.
  */
 export function StatusIcon({ status }: { status: RowStatus }) {
   if (!status) return <span className="size-3.5 shrink-0" aria-hidden />;
@@ -39,6 +40,10 @@ export function StatusIcon({ status }: { status: RowStatus }) {
         <span className="flex size-3.5 shrink-0 items-center justify-center" data-tooltip={label} aria-label={label}>
           <span className="size-2 rounded-full bg-accent-ink" />
         </span>
+      );
+    case 'background':
+      return (
+        <span className="size-3.5 shrink-0 animate-[spin_2.5s_linear_infinite] rounded-full border-[1.5px] border-ok/25 border-t-ok" data-tooltip={label} aria-label={label} />
       );
     case 'idle':
       return (

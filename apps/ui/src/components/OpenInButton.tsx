@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { EditorInfo } from '@switchboard/protocol/client';
 import { useEngineConnection } from '../engine/useEngine.ts';
 import { useHosts } from '../state/hostsStore.ts';
+import { Popover } from './ui/Popover.tsx';
 
 /** Opens a path in the user's editor, terminal or Finder. Used by the header button, ⌘O and file links. */
 export function useOpenIn() {
@@ -28,34 +29,55 @@ const GROUPS: Array<{ kind: EditorInfo['kind']; label: string }> = [
   { kind: 'finder', label: 'Finder' },
 ];
 
-/** Split button: open the folder in the default editor, or pick another app from the menu. */
+/** The folder's page on GitHub, or null when it has no GitHub remote (or the engine isn't connected). */
+function useGithubPage(path: string | null) {
+  const connection = useEngineConnection();
+  const client = connection.status === 'connected' ? connection.client : null;
+  const [page, setPage] = useState<{ repo: string; url: string } | null>(null);
+  useEffect(() => {
+    setPage(null);
+    if (!client || !path) return;
+    let cancelled = false;
+    client
+      .call('git.github', { cwd: path })
+      .then((result) => !cancelled && setPage(result))
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [client, path]);
+  return page;
+}
+
+const MENU_WIDTH = 208;
+const item = 'flex w-full items-center justify-between px-3 py-1 text-left text-[12px] hover:bg-accent/15';
+
+/** Split button: open the folder in the default editor, or pick another app (or GitHub) from the menu. */
 export function OpenInButton({ path }: { path: string | null }) {
   const editors = useHosts((s) => s.editors);
   const defaultId = useHosts((s) => s.defaultEditorId);
   const openIn = useOpenIn();
-  const [open, setOpen] = useState(false);
+  const github = useGithubPage(path);
+  // The menu is a fixed popover, so the transcript below the header can't paint over it.
+  const [open, setOpen] = useState<{ x: number; y: number } | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const menuRef = useRef<HTMLDivElement>(null);
+  const wrapperRef = useRef<HTMLDivElement>(null);
+  const close = useCallback(() => setOpen(null), []);
   const current = editors.find((e) => e.id === defaultId) ?? editors[0];
-
-  useEffect(() => {
-    if (!open) return;
-    const close = (event: MouseEvent) => {
-      if (!menuRef.current?.contains(event.target as Node)) setOpen(false);
-    };
-    window.addEventListener('mousedown', close);
-    return () => window.removeEventListener('mousedown', close);
-  }, [open]);
 
   if (!path || !current) return null;
   const run = (editorId?: string) => {
-    setOpen(false);
+    setOpen(null);
     setError(null);
     openIn(path, editorId ? { editorId } : {}).catch((e: unknown) => setError(e instanceof Error ? e.message : String(e)));
   };
+  const toggle = () => {
+    const rect = wrapperRef.current?.getBoundingClientRect();
+    setOpen(open || !rect ? null : { x: rect.right - MENU_WIDTH, y: rect.bottom + 4 });
+  };
 
   return (
-    <div ref={menuRef} className="no-drag relative flex shrink-0" data-tooltip={error ?? undefined}>
+    <div ref={wrapperRef} className="no-drag relative flex shrink-0" data-tooltip={error ?? undefined}>
       <button
         type="button"
         onClick={() => run()}
@@ -68,14 +90,17 @@ export function OpenInButton({ path }: { path: string | null }) {
       </button>
       <button
         type="button"
-        onClick={() => setOpen((o) => !o)}
+        onClick={toggle}
         className="rounded-r-md border border-l-0 border-border px-1.5 text-[10px] text-muted hover:bg-border/50"
         aria-label="Choose app"
+        aria-haspopup="menu"
+        aria-expanded={open !== null}
+        data-open-in-menu
       >
         ▾
       </button>
       {open && (
-        <div className="absolute top-full right-0 z-20 mt-1 w-52 overflow-hidden rounded-lg border border-border bg-card py-1 shadow-lg">
+        <Popover x={open.x} y={open.y} width={MENU_WIDTH} anchor={wrapperRef} onClose={close} role="menu" data-menu="open-in">
           {GROUPS.map((group) => {
             const items = editors.filter((e) => e.kind === group.kind);
             if (items.length === 0) return null;
@@ -83,12 +108,7 @@ export function OpenInButton({ path }: { path: string | null }) {
               <div key={group.kind}>
                 <p className="px-3 pt-1.5 pb-0.5 text-[10px] tracking-wide text-faint uppercase">{group.label}</p>
                 {items.map((editor) => (
-                  <button
-                    key={editor.id}
-                    type="button"
-                    onClick={() => run(editor.id)}
-                    className="flex w-full items-center justify-between px-3 py-1 text-left text-[12px] hover:bg-accent/15"
-                  >
+                  <button key={editor.id} type="button" role="menuitem" onClick={() => run(editor.id)} className={item}>
                     {editor.name}
                     {editor.id === defaultId && <span className="text-[10px] text-faint">default</span>}
                   </button>
@@ -96,7 +116,27 @@ export function OpenInButton({ path }: { path: string | null }) {
               </div>
             );
           })}
-        </div>
+          {github && (
+            <div>
+              <p className="px-3 pt-1.5 pb-0.5 text-[10px] tracking-wide text-faint uppercase">Web</p>
+              <button
+                type="button"
+                role="menuitem"
+                onClick={() => {
+                  setOpen(null);
+                  // The main process opens http(s) links from window.open in the browser.
+                  window.open(github.url, '_blank');
+                }}
+                className={item}
+                data-tooltip={github.url}
+                data-open-github={github.url}
+              >
+                GitHub
+                <span className="min-w-0 truncate pl-2 text-[10px] text-faint">{github.repo}</span>
+              </button>
+            </div>
+          )}
+        </Popover>
       )}
     </div>
   );

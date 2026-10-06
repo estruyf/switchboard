@@ -25,6 +25,12 @@
   --sb-profile-red: #cf222e;
   --sb-profile-orange: #d1600a;
   --sb-profile-gray: #6e7781;
+  /* Menus, popovers and dialogs: their own surface, border and shadow so they stand out from what's behind them. */
+  --sb-popover: #ffffff;
+  --sb-overlay-border: #d1d5da;
+  --sb-overlay-shadow: 0 2px 6px rgb(21 24 31 / 0.08), 0 12px 32px -4px rgb(21 24 31 / 0.2);
+  /* Backdrop behind dialogs. */
+  --sb-scrim: rgb(21 24 31 / 0.35);
   color-scheme: light;
 }
 
@@ -52,6 +58,11 @@
     --sb-profile-red: #ff8787;
     --sb-profile-orange: #ffa94d;
     --sb-profile-gray: #9ba4b7;
+    /* Lighter than card (which the sidebar and composer share) with a strong shadow: a dark UI hides soft ones. */
+    --sb-popover: #2a3244;
+    --sb-overlay-border: #414861;
+    --sb-overlay-shadow: 0 0 0 1px rgb(0 0 0 / 0.35), 0 4px 10px rgb(0 0 0 / 0.35), 0 16px 40px -6px rgb(0 0 0 / 0.7);
+    --sb-scrim: rgb(0 0 0 / 0.6);
     color-scheme: dark;
   }
 }
@@ -78,8 +89,20 @@
   --color-profile-red: var(--sb-profile-red);
   --color-profile-orange: var(--sb-profile-orange);
   --color-profile-gray: var(--sb-profile-gray);
+  --color-popover: var(--sb-popover);
+  --color-scrim: var(--sb-scrim);
   --font-sans: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Inter', system-ui, sans-serif;
   --font-mono: 'SF Mono', ui-monospace, Menlo, monospace;
+}
+
+/*
+ * The surface of anything that floats above the app: menus, popovers, tooltips and dialogs.
+ * Use with `border` and a radius; inner controls keep their own surfaces (`bg-bg` fields).
+ */
+@utility overlay {
+  background-color: var(--sb-popover);
+  border-color: var(--sb-overlay-border);
+  box-shadow: var(--sb-overlay-shadow);
 }
 
 /* Frameless-window drag regions (macOS hiddenInset title bar). */

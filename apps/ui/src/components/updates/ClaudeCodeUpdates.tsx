@@ -1,0 +1,128 @@
+import { Check, Copy } from 'lucide-react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { claudeUpdateStatusText, INSTALL_METHOD_LABEL, newer as isNewer } from '../../lib/claudeUpdate.ts';
+import { lastChecked } from '../../lib/updates.ts';
+import { useClaudeUpdate } from '../../state/claudeUpdateStore.ts';
+import { Toggle } from '../ui/Toggle.tsx';
+
+const button = 'h-7 rounded-md border border-border px-2.5 text-[12px] hover:bg-border/50 disabled:opacity-50 disabled:hover:bg-transparent';
+
+/** The command to run in a terminal, with a copy button. */
+function CommandToCopy({ command }: { command: string }) {
+  const [copied, setCopied] = useState(false);
+  useEffect(() => {
+    if (!copied) return;
+    const timer = setTimeout(() => setCopied(false), 1500);
+    return () => clearTimeout(timer);
+  }, [copied]);
+  return (
+    <div className="flex items-center gap-2 rounded-md border border-border bg-card py-1 pr-1 pl-2.5" data-claude-update-command>
+      <code className="min-w-0 flex-1 truncate font-mono text-[12px]">{command}</code>
+      <button
+        type="button"
+        onClick={() => void navigator.clipboard.writeText(command).then(() => setCopied(true))}
+        data-tooltip={copied ? 'Copied' : 'Copy'}
+        aria-label="Copy command"
+        className="flex size-6 shrink-0 items-center justify-center rounded-md text-muted hover:bg-border/60 hover:text-text"
+      >
+        {copied ? <Check size={13} className="text-ok" /> : <Copy size={13} />}
+      </button>
+    </div>
+  );
+}
+
+/** Output of the running or last update, kept scrolled to the end while it runs. */
+function UpdateOutput({ output, running }: { output: string; running: boolean }) {
+  const ref = useRef<HTMLPreElement>(null);
+  useEffect(() => {
+    if (running && ref.current) ref.current.scrollTop = ref.current.scrollHeight;
+  }, [output, running]);
+  return (
+    <pre ref={ref} className="max-h-48 overflow-y-auto rounded-md border border-border bg-card px-3 py-2 font-mono text-[11.5px] leading-relaxed whitespace-pre-wrap text-muted" data-claude-update-output>
+      {output || (running ? 'Starting…' : '')}
+    </pre>
+  );
+}
+
+function Row({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <>
+      <dt className="text-muted">{label}</dt>
+      <dd className="min-w-0 truncate">{children}</dd>
+    </>
+  );
+}
+
+/** Settings → About: the Claude Code that Switchboard runs, whether a newer one is out, and updating it. */
+export function ClaudeCodeUpdates({ now }: { now: number }) {
+  const { state, refused, check, update, dismiss, setEnabled } = useClaudeUpdate();
+  if (!state) return null;
+
+  const busy = state.status === 'checking' || state.status === 'updating';
+  const newer = state.latestVersion !== null && state.installedVersion !== null && isNewer(state.latestVersion, state.installedVersion) && (state.status === 'available' || state.status === 'error');
+  const showManual = newer && !state.canUpdate && state.command;
+  const failed = state.status === 'error';
+
+  return (
+    <div className="grid gap-3 border-t border-border pt-5" data-claude-updates data-claude-update-status={state.status} data-claude-update-quiet={state.quiet}>
+      <div className="flex items-start gap-3">
+        <div className="min-w-0 flex-1">
+          <p className="text-[12.5px] font-medium">Claude Code</p>
+          <p className={`mt-0.5 text-[12px] ${failed ? 'text-error' : 'text-muted'}`} data-claude-update-text>
+            {claudeUpdateStatusText(state)}
+          </p>
+          {state.quiet && state.status === 'available' && <p className="mt-0.5 text-[11.5px] text-faint">Claude Code’s own auto-updater is turned off, so Switchboard doesn’t show a notice for it.</p>}
+          {state.status !== 'missing' && <p className="mt-0.5 text-[11.5px] text-faint">{lastChecked(state.checkedAt, now)}</p>}
+        </div>
+        <div className="flex shrink-0 gap-2">
+          {newer && state.canUpdate && (
+            <button type="button" disabled={busy} onClick={update} className="h-7 rounded-md bg-accent px-2.5 text-[12px] font-medium text-on-accent disabled:opacity-50" data-claude-update-run>
+              {failed ? 'Try again' : `Update to v${state.latestVersion}`}
+            </button>
+          )}
+          <button type="button" disabled={busy || state.status === 'missing'} onClick={check} className={button} data-claude-update-check>
+            Check for Updates
+          </button>
+        </div>
+      </div>
+
+      {state.path && (
+        <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-[12px]" data-claude-install>
+          <Row label="Installed">
+            <span data-claude-installed-version={state.installedVersion ?? ''}>{state.installedVersion ? `v${state.installedVersion}` : 'unknown version'}</span>
+          </Row>
+          <Row label="Latest">{state.latestVersion ? `v${state.latestVersion} (${state.channel})` : '—'}</Row>
+          <Row label="Installed with">{INSTALL_METHOD_LABEL[state.method]}</Row>
+          <Row label="Path">
+            <span className="font-mono text-[11.5px]" data-tooltip={state.path}>
+              {state.path}
+            </span>
+          </Row>
+        </dl>
+      )}
+
+      {showManual && (
+        <div className="grid gap-1.5" data-claude-update-manual>
+          <p className="text-[12px] text-muted">{state.manualReason} Run this in a terminal:</p>
+          <CommandToCopy command={state.command!} />
+        </div>
+      )}
+
+      {(state.status === 'updating' || state.output) && <UpdateOutput output={state.output} running={state.status === 'updating'} />}
+      {refused && <p className="text-[12px] text-error">{refused}</p>}
+      {state.status === 'updated' && (
+        <button type="button" onClick={dismiss} className={`${button} justify-self-start`}>
+          Done
+        </button>
+      )}
+
+      <Toggle
+        label="Check for Claude Code updates automatically"
+        detail="Shortly after Switchboard opens, then every few hours. Nothing is installed until you choose Update."
+        checked={state.enabled}
+        attr="data-claude-update-auto"
+        onChange={setEnabled}
+      />
+    </div>
+  );
+}

@@ -1,8 +1,9 @@
-import { ChevronRight, ExternalLink, RefreshCw, Undo2, X } from 'lucide-react';
+import { ChevronRight, ExternalLink, RefreshCw, Undo2, WrapText, X } from 'lucide-react';
 import { memo, useEffect, useMemo, useState } from 'react';
 import type { ChangedFile, ChangesBase, GitChanges } from '@switchboard/protocol/client';
 import { useEngineConnection } from '../../engine/useEngine.ts';
 import { parseUnifiedDiff } from '../../lib/unifiedDiff.ts';
+import { useOverlay } from '../../state/overlayStore.ts';
 import { ConfirmDialog } from '../ConfirmDialog.tsx';
 import { useOpenIn } from '../OpenInButton.tsx';
 import { Checkbox } from '../ui/Checkbox.tsx';
@@ -34,32 +35,43 @@ const FileDiff = memo(function FileDiff({ cwd, base, path, version }: { cwd: str
     // `version` changes when the file's counts do, so an open diff follows new edits.
   }, [client, cwd, base, path, version]);
   const rows = useMemo(() => (state && 'diff' in state ? parseUnifiedDiff(state.diff) : []), [state]);
+  const wrap = useOverlay((s) => s.diffWrap);
 
   if (!state) return <p className="px-3 py-2 text-[11.5px] text-faint">Loading…</p>;
   if ('error' in state) return <p className="px-3 py-2 text-[11.5px] text-error">{state.error}</p>;
   if (rows.length === 0) return <p className="px-3 py-2 text-[11.5px] text-faint">No line changes (mode or empty file).</p>;
+  // Unwrapped, the inner block is as wide as the longest line, so every row's colour runs the full
+  // width while scrolling sideways; the line numbers stay put.
+  const gutter = 'sticky left-0 z-[1] flex shrink-0 self-stretch bg-bg';
   return (
-    <div className="overflow-x-auto border-t border-border font-mono text-[11px] leading-[1.55] select-text" data-file-diff>
-      {rows.map((row, i) =>
-        row.kind === 'hunk' ? (
-          <div key={i} className="bg-border/30 px-3 text-faint">
-            @@ {row.text}
-          </div>
-        ) : row.kind === 'note' ? (
-          <div key={i} className="px-3 text-faint italic">
-            {row.text}
-          </div>
-        ) : (
-          <div key={i} className={`flex whitespace-pre ${row.kind === 'add' ? 'bg-ok/12' : row.kind === 'del' ? 'bg-error/12 text-text/80' : 'text-muted'}`}>
-            <span className="w-9 shrink-0 pr-1.5 text-right text-faint/70 select-none">{row.newLine ?? row.oldLine}</span>
-            <span className={`w-4 shrink-0 text-center select-none ${row.kind === 'add' ? 'text-ok' : row.kind === 'del' ? 'text-error' : 'text-faint'}`}>
-              {row.kind === 'add' ? '+' : row.kind === 'del' ? '−' : ' '}
-            </span>
-            <span className="pr-3">{row.text || ' '}</span>
-          </div>
-        ),
-      )}
-      {state.truncated && <div className="px-3 py-1 text-faint">… diff shortened</div>}
+    <div className="overflow-x-auto overscroll-x-contain border-t border-border font-mono text-[11px] leading-[1.55] select-text" data-file-diff data-diff-wrap={wrap}>
+      <div className={wrap ? '' : 'w-max min-w-full'}>
+        {rows.map((row, i) =>
+          row.kind === 'hunk' ? (
+            <div key={i} className={`bg-border/30 px-3 text-faint ${wrap ? 'break-all whitespace-pre-wrap' : 'whitespace-pre'}`}>
+              @@ {row.text}
+            </div>
+          ) : row.kind === 'note' ? (
+            <div key={i} className="px-3 text-faint italic">
+              {row.text}
+            </div>
+          ) : (
+            <div key={i} className={`flex ${row.kind === 'add' ? 'bg-ok/12' : row.kind === 'del' ? 'bg-error/12 text-text/80' : 'text-muted'}`}>
+              {/* The gutter is opaque (it covers lines scrolling under it), so it repeats the row's tint. */}
+              <span className={gutter}>
+                <span className={`flex ${row.kind === 'add' ? 'bg-ok/12' : row.kind === 'del' ? 'bg-error/12' : ''}`}>
+                  <span className="w-9 shrink-0 pr-1.5 text-right text-faint/70 select-none">{row.newLine ?? row.oldLine}</span>
+                  <span className={`w-4 shrink-0 text-center select-none ${row.kind === 'add' ? 'text-ok' : row.kind === 'del' ? 'text-error' : 'text-faint'}`}>
+                    {row.kind === 'add' ? '+' : row.kind === 'del' ? '−' : ' '}
+                  </span>
+                </span>
+              </span>
+              <span className={`pr-3 ${wrap ? 'min-w-0 break-all whitespace-pre-wrap' : 'whitespace-pre'}`}>{row.text || ' '}</span>
+            </div>
+          ),
+        )}
+        {state.truncated && <div className="px-3 py-1 text-faint">… diff shortened</div>}
+      </div>
     </div>
   );
 });
@@ -89,6 +101,8 @@ export function ChangesPanel({
   const [open, setOpen] = useState<Set<string>>(new Set());
   const [reverting, setReverting] = useState<string[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const wrap = useOverlay((s) => s.diffWrap);
+  const toggleWrap = useOverlay((s) => s.toggleDiffWrap);
   const files = changes?.files ?? [];
   const added = files.reduce((n, f) => n + f.additions, 0);
   const removed = files.reduce((n, f) => n + f.deletions, 0);
@@ -130,6 +144,17 @@ export function ChangesPanel({
         <span className="min-w-0 flex-1 truncate text-[11.5px] text-faint">
           {files.length} {files.length === 1 ? 'file' : 'files'} <span className="text-ok">+{added}</span> <span className="text-error">−{removed}</span>
         </span>
+        <button
+          type="button"
+          onClick={toggleWrap}
+          aria-pressed={wrap}
+          data-tooltip={wrap ? 'Don’t wrap long lines' : 'Wrap long lines'}
+          aria-label="Wrap long lines"
+          data-diff-wrap-toggle
+          className={`flex size-6 items-center justify-center rounded hover:bg-border/60 hover:text-text ${wrap ? 'bg-accent/15 text-accent-ink' : 'text-faint'}`}
+        >
+          <WrapText size={13} />
+        </button>
         <button type="button" onClick={onRefresh} data-tooltip="Refresh" aria-label="Refresh" className="flex size-6 items-center justify-center rounded text-faint hover:bg-border/60 hover:text-text">
           <RefreshCw size={12} />
         </button>
@@ -140,7 +165,7 @@ export function ChangesPanel({
 
       {(error ?? changes?.error) && <p className="border-b border-border px-3 py-2 text-[11.5px] text-error">{error ?? changes?.error}</p>}
 
-      <div className="min-h-0 flex-1 overflow-y-auto">
+      <div className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto">
         {changes === null ? (
           <p className="p-4 text-[12px] text-faint">Loading…</p>
         ) : files.length === 0 ? (

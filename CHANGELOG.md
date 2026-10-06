@@ -2,6 +2,99 @@
 
 All notable changes to Switchboard are listed here. Each release is also on the [releases page](https://github.com/estruyf/switchboard/releases), with the `.dmg` to download.
 
+## [Unreleased]
+
+### Sessions
+
+- The **Open in** menu in a session's header has a **GitHub** entry when the project is on GitHub. It opens the branch you're on when it's pushed, and the repository otherwise.
+- When Claude leaves a command or agent running in the background, the session shows it: a slowly turning green ring in the sidebar, "Open, 1 background task running" in the header, and the task under the message box. Hover to see what's running.
+
+### Fixes
+
+- Diffs in the Changes panel scroll sideways with the line numbers kept in view, and added or removed lines are coloured across the whole width. A new button in the panel's header wraps long lines instead; Switchboard remembers your choice.
+- A session that starts again (after Stop, a while idle, or restarting Switchboard) keeps its permission mode, and the model and effort you picked for it, instead of going back to your defaults.
+- The model picker under a session shows the model it runs, such as Opus 5.5, instead of an extra row with the raw model id.
+- Switchboard no longer closes a session that has been idle for a while when a background task is still running in it. That used to stop the task before Claude could report back.
+- The permission mode picker under a session shows the same coloured dot as New session.
+- A session you just started goes to the top of the sidebar, even while another session is working.
+- The **Open in** menu is no longer hidden behind the conversation.
+
+## [0.0.4] - 2026-10-06
+
+### Updates
+
+- Switchboard updates itself. It checks for a new release shortly after it opens and every few hours; a pill at the bottom of the sidebar offers the update, shows what's new, downloads it when you click, and restarts into it (asking first if sessions are running). **Switchboard → Check for Updates…** checks right away.
+- A new **About** section in Settings shows the version you're running and the commit it was built from, links to its release notes and the changelog, and has the update settings: automatic checks on or off, and the *Stable* or *Nightly* channel. The version also shows at the bottom of the Settings sidebar, and in the About Switchboard window.
+- Switchboard tells you when a newer Claude Code is out and updates it for you. It checks shortly after it opens and every few hours, following your Claude Code channel (*latest* or *stable*). A notice at the bottom of the sidebar offers the update (or dismiss it until the next version), and **Settings → About** shows the Claude Code you have, how it was installed, the update's output, and a switch to turn the checks off. New sessions use the new version right away. When Switchboard can't run the update itself, it shows the command to copy into a terminal.
+
+### Links
+
+- Open Switchboard from a link. `switchboard://new-session?project=payments&prompt=…` opens New session in that project with the prompt filled in. Use `cwd=/path` for any folder, or `repo=owner/name` and Switchboard finds your checkout of that GitHub repository. A link that doesn't say where opens the project list instead of guessing. By default you read the prompt and press Enter (a note under the message box says it came from a link); add `autostart=1` to start the session right away. `switchboard://session/<id>` opens a session. Links Switchboard can't use show why and change nothing. See [Links](docs/deep-links.md) for the format and examples.
+
+### Sessions
+
+- A session working in its project's folder (not a worktree) shows the branch checked out right now in its header, instead of the one Claude Code last recorded. Click it to switch branches: uncommitted changes come along when they don't conflict, git refuses when they do, and nothing is ever stashed or discarded. Running sessions in the sidebar show the same live branch.
+- A session keeps its permission mode (such as *Auto*) when it picks up again after being stopped, idling for a while or rewinding, instead of falling back to *Default*. The mode shown also follows changes Claude Code makes on its own, such as leaving plan mode.
+- A session's model dropdown shows the model's name from the list (such as *Opus*) instead of its raw id like `claude-opus-5-5`.
+- The "open" count at the bottom of the sidebar now matches the sessions in the main list. It no longer counts Claude Code processes idling outside Switchboard, which are listed under *Settled*.
+
+### Projects and profiles
+
+- After you add a project, the Projects view opens on it so you can choose its Claude profile and defaults straight away.
+- The Claude profile dropdown shows profile names in full; the account email is shortened instead.
+
+### Actions
+
+- A running action's terminal tab has a **Stop** button, and ⌃C in it stops the action like in any terminal. An action stopped this way shows exit code 130 instead of 0.
+- **Restart** on a finished action now runs it again in the same tab. If the action was edited, the new command runs; if it comes from `.switchboard.json` and changed, it has to be approved again (run it from the actions bar) before it restarts.
+
+### Settings
+
+- Back up and move your settings. **Settings → Backup** (or *Export settings…* in the command palette) saves your preferences, projects with their icons, project actions and app choices to a file; *Import settings…* shows what a file would change before anything happens, merges by default or replaces, and lets you point folders that aren't on this Mac at new ones. Your current settings are backed up first, and imported shell actions ask for approval before they run.
+
+### Look and feel
+
+- Menus, dropdowns, popovers and dialogs stand out more from what's behind them, especially in dark mode: they have a lighter surface, a clearer border and a stronger shadow, and dialogs dim the app further.
+- macOS permission prompts, such as the one for local network access, now say *Switchboard* instead of *Electron*.
+
+## [0.0.3] - 2026-10-06
+
+### Projects
+
+- Projects are now the folders you add yourself. The sidebar filter, New session and the command palette offer only those. *Add project* suggests the folders you already have Claude Code sessions in, and starting a session in another folder offers to add it. If you're upgrading, folders where you started or continued a session in Switchboard are kept.
+- A new **Projects** view (the folder icon at the bottom of the sidebar): add, remove and reorder projects, and set their icon, actions and defaults. Removing a project only takes it off Switchboard's lists; nothing on disk changes.
+- Defaults per project for new sessions: model, effort, permission mode, current folder or new worktree (and its base), and a branch to check out. Change one in New session and choose *Save as project default* to keep it.
+
+### New session
+
+- Redesigned around the prompt. The project sits above it, with a switcher for recent folders. Model, a five-step effort dial and the permission mode are in the prompt's toolbar. Below it you choose this checkout or a new worktree, its base and branch, and see your plan usage.
+- ⌘N, the sidebar button and the command palette put the cursor straight in the prompt, even when New session is already open.
+- The "running here" note only counts sessions the sidebar shows, so terminal and editor sessions stay hidden when *Show sessions from other apps* is off.
+
+### Claude profiles
+
+- Use more than one Claude account, for example a personal plan and a work one. Each profile is a Claude Code config folder with its own login, settings, plugins and sessions. Add them in **Settings → Claude profiles**, choose the default, and link a project to a profile from its menu or the Projects view.
+- With more than one profile, sessions show which account they use, New session lets you pick one for a single session, and the usage band shows that account's limits.
+- *How to set up another profile* in Settings walks you through creating the folder, signing in, adding it and linking projects.
+
+### Settings
+
+- Settings now uses the sidebar for its sections, and closes with the × button, *Back to sessions* or Escape.
+- Diagnostics moved into Settings (or "Engine diagnostics" in the command palette).
+- New **General** section: choose whether Switchboard opens on the last session or on New session. It also holds the "Ask before quitting" option.
+
+### Sessions and the message box
+
+- Close a session with the × in its header to go to New session. A session that's working keeps running.
+- Switchboard no longer reopens a session from another app at launch while those sessions are hidden from the sidebar.
+- Drag files onto a session and the message box shows what will happen: images are attached, and other files and folders are mentioned as `@path`. Images over the limit are mentioned instead of being dropped.
+
+### Look and feel
+
+- Drag the sidebar's edge to resize it; double-click the edge to reset. Switchboard remembers the width.
+- Dropdowns, checkboxes, switches and tooltips match the app's theme in light and dark mode.
+- Buttons and links show the pointer cursor again.
+
 ## [0.0.2] - 2026-10-05
 
 - The sidebar now lists only the sessions you start or continue in Switchboard. Turn on **Settings → Sidebar → Show sessions from other apps** to see your terminal, Claude desktop and editor sessions too.

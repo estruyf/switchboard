@@ -55,6 +55,12 @@ export async function switchBranch(cwd: string, branch: string): Promise<void> {
   await git(cwd, ['switch', branch]);
 }
 
+/** The top folder of the checkout `cwd` is in (a worktree is its own checkout), or null outside git. */
+export async function checkoutRoot(cwd: string): Promise<string | null> {
+  const root = await git(cwd, ['rev-parse', '--show-toplevel']).catch(() => '');
+  return root.trim() || null;
+}
+
 /** The commit `base` mode compares against: where this branch left the base branch. */
 async function mergeBase(cwd: string, base: string): Promise<string | null> {
   for (const ref of [`origin/${base}`, base]) {

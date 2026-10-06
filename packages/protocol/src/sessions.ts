@@ -116,6 +116,8 @@ export const LiveSession = z.object({
   updatedAt: z.number().nullable(),
   /** The profile whose config folder registered this process. */
   profileId: z.string(),
+  /** Descriptions of background tasks still running. Only known for sessions running in this app. */
+  background: z.array(z.string()).optional(),
 });
 export type LiveSession = z.infer<typeof LiveSession>;
 

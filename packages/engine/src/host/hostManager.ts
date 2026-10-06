@@ -22,7 +22,8 @@ import { clipJson } from '../claude/transcript.ts';
 import type { RawSessionMessage } from '../claude/transcript.ts';
 import { describeSuggestions } from './permissions.ts';
 import { readCapabilities } from './capabilities.ts';
-import { buildOptions, SessionHost, type HostConfig, type StartQuery } from './sessionHost.ts';
+import { buildOptions, SessionHost, toModelOption, type HostConfig, type StartQuery } from './sessionHost.ts';
+import { createMemorySessionSettings, type SessionSettingsStore } from './sessionSettings.ts';
 
 /** The two SDK entry points the manager needs; injected so tests can fake Claude Code. */
 export interface SdkRuntime {
@@ -63,6 +64,12 @@ export interface HostManagerDeps {
   ephemeral?: { add(sessionId: string): void; delete(sessionId: string): void };
   /** A profile's installed plugins, for sessions that aren't running (their own list comes from Claude Code). */
   installedPlugins?: (profileId: string) => PluginInfo[];
+  /** What each session last ran with; without it, resumes only remember it until the engine restarts. */
+  sessionSettings?: SessionSettingsStore;
+  /** The model list saved last time, until Claude Code reports a fresh one. */
+  models?: ModelOption[] | null;
+  /** Claude Code reported a (new) model list. */
+  onModels?: (models: ModelOption[]) => void;
   /** Persisted command lists per profile and folder, so the palette is instant after a restart. */
   commandCache?: { get(key: CommandKey): SlashCommand[] | null; set(key: CommandKey, commands: SlashCommand[]): void };
 }
@@ -127,9 +134,18 @@ export class HostManager {
   private warm: Warm | undefined;
   /** When this app stopped a session's process; its registry entry lingers until the process exits. */
   private readonly closedAt = new Map<string, number>();
+  /**
+   * What each session last ran with. Claude Code resumes in its own defaults (and the project's), so a
+   * resume after Stop, the idle reaper, a rewind or an app restart would otherwise drop back to them.
+   */
+  private readonly settings: SessionSettingsStore;
+  /** The mode last saved per session, so info updates don't write to the database every time. */
+  private readonly lastMode = new Map<string, PermissionMode>();
   private readonly reaper: ReturnType<typeof setInterval>;
 
   constructor(private readonly deps: HostManagerDeps) {
+    this.settings = deps.sessionSettings ?? createMemorySessionSettings();
+    if (deps.models?.length) this.models = deps.models;
     this.reaper = setInterval(() => this.reapIdle(), 60_000);
     this.reaper.unref?.();
   }
@@ -162,6 +178,7 @@ export class HostManager {
       warm,
     );
     this.deps.onCreated(sessionId);
+    if (params.model || params.effort) this.settings.set(sessionId, { model: params.model, effort: params.effort });
     if (warm) {
       // The warm process started with defaults; apply this session's choices before the first message.
       if (params.model) await host.setModel(params.model).catch(() => {});
@@ -190,7 +207,11 @@ export class HostManager {
     const cwd = this.deps.sessionCwd(sessionId);
     if (!cwd) throw new RpcError('NOT_FOUND', 'Unknown session, or its folder is not recorded');
     const profileId = this.deps.sessionProfile(sessionId);
-    return this.spawn({ sessionId, cwd, profileId, mode: fork ? 'fork' : 'resume', model: null, permissionMode: 'default', effort: null, worktree: null });
+    const saved = this.settings.get(sessionId);
+    const permissionMode = this.lastMode.get(sessionId) ?? saved?.permissionMode ?? 'default';
+    const model = saved?.model ?? null;
+    const effort = saved?.effort ?? null;
+    return this.spawn({ sessionId, cwd, profileId, mode: fork ? 'fork' : 'resume', model, permissionMode, effort, worktree: null });
   }
 
   async send(params: { sessionId: string; text: string; attachments: ImageAttachment[]; fork: boolean }): Promise<{ sessionId: string; messageUuid: string }> {
@@ -198,8 +219,12 @@ export class HostManager {
     const messageUuid = host.send(params.text, params.attachments);
     // A fork only learns its new id once Claude Code has started.
     const sessionId = params.fork ? await host.initialized : host.sessionId;
-    if (params.fork) this.deps.onCreated(sessionId);
-    else this.deps.onContinued?.(sessionId);
+    if (params.fork) {
+      this.deps.onCreated(sessionId);
+      // A fork carries on with the model and effort picked for the original.
+      const saved = this.settings.get(params.sessionId);
+      if (saved?.model || saved?.effort) this.settings.set(sessionId, { model: saved.model, effort: saved.effort });
+    } else this.deps.onContinued?.(sessionId);
     return { sessionId, messageUuid };
   }
 
@@ -231,8 +256,9 @@ export class HostManager {
     return this.require(sessionId).setPermissionMode(mode);
   }
 
-  setEffort(sessionId: string, effort: Effort | null): Promise<void> {
-    return this.require(sessionId).setEffort(effort);
+  async setEffort(sessionId: string, effort: Effort | null): Promise<void> {
+    await this.require(sessionId).setEffort(effort);
+    this.settings.set(sessionId, { effort });
   }
 
   async context(sessionId: string): Promise<ContextUsage> {
@@ -244,8 +270,9 @@ export class HostManager {
     }
   }
 
-  setModel(sessionId: string, model: string | null): Promise<void> {
-    return this.require(sessionId).setModel(model);
+  async setModel(sessionId: string, model: string | null): Promise<void> {
+    await this.require(sessionId).setModel(model);
+    this.settings.set(sessionId, { model });
   }
 
   close(sessionId: string): void {
@@ -321,9 +348,12 @@ export class HostManager {
   }
 
   private listCommands({ cwd, profileId }: CommandKey): Promise<SlashCommand[]> {
-    return this.withHelper(cwd, profileId, async (query) =>
-      (await query.supportedCommands()).map((c) => ({ name: c.name, description: c.description, argumentHint: c.argumentHint })),
-    );
+    return this.withHelper(cwd, profileId, async (query) => {
+      // The same process knows the models, so the pickers get the real list without a session running.
+      const [commands, models] = await Promise.all([query.supportedCommands(), query.supportedModels().catch(() => [])]);
+      if (models.length) this.setModels(models.map(toModelOption));
+      return commands.map((c) => ({ name: c.name, description: c.description, argumentHint: c.argumentHint }));
+    });
   }
 
   private readonly capabilityCache = new Map<string, { at: number; value: Promise<Capabilities> }>();
@@ -388,6 +418,18 @@ export class HostManager {
 
   listModels(): ModelOption[] {
     return this.models;
+  }
+
+  private setModels(models: ModelOption[]): void {
+    if (models === this.models || JSON.stringify(models) === JSON.stringify(this.models)) return;
+    this.models = models;
+    this.deps.onModels?.(models);
+  }
+
+  /** Forgets what a session ran with (it was moved to the Trash). */
+  forget(sessionId: string): void {
+    this.lastMode.delete(sessionId);
+    this.settings.delete(sessionId);
   }
 
   /** Starts a Claude Code process for `cwd` so a new session there answers about a second faster. */
@@ -506,7 +548,13 @@ export class HostManager {
       this.commandsByCwd.set(keyOf(key), host.commands);
       this.deps.commandCache?.set(key, host.commands);
     }
-    if (host.models.length) this.models = host.models;
+    if (host.models.length) this.setModels(host.models);
+    // Bypass needs an extra flag at startup, so a resume never brings it back on its own.
+    // Before init the mode is only what we asked for; Claude Code may have settled on another.
+    if (info.state !== 'starting' && info.permissionMode !== 'bypassPermissions' && this.lastMode.get(info.sessionId) !== info.permissionMode) {
+      this.lastMode.set(info.sessionId, info.permissionMode);
+      this.settings.set(info.sessionId, { permissionMode: info.permissionMode });
+    }
     this.deps.onInfo(info);
   }
 
@@ -542,10 +590,14 @@ export class HostManager {
     this.deps.onPermissionResolved(requestId, pending.request.sessionId);
   }
 
-  private reapIdle(): void {
+  /**
+   * Closes sessions that have been idle for a while. A session with background tasks is left
+   * alone: closing the process would kill them before Claude could report back. Public for tests.
+   */
+  reapIdle(now = Date.now()): void {
     const limit = this.deps.idleTimeoutMs ?? 30 * 60_000;
     for (const host of this.hosts.values()) {
-      if (host.active && host.info.state === 'idle' && Date.now() - host.lastActivity > limit) {
+      if (host.active && host.info.state === 'idle' && host.info.backgroundTasks.length === 0 && now - host.lastActivity > limit) {
         this.deps.log('info', `Closing idle session ${host.sessionId}`);
         this.closedAt.set(host.sessionId, Date.now());
         host.close();

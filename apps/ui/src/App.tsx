@@ -2,10 +2,12 @@ import { useEffect } from 'react';
 import { NewSessionView } from './components/newSession/NewSessionView.tsx';
 import { TooltipLayer } from './components/ui/Tooltip.tsx';
 import { useOpenIn } from './components/OpenInButton.tsx';
+import { LinkError } from './components/LinkError.tsx';
 import { QuitPrompt } from './components/QuitPrompt.tsx';
 import { CommandPalette } from './components/palette/CommandPalette.tsx';
 import { SearchDialog } from './components/search/SearchDialog.tsx';
 import { AddProjectDialog } from './components/projects/AddProjectDialog.tsx';
+import { BackupDialogs } from './components/backup/BackupDialogs.tsx';
 import { ProjectManagerView } from './components/projects/ProjectManagerView.tsx';
 import { SettingsView } from './components/SettingsView.tsx';
 import { useUsageSync } from './components/UsageBand.tsx';
@@ -13,6 +15,7 @@ import { Sidebar } from './components/sidebar/Sidebar.tsx';
 import { TranscriptView } from './components/transcript/TranscriptView.tsx';
 import { useReadyReport } from './engine/useReadyReport.ts';
 import { isActiveHost, useHosts } from './state/hostsStore.ts';
+import { useLinksSync } from './state/linksStore.ts';
 import { useSessions } from './state/sessionsStore.ts';
 import { useOverlay } from './state/overlayStore.ts';
 import { usePreferencesSync } from './state/preferencesStore.ts';
@@ -21,6 +24,8 @@ import { useProfilesSync } from './state/profilesStore.ts';
 import { useProjects, useProjectsSync } from './state/projectsStore.ts';
 import { useSidebarSync } from './state/sidebarStore.ts';
 import { useTerminals, useTerminalsSync } from './state/terminalsStore.ts';
+import { useUpdatesSync } from './state/updatesStore.ts';
+import { useClaudeUpdateSync } from './state/claudeUpdateStore.ts';
 import { useHostsSync } from './state/useHostsSync.ts';
 import { useSessionsSync } from './state/useSessionsSync.ts';
 
@@ -118,8 +123,8 @@ function useWindowFocus() {
     window.switchboard?.reportFocus(view === 'session' ? selectedId : null);
   }, [view, selectedId]);
   useEffect(() => window.switchboard?.onSelectSession((id) => useSessions.getState().select(id)), []);
-  // Switchboard → Settings… (⌘,) in the menu bar.
-  useEffect(() => window.switchboard?.onOpenSettings(() => useSessions.getState().openSettings()), []);
+  // Switchboard → Settings… (⌘,) or Check for Updates… (About) in the menu bar.
+  useEffect(() => window.switchboard?.onOpenSettings((section) => useSessions.getState().openSettings(section ?? undefined)), []);
 }
 
 export function App() {
@@ -128,9 +133,13 @@ export function App() {
   useProjectsSync();
   useProfilesSync();
   useTerminalsSync();
+  useUpdatesSync();
+  useClaudeUpdateSync();
   useSidebarSync();
   useUsageSync();
   usePreferencesSync();
+  // Listen for links before telling main the window is ready: main hands over waiting links then.
+  useLinksSync();
   useReadyReport();
   useShortcuts();
   useWindowFocus();
@@ -168,9 +177,11 @@ export function App() {
         )}
       </main>
       <QuitPrompt />
+      <LinkError />
       {overlay === 'search' && <SearchDialog />}
       {overlay === 'palette' && <CommandPalette />}
       {adding && <AddProjectDialog onClose={() => useProjects.getState().showAdd(false)} />}
+      <BackupDialogs />
       <TooltipLayer />
     </div>
   );

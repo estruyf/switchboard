@@ -18,14 +18,6 @@ export const MODE_DESCRIPTION: Partial<Record<PermissionMode, string>> = {
   auto: 'Claude only asks when it matters',
 };
 
-/** The status dot per mode, as a theme colour. */
-export const MODE_DOT: Partial<Record<PermissionMode, string>> = {
-  default: 'bg-ok',
-  acceptEdits: 'bg-link',
-  plan: 'bg-faint',
-  auto: 'bg-accent-ink',
-};
-
 /** The effort dial: clicking the selected step again goes back to the default effort. */
 export function toggleEffort(current: Effort | '', clicked: Effort): Effort | '' {
   return current === clicked ? '' : clicked;

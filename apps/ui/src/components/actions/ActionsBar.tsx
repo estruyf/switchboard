@@ -62,6 +62,8 @@ export function ActionsBar({ sessionId, projectRoot, cwd }: { sessionId: string;
     const withShortcut = actions.filter((a) => a.shortcut);
     if (withShortcut.length === 0) return;
     const onKey = (event: KeyboardEvent) => {
+      // In a terminal, ⌃ and ⌥ keys belong to the shell (⌃C stops a running action); only ⌘ shortcuts run actions there.
+      if (!event.metaKey && (event.target as HTMLElement | null)?.closest?.('.xterm')) return;
       const shortcut = shortcutFromEvent(event);
       const action = shortcut && withShortcut.find((a) => a.shortcut === shortcut);
       if (action) {
@@ -129,14 +131,20 @@ export function ActionsBar({ sessionId, projectRoot, cwd }: { sessionId: string;
       )}
       {pending && (
         <ConfirmDialog
-          title={pending.reason === 'trust' ? `Run “${pending.action.name}” from this repository?` : `Run “${pending.action.name}”?`}
+          title={pending.reason === 'trust' ? `Run “${pending.action.name}” ${pending.action.scope === 'shared' ? 'from this repository' : 'from imported settings'}?` : `Run “${pending.action.name}”?`}
           confirmLabel={pending.reason === 'trust' ? 'Approve and run' : 'Run'}
           body={
             <>
               {pending.reason === 'trust' && (
                 <p className="mb-2">
-                  This action comes from the project’s <code className="font-mono">.switchboard.json</code>. Check the command before you approve it; you won’t be asked
-                  again unless it changes.
+                  {pending.action.scope === 'shared' ? (
+                    <>
+                      This action comes from the project’s <code className="font-mono">.switchboard.json</code>. Check the command before you approve it; you won’t be asked
+                      again unless it changes.
+                    </>
+                  ) : (
+                    <>This action was imported from a settings file. Check the command before you approve it; you won’t be asked again.</>
+                  )}
                 </p>
               )}
               <pre className="max-h-48 overflow-auto rounded-md bg-sidebar px-2.5 py-1.5 font-mono text-[12px] whitespace-pre-wrap text-text">{pending.action.command}</pre>

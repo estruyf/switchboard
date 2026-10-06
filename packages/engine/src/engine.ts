@@ -2,6 +2,7 @@ import { existsSync, readdirSync, readFileSync, rmSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import {
+  BACKUP_SECTIONS,
   BUILTIN_PROFILE_ID,
   contract,
   RpcError,
@@ -12,6 +13,7 @@ import {
   type Handlers,
   type LogEntry,
   type LogLevel,
+  type ModelOption,
   type RpcServer,
   type SlashCommand,
   type SystemInfo,
@@ -20,21 +22,26 @@ import {
 import { LiveRegistry } from './claude/liveRegistry.ts';
 import { createProjectResolver } from './claude/projectResolver.ts';
 import { sdkSessionSource, type SessionSource } from './claude/sessionSource.ts';
-import { fileDiff, listBranches, listChanges, removeWorktree, revert, stage, switchBranch, worktreeStatus } from './git/gitChanges.ts';
+import { findCheckout, githubPage } from './git/remotes.ts';
+import { checkoutRoot, fileDiff, listBranches, listChanges, removeWorktree, revert, stage, switchBranch, worktreeStatus } from './git/gitChanges.ts';
 import { SearchIndex } from './sessions/searchIndex.ts';
 import { installedPlugins } from './host/capabilities.ts';
 import { ActionStore, expandCommand, shellQuote, suggestActions } from './actions/actionStore.ts';
 import { HostManager, type SdkRuntime } from './host/hostManager.ts';
+import { createSessionSettingsStore } from './host/sessionSettings.ts';
 import { UsageMonitor } from './host/usageMonitor.ts';
 import { ProjectRegistry, type FolderActivity } from './projects/projectRegistry.ts';
 import { createAppStateStore } from './db/appState.ts';
 import { ConfigDirLane } from './profiles/configDirLane.ts';
+import { AccountWatcher } from './profiles/accountWatcher.ts';
 import { ProfileStore, type ProfileRuntime } from './profiles/profileStore.ts';
 import { MultiProfileSource } from './profiles/profileSources.ts';
 import { openCacheDatabase } from './db/database.ts';
 import { findClaude } from './system/claudeBinary.ts';
+import { ClaudeUpdater, type ClaudeUpdaterOptions } from './system/claudeUpdater.ts';
 import { normaliseMessage } from './claude/transcript.ts';
 import { SessionIndex } from './sessions/sessionIndex.ts';
+import { exportSettings, planImport, readSettingsFile, writeBackup, writeSettingsFile, type SettingsStores } from './settings/settingsTransfer.ts';
 import { TerminalManager, type SpawnPty } from './terminals/terminalManager.ts';
 import { TranscriptHub } from './sessions/transcriptHub.ts';
 import { detectEditors, openInEditor } from './system/editors.ts';
@@ -69,6 +76,11 @@ export interface EngineOptions {
   trash?: (paths: string[], scope: TrashScope) => Promise<void>;
   /** Pseudo-terminal factory. Defaults to node-pty. */
   spawnPty?: () => Promise<SpawnPty>;
+  /**
+   * The Claude Code update check. `automatic: false` skips the checks after launch (tests);
+   * `allowUpdate: false` refuses to run an update command (the smoke test).
+   */
+  claudeUpdates?: Pick<ClaudeUpdaterOptions, 'registryUrl' | 'allowUpdate' | 'run'> & { automatic?: boolean };
 }
 
 export type TrashScope = { configDir: string } | { repoRoot: string };
@@ -202,10 +214,20 @@ export function createEngine(options: EngineOptions): Engine {
   const watching = options.watchSessions !== false;
   syncRegistries(watching);
   if (watching) sessions.start();
+  // Signing in happens in a terminal (`/login`), outside Switchboard: follow each profile's login file.
+  const accounts = new AccountWatcher(
+    () => profiles.accountFiles(),
+    () => {
+      const snapshot = profiles.refreshAccounts();
+      if (snapshot) broadcast('profiles.changed', snapshot);
+    },
+  );
+  if (watching) accounts.start();
 
   /** Profiles were added or removed: read their folders (or stop reading them). */
   function profilesChanged() {
     syncRegistries(watching);
+    if (watching) accounts.sync();
     broadcast('sessions.live', { live: liveList() });
     void sessions.rootsChanged();
     const ids = new Set(profiles.runtimes().map((p) => p.id));
@@ -248,7 +270,21 @@ export function createEngine(options: EngineOptions): Engine {
 
   if (cache.recovered) log('warn', 'Cache database was unreadable and has been rebuilt');
 
-  const claude = shell.forLookup().then((env) => findClaude(env, options.claudeBinary));
+  // Found again by the Claude Code updater (after an update, and on each check), so new sessions use the version installed now.
+  let claude = shell.forLookup().then((env) => findClaude(env, options.claudeBinary));
+  const findClaudeAgain = () => (claude = shell.forLookup().then((env) => findClaude(env, options.claudeBinary)));
+  const claudeUpdater = new ClaudeUpdater({
+    store: appState,
+    findClaude: findClaudeAgain,
+    override: options.claudeBinary !== undefined,
+    claudeConfigDir,
+    env: () => shell.forLookup(),
+    ready: Promise.all([shell.ready, claude]),
+    onChange: (state) => broadcast('claudeUpdate.changed', state),
+    log,
+    ...options.claudeUpdates,
+  });
+  if (options.claudeUpdates?.automatic !== false) claudeUpdater.start();
   const files = new FileIndex();
 
   const sdk = options.sdk ?? (() => import('@anthropic-ai/claude-agent-sdk'));
@@ -302,6 +338,12 @@ export function createEngine(options: EngineOptions): Engine {
       sessions.republish(id);
     },
     installedPlugins: (profileId) => installedPlugins(profiles.runtime(profileId).configDir),
+    sessionSettings: createSessionSettingsStore(cache.db),
+    models: appState.get('models') as ModelOption[] | null,
+    onModels: (models) => {
+      appState.set('models', models);
+      broadcast('models.changed', { models });
+    },
     commandCache: {
       // Persisted for an hour; Claude Code reports fresh lists from every running session anyway.
       get: (key) => {
@@ -343,6 +385,33 @@ export function createEngine(options: EngineOptions): Engine {
   /** Runs an action's command in a terminal tab of the session and returns the terminal id. */
   const runShellAction = async (sessionId: string, cwd: string, name: string, command: string) =>
     (await terminals.open({ sessionId, cwd, kind: 'action', command, title: name, cols: 100, rows: 20, fork: false, env: profileEnv(sessionProfile(sessionId)) })).id;
+  /** Terminals started by `actions.run`, so Restart can look the action up again. */
+  const actionRuns = new Map<string, { sessionId: string; projectRoot: string; cwd: string; id: string }>();
+
+  /** Finds a project action and refuses an unapproved one. */
+  const findAction = (projectRoot: string, id: string) => {
+    const action = actions.list(projectRoot).actions.find((a) => a.id === id);
+    if (!action) throw new RpcError('NOT_FOUND', 'No such action');
+    if (!action.trusted) {
+      const from = action.scope === 'shared' ? `${projectRoot}/.switchboard.json` : 'a settings file';
+      throw new RpcError('UNTRUSTED', `"${action.name}" comes from ${from} and has not been approved yet`);
+    }
+    return action;
+  };
+
+  /** The values `${…}` placeholders in an action's command expand to. */
+  const actionVars = (sessionId: string, projectRoot: string, cwd: string) => {
+    const location = resolver.resolve(cwd);
+    return {
+      cwd,
+      projectRoot,
+      branch: resolver.branch(location) ?? '',
+      worktreeName: location.worktree?.name ?? '',
+      sessionId,
+      sessionTitle: sessions.get(sessionId)?.title ?? '',
+    };
+  };
+
   /** A terminal for a session gets its profile's config folder, so `claude` in it uses the same login. */
   const profileEnv = (profileId: string): Record<string, string> => {
     const { envDir } = profiles.runtime(profileId);
@@ -378,7 +447,21 @@ export function createEngine(options: EngineOptions): Engine {
   };
 
   const defaultEditorKey = 'editor.default';
+  const settingsStores: SettingsStores = { db: cache.db, appState, projects, actions };
   const editorEnv = () => shell.forLookup();
+
+  /** Session count and latest activity per project folder, for the project list. */
+  const folderActivity = () => {
+    const activity = new Map<string, FolderActivity>();
+    for (const s of sessions.snapshot().sessions) {
+      const entry = activity.get(s.projectRoot);
+      if (entry) {
+        entry.count++;
+        entry.lastActivity = Math.max(entry.lastActivity, s.updatedAt);
+      } else activity.set(s.projectRoot, { count: 1, lastActivity: s.updatedAt });
+    }
+    return activity;
+  };
 
   const handlers: Handlers<Contract> = {
     'system.info': async (): Promise<SystemInfo> => {
@@ -418,6 +501,7 @@ export function createEngine(options: EngineOptions): Engine {
       const paths = [transcript, transcript.replace(/\.jsonl$/, '')].filter((p) => existsSync(p));
       await trash(paths, { configDir: profiles.runtime(sessionProfile(sessionId)).configDir });
       sessions.forget(sessionId);
+      hosts.forget(sessionId);
       owned.delete(sessionId);
       unmarkOwned.run(sessionId);
       continued.delete(sessionId);
@@ -429,16 +513,10 @@ export function createEngine(options: EngineOptions): Engine {
       sessions.markViewed(sessionId);
       return {};
     },
-    'projects.list': () => {
-      const activity = new Map<string, FolderActivity>();
-      for (const s of sessions.snapshot().sessions) {
-        const entry = activity.get(s.projectRoot);
-        if (entry) {
-          entry.count++;
-          entry.lastActivity = Math.max(entry.lastActivity, s.updatedAt);
-        } else activity.set(s.projectRoot, { count: 1, lastActivity: s.updatedAt });
-      }
-      return { projects: projects.list(activity) };
+    'projects.list': () => ({ projects: projects.list(folderActivity()) }),
+    'projects.findByRepo': async ({ repo }) => {
+      const folders = projects.list(folderActivity()).filter((p) => p.exists).map((p) => p.root);
+      return { root: await findCheckout(folders, repo) };
     },
     'projects.add': ({ path }) => {
       projects.add(path);
@@ -645,29 +723,22 @@ export function createEngine(options: EngineOptions): Engine {
     'actions.trust': ({ projectRoot, id }) => {
       const action = actions.list(projectRoot).actions.find((a) => a.id === id);
       if (!action) throw new RpcError('NOT_FOUND', 'No such action');
-      actions.trust(projectRoot, action.command);
+      if (action.scope === 'shared') actions.trust(projectRoot, action.command);
+      else actions.approve(action.scope === 'global' ? null : projectRoot, action.id);
       return {};
     },
     'actions.suggest': ({ projectRoot }) => ({ suggestions: suggestActions(projectRoot) }),
     'actions.run': async ({ sessionId, projectRoot, cwd, id }) => {
-      const action = actions.list(projectRoot).actions.find((a) => a.id === id);
-      if (!action) throw new RpcError('NOT_FOUND', 'No such action');
-      if (!action.trusted) throw new RpcError('UNTRUSTED', `"${action.name}" comes from ${projectRoot}/.switchboard.json and has not been approved yet`);
-      const location = resolver.resolve(cwd);
-      const vars = {
-        cwd,
-        projectRoot,
-        branch: resolver.branch(location) ?? '',
-        worktreeName: location.worktree?.name ?? '',
-        sessionId,
-        sessionTitle: sessions.get(sessionId)?.title ?? '',
-      };
+      const action = findAction(projectRoot, id);
+      const vars = actionVars(sessionId, projectRoot, cwd);
       if (action.type === 'prompt') {
         const sent = await hosts.send({ sessionId, text: expandCommand(action.command, vars, false), attachments: [], fork: false });
         return { kind: 'prompt' as const, sessionId: sent.sessionId, messageUuid: sent.messageUuid };
       }
       const runIn = action.cwd === 'project-root' ? projectRoot : cwd;
-      return { kind: 'terminal' as const, terminalId: await runShellAction(sessionId, runIn, action.name, expandCommand(action.command, vars, true)) };
+      const terminalId = await runShellAction(sessionId, runIn, action.name, expandCommand(action.command, vars, true));
+      actionRuns.set(terminalId, { sessionId, projectRoot, cwd, id });
+      return { kind: 'terminal' as const, terminalId };
     },
     'search.query': async ({ query, limit }) => ({ hits: search.search(query, limit), indexing: { ...search.progress } }),
     'git.changes': async ({ cwd, base }) => {
@@ -692,6 +763,28 @@ export function createEngine(options: EngineOptions): Engine {
         throw new RpcError('GIT_FAILED', (error as Error).message);
       }
     },
+    'git.switch': async ({ cwd, branch }) => {
+      if (!resolver.resolve(cwd).gitDir) throw new RpcError('NOT_A_REPO', 'Not a git repository');
+      // Changing the files under a running turn would confuse Claude, wherever that session runs.
+      const root = await checkoutRoot(cwd);
+      scanLive();
+      const busy = [
+        ...hosts.list().hosts.filter((h) => h.state === 'starting' || h.state === 'running' || h.state === 'needs-you').map((h) => h.cwd),
+        ...liveList().filter((l) => l.status !== 'idle').flatMap((l) => (l.cwd ? [l.cwd] : [])),
+      ];
+      for (const other of new Set(busy)) {
+        if (existsSync(other) && (await checkoutRoot(other)) === root) {
+          throw new RpcError('SESSION_BUSY', 'Claude is working in this folder. Wait for it to finish, or stop it first.');
+        }
+      }
+      try {
+        await switchBranch(cwd, branch);
+        return { current: (await listBranches(cwd)).current };
+      } catch (error) {
+        throw new RpcError('GIT_FAILED', (error as Error).message);
+      }
+    },
+    'git.github': async ({ cwd }) => (resolver.resolve(cwd).gitDir ? githubPage(cwd) : null),
     'git.stage': async ({ cwd, paths, staged }) => {
       try {
         await stage(cwd, paths, staged);
@@ -784,7 +877,67 @@ export function createEngine(options: EngineOptions): Engine {
     'terminal.close': ({ id }) => {
       terminals.close(id);
       terminalViewers.delete(id);
+      actionRuns.delete(id);
       return {};
+    },
+    'terminal.stop': ({ id }) => {
+      terminals.stop(id);
+      return {};
+    },
+    'claudeUpdate.get': () => claudeUpdater.state,
+    'claudeUpdate.check': () => {
+      void claudeUpdater.check();
+      return {};
+    },
+    'claudeUpdate.update': () => {
+      // A refusal (busy, can't run it) throws here and answers the request; the update reports through claudeUpdate.changed.
+      claudeUpdater.update().catch((error: Error) => log('error', `Claude Code update failed: ${error.message}`));
+      return {};
+    },
+    'settings.export': ({ path, sections, preferences, appVersion }) => {
+      writeSettingsFile(path, exportSettings(settingsStores, { sections, preferences, appVersion }));
+      log('info', `Exported settings (${sections.join(', ')}) to ${path}`);
+      return { path };
+    },
+    'settings.import': ({ path, sections, mode, relocate, preferences, appVersion, apply }) => {
+      const plan = planImport(settingsStores, readSettingsFile(path), { sections, mode, relocate, preferences });
+      if (!apply) return { preview: plan.preview, backupPath: null, preferences: null };
+      // Everything as it is now, so the import can be undone by importing this file with Replace.
+      const backupPath = writeBackup(join(options.dataDir, 'backups'), exportSettings(settingsStores, { sections: BACKUP_SECTIONS, preferences, appVersion }));
+      const result = plan.apply();
+      // Owned and continued sessions and session flags are also held in memory.
+      for (const { id } of cache.db.prepare('SELECT id FROM owned_sessions').all() as Array<{ id: string }>) owned.add(id);
+      for (const { id } of cache.db.prepare('SELECT id FROM continued_sessions').all() as Array<{ id: string }>) continued.add(id);
+      sessions.reloadFlags();
+      broadcast('settings.imported', {});
+      log('info', `Imported settings from ${path} (${mode}); backup at ${backupPath}`);
+      return { preview: plan.preview, backupPath, preferences: result.preferences };
+    },
+    'claudeUpdate.dismiss': () => {
+      claudeUpdater.dismiss();
+      return {};
+    },
+    'claudeUpdate.setEnabled': ({ enabled }) => {
+      claudeUpdater.setEnabled(enabled);
+      return {};
+    },
+    'terminal.restart': async ({ id }) => {
+      // An action is looked up again: it may have been edited, deleted or lost its approval since.
+      const run = actionRuns.get(id);
+      let change: { command?: string; cwd?: string } = {};
+      if (run) {
+        const action = findAction(run.projectRoot, run.id);
+        if (action.type !== 'shell') throw new RpcError('NOT_FOUND', `"${action.name}" no longer runs in a terminal`);
+        change = {
+          command: expandCommand(action.command, actionVars(run.sessionId, run.projectRoot, run.cwd), true),
+          cwd: action.cwd === 'project-root' ? run.projectRoot : run.cwd,
+        };
+      }
+      try {
+        return await terminals.restart(id, change);
+      } catch (error) {
+        throw new RpcError('TERMINAL_FAILED', (error as Error).message);
+      }
     },
   };
 
@@ -806,10 +959,12 @@ export function createEngine(options: EngineOptions): Engine {
       servers.clear();
       hosts.closeAll();
       for (const monitor of usageMonitors.values()) monitor.stop();
+      claudeUpdater.close();
       terminals.closeAll();
       clearTimeout(searchTimer);
       sessions.stop();
       for (const registry of registries.values()) registry.stop();
+      accounts.stop();
       transcripts.stop();
       cache.close();
     },

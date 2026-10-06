@@ -17,6 +17,7 @@ export function FolderPicker({
   branches,
   onChange,
   onChooseOther,
+  openRequest = 0,
 }: {
   value: string | null;
   folders: string[];
@@ -25,6 +26,8 @@ export function FolderPicker({
   branches: Map<string, string | null>;
   onChange(folder: string): void;
   onChooseOther(): void;
+  /** Changing it opens the list (a link that didn't say which project). */
+  openRequest?: number;
 }) {
   const projects = useProjects((s) => s.projects);
   const [open, setOpen] = useState(false);
@@ -61,6 +64,11 @@ export function FolderPicker({
     // Start on the current folder when opening, and on the best match while filtering.
     setActive(filter.trim() ? 0 : Math.max(0, value ? options.indexOf(value) : 0));
   }, [open, filter]);
+  useEffect(() => {
+    if (!openRequest || !trigger.current) return;
+    setUpward(window.innerHeight - trigger.current.getBoundingClientRect().bottom < 340);
+    setOpen(true);
+  }, [openRequest]);
   useEffect(() => {
     listRef.current?.querySelector('[data-active="true"]')?.scrollIntoView({ block: 'nearest' });
   }, [active, open]);
@@ -111,7 +119,7 @@ export function FolderPicker({
 
       {open && (
         <div className={`absolute left-[58px] z-40 flex max-h-96 w-[min(27rem,calc(100%-58px))] ${upward ? 'bottom-full mb-1 flex-col-reverse' : 'top-full -mt-3 flex-col'}`} data-folder-panel>
-          <div className="flex max-h-96 min-h-0 flex-1 flex-col overflow-hidden rounded-lg border border-border bg-card shadow-xl" data-folder-list role="menu" aria-label="Your projects">
+          <div className="flex max-h-96 min-h-0 flex-1 flex-col overflow-hidden rounded-lg border overlay" data-folder-list role="menu" aria-label="Your projects">
             <input
               autoFocus
               value={filter}

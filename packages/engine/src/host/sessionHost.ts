@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import type { CanUseTool, Options, Query, SDKMessage, SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
+import type { CanUseTool, ModelInfo, Options, Query, SDKMessage, SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
 import type {
   Effort,
   HostState,
@@ -91,6 +91,17 @@ function toRaw(message: Extract<SDKMessage, { type: 'assistant' | 'user' }>): Ra
   };
 }
 
+/** Claude Code's model row, as the window shows it. */
+export function toModelOption(m: ModelInfo): ModelOption {
+  return {
+    value: m.value,
+    resolvedModel: m.resolvedModel,
+    displayName: m.displayName,
+    description: m.description,
+    supportsEffort: m.supportsEffort ?? false,
+  };
+}
+
 /**
  * One Claude Code process driven through the SDK in streaming-input mode.
  * Never throws out of its message loop: failures become the `error` state,
@@ -137,6 +148,7 @@ export class SessionHost {
       startedAt: Date.now(),
       queued: 0,
       profileId: config.profileId,
+      backgroundTasks: [],
     };
     this.initialized = new Promise((resolve, reject) => {
       this.initResolve = resolve;
@@ -260,8 +272,10 @@ export class SessionHost {
   }
 
   private update(patch: Partial<SessionHostInfo>): void {
-    if ((patch.state === 'closed' || patch.state === 'error') && this.closedAt === undefined) this.closedAt = Date.now();
-    this.info = { ...this.info, ...patch };
+    const ended = patch.state === 'closed' || patch.state === 'error';
+    if (ended && this.closedAt === undefined) this.closedAt = Date.now();
+    // Background tasks die with the process.
+    this.info = { ...this.info, ...patch, ...(ended ? { backgroundTasks: [] } : {}) };
     this.events.info(this.info);
   }
 
@@ -344,6 +358,20 @@ export class SessionHost {
       }
       return;
     }
+    if (message.subtype === 'status') {
+      // Claude Code reports mode changes it makes itself here (leaving plan mode, auto mode falling back).
+      const mode = (message as { permissionMode?: PermissionMode }).permissionMode;
+      if (mode && mode !== this.info.permissionMode) this.update({ permissionMode: mode });
+      return;
+    }
+    if (message.subtype === 'background_tasks_changed') {
+      // The full set every time (replace, don't pair start/finish events). Ambient tasks such as
+      // live-update watchers aren't activity, so they don't count as background work.
+      const tasks = (message as { tasks?: Array<{ task_id: string; task_type: string; description: string; ambient?: boolean }> }).tasks ?? [];
+      if (this.closing) return;
+      this.update({ backgroundTasks: tasks.filter((t) => !t.ambient).map((t) => ({ taskId: t.task_id, type: t.task_type, description: t.description })) });
+      return;
+    }
     if (message.subtype === 'session_state_changed') {
       const state = STATE_FROM_SDK[(message as { state: string }).state];
       if (!state || this.closing) return;
@@ -391,12 +419,9 @@ export class SessionHost {
       if (!query) return;
       const [commands, models] = await Promise.all([query.supportedCommands(), query.supportedModels()]);
       this.commands = commands.map((c) => ({ name: c.name, description: c.description, argumentHint: c.argumentHint }));
-      this.models = models.map((m) => ({
-        value: m.value,
-        displayName: m.displayName,
-        description: m.description,
-        supportsEffort: m.supportsEffort ?? false,
-      }));
+      this.models = models.map(toModelOption);
+      // Let the manager see the new lists (it passes the models on to the window).
+      this.events.info(this.info);
     } catch (error) {
       this.events.log('debug', `Loading commands/models failed: ${(error as Error).message}`);
     }

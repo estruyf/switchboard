@@ -53,7 +53,7 @@ function ProfilePicker({ project }: { project: ProjectInfo }) {
           value={project.profileId ?? ''}
           onChange={(value) => void actions.setProfile(project.root, value || null)}
           options={[{ value: '', label: `Default${fallback ? ` (${fallback.name})` : ''}` }, ...profiles.map((p) => ({ value: p.id, label: p.name, hint: p.account?.email ?? undefined }))]}
-          menuWidth={240}
+          menuWidth={320}
           dataAttrs={{ 'data-project-profile': true }}
         />
       </span>

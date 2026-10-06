@@ -53,7 +53,7 @@ export function Popover({ x, y, width, above = false, onClose, closeOnEscape = t
       ref={ref}
       {...rest}
       style={{ left: position.left, top: position.top, width }}
-      className={`no-drag fixed z-50 max-h-[70vh] overflow-y-auto rounded-lg border border-border bg-card py-1 shadow-xl ${className}`}
+      className={`no-drag fixed z-50 max-h-[70vh] overflow-y-auto rounded-lg border overlay py-1 ${className}`}
     >
       {children}
     </div>

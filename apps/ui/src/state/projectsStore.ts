@@ -61,6 +61,9 @@ export function useProjectsSync(): void {
     void client.call('projects.list', {}).then(({ projects }) => useProjects.getState().setProjects(projects));
   }, [client, rootsKey, version]);
 
+  // An import (in any window) can add, remove and reorder projects.
+  useEffect(() => client?.on('settings.imported', () => useProjects.getState().reload()), [client]);
+
   useEffect(() => {
     if (!client) return;
     void client.call('appState.get', { key: FILTER_KEY }).then(({ value }) => {

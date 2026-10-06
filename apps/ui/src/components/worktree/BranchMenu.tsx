@@ -1,0 +1,190 @@
+import { Check, ChevronDown, GitBranch } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
+import { useEngineConnection } from '../../engine/useEngine.ts';
+import { hostAsLive, isActiveHost, useHosts } from '../../state/hostsStore.ts';
+import { useCheckoutBranches } from '../../state/checkoutBranchesStore.ts';
+import { useSessions } from '../../state/sessionsStore.ts';
+import { ConfirmDialog } from '../ConfirmDialog.tsx';
+import { Popover } from '../ui/Popover.tsx';
+import { branchButton, FILTER_FROM, filterBranches, sharedWarning, sharingCheckout } from './branchMenu.ts';
+
+/**
+ * The branch checked out in a session's folder (not a worktree), read live from git, with a menu to
+ * switch to another local branch. `busy`: Claude is working in this session, so switching waits.
+ */
+export function BranchMenu({ sessionId, cwd, root, busy, onSwitched }: { sessionId: string; cwd: string; root: string; busy: boolean; onSwitched(): void }) {
+  const connection = useEngineConnection();
+  const client = connection.status === 'connected' ? connection.client : null;
+  const current = useCheckoutBranches((s) => s.byCwd.get(cwd));
+  const switches = useCheckoutBranches((s) => s.switches);
+  const [branches, setBranches] = useState<string[] | null>(null);
+  const [open, setOpen] = useState<{ x: number; y: number } | null>(null);
+  const [query, setQuery] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const [switching, setSwitching] = useState(false);
+  const [confirm, setConfirm] = useState<string | null>(null);
+  const trigger = useRef<HTMLButtonElement>(null);
+  const panel = useRef<HTMLDivElement>(null);
+
+  const load = useCallback(() => {
+    client?.call('git.branches', { cwd }).then(
+      (result) => {
+        setBranches(result.current === null && result.branches.length === 0 ? [] : result.branches);
+        useCheckoutBranches.getState().set([cwd], result.current);
+      },
+      () => setBranches([]),
+    );
+  }, [client, cwd]);
+
+  // Claude can switch branches itself, and so can you in a terminal: read it again when the session
+  // opens, after each turn, when the window gets focus, and after any switch in this app.
+  useEffect(load, [load, busy, switches]);
+  useEffect(() => {
+    window.addEventListener('focus', load);
+    return () => window.removeEventListener('focus', load);
+  }, [load]);
+
+  // Other live sessions (in this app or anywhere else) working in the same checkout.
+  const registry = useSessions((s) => s.live);
+  const hosts = useHosts((s) => s.hosts);
+  const others = useMemo(() => {
+    const live = new Map(registry);
+    for (const host of hosts.values()) {
+      const asLive = isActiveHost(host) ? hostAsLive(host) : null;
+      if (asLive) live.set(host.sessionId, asLive);
+    }
+    const ids = sharingCheckout(root, sessionId, live.values());
+    return { ids, cwds: ids.flatMap((id) => live.get(id)?.cwd ?? []) };
+  }, [registry, hosts, root, sessionId]);
+
+  const close = (refocus: boolean) => {
+    setOpen(null);
+    setQuery('');
+    if (refocus) trigger.current?.focus();
+  };
+
+  const switchTo = async (branch: string) => {
+    if (!client) throw new Error('Not connected to the engine');
+    setSwitching(true);
+    try {
+      const result = await client.call('git.switch', { cwd, branch });
+      // The sidebar rows of every session in this checkout show the new branch too.
+      useCheckoutBranches.getState().set([cwd, ...others.cwds], result.current);
+      useCheckoutBranches.getState().switched();
+      onSwitched();
+    } finally {
+      setSwitching(false);
+    }
+  };
+
+  const pick = (branch: string) => {
+    if (branch === current) return close(true);
+    setError(null);
+    if (others.ids.length > 0) {
+      close(false);
+      setConfirm(branch);
+      return;
+    }
+    // On failure the menu stays open with git's message, on the current branch.
+    switchTo(branch).then(() => close(true), (e: Error) => setError(e.message));
+  };
+
+  useEffect(() => {
+    if (!open) return;
+    const filter = panel.current?.querySelector<HTMLInputElement>('[data-branch-filter]');
+    (filter ?? panel.current?.querySelector<HTMLButtonElement>('[aria-checked=true]') ?? panel.current?.querySelector<HTMLButtonElement>('[role=menuitemradio]'))?.focus();
+  }, [open]);
+
+  const onKeyDown = (event: KeyboardEvent) => {
+    const items = [...(panel.current?.querySelectorAll<HTMLButtonElement>('[role=menuitemradio]') ?? [])];
+    const index = items.indexOf(document.activeElement as HTMLButtonElement);
+    const focus = (i: number) => items[(i + items.length) % items.length]?.focus();
+    if (event.key === 'ArrowDown') (event.preventDefault(), focus(index + 1));
+    else if (event.key === 'ArrowUp') (event.preventDefault(), focus(index < 0 ? items.length - 1 : index - 1));
+    else if (event.key === 'Enter' && index < 0 && items[0]) (event.preventDefault(), items[0].click());
+  };
+
+  // Not a git repository (or nothing read yet): no button.
+  if (current === undefined || branches === null || (branches.length === 0 && current === null)) return null;
+  const { label, tooltip } = branchButton(current, busy);
+  const listed = filterBranches(branches, current, query);
+
+  return (
+    <>
+      <button
+        ref={trigger}
+        type="button"
+        data-branch-menu
+        data-branch={current ?? ''}
+        data-cwd={cwd}
+        aria-disabled={busy}
+        aria-haspopup="menu"
+        aria-expanded={open !== null}
+        aria-label={tooltip}
+        data-tooltip={tooltip}
+        onClick={(e) => {
+          if (busy) return;
+          if (open) return close(false);
+          setError(null);
+          load();
+          const rect = e.currentTarget.getBoundingClientRect();
+          setOpen({ x: rect.left, y: rect.bottom + 4 });
+        }}
+        className={`no-drag flex h-7 max-w-48 min-w-0 shrink-0 items-center gap-1 rounded-md border border-border px-1.5 text-[11.5px] text-muted ${busy ? 'cursor-default opacity-50' : 'hover:bg-border/50'} ${open ? 'bg-border/50 text-text' : ''}`}
+      >
+        <GitBranch size={13} className="shrink-0" />
+        <span className="min-w-0 truncate font-mono @max-[860px]:hidden">{label}</span>
+        <ChevronDown size={12} className="shrink-0 @max-[860px]:hidden" />
+      </button>
+      {open && (
+        <Popover x={open.x} y={open.y} width={280} anchor={trigger} onClose={() => close(false)} role="menu" data-menu="branch" onKeyDown={onKeyDown}>
+          <div ref={panel}>
+            <p className="px-3 pt-1.5 pb-1 text-[10px] tracking-wide text-faint uppercase">Branch</p>
+            {branches.length > FILTER_FROM && (
+              <input
+                data-branch-filter
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="Filter branches"
+                spellCheck={false}
+                aria-label="Filter branches"
+                className="mx-2 mb-1 w-[calc(100%-1rem)] rounded-md border border-border bg-bg px-2 py-1 font-mono text-[11.5px] text-text outline-none placeholder:text-faint focus:border-accent-ink"
+              />
+            )}
+            {listed.map((branch) => (
+              <button
+                key={branch}
+                type="button"
+                role="menuitemradio"
+                aria-checked={branch === current}
+                data-branch-option={branch}
+                disabled={switching}
+                onClick={() => pick(branch)}
+                className="flex w-full items-center gap-2 px-3 py-1.5 text-left outline-none hover:bg-accent/15 focus-visible:bg-accent/15 disabled:opacity-50"
+              >
+                <span className="min-w-0 flex-1 truncate font-mono text-[12px] text-text">{branch}</span>
+                <Check size={13} className={`shrink-0 text-accent-ink ${branch === current ? '' : 'invisible'}`} />
+              </button>
+            ))}
+            {listed.length === 0 && <p className="px-3 py-1.5 text-[12px] text-faint">{query ? 'No matching branch' : 'No local branches'}</p>}
+            {switching && <p className="border-t border-border px-3 pt-1.5 pb-1 text-[11px] text-faint">Switching…</p>}
+            {error && (
+              <p className="mt-1 border-t border-border px-3 pt-1.5 pb-1 text-[11px] break-words whitespace-pre-wrap text-error" data-branch-error>
+                {error}
+              </p>
+            )}
+          </div>
+        </Popover>
+      )}
+      {confirm && (
+        <ConfirmDialog
+          title={`Switch to ${confirm}?`}
+          confirmLabel="Switch"
+          body={<p>{sharedWarning(others.ids.length)}</p>}
+          onConfirm={() => switchTo(confirm)}
+          onClose={() => setConfirm(null)}
+        />
+      )}
+    </>
+  );
+}
