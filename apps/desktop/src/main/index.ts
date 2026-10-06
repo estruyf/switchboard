@@ -575,15 +575,23 @@ async function runSettingsStep(win: BrowserWindow): Promise<string> {
     await click(`[data-settings-section="${id}"]`);
     return waitInPage(win, `document.querySelector('[data-settings-page="${id}"]')`, 2_000);
   };
+  // The sidebar lists Settings' sections while it is open, so session rows are checked with it closed.
+  const withSettingsClosed = async (check: string) => {
+    await click('[data-close-settings]');
+    const ok = await waitInPage(win, `!document.querySelector('[data-settings]') && ${check}`, 2_000);
+    await click('[data-open-settings]');
+    await waitInPage(win, "document.querySelector('[data-settings]')", 2_000);
+    return ok;
+  };
 
   await click('[data-open-settings]');
-  if (!(await waitInPage(win, "document.querySelector('[data-settings]')", 3_000))) return 'settings view did not open';
+  if (!(await waitInPage(win, "document.querySelector('[data-settings]') && document.querySelector('[data-settings-nav]') && !document.querySelector('[data-session-list]')", 3_000))) return 'settings did not open with its sections in the sidebar';
   if (!(await section('theme'))) return 'the Theme section did not open';
   await click('[data-color-scheme="light"]');
   if (!(await waitInPage(win, `${background} === 'rgb(255, 255, 255)'`, 2_000))) return 'Light did not apply';
   if (!(await section('sidebar'))) return 'the Sidebar section did not open';
   await click('[data-sidebar-style="large"]');
-  if (!(await waitInPage(win, `${rowHeight} === 66 && [...document.querySelectorAll('[data-session-id] > *')].some((el) => el.offsetWidth === 34)`, 2_000))) return 'Large icons did not apply';
+  if (!(await withSettingsClosed(`${rowHeight} === 66 && [...document.querySelectorAll('[data-session-id] > *')].some((el) => el.offsetWidth === 34)`))) return 'Large icons did not apply';
   await pause();
   await shot(win, 'settings-light.png');
   await section('theme');
@@ -591,7 +599,7 @@ async function runSettingsStep(win: BrowserWindow): Promise<string> {
   if (!(await waitInPage(win, `${background} === 'rgb(21, 24, 31)'`, 2_000))) return 'Dark did not apply';
   await section('sidebar');
   await click('[data-sidebar-style="compact"]');
-  if (!(await waitInPage(win, `${rowHeight} === 32`, 2_000))) return 'Compact did not apply';
+  if (!(await withSettingsClosed(`${rowHeight} === 32`))) return 'Compact did not apply';
   await pause();
   await shot(win, 'settings-dark.png');
 
@@ -608,7 +616,8 @@ async function runSettingsStep(win: BrowserWindow): Promise<string> {
   // Turning off "sessions from other apps" leaves only Switchboard's own in the sidebar.
   await section('sidebar');
   await click('[data-session-scope]');
-  const scoped = await waitInPage(win, "!document.querySelector('[data-session-id][data-in-app=\"false\"]')", 2_000);
+  const scoped = await withSettingsClosed("document.querySelector('[data-session-list]') && !document.querySelector('[data-session-id][data-in-app=\"false\"]')");
+  await section('sidebar');
 
   await section('quitting');
   await click('[data-confirm-quit]');
@@ -737,9 +746,9 @@ async function runProfilesStep(win: BrowserWindow): Promise<string> {
   if (!(await js(`document.querySelector(${JSON.stringify(card)}).innerText.includes(${JSON.stringify(folder)})`))) return 'the sign-in command does not name the folder';
   await new Promise((resolve) => setTimeout(resolve, 300));
   await shot(win, 'profiles.png');
-  if (!(await waitInPage(win, "document.querySelector('[data-session-id] [data-profile-badge]')", 3_000))) return 'sessions do not show their profile with two profiles';
-
   await click(`[data-profile-default=${JSON.stringify(id)}]`);
+  await click('[data-close-settings]');
+  if (!(await waitInPage(win, "document.querySelector('[data-session-id] [data-profile-badge]')", 3_000))) return 'sessions do not show their profile with two profiles';
   await click('[data-new-session]');
   if (!(await waitInPage(win, `document.querySelector('[data-profile-select]')?.dataset.value === ${JSON.stringify(id)}`, 5_000))) {
     return 'New session did not offer the profiles with the new default chosen';
@@ -754,11 +763,10 @@ async function runProfilesStep(win: BrowserWindow): Promise<string> {
   await click(`${card} [data-remove-profile]`);
   if (!(await waitInPage(win, "document.querySelector('[data-confirm]')", 3_000))) return 'no confirmation before removing';
   await click('[data-confirm]');
-  if (!(await waitInPage(win, "document.querySelectorAll('[data-profiles] [data-profile]').length === 1 && !document.querySelector('[data-session-id] [data-profile-badge]')", 5_000))) {
-    return 'the profile was not removed';
-  }
+  if (!(await waitInPage(win, "document.querySelectorAll('[data-profiles] [data-profile]').length === 1", 5_000))) return 'the profile was not removed';
   const builtinDefault = await js("document.querySelector('[data-profile-default=\"default\"]').getAttribute('aria-checked') === 'true'");
-  await click('[data-open-settings]');
+  await click('[data-close-settings]');
+  if (!(await waitInPage(win, "document.querySelector('[data-session-id]') && !document.querySelector('[data-session-id] [data-profile-badge]')", 3_000))) return 'sessions still show a profile after removing it';
   if (!builtinDefault) return 'the built-in profile did not become the default again';
   return 'ok: added a second profile, sessions and New session showed it, made it the default, removed it';
 }
@@ -939,7 +947,13 @@ async function runSplitStep(win: BrowserWindow): Promise<string> {
   if (!(await waitInPage(win, "document.querySelector('[data-pane-active=\"true\"]')?.dataset.pane === 'main'", 2_000))) return 'clicking the left pane did not make it active';
   await js("document.querySelector('[data-pane=\"split\"] [data-close-pane]').click()");
   if (!(await waitInPage(win, "!document.querySelector('[data-split]') && document.querySelector('[data-current-session]')", 2_000))) return 'closing the pane did not go back to one';
-  return 'ok: ⌥-click opened a second pane, focus follows clicks, closing returns to one';
+  // Closing the last session lands on New session; picking it in the sidebar opens it again.
+  const remaining = (await js("document.querySelector('[data-current-session]').dataset.currentSession")) as string;
+  await js("document.querySelector('[data-close-session]').click()");
+  if (!(await waitInPage(win, "!document.querySelector('[data-current-session]') && document.querySelector('[data-new-session-view]')", 2_000))) return 'closing the session did not land on New session';
+  await js(`document.querySelector('[data-session-id="${remaining}"]').click()`);
+  if (!(await waitInPage(win, `document.querySelector('[data-current-session="${remaining}"]')`, 3_000))) return 'could not reopen the closed session';
+  return 'ok: ⌥-click opened a second pane, focus follows clicks, closing returns to one, closing that lands on New session';
 }
 
 /**

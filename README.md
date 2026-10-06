@@ -50,6 +50,7 @@ It uses the Claude Code you already have installed, with your login, settings, c
 **Everything in one place**
 - A **command palette** (⌘K) for every command, your project actions, and jumping to any session by typing a few letters.
 - **Two sessions side by side**: ⌥-click a session (or choose *Open beside*) to open it next to the current one.
+- **Close a session** with the × in its header to go to New session. A session that is working keeps running; pick it in the sidebar to open it again.
 - **Tools** (below the message box): the session's MCP servers, with their status and tools (turn them on or off, or reconnect, while the session runs in Switchboard), plus its skills, commands, agents and plugins.
 - A built-in terminal per session (⌘J), with a tab for your shell and one for the full Claude Code terminal interface.
 - **Project actions**: one-click buttons for things like *Commit*, *Test* or *Publish*, running a command or sending Claude a prompt. See [Project actions](docs/project-actions.md).
@@ -109,7 +110,7 @@ Drag the sidebar's right edge to make it wider or narrower; double-click the edg
 
 ## Settings
 
-Open Settings with ⌘, or the gear at the bottom of the sidebar. Pick a section on its left; close it with the × button or Escape.
+Open Settings with ⌘, or the gear at the bottom of the sidebar. While it is open, the sidebar lists its sections; close it with the × button, *Back to sessions* or Escape.
 
 - **Theme:** Match System, Light or Dark. The colours come from the [Demo Time theme](https://github.com/estruyf/vscode-demo-time-theme).
 - **Sidebar:** *Large icons* (easy to spot each project), *Standard*, or *Compact* (one line per session). *Show sessions from other apps* also lists sessions from the terminal, Claude desktop and your editor (off by default), and notifies you when a terminal session is waiting.

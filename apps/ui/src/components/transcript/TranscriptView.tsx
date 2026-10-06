@@ -379,6 +379,17 @@ export function TranscriptView({ sessionId, pane = null, active = true }: { sess
           {terminalCount > 0 && <span className="absolute -top-1 -right-1 size-2 rounded-full bg-ok" data-tooltip={`${terminalCount} running`} />}
         </button>
         <OpenInButton path={cwd} />
+        {!pane && (
+          <button
+            type="button"
+            data-close-session
+            onClick={() => useSessions.getState().closeSession()}
+            data-tooltip="Close session" aria-label="Close session"
+            className="no-drag flex size-7 shrink-0 items-center justify-center rounded-md text-faint hover:bg-border/50 hover:text-text"
+          >
+            <X size={14} />
+          </button>
+        )}
         {pane && (
           <button
             type="button"

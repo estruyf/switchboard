@@ -1,4 +1,4 @@
-import { Activity, MessageSquare, Palette, PanelLeft, Power, Users, X, type LucideIcon } from 'lucide-react';
+import { Activity, ChevronLeft, MessageSquare, Palette, PanelLeft, Power, Users, X, type LucideIcon } from 'lucide-react';
 import { useEffect, type ReactNode } from 'react';
 import type { ColorScheme, SidebarStyle, ToolActivity } from '@switchboard/protocol/bridge';
 import { usePreferences } from '../state/preferencesStore.ts';
@@ -247,13 +247,38 @@ function SectionPage({ section }: { section: SettingsSection }) {
   }
 }
 
-export function SettingsView() {
+/** Settings' sections, shown in the app sidebar in place of the session list while Settings is open. */
+export function SettingsNav() {
   const section = useSessions((s) => s.settingsSection);
   const openSettings = useSessions((s) => s.openSettings);
+  return (
+    <nav aria-label="Settings sections" className="flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto px-2 pb-2" data-settings-nav>
+      <button type="button" onClick={close} className="mb-2 flex h-7 items-center gap-1 rounded-md px-1.5 text-[12px] text-muted hover:bg-border/50 hover:text-text" data-settings-back>
+        <ChevronLeft size={14} /> Back to sessions
+      </button>
+      {SECTIONS.map(({ id, label, icon: Icon }) => (
+        <button
+          key={id}
+          type="button"
+          onClick={() => openSettings(id)}
+          aria-current={section === id ? 'page' : undefined}
+          data-settings-section={id}
+          className={`flex h-8 items-center gap-2.5 rounded-md px-2.5 text-left text-[12.5px] ${section === id ? 'bg-accent/15 font-medium text-text' : 'text-muted hover:bg-border/50 hover:text-text'}`}
+        >
+          <Icon size={15} className={`shrink-0 ${section === id ? 'text-accent-ink' : ''}`} />
+          <span className="truncate">{label}</span>
+        </button>
+      ))}
+    </nav>
+  );
+}
+
+export function SettingsView() {
+  const section = useSessions((s) => s.settingsSection);
   useEscapeToClose();
 
   return (
-    <div className="@container flex h-full min-h-0 flex-col" data-settings>
+    <div className="flex h-full min-h-0 flex-col" data-settings>
       <header className="drag flex h-13 shrink-0 items-center border-b border-border pr-3 pl-6">
         <h1 className="flex-1 text-[13px] font-semibold">Settings</h1>
         <button
@@ -266,29 +291,9 @@ export function SettingsView() {
           <X size={15} />
         </button>
       </header>
-      <div className="flex min-h-0 flex-1">
-        <nav aria-label="Settings sections" className="flex w-48 shrink-0 flex-col gap-0.5 overflow-y-auto border-r border-border bg-sidebar p-2 @max-[640px]:w-12">
-          {SECTIONS.map(({ id, label, icon: Icon }) => (
-            <button
-              key={id}
-              type="button"
-              onClick={() => openSettings(id)}
-              aria-current={section === id ? 'page' : undefined}
-              aria-label={label}
-              data-settings-section={id}
-              className={`flex h-8 items-center gap-2.5 rounded-md px-2.5 text-left text-[12.5px] @max-[640px]:justify-center @max-[640px]:px-0 ${
-                section === id ? 'bg-accent/15 font-medium text-text' : 'text-muted hover:bg-border/50 hover:text-text'
-              }`}
-            >
-              <Icon size={15} className={`shrink-0 ${section === id ? 'text-accent-ink' : ''}`} />
-              <span className="truncate @max-[640px]:hidden">{label}</span>
-            </button>
-          ))}
-        </nav>
-        <div className="min-h-0 min-w-0 flex-1 overflow-y-auto">
-          <div className={`mx-auto px-6 ${section === 'diagnostics' ? 'max-w-3xl' : 'max-w-2xl'}`} data-settings-page={section}>
-            <SectionPage section={section} />
-          </div>
+      <div className="min-h-0 flex-1 overflow-y-auto">
+        <div className={`mx-auto px-6 ${section === 'diagnostics' ? 'max-w-3xl' : 'max-w-2xl'}`} data-settings-page={section}>
+          <SectionPage section={section} />
         </div>
       </div>
     </div>

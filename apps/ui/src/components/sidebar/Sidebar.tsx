@@ -17,6 +17,7 @@ import { Menu, type MenuEntry } from '../Menu.tsx';
 import { useOpenIn } from '../OpenInButton.tsx';
 import { ProfileBadge } from '../profiles/ProfileBadge.tsx';
 import { ProjectIcon } from '../ProjectIcon.tsx';
+import { SettingsNav } from '../SettingsView.tsx';
 import { ProjectFilter, useProjectIconEntries } from './ProjectMenu.tsx';
 import { StatusIcon } from './StatusIcon.tsx';
 import appIcon from '../../assets/app-icon.png';
@@ -273,91 +274,97 @@ export function Sidebar() {
         <span className="text-[13px] font-semibold text-text/90">Switchboard</span>
       </div>
 
-      <div className="flex items-center gap-1 px-3 pb-1.5">
-        <label className="no-drag flex h-7 min-w-0 flex-1 items-center gap-2 rounded-md px-1.5 text-muted focus-within:bg-card focus-within:ring-1 focus-within:ring-accent-ink/50 hover:bg-border/40">
-          <Search size={14} className="shrink-0" />
-          <input
-            type="search"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search"
-            spellCheck={false}
-            className="h-full min-w-0 flex-1 bg-transparent text-[12px] text-text outline-none placeholder:text-muted"
-          />
-        </label>
-        <button
-          type="button"
-          data-new-session
-          onClick={() => useSessions.getState().openNewSession()}
-          data-tooltip="New session (⌘N)" aria-label="New session (⌘N)"
-          className={`no-drag flex size-7 items-center justify-center rounded-md hover:bg-border/50 ${view === 'new' ? 'bg-accent/15 text-text' : 'text-muted hover:text-text'}`}
-        >
-          <SquarePen size={15} />
-        </button>
-      </div>
+      {view === 'settings' ? (
+        <SettingsNav />
+      ) : (
+        <>
+          <div className="flex items-center gap-1 px-3 pb-1.5">
+            <label className="no-drag flex h-7 min-w-0 flex-1 items-center gap-2 rounded-md px-1.5 text-muted focus-within:bg-card focus-within:ring-1 focus-within:ring-accent-ink/50 hover:bg-border/40">
+              <Search size={14} className="shrink-0" />
+              <input
+                type="search"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Search"
+                spellCheck={false}
+                className="h-full min-w-0 flex-1 bg-transparent text-[12px] text-text outline-none placeholder:text-muted"
+              />
+            </label>
+            <button
+              type="button"
+              data-new-session
+              onClick={() => useSessions.getState().openNewSession()}
+              data-tooltip="New session (⌘N)" aria-label="New session (⌘N)"
+              className={`no-drag flex size-7 items-center justify-center rounded-md hover:bg-border/50 ${view === 'new' ? 'bg-accent/15 text-text' : 'text-muted hover:text-text'}`}
+            >
+              <SquarePen size={15} />
+            </button>
+          </div>
 
-      <ProjectFilter counts={counts} />
-      {noProjects && (
-        <div className="mx-3 mb-2 grid justify-items-start gap-1 rounded-lg border border-dashed border-border px-3 py-2.5 text-[12px]" data-sidebar-onboarding>
-          <p className="font-medium text-text">Add a project</p>
-          <p className="text-muted">Choose the folders you work in. They are offered when you start a session.</p>
-          <button type="button" onClick={() => useProjects.getState().showAdd(true)} className="mt-1 text-link hover:underline">
-            Add project…
-          </button>
-        </div>
-      )}
-
-      <div ref={scrollRef} tabIndex={0} onKeyDown={onKeyDown} className="min-h-0 flex-1 overflow-y-auto px-2 pb-2 outline-none" data-session-list>
-        {loaded && rows.length === 0 ? (
-          <div className="grid justify-items-start gap-2 px-2 py-4 text-[12px] text-muted" data-empty-sidebar>
-            <p>
-              {search
-                ? 'No sessions match your search.'
-                : projectFilter
-                  ? 'No sessions in this project yet.'
-                  : scope === 'switchboard'
-                    ? 'Sessions you start or continue in Switchboard show up here.'
-                    : 'No Claude Code sessions found yet.'}
-            </p>
-            {scope === 'switchboard' && sessions.size > 0 && (
-              <button type="button" onClick={() => updatePrefs({ sessionScope: 'all' })} className="text-link hover:underline">
-                Show sessions from other apps
+          <ProjectFilter counts={counts} />
+          {noProjects && (
+            <div className="mx-3 mb-2 grid justify-items-start gap-1 rounded-lg border border-dashed border-border px-3 py-2.5 text-[12px]" data-sidebar-onboarding>
+              <p className="font-medium text-text">Add a project</p>
+              <p className="text-muted">Choose the folders you work in. They are offered when you start a session.</p>
+              <button type="button" onClick={() => useProjects.getState().showAdd(true)} className="mt-1 text-link hover:underline">
+                Add project…
               </button>
+            </div>
+          )}
+
+          <div ref={scrollRef} tabIndex={0} onKeyDown={onKeyDown} className="min-h-0 flex-1 overflow-y-auto px-2 pb-2 outline-none" data-session-list>
+            {loaded && rows.length === 0 ? (
+              <div className="grid justify-items-start gap-2 px-2 py-4 text-[12px] text-muted" data-empty-sidebar>
+                <p>
+                  {search
+                    ? 'No sessions match your search.'
+                    : projectFilter
+                      ? 'No sessions in this project yet.'
+                      : scope === 'switchboard'
+                        ? 'Sessions you start or continue in Switchboard show up here.'
+                        : 'No Claude Code sessions found yet.'}
+                </p>
+                {scope === 'switchboard' && sessions.size > 0 && (
+                  <button type="button" onClick={() => updatePrefs({ sessionScope: 'all' })} className="text-link hover:underline">
+                    Show sessions from other apps
+                  </button>
+                )}
+              </div>
+            ) : (
+              <div style={{ height: virtualizer.getTotalSize(), position: 'relative' }}>
+                {virtualizer.getVirtualItems().map((item) => {
+                  const row = rows[item.index]!;
+                  return (
+                    <div key={item.key} style={{ position: 'absolute', top: 0, left: 0, right: 0, height: item.size, transform: `translateY(${item.start}px)` }}>
+                      {row.kind === 'session' ? (
+                        <SessionRow
+                          data={row.data}
+                          settled={row.settled}
+                          selected={view === 'session' && row.data.id === selectedId}
+                          beside={view === 'session' && splitId !== null && row.data.id !== selectedId && (row.data.id === mainId || row.data.id === splitId)}
+                          now={now}
+                          onContextMenu={sessionMenu}
+                        />
+                      ) : (
+                        <button
+                          type="button"
+                          data-settled-toggle
+                          data-open={row.open}
+                          onClick={toggleSettled}
+                          className="mt-1 flex h-[30px] w-full items-center gap-1.5 rounded-md px-2.5 text-[12px] text-faint hover:text-muted"
+                        >
+                          Settled ({row.count})
+                          <ChevronRight size={13} className={`transition-transform ${row.open ? 'rotate-90' : ''}`} />
+                        </button>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
             )}
           </div>
-        ) : (
-          <div style={{ height: virtualizer.getTotalSize(), position: 'relative' }}>
-            {virtualizer.getVirtualItems().map((item) => {
-              const row = rows[item.index]!;
-              return (
-                <div key={item.key} style={{ position: 'absolute', top: 0, left: 0, right: 0, height: item.size, transform: `translateY(${item.start}px)` }}>
-                  {row.kind === 'session' ? (
-                    <SessionRow
-                      data={row.data}
-                      settled={row.settled}
-                      selected={view === 'session' && row.data.id === selectedId}
-                      beside={view === 'session' && splitId !== null && row.data.id !== selectedId && (row.data.id === mainId || row.data.id === splitId)}
-                      now={now}
-                      onContextMenu={sessionMenu}
-                    />
-                  ) : (
-                    <button
-                      type="button"
-                      data-settled-toggle
-                      data-open={row.open}
-                      onClick={toggleSettled}
-                      className="mt-1 flex h-[30px] w-full items-center gap-1.5 rounded-md px-2.5 text-[12px] text-faint hover:text-muted"
-                    >
-                      Settled ({row.count})
-                      <ChevronRight size={13} className={`transition-transform ${row.open ? 'rotate-90' : ''}`} />
-                    </button>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        )}
-      </div>
+        </>
+      )}
 
       <footer className="flex h-10 shrink-0 items-center gap-2 border-t border-border px-3 text-[11px] text-faint">
         <span className="min-w-0 flex-1 truncate">
