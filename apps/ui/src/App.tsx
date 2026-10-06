@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import { EngineDiagnostics } from './components/EngineDiagnostics.tsx';
 import { NewSessionView } from './components/newSession/NewSessionView.tsx';
+import { TooltipLayer } from './components/ui/Tooltip.tsx';
 import { useOpenIn } from './components/OpenInButton.tsx';
 import { QuitPrompt } from './components/QuitPrompt.tsx';
 import { CommandPalette } from './components/palette/CommandPalette.tsx';
@@ -19,6 +20,7 @@ import { usePreferencesSync } from './state/preferencesStore.ts';
 import { addedProjects } from './state/projectList.ts';
 import { useProfilesSync } from './state/profilesStore.ts';
 import { useProjects, useProjectsSync } from './state/projectsStore.ts';
+import { useSidebarSync } from './state/sidebarStore.ts';
 import { useTerminals, useTerminalsSync } from './state/terminalsStore.ts';
 import { useHostsSync } from './state/useHostsSync.ts';
 import { useSessionsSync } from './state/useSessionsSync.ts';
@@ -127,6 +129,7 @@ export function App() {
   useProjectsSync();
   useProfilesSync();
   useTerminalsSync();
+  useSidebarSync();
   useUsageSync();
   usePreferencesSync();
   useReadyReport();
@@ -178,6 +181,7 @@ export function App() {
       {overlay === 'search' && <SearchDialog />}
       {overlay === 'palette' && <CommandPalette />}
       {adding && <AddProjectDialog onClose={() => useProjects.getState().showAdd(false)} />}
+      <TooltipLayer />
     </div>
   );
 }

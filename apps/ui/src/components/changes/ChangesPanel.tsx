@@ -5,6 +5,7 @@ import { useEngineConnection } from '../../engine/useEngine.ts';
 import { parseUnifiedDiff } from '../../lib/unifiedDiff.ts';
 import { ConfirmDialog } from '../ConfirmDialog.tsx';
 import { useOpenIn } from '../OpenInButton.tsx';
+import { Checkbox } from '../ui/Checkbox.tsx';
 
 const STATUS: Record<ChangedFile['status'], { letter: string; tone: string; label: string }> = {
   added: { letter: 'A', tone: 'text-ok', label: 'Added' },
@@ -120,7 +121,7 @@ export function ChangesPanel({
               data-changes-base={value}
               onClick={() => onBase(value)}
               className={`rounded px-2 py-0.5 ${base === value ? 'bg-accent/15 text-text' : 'text-muted hover:text-text'}`}
-              title={value === 'branch' ? `Everything since this branch left ${changes?.baseBranch ?? 'its base'}` : 'Changes not committed yet'}
+              data-tooltip={value === 'branch' ? `Everything since this branch left ${changes?.baseBranch ?? 'its base'}` : 'Changes not committed yet'}
             >
               {value === 'uncommitted' ? 'Uncommitted' : `vs ${changes?.baseBranch ?? 'base'}`}
             </button>
@@ -129,10 +130,10 @@ export function ChangesPanel({
         <span className="min-w-0 flex-1 truncate text-[11.5px] text-faint">
           {files.length} {files.length === 1 ? 'file' : 'files'} <span className="text-ok">+{added}</span> <span className="text-error">−{removed}</span>
         </span>
-        <button type="button" onClick={onRefresh} title="Refresh" className="flex size-6 items-center justify-center rounded text-faint hover:bg-border/60 hover:text-text">
+        <button type="button" onClick={onRefresh} data-tooltip="Refresh" aria-label="Refresh" className="flex size-6 items-center justify-center rounded text-faint hover:bg-border/60 hover:text-text">
           <RefreshCw size={12} />
         </button>
-        <button type="button" onClick={onClose} title="Close (⌘⇧D)" className="flex size-6 items-center justify-center rounded text-faint hover:bg-border/60 hover:text-text">
+        <button type="button" onClick={onClose} data-tooltip="Close (⌘⇧D)" aria-label="Close (⌘⇧D)" className="flex size-6 items-center justify-center rounded text-faint hover:bg-border/60 hover:text-text">
           <X size={13} />
         </button>
       </div>
@@ -153,17 +154,18 @@ export function ChangesPanel({
               <div key={file.path} className="border-b border-border" data-changed-file={file.path}>
                 <div className="group flex h-8 items-center gap-2 pr-2 pl-1.5 text-[12px] hover:bg-border/30">
                   {editable && (
-                    <input
-                      type="checkbox"
+                    <Checkbox
                       checked={file.staged}
-                      title={file.staged ? 'Staged: click to unstage' : 'Stage'}
-                      onChange={() => client && run(client.call('git.stage', { cwd, paths: [file.path], staged: !file.staged }))}
-                      className="ml-0.5 shrink-0 accent-[var(--sb-accent)]"
+                      label={file.staged ? `Unstage ${file.path}` : `Stage ${file.path}`}
+                      tooltip={file.staged ? 'Staged: click to unstage' : 'Stage'}
+                      onChange={(staged) => client && run(client.call('git.stage', { cwd, paths: [file.path], staged }))}
+                      className="ml-0.5 shrink-0 p-0.5"
+                      dataAttrs={{ 'data-stage-file': file.path }}
                     />
                   )}
                   <button type="button" data-file-toggle onClick={() => toggle(file.path)} className="flex min-w-0 flex-1 items-center gap-1.5 text-left">
                     <ChevronRight size={12} className={`shrink-0 text-faint transition-transform ${isOpen ? 'rotate-90' : ''}`} />
-                    <span className={`w-3 shrink-0 text-center font-mono text-[11px] font-semibold ${status.tone}`} title={status.label}>
+                    <span className={`w-3 shrink-0 text-center font-mono text-[11px] font-semibold ${status.tone}`} data-tooltip={status.label}>
                       {status.letter}
                     </span>
                     <span className="min-w-0 truncate">
@@ -176,12 +178,12 @@ export function ChangesPanel({
                   </span>
                   <span className="hidden shrink-0 items-center group-hover:flex">
                     {file.status !== 'deleted' && changes.root && (
-                      <button type="button" title="Open in editor" onClick={() => void openIn(`${changes.root}/${file.path}`).catch(() => {})} className="flex size-6 items-center justify-center rounded text-faint hover:text-text">
+                      <button type="button" data-tooltip="Open in editor" aria-label="Open in editor" onClick={() => void openIn(`${changes.root}/${file.path}`).catch(() => {})} className="flex size-6 items-center justify-center rounded text-faint hover:text-text">
                         <ExternalLink size={12} />
                       </button>
                     )}
                     {editable && (
-                      <button type="button" title="Revert this file" onClick={() => setReverting([file.path])} className="flex size-6 items-center justify-center rounded text-faint hover:text-error">
+                      <button type="button" data-tooltip="Revert this file" aria-label="Revert this file" onClick={() => setReverting([file.path])} className="flex size-6 items-center justify-center rounded text-faint hover:text-error">
                         <Undo2 size={12} />
                       </button>
                     )}

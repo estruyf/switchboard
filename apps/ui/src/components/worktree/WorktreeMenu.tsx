@@ -4,6 +4,7 @@ import type { WorktreeStatus } from '@switchboard/protocol/client';
 import { useEngineConnection } from '../../engine/useEngine.ts';
 import { ConfirmDialog } from '../ConfirmDialog.tsx';
 import { Menu, useMenu, type MenuEntry } from '../Menu.tsx';
+import { Checkbox } from '../ui/Checkbox.tsx';
 
 type Finish = 'merge' | 'pr' | 'remove';
 
@@ -78,7 +79,7 @@ export function WorktreeMenu({ sessionId, cwd, onCommit }: { sessionId: string; 
           load();
           menu.openBelow(e.currentTarget);
         }}
-        title="Finish this worktree: merge, pull request or remove"
+        data-tooltip="Finish this worktree: merge, pull request or remove"
         className="no-drag flex h-7 shrink-0 items-center gap-1 rounded-md border border-border px-1.5 text-[11.5px] text-muted hover:bg-border/50"
       >
         <GitBranch size={13} />
@@ -107,10 +108,9 @@ export function WorktreeMenu({ sessionId, cwd, onCommit }: { sessionId: string; 
                 <p>
                   Deletes the folder <span className="font-mono">{status.path}</span> and stops this session in Switchboard. The conversation stays in your history.
                 </p>
-                <label className="mt-3 flex items-center gap-2 text-text">
-                  <input type="checkbox" checked={deleteBranch} onChange={(e) => setDeleteBranch(e.target.checked)} className="accent-[var(--sb-accent)]" />
+                <Checkbox checked={deleteBranch} onChange={setDeleteBranch} className="mt-3 text-text" dataAttrs={{ 'data-delete-branch': true }}>
                   Also delete the branch <span className="font-mono">{status.branch}</span>
-                </label>
+                </Checkbox>
                 {deleteBranch && unsafeToDelete && (
                   <p className="mt-2 text-warn">
                     {plural(status.ahead, 'commit is', 'commits are')} not in {base}

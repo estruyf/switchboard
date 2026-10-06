@@ -71,7 +71,7 @@ export function TranscriptImage({ sessionId, image, maxHeight = 320 }: { session
       <button
         type="button"
         onClick={() => url && setOpen(true)}
-        title={`${image.mediaType} · ${kb(image.bytes)} · click to enlarge`}
+        data-tooltip={`${image.mediaType} · ${kb(image.bytes)} · click to enlarge`}
         className="block overflow-hidden rounded-md border border-border bg-sidebar"
         data-transcript-image
       >

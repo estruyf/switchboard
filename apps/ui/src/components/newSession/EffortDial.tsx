@@ -31,7 +31,7 @@ export function EffortDial({ value, onChange }: { value: Effort | ''; onChange(e
             role="radio"
             aria-checked={effort === value}
             aria-label={`${EFFORT_LABEL[effort]} effort`}
-            title={effort === value ? `${EFFORT_LABEL[effort]} effort (click again for the default)` : `${EFFORT_LABEL[effort]} effort`}
+            data-tooltip={effort === value ? `${EFFORT_LABEL[effort]} effort (click again for the default)` : `${EFFORT_LABEL[effort]} effort`}
             tabIndex={effort === value || (selected === -1 && i === 0) ? 0 : -1}
             data-effort={effort}
             onClick={() => onChange(toggleEffort(value, effort))}
@@ -49,7 +49,7 @@ export function EffortDial({ value, onChange }: { value: Effort | ''; onChange(e
         <button
           type="button"
           onClick={() => onChange('')}
-          title="Back to the default effort"
+          data-tooltip="Back to the default effort"
           data-effort-reset
           className="flex h-6 items-center gap-1 rounded-md px-1.5 text-[11px] whitespace-nowrap text-faint hover:bg-border/50 hover:text-text"
         >

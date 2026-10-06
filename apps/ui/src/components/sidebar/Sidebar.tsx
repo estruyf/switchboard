@@ -1,7 +1,7 @@
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { Activity, ChevronRight, FolderCog, GitBranch, Pin, Search, Settings, SquarePen } from 'lucide-react';
 import type { SidebarStyle } from '@switchboard/protocol/bridge';
-import { memo, useEffect, useMemo, useRef, useState, type KeyboardEvent, type MouseEvent } from 'react';
+import { memo, useEffect, useMemo, useRef, useState, type KeyboardEvent, type MouseEvent, type PointerEvent } from 'react';
 import { useEngineConnection } from '../../engine/useEngine.ts';
 import { shortAge } from '../../lib/format.ts';
 import { isActiveHost, useHosts } from '../../state/hostsStore.ts';
@@ -9,6 +9,8 @@ import { addedProjects } from '../../state/projectList.ts';
 import { useProjects } from '../../state/projectsStore.ts';
 import { toRows, useSessions, type SessionRowData } from '../../state/sessionsStore.ts';
 import { usePreferences } from '../../state/preferencesStore.ts';
+import { useSidebar } from '../../state/sidebarStore.ts';
+import { SIDEBAR_DEFAULT_WIDTH } from '../../state/sidebarWidth.ts';
 import { buildSessionList, inScope, isActive, rowStatus } from '../../state/sidebarRows.ts';
 import { ConfirmDialog } from '../ConfirmDialog.tsx';
 import { Menu, type MenuEntry } from '../Menu.tsx';
@@ -18,6 +20,40 @@ import { ProjectIcon } from '../ProjectIcon.tsx';
 import { ProjectFilter, useProjectIconEntries } from './ProjectMenu.tsx';
 import { StatusIcon } from './StatusIcon.tsx';
 import appIcon from '../../assets/app-icon.png';
+
+/** Drag the sidebar's right edge to resize it (clamped in the store); double-click resets the default width. */
+function SidebarResizeHandle() {
+  const setWidth = useSidebar((s) => s.setWidth);
+  const startResize = (event: PointerEvent<HTMLDivElement>) => {
+    if (event.button !== 0) return;
+    event.preventDefault();
+    const startX = event.clientX;
+    const startWidth = useSidebar.getState().width;
+    const target = event.currentTarget;
+    target.setPointerCapture(event.pointerId);
+    const move = (e: globalThis.PointerEvent) => setWidth(startWidth + (e.clientX - startX));
+    const up = () => {
+      target.removeEventListener('pointermove', move);
+      target.removeEventListener('pointerup', up);
+      target.removeEventListener('pointercancel', up);
+    };
+    target.addEventListener('pointermove', move);
+    target.addEventListener('pointerup', up);
+    target.addEventListener('pointercancel', up);
+  };
+  return (
+    <div
+      onPointerDown={startResize}
+      onDoubleClick={() => setWidth(SIDEBAR_DEFAULT_WIDTH)}
+      role="separator"
+      aria-orientation="vertical"
+      aria-label="Resize sidebar"
+      data-tooltip="Drag to resize, double-click to reset"
+      className="no-drag absolute inset-y-0 -right-[3px] z-20 w-1.5 cursor-col-resize hover:bg-accent/40"
+      data-sidebar-resize
+    />
+  );
+}
 
 type ListRow = { kind: 'session'; data: SessionRowData; settled: boolean } | { kind: 'settled-header'; count: number; open: boolean };
 
@@ -149,6 +185,7 @@ export function Sidebar() {
   const sidebarStyle = usePreferences((s) => s.prefs.sidebarStyle);
   const scope = usePreferences((s) => s.prefs.sessionScope);
   const updatePrefs = usePreferences((s) => s.update);
+  const width = useSidebar((s) => s.width);
 
   const all = useMemo(() => toRows(sessions, live, hosts).filter((row) => inScope(row, scope)), [sessions, live, hosts, scope]);
   const { active, settled } = useMemo(() => buildSessionList(all, { search, project: projectFilter, now }), [all, search, projectFilter, now]);
@@ -229,7 +266,7 @@ export function Sidebar() {
   const liveCount = all.filter((row) => row.live !== null).length;
 
   return (
-    <aside className="flex w-80 shrink-0 flex-col border-r border-border bg-sidebar">
+    <aside className="relative flex shrink-0 flex-col border-r border-border bg-sidebar" style={{ width }} data-sidebar>
       {/* Traffic lights on the left; the bar doubles as a window drag handle. */}
       <div className="drag flex h-13 shrink-0 items-center gap-2 pl-21">
         <img src={appIcon} alt="" width={20} height={20} draggable={false} />
@@ -252,7 +289,7 @@ export function Sidebar() {
           type="button"
           data-new-session
           onClick={() => useSessions.getState().openNewSession()}
-          title="New session (⌘N)"
+          data-tooltip="New session (⌘N)" aria-label="New session (⌘N)"
           className={`no-drag flex size-7 items-center justify-center rounded-md hover:bg-border/50 ${view === 'new' ? 'bg-accent/15 text-text' : 'text-muted hover:text-text'}`}
         >
           <SquarePen size={15} />
@@ -332,7 +369,7 @@ export function Sidebar() {
           type="button"
           data-open-projects
           onClick={() => setView(view === 'projects' ? 'session' : 'projects')}
-          title="Projects"
+          data-tooltip="Projects" aria-label="Projects"
           className={`flex size-7 items-center justify-center rounded-md hover:bg-border/60 hover:text-text ${view === 'projects' ? 'bg-border/60 text-text' : 'text-muted'}`}
         >
           <FolderCog size={15} />
@@ -341,7 +378,7 @@ export function Sidebar() {
           type="button"
           data-open-settings
           onClick={() => setView(view === 'settings' ? 'session' : 'settings')}
-          title="Settings (⌘,)"
+          data-tooltip="Settings (⌘,)" aria-label="Settings (⌘,)"
           className={`flex size-7 items-center justify-center rounded-md hover:bg-border/60 hover:text-text ${view === 'settings' ? 'bg-border/60 text-text' : 'text-muted'}`}
         >
           <Settings size={15} />
@@ -349,7 +386,7 @@ export function Sidebar() {
         <button
           type="button"
           onClick={() => setView(view === 'diagnostics' ? 'session' : 'diagnostics')}
-          title="Diagnostics"
+          data-tooltip="Diagnostics" aria-label="Diagnostics"
           className={`flex size-7 items-center justify-center rounded-md hover:bg-border/60 hover:text-text ${view === 'diagnostics' ? 'bg-border/60 text-text' : 'text-muted'}`}
         >
           <Activity size={15} />
@@ -394,6 +431,7 @@ export function Sidebar() {
         />
       )}
       {projectIcons.picker}
+      <SidebarResizeHandle />
     </aside>
   );
 }

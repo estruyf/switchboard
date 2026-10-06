@@ -2,6 +2,8 @@ import { useState } from 'react';
 import type { PermissionDecision, PermissionRequest } from '@switchboard/protocol/client';
 import { useEngineConnection } from '../../engine/useEngine.ts';
 import { Markdown } from '../transcript/Markdown.tsx';
+import { Checkbox } from '../ui/Checkbox.tsx';
+import { Radio, RadioGroup } from '../ui/Radio.tsx';
 import { toolSummary } from '../transcript/toolSummary.ts';
 
 type Respond = (decision: PermissionDecision) => Promise<void>;
@@ -88,7 +90,7 @@ function ToolPermission({ request, cwd }: { request: PermissionRequest; cwd: str
           <button
             type="button"
             disabled={busy}
-            title={request.alwaysLabel}
+            data-tooltip={request.alwaysLabel}
             onClick={() => void respond({ behavior: 'allow', always: true })}
             className={`${button} max-w-80 truncate border border-border text-text`}
           >
@@ -141,18 +143,35 @@ function AskUserQuestion({ request }: { request: PermissionRequest }) {
             {q.header && <span className="mr-2 rounded bg-border/70 px-1.5 py-0.5 text-[10px] text-muted uppercase">{q.header}</span>}
             {q.question}
           </legend>
-          {q.options.map((option) => {
-            const checked = (answers[q.question] ?? []).includes(option.label);
-            return (
-              <label key={option.label} className={`flex cursor-pointer gap-2 rounded-md border px-2.5 py-1.5 ${checked ? 'border-accent-ink/60 bg-accent/10' : 'border-border'}`}>
-                <input type={q.multiSelect ? 'checkbox' : 'radio'} name={q.question} checked={checked} onChange={() => toggle(q, option.label)} className="mt-0.5 accent-[var(--sb-accent)]" />
-                <span>
+          {(() => {
+            const noneChecked = (answers[q.question] ?? []).length === 0;
+            const options = q.options.map((option, i) => {
+              const checked = (answers[q.question] ?? []).includes(option.label);
+              const row = `w-full rounded-md border px-2.5 py-1.5 ${checked ? 'border-accent-ink/60 bg-accent/10' : 'border-border hover:border-faint'}`;
+              const content = (
+                <>
                   <span className="text-[13px]">{option.label}</span>
                   {option.description && <span className="block text-[11px] text-muted">{option.description}</span>}
-                </span>
-              </label>
+                </>
+              );
+              return q.multiSelect ? (
+                <Checkbox key={option.label} checked={checked} onChange={() => toggle(q, option.label)} className={row} dataAttrs={{ 'data-question-option': option.label }}>
+                  {content}
+                </Checkbox>
+              ) : (
+                <Radio key={option.label} checked={checked} tabbable={noneChecked && i === 0} onSelect={() => toggle(q, option.label)} className={row} dataAttrs={{ 'data-question-option': option.label }}>
+                  {content}
+                </Radio>
+              );
+            });
+            return q.multiSelect ? (
+              options
+            ) : (
+              <RadioGroup label={q.question} className="grid gap-1.5">
+                {options}
+              </RadioGroup>
             );
-          })}
+          })()}
           <input
             value={other[q.question] ?? ''}
             onChange={(e) => setOther((c) => ({ ...c, [q.question]: e.target.value }))}

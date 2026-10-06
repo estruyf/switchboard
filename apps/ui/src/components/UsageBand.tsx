@@ -98,7 +98,7 @@ export function UsageBand({ profileId, compact = false }: { profileId?: string |
     return (
       <div className="flex shrink-0 items-center divide-x divide-border text-[11.5px]" data-usage-band data-usage-profile={id}>
         {limits.map((limit) => (
-          <div key={`${limit.kind}:${limit.scope ?? ''}`} className="flex items-center gap-1.5 px-2.5 whitespace-nowrap first:pl-0 last:pr-0" title={resetTitle(limit)}>
+          <div key={`${limit.kind}:${limit.scope ?? ''}`} className="flex items-center gap-1.5 px-2.5 whitespace-nowrap first:pl-0 last:pr-0" data-tooltip={resetTitle(limit)}>
             <Ring percent={limit.percent} severity={limit.severity} />
             <span className="font-semibold text-muted tabular-nums">{Math.round(limit.percent)}%</span>
             <span className="text-faint">
@@ -118,7 +118,7 @@ export function UsageBand({ profileId, compact = false }: { profileId?: string |
         <div
           key={`${limit.kind}:${limit.scope ?? ''}`}
           className="flex h-7 items-center gap-1.5 rounded-full border border-border bg-card px-2.5 text-[12px]"
-          title={resetTitle(limit)}
+          data-tooltip={resetTitle(limit)}
         >
           <Ring percent={limit.percent} severity={limit.severity} />
           <span className="font-semibold tabular-nums">{Math.round(limit.percent)}%</span>

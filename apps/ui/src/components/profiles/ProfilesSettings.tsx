@@ -5,6 +5,7 @@ import { useEngineConnection } from '../../engine/useEngine.ts';
 import { guessHome, tildify } from '../../lib/format.ts';
 import { useProfiles } from '../../state/profilesStore.ts';
 import { ConfirmDialog } from '../ConfirmDialog.tsx';
+import { Radio } from '../ui/Radio.tsx';
 import { PROFILE_DOT } from './ProfileBadge.tsx';
 
 const field = 'h-7 min-w-0 rounded-md border border-border bg-bg px-2 text-[12px] text-text outline-none focus:border-accent-ink/60';
@@ -32,7 +33,7 @@ function ColorPicker({ value, onChange }: { value: ProfileColor; onChange(color:
           role="radio"
           aria-checked={value === color}
           aria-label={color}
-          title={color}
+          data-tooltip={color}
           onClick={() => onChange(color)}
           className={`flex size-5 items-center justify-center rounded-full ${value === color ? 'ring-2 ring-accent-ink/70 ring-offset-1 ring-offset-card' : ''}`}
         >
@@ -50,7 +51,7 @@ function CopyCommand({ command }: { command: string }) {
       <code className="min-w-0 truncate font-mono text-[11.5px] text-text">{command}</code>
       <button
         type="button"
-        title="Copy"
+        data-tooltip="Copy" aria-label="Copy"
         onClick={() => void navigator.clipboard.writeText(command).then(() => (setCopied(true), setTimeout(() => setCopied(false), 1500)))}
         className="shrink-0 text-faint hover:text-text"
       >
@@ -87,23 +88,24 @@ function ProfileRow({ profile, home, onRemove }: { profile: ClaudeProfile; home:
         />
         <ColorPicker value={profile.color} onChange={(color) => void call(client?.call('profiles.update', { id: profile.id, color }))} />
         <span className="flex-1" />
-        <label className="flex cursor-pointer items-center gap-1.5 text-[12px] text-muted" title="Projects without a profile of their own use the default">
-          <input
-            type="radio"
-            name="default-profile"
+        <span data-tooltip="Projects without a profile of their own use the default">
+          <Radio
             checked={profile.isDefault}
-            onChange={() => void call(client?.call('profiles.setDefault', { id: profile.id }))}
-            data-profile-default={profile.id}
-          />
-          Default
-        </label>
+            tabbable
+            onSelect={() => void call(client?.call('profiles.setDefault', { id: profile.id }))}
+            className="items-center text-[12px] text-muted"
+            dataAttrs={{ 'data-profile-default': profile.id }}
+          >
+            Default
+          </Radio>
+        </span>
         {!profile.builtin && (
-          <button type="button" onClick={onRemove} title="Remove from Switchboard" className="rounded p-1 text-faint hover:text-error" data-remove-profile>
+          <button type="button" onClick={onRemove} data-tooltip="Remove from Switchboard" aria-label="Remove from Switchboard" className="rounded p-1 text-faint hover:text-error" data-remove-profile>
             <X size={14} />
           </button>
         )}
       </div>
-      <p className="truncate text-[12px] text-muted" title={profile.configDir}>
+      <p className="truncate text-[12px] text-muted" data-tooltip={profile.configDir}>
         {tildify(profile.configDir, home)}
         {profile.builtin && <span className="text-faint"> · Claude Code’s own folder</span>}
         {!profile.exists && <span className="text-warn"> · folder not found</span>}

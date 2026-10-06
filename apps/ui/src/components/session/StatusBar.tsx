@@ -1,5 +1,6 @@
 import type { Effort, PermissionMode, SessionHostInfo } from '@switchboard/protocol/client';
 import { ContextMeter } from './ContextMeter.tsx';
+import { Select } from '../ui/Select.tsx';
 import { useEngineConnection } from '../../engine/useEngine.ts';
 import { MODE_CHOICES, MODE_LABEL } from '../../lib/modes.ts';
 import { useHosts } from '../../state/hostsStore.ts';
@@ -21,7 +22,7 @@ const EFFORTS: Array<{ value: Effort; label: string }> = [
   { value: 'max', label: 'Max effort' },
 ];
 
-const select = 'h-6 min-w-0 shrink rounded-md border border-transparent bg-transparent px-1 text-[11px] text-muted outline-none hover:border-border focus:border-accent-ink/60';
+const select = 'h-6 min-w-0 shrink rounded-md border border-transparent bg-transparent px-1 text-[11px] text-muted outline-none enabled:hover:border-border focus:border-accent-ink/60 aria-expanded:border-accent-ink/60';
 
 /** Model, permission mode, effort and context for a session running in this app. */
 export function StatusBar({ host }: { host: SessionHostInfo }) {
@@ -35,53 +36,40 @@ export function StatusBar({ host }: { host: SessionHostInfo }) {
 
   return (
     <div className="flex h-7 min-w-0 items-center gap-2 px-1 text-[11px] text-faint">
-      <span className={host.state === 'error' ? 'text-error' : host.state === 'needs-you' ? 'text-warn' : ''} title={host.error ?? undefined}>
+      <span className={host.state === 'error' ? 'text-error' : host.state === 'needs-you' ? 'text-warn' : ''} data-tooltip={host.error ?? undefined}>
         {STATE_LABEL[host.state]}
       </span>
       <span>·</span>
-      <select
+      <Select
+        label="Model"
         className={select}
         disabled={!active || !client}
         value={modelKnown ? (host.model ?? '') : ''}
-        onChange={(e) => void client?.call('session.setModel', { sessionId: host.sessionId, model: e.target.value || null })}
-        title="Model"
-      >
-        {!modelKnown && <option value="">{host.model ?? 'Default model'}</option>}
-        {models.map((m) => (
-          <option key={m.value} value={m.value}>
-            {m.displayName}
-          </option>
-        ))}
-      </select>
-      <select
+        onChange={(model) => void client?.call('session.setModel', { sessionId: host.sessionId, model: model || null })}
+        options={[...(modelKnown ? [] : [{ value: '', label: host.model ?? 'Default model' }]), ...models.map((m) => ({ value: m.value, label: m.displayName }))]}
+        dataAttrs={{ 'data-session-model-select': true }}
+      />
+      <Select
+        label="Permission mode"
+        tooltip="Permission mode (⇧Tab in the composer)"
         className={select}
         disabled={!active || !client}
         value={host.permissionMode}
-        onChange={(e) => void client?.call('session.setPermissionMode', { sessionId: host.sessionId, mode: e.target.value as PermissionMode })}
-        title="Permission mode (⇧Tab in the composer)"
-      >
-        {[...new Set([...MODE_CHOICES, host.permissionMode])].map((mode) => (
-          <option key={mode} value={mode}>
-            {MODE_LABEL[mode]}
-          </option>
-        ))}
-      </select>
+        onChange={(mode) => void client?.call('session.setPermissionMode', { sessionId: host.sessionId, mode })}
+        options={[...new Set([...MODE_CHOICES, host.permissionMode])].map((mode) => ({ value: mode, label: MODE_LABEL[mode] }))}
+        dataAttrs={{ 'data-permission-mode-select': true }}
+      />
       {supportsEffort && (
-        <select
+        <Select
+          label="Effort"
+          tooltip="How hard Claude thinks (this session only)"
           className={select}
           disabled={!active || !client}
           value={host.effort ?? ''}
-          data-effort-select
-          onChange={(e) => void client?.call('session.setEffort', { sessionId: host.sessionId, effort: (e.target.value || null) as Effort | null })}
-          title="How hard Claude thinks (this session only)"
-        >
-          <option value="">Default effort</option>
-          {EFFORTS.map((effort) => (
-            <option key={effort.value} value={effort.value}>
-              {effort.label}
-            </option>
-          ))}
-        </select>
+          onChange={(effort) => void client?.call('session.setEffort', { sessionId: host.sessionId, effort: effort || null })}
+          options={[{ value: '' as const, label: 'Default effort' }, ...EFFORTS]}
+          dataAttrs={{ 'data-effort-select': true }}
+        />
       )}
       <span className="flex-1" />
       <ContextMeter
@@ -94,7 +82,7 @@ export function StatusBar({ host }: { host: SessionHostInfo }) {
           type="button"
           onClick={() => void client?.call('session.close', { sessionId: host.sessionId })}
           className="shrink-0 rounded px-1.5 whitespace-nowrap hover:bg-border/60 hover:text-muted"
-          title="Stop the Claude Code process for this session. The conversation is kept; sending a message resumes it."
+          data-tooltip="Stop the Claude Code process for this session. The conversation is kept; sending a message resumes it."
         >
           Stop session
         </button>

@@ -112,7 +112,7 @@ export function ActivityGroupView({
 
   return (
     <div data-activity={active ? 'active' : 'done'}>
-      <button type="button" onClick={toggle} className="group flex w-full min-w-0 items-center gap-2 rounded-md py-1 text-left text-[12.5px]" title={open ? 'Hide steps' : 'Show steps'}>
+      <button type="button" onClick={toggle} className="group flex w-full min-w-0 items-center gap-2 rounded-md py-1 text-left text-[12.5px]" data-tooltip={open ? 'Hide steps' : 'Show steps'}>
         <span className="flex w-4 shrink-0 justify-center">{active ? <WorkingDots /> : failures > 0 ? <CircleAlert size={12} className="text-error" /> : <span className="size-1.5 rounded-full bg-faint/70" />}</span>
         <span className={`min-w-0 truncate ${active ? 'text-text/85' : 'text-muted group-hover:text-text'}`}>{label}</span>
         {failures > 0 && !active && <span className="shrink-0 text-error">· {failures} failed</span>}

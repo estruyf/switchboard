@@ -14,6 +14,7 @@ import { Menu, type MenuEntry } from '../Menu.tsx';
 import { ProfileBadge } from '../profiles/ProfileBadge.tsx';
 import { ProjectIcon } from '../ProjectIcon.tsx';
 import { useProjectActions, useProjectIconEntries } from '../sidebar/ProjectMenu.tsx';
+import { Select } from '../ui/Select.tsx';
 import { ProjectDefaultsEditor } from './ProjectDefaultsEditor.tsx';
 
 const button = 'flex h-7 items-center gap-1.5 rounded-md border border-border px-2 text-[12px] text-text hover:bg-border/50 disabled:opacity-40';
@@ -43,25 +44,20 @@ function ProfilePicker({ project }: { project: ProjectInfo }) {
   if (profiles.length < 2) return null;
   const fallback = profiles.find((p) => p.isDefault);
   return (
-    <label className="grid grid-cols-[110px_minmax(0,1fr)] items-center gap-3 @max-[560px]:grid-cols-1 @max-[560px]:gap-1">
+    <div className="grid grid-cols-[110px_minmax(0,1fr)] items-center gap-3 @max-[560px]:grid-cols-1 @max-[560px]:gap-1">
       <span className="text-[12px] text-muted">Claude profile</span>
       <span className="flex min-w-0 items-center gap-2">
-        <select
+        <Select
+          label="Claude profile"
           className="h-7 min-w-0 rounded-md border border-border bg-bg px-2 text-[12px] text-text outline-none focus:border-accent-ink/60"
           value={project.profileId ?? ''}
-          onChange={(e) => void actions.setProfile(project.root, e.target.value || null)}
-          data-project-profile
-        >
-          <option value="">Default{fallback ? ` (${fallback.name})` : ''}</option>
-          {profiles.map((p) => (
-            <option key={p.id} value={p.id}>
-              {p.name}
-              {p.account?.email ? ` · ${p.account.email}` : ''}
-            </option>
-          ))}
-        </select>
+          onChange={(value) => void actions.setProfile(project.root, value || null)}
+          options={[{ value: '', label: `Default${fallback ? ` (${fallback.name})` : ''}` }, ...profiles.map((p) => ({ value: p.id, label: p.name, hint: p.account?.email ?? undefined }))]}
+          menuWidth={240}
+          dataAttrs={{ 'data-project-profile': true }}
+        />
       </span>
-    </label>
+    </div>
   );
 }
 
@@ -128,7 +124,7 @@ function ProjectRow({
   return (
     <li className="rounded-lg border border-border bg-card" data-project-row={project.root}>
       <div className="flex items-center gap-3 px-3 py-2.5">
-        <button type="button" onClick={onIconMenu} title="Change icon" className="shrink-0 rounded-md hover:opacity-80">
+        <button type="button" onClick={onIconMenu} data-tooltip="Change icon" aria-label="Change icon" className="shrink-0 rounded-md hover:opacity-80">
           <ProjectIcon project={project} root={project.root} size={30} />
         </button>
         <button type="button" onClick={onToggle} className="grid min-w-0 flex-1 text-left" aria-expanded={open} data-project-toggle>
@@ -138,7 +134,7 @@ function ProjectRow({
           </span>
           <span className="flex min-w-0 items-center gap-1.5 text-[11.5px] text-faint">
             {!project.exists && (
-              <span className="flex shrink-0 items-center gap-1 text-warn" title="This folder no longer exists">
+              <span className="flex shrink-0 items-center gap-1 text-warn" data-tooltip="This folder no longer exists">
                 <AlertTriangle size={11} /> Folder not found ·
               </span>
             )}
@@ -154,19 +150,19 @@ function ProjectRow({
           </span>
         </button>
         <div className="flex shrink-0 items-center gap-0.5">
-          <button type="button" className={iconButton} onClick={startHere} disabled={!project.exists} title="New session in this project">
+          <button type="button" className={iconButton} onClick={startHere} disabled={!project.exists} data-tooltip="New session in this project" aria-label="New session in this project">
             <SquarePen size={14} />
           </button>
-          <button type="button" className={iconButton} onClick={onActions} title="Project actions" data-project-actions>
+          <button type="button" className={iconButton} onClick={onActions} data-tooltip="Project actions" aria-label="Project actions" data-project-actions>
             <Zap size={14} />
           </button>
-          <button type="button" className={iconButton} onClick={() => onMove(-1)} disabled={index === 0} title="Move up" data-move-up>
+          <button type="button" className={iconButton} onClick={() => onMove(-1)} disabled={index === 0} data-tooltip="Move up" aria-label="Move up" data-move-up>
             <ArrowUp size={14} />
           </button>
-          <button type="button" className={iconButton} onClick={() => onMove(1)} disabled={index === total - 1} title="Move down" data-move-down>
+          <button type="button" className={iconButton} onClick={() => onMove(1)} disabled={index === total - 1} data-tooltip="Move down" aria-label="Move down" data-move-down>
             <ArrowDown size={14} />
           </button>
-          <button type="button" className={`${iconButton} hover:text-error`} onClick={onRemove} title="Remove from Switchboard" data-remove-project>
+          <button type="button" className={`${iconButton} hover:text-error`} onClick={onRemove} data-tooltip="Remove from Switchboard" aria-label="Remove from Switchboard" data-remove-project>
             <X size={14} />
           </button>
         </div>

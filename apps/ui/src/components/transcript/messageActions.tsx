@@ -23,7 +23,7 @@ export const messageUuid = (key: string) => key.split(':')[0]!;
 
 function Action({ title, onClick, children }: { title: string; onClick(): void; children: ReactNode }) {
   return (
-    <button type="button" title={title} aria-label={title} onClick={onClick} className="flex size-6 items-center justify-center rounded text-faint hover:bg-border/60 hover:text-text">
+    <button type="button" data-tooltip={title} aria-label={title} onClick={onClick} className="flex size-6 items-center justify-center rounded text-faint hover:bg-border/60 hover:text-text">
       {children}
     </button>
   );

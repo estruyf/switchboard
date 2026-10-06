@@ -37,13 +37,13 @@ export function ProfileBadge({ profileId, dotOnly = false, className = '' }: { p
   const title = `Claude profile: ${profile.name}${profile.account?.email ? ` (${profile.account.email})` : ''}`;
   if (dotOnly) {
     return (
-      <span title={title} className={`flex shrink-0 items-center ${className}`} data-profile-badge={profile.id}>
+      <span data-tooltip={title} aria-label={title} className={`flex shrink-0 items-center ${className}`} data-profile-badge={profile.id}>
         <ProfileDot color={profile.color} />
       </span>
     );
   }
   return (
-    <span title={title} className={`flex min-w-0 shrink-0 items-center gap-1 ${PROFILE_TEXT[profile.color]} ${className}`} data-profile-badge={profile.id}>
+    <span data-tooltip={title} className={`flex min-w-0 shrink-0 items-center gap-1 ${PROFILE_TEXT[profile.color]} ${className}`} data-profile-badge={profile.id}>
       <ProfileDot color={profile.color} />
       <span className="truncate">{profile.name}</span>
     </span>

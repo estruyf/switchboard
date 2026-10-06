@@ -101,10 +101,10 @@ export function CapabilitiesDialog({ sessionId, cwd, profileId, onClose }: { ses
           <span className="min-w-0 flex-1 truncate text-[11.5px] text-faint">
             {caps === null ? 'Asking Claude Code…' : caps.live ? 'Live from this session' : 'For this folder (start the session here to change MCP servers)'}
           </span>
-          <button type="button" title="Refresh" onClick={() => setVersion((v) => v + 1)} className="flex size-6 items-center justify-center rounded text-faint hover:bg-border/60 hover:text-text">
+          <button type="button" data-tooltip="Refresh" aria-label="Refresh" onClick={() => setVersion((v) => v + 1)} className="flex size-6 items-center justify-center rounded text-faint hover:bg-border/60 hover:text-text">
             <RefreshCw size={12} />
           </button>
-          <button type="button" title="Close" onClick={onClose} className="flex size-6 items-center justify-center rounded text-faint hover:bg-border/60 hover:text-text">
+          <button type="button" data-tooltip="Close" aria-label="Close" onClick={onClose} className="flex size-6 items-center justify-center rounded text-faint hover:bg-border/60 hover:text-text">
             <X size={13} />
           </button>
         </div>
@@ -142,7 +142,7 @@ export function CapabilitiesDialog({ sessionId, cwd, profileId, onClose }: { ses
                 key={server.name}
                 title={
                   <span className="flex items-center gap-2">
-                    <span className={`size-2 shrink-0 rounded-full ${tone.dot}`} title={tone.label} />
+                    <span className={`size-2 shrink-0 rounded-full ${tone.dot}`} data-tooltip={tone.label} role="img" aria-label={tone.label} />
                     <span className="truncate font-medium">{server.name}</span>
                     {server.scope && <span className="shrink-0 rounded bg-border/60 px-1.5 text-[10.5px] text-muted">{server.scope}</span>}
                   </span>
@@ -153,7 +153,7 @@ export function CapabilitiesDialog({ sessionId, cwd, profileId, onClose }: { ses
                 {caps.live && (
                   <>
                     {server.status !== 'disabled' && (
-                      <button type="button" title="Reconnect" disabled={busy === server.name} onClick={() => void mcp(server.name, 'reconnect')} className="flex size-6 items-center justify-center rounded text-faint hover:text-text disabled:opacity-40">
+                      <button type="button" data-tooltip="Reconnect" aria-label="Reconnect" disabled={busy === server.name} onClick={() => void mcp(server.name, 'reconnect')} className="flex size-6 items-center justify-center rounded text-faint hover:text-text disabled:opacity-40">
                         <RotateCw size={12} className={busy === server.name ? 'animate-spin' : ''} />
                       </button>
                     )}
@@ -161,7 +161,7 @@ export function CapabilitiesDialog({ sessionId, cwd, profileId, onClose }: { ses
                       type="button"
                       role="switch"
                       aria-checked={server.status !== 'disabled'}
-                      title={server.status === 'disabled' ? 'Turn on' : 'Turn off'}
+                      data-tooltip={server.status === 'disabled' ? 'Turn on' : 'Turn off'} aria-label={server.status === 'disabled' ? 'Turn on' : 'Turn off'}
                       disabled={busy === server.name}
                       onClick={() => void mcp(server.name, server.status === 'disabled' ? 'enable' : 'disable')}
                       className={`relative h-4 w-7 shrink-0 rounded-full transition-colors disabled:opacity-50 ${server.status === 'disabled' ? 'bg-border' : 'bg-accent'}`}

@@ -55,12 +55,12 @@ export function OpenInButton({ path }: { path: string | null }) {
   };
 
   return (
-    <div ref={menuRef} className="no-drag relative flex shrink-0" title={error ?? undefined}>
+    <div ref={menuRef} className="no-drag relative flex shrink-0" data-tooltip={error ?? undefined}>
       <button
         type="button"
         onClick={() => run()}
         className={`rounded-l-md border border-border px-2.5 py-1 text-[12px] hover:bg-border/50 ${error ? 'text-error' : 'text-text'}`}
-        title={`Open ${path} in ${current.name} (⌘O)`}
+        data-tooltip={`Open ${path} in ${current.name} (⌘O)`}
       >
         {/* In a narrow pane (container query on the session view) only the app name stays. */}
         <span className="@max-[860px]:hidden">Open in </span>

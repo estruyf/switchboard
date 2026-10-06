@@ -85,7 +85,7 @@ export function ActionsBar({ sessionId, projectRoot, cwd }: { sessionId: string;
   ];
 
   return (
-    <div className="no-drag flex shrink-0 items-center gap-1" data-actions-bar title={error ?? undefined}>
+    <div className="no-drag flex shrink-0 items-center gap-1" data-actions-bar data-tooltip={error ?? undefined}>
       {visible.map((action) => {
         const Icon = ACTION_ICON[action.icon];
         return (
@@ -94,7 +94,7 @@ export function ActionsBar({ sessionId, projectRoot, cwd }: { sessionId: string;
             type="button"
             data-action={action.id}
             onClick={() => run(action)}
-            title={`${action.type === 'prompt' ? 'Ask Claude: ' : ''}${action.command}${action.shortcut ? `  (${formatShortcut(action.shortcut)})` : ''}`}
+            data-tooltip={`${action.type === 'prompt' ? 'Ask Claude: ' : ''}${action.command}${action.shortcut ? `  (${formatShortcut(action.shortcut)})` : ''}`}
             className={`flex h-7 items-center gap-1.5 rounded-md border px-2 text-[12px] hover:bg-border/50 ${error ? 'border-error/50' : 'border-border'}`}
           >
             <Icon size={13} className="text-muted" />
@@ -109,7 +109,7 @@ export function ActionsBar({ sessionId, projectRoot, cwd }: { sessionId: string;
           const rect = e.currentTarget.getBoundingClientRect();
           setMenu({ x: rect.right - 220, y: rect.bottom + 4 });
         }}
-        title={actions.length ? 'More actions' : 'Add project actions (Commit, Test, Publish…)'}
+        data-tooltip={actions.length ? 'More actions' : 'Add project actions (Commit, Test, Publish…)'} aria-label={actions.length ? 'More actions' : 'Add project actions (Commit, Test, Publish…)'}
         className="flex h-7 items-center gap-1 rounded-md border border-border px-1.5 text-[12px] text-muted hover:bg-border/50"
       >
         {actions.length === 0 && 'Actions'}

@@ -105,6 +105,8 @@ If macOS blocks the app the first time you open it, see [Building, signing and n
 
 Right-click a session for more: open it beside, pin, settle, open its folder, copy its ID, or delete it.
 
+Drag the sidebar's right edge to make it wider or narrower; double-click the edge to reset it. Switchboard remembers the width.
+
 ## Settings
 
 Open Settings with ⌘, or the gear at the bottom of the sidebar.

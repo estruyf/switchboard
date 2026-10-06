@@ -15,6 +15,7 @@ import { useProjects } from '../../state/projectsStore.ts';
 import { realBranch, toRows, useSessions } from '../../state/sessionsStore.ts';
 import { Composer } from '../composer/Composer.tsx';
 import { PROFILE_DOT } from '../profiles/ProfileBadge.tsx';
+import { Checkbox } from '../ui/Checkbox.tsx';
 import { UsageBand } from '../UsageBand.tsx';
 import { globalPatch, INITIAL_CHOICES, readGlobals, sameDefaults, startingChoices, toProjectDefaults, type Choices, type GlobalChoices } from './choices.ts';
 
@@ -29,7 +30,7 @@ function Segmented<T extends string>({ label, value, options, onChange, disabled
           type="button"
           role="radio"
           aria-checked={value === o.value}
-          title={o.title}
+          data-tooltip={o.title}
           disabled={disabled}
           data-segment={o.value}
           onClick={() => onChange(o.value)}
@@ -363,7 +364,7 @@ export function NewSessionView() {
                 {useWorktree ? (
                   <label
                     className="flex h-6 min-w-0 flex-1 items-center rounded-md border border-border bg-card px-2 font-mono text-[11.5px] focus-within:border-accent-ink/60"
-                    title={`Branch worktree-${effectiveName} in .claude/worktrees/${effectiveName}`}
+                    data-tooltip={`Branch worktree-${effectiveName} in .claude/worktrees/${effectiveName}`}
                   >
                     <span className="text-faint">worktree-</span>
                     <input
@@ -415,7 +416,7 @@ export function NewSessionView() {
             {running.length > 0 && (
               <span className="flex min-w-0 items-center gap-1.5" data-running-here>
                 <span className="size-1.5 shrink-0 rounded-full bg-accent-ink" aria-hidden />
-                <span className="min-w-0 truncate" title={running.map((r) => r.title).join('\n')}>
+                <span className="min-w-0 truncate" data-tooltip={running.map((r) => r.title).join('\n')}>
                   <span className="text-muted">{running.length} running here</span> · {running[0]!.title}
                 </span>
                 <button type="button" onClick={() => select(running[0]!.id)} className="shrink-0 text-link hover:underline" data-open-running>
@@ -426,10 +427,9 @@ export function NewSessionView() {
           </div>
 
           {cwd && !isProject && inspection?.exists && (
-            <label className="-mt-3 flex w-fit cursor-pointer items-center gap-2 px-4 text-[11.5px] text-muted">
-              <input type="checkbox" checked={addAsProject} onChange={(e) => setAddAsProject(e.target.checked)} data-add-as-project />
+            <Checkbox checked={addAsProject} onChange={setAddAsProject} className="-mt-3 w-fit px-4 text-[11.5px] text-muted" dataAttrs={{ 'data-add-as-project': true }}>
               Add {basename(cwd)} to your projects
-            </label>
+            </Checkbox>
           )}
           {isProject && (
             <div className="-mt-3 flex min-h-5 flex-wrap items-center gap-2 px-4 text-[11.5px] text-faint" data-project-defaults-bar>

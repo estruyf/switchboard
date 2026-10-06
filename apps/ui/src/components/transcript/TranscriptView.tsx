@@ -342,7 +342,7 @@ export function TranscriptView({ sessionId, pane = null, active = true }: { sess
         </div>
         <ProfileBadge profileId={profileId} className="rounded-full border border-border px-2 py-0.5 text-[11px] @max-[860px]:hidden" />
         {live && (
-          <span className="flex shrink-0 items-center gap-1.5 rounded-full border border-border px-2 py-0.5 text-[11px] text-muted">
+          <span className="flex shrink-0 items-center gap-1.5 text-[11px] text-muted" data-session-status>
             <StatusDot live={live} />
             <span className="@max-[860px]:hidden">{liveLabel(live)}</span>
           </span>
@@ -361,7 +361,7 @@ export function TranscriptView({ sessionId, pane = null, active = true }: { sess
             type="button"
             data-toggle-changes
             onClick={() => toggleChanges()}
-            title="Changes (⌘⇧D)"
+            data-tooltip="Changes (⌘⇧D)" aria-label="Changes (⌘⇧D)"
             className={`no-drag flex h-7 shrink-0 items-center gap-1 rounded-md border border-border px-1.5 text-[11.5px] hover:bg-border/50 ${changesOpen ? 'bg-accent/15 text-text' : 'text-muted'}`}
           >
             <FileDiff size={14} />
@@ -372,11 +372,11 @@ export function TranscriptView({ sessionId, pane = null, active = true }: { sess
           type="button"
           data-toggle-terminal
           onClick={() => togglePanel()}
-          title="Terminal (⌘J)"
+          data-tooltip="Terminal (⌘J)" aria-label="Terminal (⌘J)"
           className={`no-drag relative flex size-7 shrink-0 items-center justify-center rounded-md border border-border hover:bg-border/50 ${panelOpen ? 'bg-accent/15 text-text' : 'text-muted'}`}
         >
           <SquareTerminal size={14} />
-          {terminalCount > 0 && <span className="absolute -top-1 -right-1 size-2 rounded-full bg-ok" title={`${terminalCount} running`} />}
+          {terminalCount > 0 && <span className="absolute -top-1 -right-1 size-2 rounded-full bg-ok" data-tooltip={`${terminalCount} running`} />}
         </button>
         <OpenInButton path={cwd} />
         {pane && (
@@ -384,7 +384,7 @@ export function TranscriptView({ sessionId, pane = null, active = true }: { sess
             type="button"
             data-close-pane
             onClick={() => useSessions.getState().closePane(pane)}
-            title="Close this pane (⌘\\ closes the other one)"
+            data-tooltip="Close this pane (⌘\\ closes the other one)" aria-label="Close this pane (⌘\\ closes the other one)"
             className="no-drag flex size-7 shrink-0 items-center justify-center rounded-md text-faint hover:bg-border/50 hover:text-text"
           >
             <X size={14} />
@@ -550,7 +550,7 @@ export function TranscriptView({ sessionId, pane = null, active = true }: { sess
                     type="button"
                     data-open-tools
                     onClick={() => useOverlay.getState().show('tools')}
-                    title="MCP servers, skills, agents and plugins"
+                    data-tooltip="MCP servers, skills, agents and plugins" aria-label="MCP servers, skills, agents and plugins"
                     className="flex h-6 shrink-0 items-center gap-1 rounded-md px-1.5 text-[11px] text-faint hover:bg-border/50 hover:text-text"
                   >
                     <Blocks size={12} />

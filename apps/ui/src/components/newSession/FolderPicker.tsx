@@ -106,7 +106,7 @@ export function FolderPicker({
           <span className={`min-w-0 truncate text-[20px] leading-8 font-semibold ${current ? 'text-text' : 'text-faint'}`}>{current ?? 'Choose a folder…'}</span>
           <ChevronsUpDown size={15} className="shrink-0 text-faint" />
         </button>
-        {value && <p className="truncate font-mono text-[11.5px] text-faint" title={value}>{tildify(value, home)}</p>}
+        {value && <p className="truncate font-mono text-[11.5px] text-faint" data-tooltip={value}>{tildify(value, home)}</p>}
       </div>
 
       {open && (

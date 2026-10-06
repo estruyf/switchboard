@@ -176,7 +176,7 @@ export function Composer(props: ComposerProps) {
       void submit();
     } else if (event.key === 'Escape' && props.running) {
       // With a dialog, menu or popover open, Escape closes that; it must never also stop Claude.
-      if (document.querySelector('[role=dialog], [role=alertdialog], [role=menu], [data-context-breakdown]')) return;
+      if (document.querySelector('[role=dialog], [role=alertdialog], [role=menu], [role=listbox], [data-context-breakdown]')) return;
       event.preventDefault();
       props.onInterrupt?.();
     } else if (event.key === 'Tab' && event.shiftKey && props.onCycleMode) {
@@ -292,7 +292,7 @@ export function Composer(props: ComposerProps) {
               type="button"
               onClick={() => fileRef.current?.click()}
               disabled={disabled}
-              title="Attach images (or paste / drop them)"
+              data-tooltip="Attach images (or paste / drop them)" aria-label="Attach images (or paste / drop them)"
               className="rounded-md p-1 text-muted hover:bg-border/50 hover:text-text disabled:opacity-40"
               data-attach
             >

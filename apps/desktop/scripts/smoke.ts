@@ -50,6 +50,8 @@ console.log(`${String(result.splitResult).startsWith('ok') ? '✓' : '✗'} spli
 if (!String(result.splitResult).startsWith('ok')) process.exitCode = 1;
 console.log(`${String(result.settleResult).startsWith('ok') ? '✓' : '✗'} settle: ${result.settleResult}`);
 if (!String(result.settleResult).startsWith('ok')) process.exitCode = 1;
+console.log(`${String(result.controlsResult).startsWith('ok') ? '✓' : '✗'} controls: ${result.controlsResult}`);
+if (!String(result.controlsResult).startsWith('ok')) process.exitCode = 1;
 console.log(`${String(result.newSessionResult).startsWith('ok') ? '✓' : '✗'} new session view: ${result.newSessionResult}`);
 if (!String(result.newSessionResult).startsWith('ok')) process.exitCode = 1;
 console.log(`${result.quitGuarded ? '✓' : '✗'} ⌘Q asks first, Cancel keeps the app open, a second ⌘Q quits`);

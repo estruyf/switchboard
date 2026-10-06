@@ -3,6 +3,8 @@ import { useEffect, useState } from 'react';
 import { ACTION_ICONS, type ActionIcon, type ActionSuggestion, type ListedAction, type ProjectAction } from '@switchboard/protocol/client';
 import { useEngineConnection } from '../../engine/useEngine.ts';
 import { useOpenIn } from '../OpenInButton.tsx';
+import { Checkbox } from '../ui/Checkbox.tsx';
+import { Select } from '../ui/Select.tsx';
 import { ACTION_ICON, formatShortcut, RESERVED_SHORTCUTS, shortcutFromEvent } from './useActions.ts';
 
 type Draft = ProjectAction & { scope: 'project' | 'global' };
@@ -183,7 +185,7 @@ export function ActionEditor({
                           <button
                             key={s.command}
                             type="button"
-                            title={s.command}
+                            data-tooltip={s.command}
                             onClick={() => (setDraft({ ...EMPTY, name: s.name, command: s.command, type: s.type, icon: s.icon }), setEditingId(null))}
                             className="flex items-center gap-1.5 rounded-full border border-border px-2.5 py-0.5 text-[12px] text-muted hover:border-accent-ink/50 hover:text-text"
                           >
@@ -212,13 +214,17 @@ export function ActionEditor({
             >
               <div className="grid grid-cols-[1fr_auto] gap-2">
                 <input autoFocus required maxLength={40} placeholder="Name, e.g. Publish" value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} className={field} data-action-name />
-                <select value={draft.icon} onChange={(e) => setDraft({ ...draft, icon: e.target.value as ActionIcon })} className={field} title="Icon">
-                  {ACTION_ICONS.map((icon) => (
-                    <option key={icon} value={icon}>
-                      {icon}
-                    </option>
-                  ))}
-                </select>
+                <Select
+                  label="Icon"
+                  className={`${field} w-36`}
+                  value={draft.icon}
+                  onChange={(icon) => setDraft({ ...draft, icon })}
+                  options={ACTION_ICONS.map((icon) => {
+                    const Icon = ACTION_ICON[icon];
+                    return { value: icon, label: icon, icon: <Icon size={13} /> };
+                  })}
+                  dataAttrs={{ 'data-action-icon': true }}
+                />
               </div>
               <div className="flex gap-1 rounded-md border border-border bg-bg p-0.5 text-[12px]">
                 {(['shell', 'prompt'] as const).map((type) => (
@@ -239,18 +245,30 @@ export function ActionEditor({
               <div className="grid grid-cols-2 gap-3 text-[12px]">
                 <label className="grid gap-1">
                   <span className="text-faint">Saved for</span>
-                  <select value={draft.scope} onChange={(e) => setDraft({ ...draft, scope: e.target.value as Draft['scope'] })} className={field}>
-                    <option value="project">This project</option>
-                    <option value="global">All projects</option>
-                  </select>
+                  <Select
+                    label="Saved for"
+                    className={field}
+                    value={draft.scope}
+                    onChange={(scope) => setDraft({ ...draft, scope })}
+                    options={[
+                      { value: 'project', label: 'This project' },
+                      { value: 'global', label: 'All projects' },
+                    ]}
+                  />
                 </label>
                 {draft.type === 'shell' && (
                   <label className="grid gap-1">
                     <span className="text-faint">Runs in</span>
-                    <select value={draft.cwd} onChange={(e) => setDraft({ ...draft, cwd: e.target.value as Draft['cwd'] })} className={field}>
-                      <option value="session">Session folder (worktree)</option>
-                      <option value="project-root">Project root</option>
-                    </select>
+                    <Select
+                      label="Runs in"
+                      className={field}
+                      value={draft.cwd}
+                      onChange={(cwd) => setDraft({ ...draft, cwd })}
+                      options={[
+                        { value: 'session', label: 'Session folder (worktree)' },
+                        { value: 'project-root', label: 'Project root' },
+                      ]}
+                    />
                   </label>
                 )}
                 <label className="grid gap-1">
@@ -258,13 +276,13 @@ export function ActionEditor({
                   <ShortcutInput value={draft.shortcut} onChange={(shortcut) => setDraft({ ...draft, shortcut })} />
                 </label>
               </div>
-              <label className="flex items-center gap-2 text-[12px]">
-                <input type="checkbox" checked={draft.confirm} onChange={(e) => setDraft({ ...draft, confirm: e.target.checked })} /> Ask before running
-              </label>
+              <Checkbox checked={draft.confirm} onChange={(confirm) => setDraft({ ...draft, confirm })} className="text-[12px]" dataAttrs={{ 'data-action-confirm': true }}>
+                Ask before running
+              </Checkbox>
               {draft.type === 'shell' && (
-                <label className="flex items-center gap-2 text-[12px]">
-                  <input type="checkbox" checked={draft.runOnWorktreeCreate} onChange={(e) => setDraft({ ...draft, runOnWorktreeCreate: e.target.checked })} /> Run in every new worktree before Claude starts (e.g. install dependencies)
-                </label>
+                <Checkbox checked={draft.runOnWorktreeCreate} onChange={(runOnWorktreeCreate) => setDraft({ ...draft, runOnWorktreeCreate })} className="text-[12px]">
+                  Run in every new worktree before Claude starts (e.g. install dependencies)
+                </Checkbox>
               )}
               {error && <p className="text-[12px] text-error">{error}</p>}
               <div className="flex justify-end gap-2">

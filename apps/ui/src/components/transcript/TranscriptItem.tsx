@@ -36,7 +36,7 @@ function ResultDot({ item }: { item: ToolItem }) {
   return (
     <span
       className={`size-1.5 shrink-0 rounded-full ${state === 'ok' ? 'bg-ok' : state === 'error' ? 'bg-error' : 'bg-faint'}`}
-      title={state === 'pending' ? 'No result yet' : state === 'error' ? 'Failed' : 'Succeeded'}
+      data-tooltip={state === 'pending' ? 'No result yet' : state === 'error' ? 'Failed' : 'Succeeded'} role="img" aria-label={state === 'pending' ? 'No result yet' : state === 'error' ? 'Failed' : 'Succeeded'}
     />
   );
 }
@@ -56,12 +56,12 @@ function ToolCard({ item, cwd, sessionId }: { item: ToolItem; cwd: string | null
         {isAgent ? <Bot size={13} className="shrink-0 text-accent-ink" /> : <ResultDot item={item} />}
         <span className="shrink-0 text-[12px] font-medium">{label}</span>
         <span className="min-w-0 flex-1 truncate font-mono text-[12px] text-muted">{detail}</span>
-        {isAgent && item.result === null && <span className="size-3 shrink-0 animate-spin rounded-full border-[1.5px] border-accent-ink/25 border-t-accent-ink" title="Running" />}
+        {isAgent && item.result === null && <span className="size-3 shrink-0 animate-spin rounded-full border-[1.5px] border-accent-ink/25 border-t-accent-ink" data-tooltip="Running" role="img" aria-label="Running" />}
         {target && (
           <span
             role="link"
             tabIndex={0}
-            title={`Open ${target.path} in your editor`}
+            data-tooltip={`Open ${target.path} in your editor`} aria-label={`Open ${target.path} in your editor`}
             onClick={(e) => {
               e.stopPropagation();
               void openIn(target.path, target.line ? { line: target.line } : {}).catch(() => {});

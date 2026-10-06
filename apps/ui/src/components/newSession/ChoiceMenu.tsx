@@ -81,7 +81,7 @@ export function ChoiceMenu<T extends string>({
       <button
         ref={trigger}
         type="button"
-        title={title}
+        data-tooltip={title}
         disabled={disabled}
         aria-haspopup="menu"
         aria-expanded={open}

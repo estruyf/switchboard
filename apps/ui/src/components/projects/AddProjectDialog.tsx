@@ -85,7 +85,7 @@ export function AddProjectDialog({ onClose }: { onClose(): void }) {
               onMouseMove={() => setActive(index)}
               onClick={() => void choose(index)}
               disabled={folder.added}
-              title={folder.root}
+              data-tooltip={folder.root}
               className={`flex w-full items-center gap-2.5 px-4 py-1.5 text-left ${index === active ? 'bg-accent/15' : ''}`}
             >
               <ProjectIcon project={folder} root={folder.root} size={22} />

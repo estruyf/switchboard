@@ -35,6 +35,7 @@ Packaging and signing are covered in [Building, signing and notarisation](buildi
 - the transcript, and that it opens scrolled to the end
 - summarised tool activity, the Changes panel (read-only), search (⌘⇧F), the ⌘K palette, the Tools window and two panes side by side
 - the ⌘Q prompt, Settings (theme, sidebar style, tool activity, quit prompt), the terminal, project actions and syntax highlighting
+- the app's own controls: resizing the sidebar, the themed dropdowns (keyboard and Escape), tooltips and pointer cursors
 - the usage band
 - recovery after the engine process is killed
 
