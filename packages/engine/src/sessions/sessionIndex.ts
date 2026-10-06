@@ -183,6 +183,16 @@ export class SessionIndex {
     this.writeFlags(sessionId, next);
   }
 
+  /**
+   * Brings a settled or archived session back to the main list because the user wrote to it.
+   * Its activity alone wouldn't: a settled session stays settled while it works.
+   */
+  wake(sessionId: string): void {
+    const current = this.flags.get(sessionId);
+    if (!current || (current.settledAt === null && current.archivedAt === null)) return;
+    this.writeFlags(sessionId, { ...current, settledAt: null, archivedAt: null });
+  }
+
   markViewed(sessionId: string): void {
     this.writeFlags(sessionId, { ...(this.flags.get(sessionId) ?? NO_FLAGS), viewedAt: Date.now() });
   }

@@ -8,6 +8,7 @@ All notable changes to Switchboard are listed here. Each release is also on the 
 
 - **Archive** sessions you don't need to see any more: right-click → **Archive**. They leave the list, Settled included, and wait under a collapsed **Archived** section. Nothing is deleted, and a session comes back on its own when it has new activity or needs you.
 - **Select several sessions** with ⌘-click (or ⇧-click and ⇧↑ ↓ for a range), then archive, settle or move them back all at once from the right-click menu or the bar under the list. Escape clears the selection.
+- Sending a message to a settled or archived session moves it back to the main list right away, instead of waiting until Claude finishes.
 
 ### New session
 

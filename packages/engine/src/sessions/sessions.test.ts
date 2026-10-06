@@ -125,6 +125,17 @@ describe('SessionIndex', () => {
     expect(again.index.get(ID_B)!.archivedAt).toBeGreaterThan(0);
   });
 
+  it('brings a settled or archived session back when the user writes to it', async () => {
+    const t = setup([info(ID_A), info(ID_B)]);
+    await t.index.refresh();
+    t.index.setFlags(ID_A, { pinned: true, settled: true });
+    t.index.setFlags(ID_B, { archived: true });
+    t.index.wake(ID_A);
+    t.index.wake(ID_B);
+    expect(t.index.get(ID_A)).toMatchObject({ pinned: true, settledAt: null, archivedAt: null });
+    expect(t.index.get(ID_B)).toMatchObject({ settledAt: null, archivedAt: null });
+  });
+
   it('dates a session by its last message, so Claude Code exiting does not make it unread', async () => {
     const { index, projectsDir } = setup([info(ID_A, { lastModified: 50_000 })]);
     const file = join(projectsDir, '-repo', `${ID_A}.jsonl`);

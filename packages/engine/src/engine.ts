@@ -631,7 +631,11 @@ export function createEngine(options: EngineOptions): Engine {
       const setup = worktree ? (id: string) => worktreeSetup(id, params.cwd, worktree.name)?.() ?? Promise.resolve() : undefined;
       return { sessionId: await hosts.create({ ...create, profileId, ...(setup ? { beforeFirstMessage: setup } : {}) }) };
     },
-    'session.send': (params) => hosts.send(params),
+    'session.send': async (params) => {
+      const sent = await hosts.send(params);
+      if (sent.sessionId === params.sessionId) sessions.wake(params.sessionId);
+      return sent;
+    },
     'session.forkAt': async ({ sessionId, messageUuid }) => {
       if (!source.fork) throw new RpcError('UNSUPPORTED', 'Forking is not available');
       let forked: string;
@@ -737,6 +741,7 @@ export function createEngine(options: EngineOptions): Engine {
       const vars = actionVars(sessionId, projectRoot, cwd);
       if (action.type === 'prompt') {
         const sent = await hosts.send({ sessionId, text: expandCommand(action.command, vars, false), attachments: [], fork: false });
+        sessions.wake(sessionId);
         return { kind: 'prompt' as const, sessionId: sent.sessionId, messageUuid: sent.messageUuid };
       }
       const runIn = action.cwd === 'project-root' ? projectRoot : cwd;
