@@ -41,6 +41,8 @@ interface SessionsState {
   openBeside(id: string): void;
   /** Closes one pane (default: the right one); the other takes the full width. */
   closePane(pane?: Pane): void;
+  /** Closes the session on screen (both panes) and lands on New session. Nothing stops: a running session keeps running. */
+  closeSession(): void;
   focusPane(pane: Pane): void;
   setView(view: MainView): void;
   /** Opens Settings, on a given page or the last one shown. */
@@ -108,6 +110,7 @@ export const useSessions = create<SessionsState>()((set) => ({
       if (!s.splitId) return {};
       return panes({ mainId: pane === 'main' ? s.splitId : s.mainId, splitId: null, activePane: 'main' });
     }),
+  closeSession: () => set((s) => ({ ...panes({ mainId: null, splitId: null, activePane: 'main' }), view: 'new', newSessionRequest: s.newSessionRequest + 1 })),
   focusPane: (pane) => set((s) => (s.activePane === pane || (pane === 'split' && !s.splitId) ? {} : panes({ ...s, activePane: pane }))),
   setView: (view) => set({ view }),
   openSettings: (section) => set((s) => ({ view: 'settings', settingsSection: section ?? s.settingsSection })),
