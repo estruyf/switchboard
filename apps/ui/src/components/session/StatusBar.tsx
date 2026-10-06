@@ -38,18 +38,18 @@ export function StatusBar({ host }: { host: SessionHostInfo }) {
 
   return (
     <div className="flex h-7 min-w-0 items-center gap-2 px-1 text-[11px] text-faint">
-      <span className={host.state === 'error' ? 'text-error' : host.state === 'needs-you' ? 'text-warn' : ''} data-tooltip={host.error ?? undefined}>
+      <span className={host.state === 'error' ? 'text-error' : host.state === 'needs-you' ? 'text-warn' : 'text-muted'} data-tooltip={host.error ?? undefined}>
         {STATE_LABEL[host.state]}
       </span>
       {active && host.backgroundTasks.length > 0 && (
         <>
-          <span>·</span>
+          <span aria-hidden>·</span>
           <span className="shrink-0 text-ok" data-tooltip={host.backgroundTasks.map((t) => t.description).join('\n')} data-status-background>
             {host.backgroundTasks.length === 1 ? '1 background task' : `${host.backgroundTasks.length} background tasks`}
           </span>
         </>
       )}
-      <span>·</span>
+      <span aria-hidden>·</span>
       <Select
         label="Model"
         className={select}
@@ -95,7 +95,7 @@ export function StatusBar({ host }: { host: SessionHostInfo }) {
         <button
           type="button"
           onClick={() => void client?.call('session.close', { sessionId: host.sessionId })}
-          className="shrink-0 rounded px-1.5 whitespace-nowrap hover:bg-border/60 hover:text-muted"
+          className="shrink-0 rounded px-1.5 whitespace-nowrap text-muted hover:bg-border/60 hover:text-text"
           data-tooltip="Stop the Claude Code process for this session. The conversation is kept; sending a message resumes it."
         >
           Stop session

@@ -1,5 +1,5 @@
 import { ArrowRight, FolderOpen, Undo2, X } from 'lucide-react';
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react';
 import { BACKUP_SECTIONS, settingsFileName, type BackupSection, type FolderMapping, type ImportChange, type ImportMode, type ImportPreview } from '@switchboard/protocol/client';
 import { useEngineConnection } from '../../engine/useEngine.ts';
 import { DEFAULT_EXPORT_SECTIONS, groupChanges, hasEffect, SECTION_INFO, summarizeChanges } from '../../lib/backup.ts';
@@ -8,11 +8,15 @@ import { useBackup } from '../../state/backupStore.ts';
 import { usePreferences } from '../../state/preferencesStore.ts';
 import { Checkbox } from '../ui/Checkbox.tsx';
 import { Radio, RadioGroup } from '../ui/Radio.tsx';
+import { useModalFocus } from '../ui/useModalFocus.ts';
 
 const appVersion = () => window.switchboard?.appInfo.version ?? 'unknown';
 const message = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
 function Shell({ title, subtitle, onClose, footer, children, attr }: { title: string; subtitle: string; onClose(): void; footer: ReactNode; children: ReactNode; attr: `data-${string}` }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const id = useId();
+  useModalFocus(ref);
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => event.key === 'Escape' && onClose();
     window.addEventListener('keydown', onKey);
@@ -20,14 +24,18 @@ function Shell({ title, subtitle, onClose, footer, children, attr }: { title: st
   }, [onClose]);
   return (
     <div className="no-drag fixed inset-0 z-[60] flex items-start justify-center bg-scrim pt-[10vh]" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
-      <div role="dialog" aria-modal aria-label={title} className="flex max-h-[80vh] w-[620px] max-w-[92vw] flex-col overflow-hidden rounded-xl border overlay" {...{ [attr]: true }}>
+      <div ref={ref} role="dialog" aria-modal aria-labelledby={`${id}-title`} aria-describedby={`${id}-subtitle`} className="flex max-h-[80vh] w-[620px] max-w-[92vw] flex-col overflow-hidden rounded-xl border overlay" {...{ [attr]: true }}>
         <header className="flex items-start justify-between gap-3 border-b border-border px-5 py-3.5">
           <div className="min-w-0">
-            <h2 className="text-[14px] font-semibold">{title}</h2>
-            <p className="mt-0.5 text-[12px] text-muted">{subtitle}</p>
+            <h2 id={`${id}-title`} className="text-[14px] font-semibold">
+              {title}
+            </h2>
+            <p id={`${id}-subtitle`} className="mt-0.5 text-[12px] text-muted">
+              {subtitle}
+            </p>
           </div>
-          <button type="button" onClick={onClose} className="text-faint hover:text-text" aria-label="Close">
-            <X size={15} />
+          <button type="button" onClick={onClose} className="text-muted hover:text-text" aria-label="Close" data-tooltip="Close (Esc)">
+            <X size={15} aria-hidden />
           </button>
         </header>
         <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">{children}</div>
@@ -91,7 +99,7 @@ export function ExportDialog({ onClose }: { onClose(): void }) {
       footer={
         saved ? (
           <>
-            <span className="min-w-0 flex-1 truncate text-[12px] text-ok" data-export-saved={saved} data-tooltip={saved}>
+            <span role="status" className="min-w-0 flex-1 truncate text-[12px] text-ok" data-export-saved={saved} data-tooltip={saved}>
               Saved to {saved}
             </span>
             <button type="button" onClick={onClose} className={primaryClass}>
@@ -100,7 +108,13 @@ export function ExportDialog({ onClose }: { onClose(): void }) {
           </>
         ) : (
           <>
-            {error && <span className="min-w-0 flex-1 truncate text-[12px] text-error">{error}</span>}
+            {error ? (
+              <span role="alert" className="min-w-0 flex-1 truncate text-[12px] text-error" data-tooltip={error}>
+                Couldn't export: {error}
+              </span>
+            ) : (
+              sections.length === 0 && <span className="min-w-0 flex-1 text-[12px] text-muted">Choose at least one thing to include.</span>
+            )}
             <button type="button" onClick={onClose} className={buttonClass}>
               Cancel
             </button>
@@ -228,7 +242,7 @@ export function ImportDialog({ onClose }: { onClose(): void }) {
           </button>
         ) : (
           <>
-            <span className={`min-w-0 flex-1 truncate text-[12px] ${error ? 'text-error' : 'text-muted'}`} data-import-summary>
+            <span role={error ? 'alert' : 'status'} className={`min-w-0 flex-1 truncate text-[12px] ${error ? 'text-error' : 'text-muted'}`} data-tooltip={error ?? undefined} data-import-summary>
               {error ?? (preview ? summarizeChanges(preview.changes, preview.unchanged) : '')}
             </span>
             <button type="button" onClick={onClose} className={buttonClass}>
@@ -242,7 +256,7 @@ export function ImportDialog({ onClose }: { onClose(): void }) {
       }
     >
       {backupPath ? (
-        <div className="grid gap-2 text-[12.5px]" data-import-finished>
+        <div role="status" className="grid gap-2 text-[12.5px]" data-import-finished>
           <p className="text-text">Settings imported.</p>
           <p className="text-muted">
             Your previous settings were saved to <span className="font-mono text-[11.5px] break-all text-text">{backupPath}</span>. To undo, import that file with Replace.
@@ -252,7 +266,7 @@ export function ImportDialog({ onClose }: { onClose(): void }) {
           )}
         </div>
       ) : !preview ? (
-        <p className="text-[12px] text-muted">{error ? 'This file could not be read.' : 'Reading the file…'}</p>
+        <p className="text-[12px] text-muted">{error ? 'This file could not be read. Check that it is a settings file exported from Switchboard, then try again.' : 'Reading the file…'}</p>
       ) : (
         <div className="grid gap-5">
           <div className="grid gap-2">
@@ -286,8 +300,8 @@ export function ImportDialog({ onClose }: { onClose(): void }) {
                     {tildify(folder, home)}
                   </span>
                   <span className="text-warn">not found</span>
-                  <button type="button" onClick={() => void pointAt(folder)} className={`${buttonClass} flex items-center gap-1.5`}>
-                    <FolderOpen size={12} /> Choose folder…
+                  <button type="button" onClick={() => void pointAt(folder)} className={`${buttonClass} flex items-center gap-1.5`} aria-label={`Choose a folder for ${tildify(folder, home)}`}>
+                    <FolderOpen size={12} aria-hidden /> Choose folder…
                   </button>
                 </div>
               ))}
@@ -296,18 +310,19 @@ export function ImportDialog({ onClose }: { onClose(): void }) {
                   <span className="min-w-0 flex-1 truncate font-mono text-[11.5px] text-muted" data-tooltip={m.from}>
                     {tildify(m.from, home)}
                   </span>
-                  <ArrowRight size={12} className="shrink-0 text-faint" />
+                  <ArrowRight size={12} className="shrink-0 text-faint" aria-hidden />
+                  <span className="sr-only">moves to</span>
                   <span className="min-w-0 flex-1 truncate font-mono text-[11.5px] text-text" data-tooltip={m.to}>
                     {tildify(m.to, home)}
                   </span>
                   <button
                     type="button"
                     onClick={() => setRelocate((list) => list.filter((x) => x.from !== m.from))}
-                    className="text-faint hover:text-text"
+                    className="text-muted hover:text-text"
                     aria-label={`Undo the new folder for ${m.from}`}
                     data-tooltip="Undo"
                   >
-                    <Undo2 size={13} />
+                    <Undo2 size={13} aria-hidden />
                   </button>
                 </div>
               ))}

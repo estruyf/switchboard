@@ -36,7 +36,7 @@ export function WorktreeMenu({ sessionId, cwd, onCommit }: { sessionId: string; 
 
   const load = () => {
     setError(null);
-    client?.call('worktree.status', { cwd }).then(setStatus, (e: Error) => setError(e.message));
+    client?.call('worktree.status', { cwd }).then(setStatus, (e: Error) => setError(`Couldn't read the worktree: ${e.message}`));
   };
 
   const base = status?.baseBranch ?? 'the base branch';
@@ -80,13 +80,16 @@ export function WorktreeMenu({ sessionId, cwd, onCommit }: { sessionId: string; 
           menu.openBelow(e.currentTarget);
         }}
         data-tooltip="Finish this worktree: merge, pull request or remove"
+        aria-label="Worktree: merge, pull request or remove"
+        aria-haspopup="menu"
+        aria-expanded={menu.at !== null}
         className="no-drag flex h-7 shrink-0 items-center gap-1 rounded-md border border-border px-1.5 text-[11.5px] text-muted hover:bg-border/50"
       >
         <GitBranch size={13} />
         <span className="@max-[860px]:hidden">Worktree</span>
         <ChevronDown size={12} />
       </button>
-      {menu.at && <Menu x={menu.at.x - 120} y={menu.at.y} width={280} entries={entries} onClose={menu.close} />}
+      {menu.at && <Menu x={menu.at.x - 120} y={menu.at.y} width={280} entries={entries} onClose={menu.close} label="Worktree" />}
 
       {confirm && status && client && (
         <ConfirmDialog

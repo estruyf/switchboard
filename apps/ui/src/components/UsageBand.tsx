@@ -4,7 +4,7 @@ import type { UsageLimit, UsageSnapshot } from '@switchboard/protocol/client';
 import { useEngineConnection } from '../engine/useEngine.ts';
 import { useProfiles } from '../state/profilesStore.ts';
 import { ProfileBadge } from './profiles/ProfileBadge.tsx';
-import { countdown, limitLabel, visibleLimits } from './usageFormat.ts';
+import { countdown, limitLabel, spokenLimit, visibleLimits } from './usageFormat.ts';
 
 interface UsageState {
   /** Plan usage per Claude profile (each login has its own limits). */
@@ -91,17 +91,30 @@ export function UsageBand({ profileId, compact = false }: { profileId?: string |
   const limits = visibleLimits(usage.limits);
   const extra = usage.extraUsage;
   if (limits.length === 0) return null;
+  // Each pill is a meter, read as one sentence ("5-hour limit: 6% used, resets in 4h3m") instead of "6% 5h".
+  const meter = (limit: UsageLimit) => ({
+    role: 'meter',
+    'aria-label': spokenLimit(limit, now),
+    'aria-valuenow': Math.round(Math.min(100, Math.max(0, limit.percent))),
+    'aria-valuemin': 0,
+    'aria-valuemax': 100,
+  });
   const resetTitle = (limit: UsageLimit) =>
     limit.resetsAt ? `Resets ${new Date(limit.resetsAt).toLocaleString(undefined, { weekday: 'short', hour: 'numeric', minute: '2-digit' })}` : undefined;
 
   if (compact) {
     return (
-      <div className="flex shrink-0 items-center divide-x divide-border text-[11.5px]" data-usage-band data-usage-profile={id}>
+      <div role="group" aria-label="Plan usage" className="flex shrink-0 items-center divide-x divide-border text-[11.5px]" data-usage-band data-usage-profile={id}>
         {limits.map((limit) => (
-          <div key={`${limit.kind}:${limit.scope ?? ''}`} className="flex items-center gap-1.5 px-2.5 whitespace-nowrap first:pl-0 last:pr-0" data-tooltip={resetTitle(limit)}>
+          <div
+            key={`${limit.kind}:${limit.scope ?? ''}`}
+            {...meter(limit)}
+            className="flex items-center gap-1.5 px-2.5 whitespace-nowrap first:pl-0 last:pr-0"
+            data-tooltip={resetTitle(limit)}
+          >
             <Ring percent={limit.percent} severity={limit.severity} />
             <span className="font-semibold text-muted tabular-nums">{Math.round(limit.percent)}%</span>
-            <span className="text-faint">
+            <span className="text-muted">
               {limitLabel(limit)}
               {limit.resetsAt && ` · ${countdown(limit.resetsAt, now)}`}
             </span>
@@ -112,17 +125,18 @@ export function UsageBand({ profileId, compact = false }: { profileId?: string |
   }
 
   return (
-    <div className="flex flex-wrap items-center gap-1.5" data-usage-band data-usage-profile={id}>
+    <div role="group" aria-label="Plan usage" className="flex flex-wrap items-center gap-1.5" data-usage-band data-usage-profile={id}>
       <ProfileBadge profileId={id} className="mr-0.5 text-[12px]" />
       {limits.map((limit) => (
         <div
           key={`${limit.kind}:${limit.scope ?? ''}`}
+          {...meter(limit)}
           className="flex h-7 items-center gap-1.5 rounded-full border border-border bg-card px-2.5 text-[12px]"
           data-tooltip={resetTitle(limit)}
         >
           <Ring percent={limit.percent} severity={limit.severity} />
           <span className="font-semibold tabular-nums">{Math.round(limit.percent)}%</span>
-          <span className="text-faint">
+          <span className="text-muted">
             {limitLabel(limit)}
             {limit.resetsAt && ` · resets ${countdown(limit.resetsAt, now)}`}
           </span>
@@ -131,7 +145,7 @@ export function UsageBand({ profileId, compact = false }: { profileId?: string |
       {extra?.enabled && extra.usedCredits !== null && extra.usedCredits > 0 && (
         <div className="flex h-7 items-center gap-1.5 rounded-full border border-border bg-card px-2.5 text-[12px]">
           <span className="font-semibold text-ok">{money(extra.usedCredits, extra.currency)}</span>
-          <span className="text-faint">extra usage{extra.monthlyLimit !== null && ` of ${money(extra.monthlyLimit, extra.currency)}`}</span>
+          <span className="text-muted">extra usage{extra.monthlyLimit !== null && ` of ${money(extra.monthlyLimit, extra.currency)}`}</span>
         </div>
       )}
     </div>

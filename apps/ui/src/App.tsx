@@ -18,7 +18,7 @@ import { isActiveHost, useHosts } from './state/hostsStore.ts';
 import { useLinksSync } from './state/linksStore.ts';
 import { useSessions } from './state/sessionsStore.ts';
 import { useOverlay } from './state/overlayStore.ts';
-import { usePreferencesSync } from './state/preferencesStore.ts';
+import { usePreferences, usePreferencesSync } from './state/preferencesStore.ts';
 import { addedProjects } from './state/projectList.ts';
 import { useProfilesSync } from './state/profilesStore.ts';
 import { useProjects, useProjectsSync } from './state/projectsStore.ts';
@@ -84,7 +84,9 @@ function useShortcuts() {
 }
 
 function EmptyState() {
-  const count = useSessions((s) => s.sessions.size);
+  const scope = usePreferences((s) => s.prefs.sessionScope);
+  // The sidebar's count: with "Switchboard sessions only", sessions from other apps aren't listed there either.
+  const count = useSessions((s) => (scope === 'all' ? s.sessions.size : [...s.sessions.values()].filter((summary) => summary.inApp).length));
   const liveCount = useSessions((s) => s.live.size);
   const noProjects = useProjects((s) => addedProjects(s.projects).length === 0);
   const loaded = useProjects((s) => s.loaded);
@@ -94,7 +96,7 @@ function EmptyState() {
       <div className="flex flex-1 flex-col items-center justify-center gap-1 pb-16 text-center">
         {loaded && noProjects ? (
           <div className="grid max-w-sm justify-items-center gap-1.5" data-onboarding>
-            <p className="text-[14px] font-medium">Add your first project</p>
+            <h1 className="text-[14px] font-medium">Add your first project</h1>
             <p className="text-[12px] text-muted">
               Projects are the folders you start Claude Code sessions in. Pick from the folders you have used Claude Code in, or choose any folder.
             </p>
@@ -103,12 +105,17 @@ function EmptyState() {
             </button>
           </div>
         ) : (
-          <>
-            <p className="text-[14px] font-medium">Select a session</p>
+          <div className="grid max-w-sm justify-items-center gap-1.5">
+            <h1 className="text-[14px] font-medium">{count > 0 ? 'Pick a session' : 'No sessions yet'}</h1>
             <p className="text-[12px] text-muted">
-              {count} sessions on this Mac{liveCount > 0 ? `, ${liveCount} open right now` : ''}. Use ↑ ↓ in the sidebar to browse, or ⌘N to start a new one.
+              {count > 0
+                ? `${count} ${count === 1 ? 'session' : 'sessions'} in the sidebar${liveCount > 0 ? `, ${liveCount} open right now` : ''}. Click one, or use ↑ ↓ there to move through them.`
+                : 'Start a session in one of your projects and it shows up in the sidebar.'}
             </p>
-          </>
+            <button type="button" onClick={() => useSessions.getState().openNewSession()} className="mt-2 h-7 rounded-md bg-accent px-3 text-[12px] font-medium text-on-accent" data-empty-new-session>
+              New session (⌘N)
+            </button>
+          </div>
         )}
       </div>
     </div>

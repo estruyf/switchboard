@@ -23,7 +23,7 @@ export function EffortDial({ value, onChange }: { value: Effort | ''; onChange(e
   return (
     <div className="flex items-center gap-2" data-effort-dial>
       <Gauge size={14} className="shrink-0 text-muted" aria-hidden />
-      <div ref={group} role="radiogroup" aria-label="Effort" className="flex h-7 items-center" onKeyDown={onKeyDown}>
+      <div ref={group} role="radiogroup" aria-label={`Effort: ${value ? EFFORT_LABEL[value] : 'default'}`} className="flex h-7 items-center" onKeyDown={onKeyDown}>
         {EFFORTS.map((effort, i) => (
           <button
             key={effort}
@@ -44,16 +44,19 @@ export function EffortDial({ value, onChange }: { value: Effort | ''; onChange(e
           </button>
         ))}
       </div>
-      <span className="text-[12px] whitespace-nowrap text-muted">{value ? EFFORT_LABEL[value] : 'Default effort'}</span>
+      <span aria-hidden className="text-[12px] whitespace-nowrap text-muted">
+        {value ? EFFORT_LABEL[value] : 'Default effort'}
+      </span>
       {value && (
         <button
           type="button"
           onClick={() => onChange('')}
           data-tooltip="Back to the default effort"
+          aria-label="Reset effort to the default"
           data-effort-reset
-          className="flex h-6 items-center gap-1 rounded-md px-1.5 text-[11px] whitespace-nowrap text-faint hover:bg-border/50 hover:text-text"
+          className="flex h-6 items-center gap-1 rounded-md px-1.5 text-[11px] whitespace-nowrap text-muted hover:bg-border/50 hover:text-text"
         >
-          <RotateCcw size={11} />
+          <RotateCcw size={11} aria-hidden />
           Default
         </button>
       )}

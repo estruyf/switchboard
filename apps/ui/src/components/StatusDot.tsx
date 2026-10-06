@@ -22,6 +22,8 @@ export function StatusDot({ live, className = '' }: { live: LiveSession | null; 
     <span
       className={`inline-block size-2 shrink-0 rounded-full ${tone} ${className}`}
       data-tooltip={`${liveLabel(live)} (${live.rawStatus})${tasks}`}
+      // Without a role, a span's aria-label isn't read out.
+      role="img"
       aria-label={liveLabel(live)}
       data-background-tasks={background || undefined}
     />

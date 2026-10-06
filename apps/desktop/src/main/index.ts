@@ -546,7 +546,7 @@ async function runLiveSessionStep(win: BrowserWindow, cwd: string): Promise<stri
     return 'expected the stop-and-open choice for a session running here';
   }
   await js("[...document.querySelectorAll('[data-terminal-panel] button')].find((b) => b.innerText === 'Stop it here and open').click()");
-  if (!(await waitInPage(win, "document.querySelector('[data-terminal] textarea')", 10_000))) return 'Claude TUI did not open';
+  if (!(await waitInPage(win, "document.querySelector('[data-terminal] textarea')", 10_000))) return 'the Claude Code terminal tab did not open';
   await new Promise((resolve) => setTimeout(resolve, 5_000));
   await shot('claude-tui.png');
   // Close the TUI and give its process time to leave the registry, or delete would (rightly) refuse.
@@ -592,6 +592,8 @@ let usageBand: string | null = null;
 let quitGuarded = false;
 let settingsResult = 'not run';
 let transcriptAtBottom: number | null = null;
+/** The opened conversation is shorter than the window, so there is no end to scroll to and the gap is just empty space. */
+let transcriptFits = false;
 let activity: { groups: number; steps: number; label: string } | null = null;
 let changesPanel: string = 'not run';
 let branchResult: string = 'not run';
@@ -877,8 +879,11 @@ async function runProfilesStep(win: BrowserWindow): Promise<string> {
   await click('[data-profile-select]');
   if (!(await waitInPage(win, "document.querySelectorAll('[data-menu=\"profile\"] [role=menuitemradio]').length === 2", 3_000))) return 'the profile menu did not list both profiles';
   win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Escape' });
+  // Wait for the menu to close: a late Escape would otherwise close the Settings view opened next.
+  if (!(await waitInPage(win, "!document.querySelector('[data-menu=\"profile\"]')", 3_000))) return 'Escape did not close the profile menu';
 
   await click('[data-open-settings]');
+  if (!(await waitInPage(win, "document.querySelector('[data-settings-section=\"profiles\"]')", 3_000))) return 'Settings did not open';
   await click('[data-settings-section="profiles"]');
   if (!(await waitInPage(win, `document.querySelector(${JSON.stringify(`${card} [data-remove-profile]`)})`, 3_000))) return 'no way to remove the profile';
   await click(`${card} [data-remove-profile]`);
@@ -1577,15 +1582,18 @@ async function runSmokeStep(win: BrowserWindow | null): Promise<void> {
     // read the position and the gap together, and give the view up to 4 s to settle at the end.
     if (transcriptOpened) {
       const deadline = Date.now() + 4_000;
-      let reading: { atEnd: boolean; gap: number } = { atEnd: false, gap: 0 };
+      let reading: { atEnd: boolean; gap: number; fits: boolean } = { atEnd: false, gap: 0, fits: false };
       do {
-        reading = (await win.webContents.executeJavaScript(`({ atEnd: ${atBottom}, gap: ${bottomGap} })`)) as typeof reading;
-        if (reading.atEnd && reading.gap >= 16 && reading.gap <= 60) break;
+        reading = (await win.webContents.executeJavaScript(
+          `({ atEnd: ${atBottom}, gap: ${bottomGap}, fits: (() => { const el = document.querySelector('[data-transcript]'); return el.scrollHeight <= el.clientHeight + 1; })() })`,
+        )) as typeof reading;
+        if (reading.atEnd && (reading.fits || (reading.gap >= 16 && reading.gap <= 60))) break;
         await new Promise((resolve) => setTimeout(resolve, 100));
       } while (Date.now() < deadline);
       transcriptAtBottom = reading.atEnd ? reading.gap : null;
+      transcriptFits = reading.fits;
     }
-    if (transcriptAtBottom === null || transcriptAtBottom < 16 || transcriptAtBottom > 60) {
+    if (!transcriptFits && (transcriptAtBottom === null || transcriptAtBottom < 16 || transcriptAtBottom > 60)) {
       console.log(
         `[smoke] transcript scroll: ${await win.webContents.executeJavaScript(
           "(() => { const el = document.querySelector('[data-transcript]'); const list = el.firstElementChild; return JSON.stringify({ scrollHeight: el.scrollHeight, scrollTop: Math.round(el.scrollTop), clientHeight: el.clientHeight, listHeight: list?.offsetHeight, streaming: !!el.querySelector('[data-streaming]'), lastKind: [...el.querySelectorAll('[data-transcript-item]')].at(-1)?.dataset.itemKind, gap: " + bottomGap + " }); })()",
@@ -1648,6 +1656,7 @@ async function runSmokeStep(win: BrowserWindow | null): Promise<void> {
         notifications: recordedNotifications,
         transcriptOpened,
         transcriptAtBottom,
+        transcriptFits,
         activity,
         changesPanel,
         branchResult,

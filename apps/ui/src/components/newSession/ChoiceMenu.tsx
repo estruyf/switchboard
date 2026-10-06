@@ -33,7 +33,7 @@ export function ChoiceMenu<T extends string>({
   title?: string;
   disabled?: boolean;
   width?: number;
-  /** A small uppercase title over the choices. */
+  /** A small uppercase title over the choices; also names the menu, and the pill as "<heading>: <choice>". */
   heading?: string;
   /** `up` always opens above the pill; `auto` opens above only when there is no room below. */
   placement?: 'auto' | 'up';
@@ -44,6 +44,9 @@ export function ChoiceMenu<T extends string>({
   const ref = useRef<HTMLDivElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
   const panel = useRef<HTMLDivElement>(null);
+  const current = choices.find((c) => c.value === value);
+  // The pill shows an icon, a dot or a shortened label; its accessible name says what it sets and to what.
+  const pillName = heading ? `${heading}: ${current?.label ?? value}` : undefined;
 
   useEffect(() => {
     if (!open) return;
@@ -82,6 +85,7 @@ export function ChoiceMenu<T extends string>({
         ref={trigger}
         type="button"
         data-tooltip={title}
+        aria-label={pillName}
         disabled={disabled}
         aria-haspopup="menu"
         aria-expanded={open}
@@ -100,11 +104,16 @@ export function ChoiceMenu<T extends string>({
         <div
           ref={panel}
           role="menu"
+          aria-label={heading}
           data-menu={name}
           style={{ width }}
           className={`absolute left-0 z-40 max-h-80 overflow-y-auto rounded-lg border overlay py-1 ${upward ? 'bottom-full mb-1.5' : 'top-full mt-1.5'}`}
         >
-          {heading && <p className="px-3 pt-1.5 pb-1 text-[10px] tracking-wide text-faint uppercase">{heading}</p>}
+          {heading && (
+            <p role="presentation" className="px-3 pt-1.5 pb-1 text-[10px] tracking-wide text-faint uppercase">
+              {heading}
+            </p>
+          )}
           {choices.map((choice) => (
             <button
               key={choice.value}
@@ -118,12 +127,12 @@ export function ChoiceMenu<T extends string>({
               }}
               className="flex w-full items-start gap-2 px-3 py-1.5 text-left outline-none hover:bg-accent/15 focus-visible:bg-accent/15"
             >
-              {choice.dot && <span className={`mt-[5px] size-2 shrink-0 rounded-full ${choice.dot}`} />}
+              {choice.dot && <span aria-hidden className={`mt-[5px] size-2 shrink-0 rounded-full ${choice.dot}`} />}
               <span className="min-w-0 flex-1">
                 <span className="block truncate text-[12.5px] text-text">{choice.label}</span>
-                {choice.description && <span className="block truncate text-[11px] text-faint">{choice.description}</span>}
+                {choice.description && <span className="block truncate text-[11px] text-muted">{choice.description}</span>}
               </span>
-              <Check size={13} className={`mt-[3px] shrink-0 text-accent-ink ${choice.value === value ? '' : 'invisible'}`} />
+              <Check size={13} aria-hidden className={`mt-[3px] shrink-0 text-accent-ink ${choice.value === value ? '' : 'invisible'}`} />
             </button>
           ))}
         </div>

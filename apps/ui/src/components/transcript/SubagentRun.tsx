@@ -30,8 +30,8 @@ export function SubagentRun({ sessionId, toolUseId, running, cwd }: { sessionId:
   }, [client, sessionId, toolUseId, running]);
 
   const items = useMemo(() => buildDisplayItems(messages ?? []), [messages]);
-  if (messages === null) return <p className="py-1 text-[12px] text-faint">Loading the subagent’s work…</p>;
-  if (items.length === 0) return <p className="py-1 text-[12px] text-faint">{running ? 'The subagent is starting…' : 'No transcript was saved for this subagent.'}</p>;
+  if (messages === null) return <p className="py-1 text-[12px] text-muted">Loading the subagent’s work…</p>;
+  if (items.length === 0) return <p className="py-1 text-[12px] text-muted">{running ? 'The subagent is starting…' : 'No transcript was saved for this subagent.'}</p>;
   return (
     <div className="grid max-h-[420px] gap-2 overflow-y-auto border-l-2 border-accent-ink/30 py-1 pl-3" data-subagent-run>
       {items.map((item) => (

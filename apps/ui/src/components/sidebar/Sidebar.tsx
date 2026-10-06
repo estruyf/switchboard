@@ -27,6 +27,7 @@ import { UpdatePillButton } from '../updates/UpdatePill.tsx';
 import { ClaudeUpdatePill } from '../updates/ClaudeUpdatePill.tsx';
 import { inWorktree } from '../worktree/branchMenu.ts';
 import { ProjectFilter, useProjectIconEntries } from './ProjectMenu.tsx';
+import { sessionRowLabel } from './rowLabel.ts';
 import { StatusIcon } from './StatusIcon.tsx';
 import appIcon from '../../assets/app-icon.png';
 
@@ -85,7 +86,8 @@ const SessionRow = memo(function SessionRow({
   beside = false,
   settled,
   now,
-  onContextMenu,
+  tabbable,
+  onMenu,
 }: {
   data: SessionRowData;
   selected: boolean;
@@ -93,7 +95,9 @@ const SessionRow = memo(function SessionRow({
   beside?: boolean;
   settled: boolean;
   now: number;
-  onContextMenu(event: MouseEvent, data: SessionRowData): void;
+  /** The list's one Tab stop (roving tabindex): ↑ ↓ move between rows from there. */
+  tabbable: boolean;
+  onMenu(at: { x: number; y: number }, data: SessionRowData): void;
 }) {
   const select = useSessions((s) => s.select);
   const project = useProjects((s) => s.projects.get(data.projectRoot));
@@ -108,15 +112,34 @@ const SessionRow = memo(function SessionRow({
   const projectName = project?.name ?? data.projectRoot.split('/').pop();
   const titleTone = emphasised || selected ? 'font-semibold text-text' : settled ? 'text-muted' : 'text-text/80';
   const age = <span className={`shrink-0 tabular-nums ${ageTone}`}>{shortAge(data.updatedAt, now)}</span>;
-  const pin = data.pinned && <Pin size={11} className="shrink-0 text-faint" aria-label="Pinned" />;
+  const pin = data.pinned && <Pin size={11} className="shrink-0 text-faint" aria-hidden />;
+  // Below the row's corner, for menus opened from the keyboard (or VoiceOver, which sends a contextmenu at 0,0).
+  const menuAt = (el: HTMLElement) => {
+    const rect = el.getBoundingClientRect();
+    return { x: rect.left + 24, y: rect.top + Math.min(rect.height, 40) };
+  };
   const common = {
     type: 'button' as const,
     'data-session-id': data.id,
     'data-in-app': data.inApp,
+    tabIndex: tabbable ? 0 : -1,
+    'aria-current': selected ? ('true' as const) : undefined,
+    // The visible lines lean on icons, colour and short ages; this says the same in words.
+    'aria-label': sessionRowLabel({ title: data.title, project: projectName, status, pinned: data.pinned, settled, beside, updatedAt: data.updatedAt, now }),
     // ⌥-click opens the session in the other pane.
     onClick: (e: MouseEvent) => (e.altKey ? useSessions.getState().openBeside(data.id) : select(data.id)),
-    onContextMenu: (e: MouseEvent) => onContextMenu(e, data),
-    title: [data.title, style === 'compact' ? projectName : null, data.summary?.cwd].filter(Boolean).join('\n'),
+    onContextMenu: (e: MouseEvent<HTMLElement>) => {
+      e.preventDefault();
+      onMenu(e.clientX === 0 && e.clientY === 0 ? menuAt(e.currentTarget) : { x: e.clientX, y: e.clientY }, data);
+    },
+    // ⇧F10 (and the menu key) open the same menu as a right-click.
+    onKeyDown: (e: KeyboardEvent<HTMLElement>) => {
+      if ((e.key === 'F10' && e.shiftKey) || e.key === 'ContextMenu') {
+        e.preventDefault();
+        onMenu(menuAt(e.currentTarget), data);
+      }
+    },
+    'data-tooltip': [data.title, style === 'compact' ? projectName : null, data.summary?.cwd].filter(Boolean).join('\n'),
   };
   const surface = selected ? 'bg-accent/15' : beside ? 'bg-border/45 ring-1 ring-inset ring-border' : 'hover:bg-border/45';
 
@@ -145,7 +168,7 @@ const SessionRow = memo(function SessionRow({
       <span className="flex min-w-0 items-center gap-1.5 text-[11px] text-faint">
         {branch && (
           <>
-            <GitBranch size={11} className={`shrink-0 ${data.isWorktree ? 'text-accent-ink/80' : ''}`} aria-label={data.isWorktree ? 'Worktree' : 'Branch'} />
+            <GitBranch size={11} className={`shrink-0 ${data.isWorktree ? 'text-accent-ink/80' : ''}`} aria-hidden />
             <span className="min-w-0 truncate">{branch}</span>
           </>
         )}
@@ -171,6 +194,30 @@ const SessionRow = memo(function SessionRow({
   );
 });
 
+/**
+ * A sentence for the sidebar's polite live region when a session starts waiting for you (a permission
+ * or a question). Only new arrivals count, not the ones already waiting when the list loaded, and the
+ * text clears after a while so the same session waiting again is announced again.
+ */
+function useWaitingAnnouncement(rows: SessionRowData[], loaded: boolean): string {
+  const [notice, setNotice] = useState('');
+  const seen = useRef<Set<string> | null>(null);
+  const clear = useRef<ReturnType<typeof setTimeout>>(undefined);
+  useEffect(() => () => clearTimeout(clear.current), []);
+  useEffect(() => {
+    if (!loaded) return;
+    const waiting = rows.filter((row) => row.live?.status === 'needs-you');
+    const before = seen.current;
+    seen.current = new Set(waiting.map((row) => row.id));
+    const fresh = before ? waiting.filter((row) => !before.has(row.id)) : [];
+    if (fresh.length === 0) return;
+    setNotice(fresh.length === 1 ? `“${fresh[0]!.title}” is waiting for you.` : `${fresh.length} sessions are waiting for you.`);
+    clearTimeout(clear.current);
+    clear.current = setTimeout(() => setNotice(''), 5_000);
+  }, [rows, loaded]);
+  return notice;
+}
+
 export function Sidebar() {
   const connection = useEngineConnection();
   const client = connection.status === 'connected' ? connection.client : null;
@@ -192,7 +239,7 @@ export function Sidebar() {
   const noProjects = useProjects((s) => s.loaded && addedProjects(s.projects).length === 0);
   const openIn = useOpenIn();
   const projectIcons = useProjectIconEntries();
-  const [menu, setMenu] = useState<{ x: number; y: number; entries: MenuEntry[] } | null>(null);
+  const [menu, setMenu] = useState<{ x: number; y: number; entries: MenuEntry[]; label: string } | null>(null);
   const [deleting, setDeleting] = useState<SessionRowData | null>(null);
   const now = useNow();
   const sidebarStyle = usePreferences((s) => s.prefs.sidebarStyle);
@@ -232,6 +279,14 @@ export function Sidebar() {
   // Row heights change with the sidebar style.
   useEffect(() => virtualizer.measure(), [sidebarStyle, virtualizer]);
 
+  // One Tab stop for the whole list: the selected row while it's rendered, else the first rendered one.
+  const virtualItems = virtualizer.getVirtualItems();
+  const renderedIds = virtualItems.flatMap((item) => {
+    const row = rows[item.index];
+    return row?.kind === 'session' ? [row.data.id] : [];
+  });
+  const tabStopId = view === 'session' && selectedId && renderedIds.includes(selectedId) ? selectedId : (renderedIds[0] ?? null);
+
   // ↑/↓ moves through visible sessions, like a native source list; ⌘⌫ deletes the selected one.
   const onKeyDown = (event: KeyboardEvent) => {
     if (event.key === 'Backspace' && event.metaKey) {
@@ -250,16 +305,17 @@ export function Sidebar() {
     const next = ids[current === -1 ? 0 : Math.min(ids.length - 1, Math.max(0, current + (event.key === 'ArrowDown' ? 1 : -1)))]!;
     select(next.id);
     virtualizer.scrollToIndex(next.index, { align: 'auto' });
+    // Focus follows the selection, so VoiceOver reads the new row and Tab stays where you are.
+    requestAnimationFrame(() => scrollRef.current?.querySelector<HTMLElement>(`[data-session-id="${CSS.escape(next.id)}"]`)?.focus({ preventScroll: true }));
   };
 
-  const sessionMenu = (event: MouseEvent, data: SessionRowData) => {
-    event.preventDefault();
-    const at = { x: event.clientX, y: event.clientY };
+  const sessionMenu = (at: { x: number; y: number }, data: SessionRowData) => {
     const settledNow = !isActive(data, Date.now());
     const flag = (change: { pinned?: boolean; settled?: boolean }) => void client?.call('sessions.setFlags', { sessionId: data.id, ...change });
     const cwd = data.summary?.cwd ?? data.live?.cwd ?? null;
     setMenu({
       ...at,
+      label: `Session “${data.title}”`,
       entries: [
         { label: data.pinned ? 'Unpin' : 'Pin to top', onSelect: () => flag({ pinned: !data.pinned }), disabled: !data.summary },
         settledNow
@@ -279,11 +335,12 @@ export function Sidebar() {
   // Only open sessions the main list shows: a process idling elsewhere sits under Settled and
   // would make the count disagree with what's visible.
   const liveCount = all.filter((row) => row.live !== null && isActive(row, now)).length;
+  const waitingNotice = useWaitingAnnouncement(all, loaded);
   const hasUpdatePill = useUpdates((s) => updatePill(s.state) !== null);
   const hasClaudePill = useClaudeUpdate((s) => claudeUpdateNotice(s.state) !== null);
 
   return (
-    <aside className="relative flex shrink-0 flex-col border-r border-border bg-sidebar" style={{ width }} data-sidebar>
+    <aside aria-label="Sidebar" className="relative flex shrink-0 flex-col border-r border-border bg-sidebar" style={{ width }} data-sidebar>
       {/* Traffic lights on the left; the bar doubles as a window drag handle. */}
       <div className="drag flex h-13 shrink-0 items-center gap-2 pl-21">
         <img src={appIcon} alt="" width={20} height={20} draggable={false} />
@@ -296,12 +353,13 @@ export function Sidebar() {
         <>
           <div className="flex items-center gap-1 px-3 pb-1.5">
             <label className="no-drag flex h-7 min-w-0 flex-1 items-center gap-2 rounded-md px-1.5 text-muted focus-within:bg-card focus-within:ring-1 focus-within:ring-accent-ink/50 hover:bg-border/40">
-              <Search size={14} className="shrink-0" />
+              <Search size={14} className="shrink-0" aria-hidden />
               <input
                 type="search"
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                placeholder="Search"
+                placeholder="Search sessions"
+                aria-label="Search sessions by title, project or branch"
                 spellCheck={false}
                 className="h-full min-w-0 flex-1 bg-transparent text-[12px] text-text outline-none placeholder:text-muted"
               />
@@ -313,7 +371,7 @@ export function Sidebar() {
               data-tooltip="New session (⌘N)" aria-label="New session (⌘N)"
               className={`no-drag flex size-7 items-center justify-center rounded-md hover:bg-border/50 ${view === 'new' ? 'bg-accent/15 text-text' : 'text-muted hover:text-text'}`}
             >
-              <SquarePen size={15} />
+              <SquarePen size={15} aria-hidden />
             </button>
           </div>
 
@@ -328,18 +386,23 @@ export function Sidebar() {
             </div>
           )}
 
-          <div ref={scrollRef} tabIndex={0} onKeyDown={onKeyDown} className="min-h-0 flex-1 overflow-y-auto px-2 pb-2 outline-none" data-session-list>
+          <div ref={scrollRef} onKeyDown={onKeyDown} className="min-h-0 flex-1 overflow-y-auto px-2 pb-2" data-session-list>
             {loaded && rows.length === 0 ? (
               <div className="grid justify-items-start gap-2 px-2 py-4 text-[12px] text-muted" data-empty-sidebar>
                 <p>
                   {search
-                    ? 'No sessions match your search.'
+                    ? `No sessions match “${search.trim()}”. Search looks at titles, projects and branches; ⌘⇧F searches inside conversations.`
                     : projectFilter
-                      ? 'No sessions in this project yet.'
+                      ? 'No sessions in this project yet. Start one with ⌘N.'
                       : scope === 'switchboard'
-                        ? 'Sessions you start or continue in Switchboard show up here.'
-                        : 'No Claude Code sessions found yet.'}
+                        ? 'Sessions you start or continue in Switchboard show up here. Start one with ⌘N.'
+                        : 'No Claude Code sessions found yet. Start one with ⌘N.'}
                 </p>
+                {search && (
+                  <button type="button" onClick={() => setSearch('')} className="text-link hover:underline">
+                    Clear search
+                  </button>
+                )}
                 {scope === 'switchboard' && sessions.size > 0 && (
                   <button type="button" onClick={() => updatePrefs({ sessionScope: 'all' })} className="text-link hover:underline">
                     Show sessions from other apps
@@ -347,11 +410,18 @@ export function Sidebar() {
                 )}
               </div>
             ) : (
-              <div style={{ height: virtualizer.getTotalSize(), position: 'relative' }}>
-                {virtualizer.getVirtualItems().map((item) => {
+              // Virtualised: only rows near the viewport exist, so each item says where it sits in the whole list.
+              <div role="list" aria-label="Sessions" style={{ height: virtualizer.getTotalSize(), position: 'relative' }}>
+                {virtualItems.map((item) => {
                   const row = rows[item.index]!;
                   return (
-                    <div key={item.key} style={{ position: 'absolute', top: 0, left: 0, right: 0, height: item.size, transform: `translateY(${item.start}px)` }}>
+                    <div
+                      key={item.key}
+                      role="listitem"
+                      aria-setsize={rows.length}
+                      aria-posinset={item.index + 1}
+                      style={{ position: 'absolute', top: 0, left: 0, right: 0, height: item.size, transform: `translateY(${item.start}px)` }}
+                    >
                       {row.kind === 'session' ? (
                         <SessionRow
                           data={row.data}
@@ -359,18 +429,21 @@ export function Sidebar() {
                           selected={view === 'session' && row.data.id === selectedId}
                           beside={view === 'session' && splitId !== null && row.data.id !== selectedId && (row.data.id === mainId || row.data.id === splitId)}
                           now={now}
-                          onContextMenu={sessionMenu}
+                          tabbable={row.data.id === tabStopId}
+                          onMenu={sessionMenu}
                         />
                       ) : (
                         <button
                           type="button"
                           data-settled-toggle
                           data-open={row.open}
+                          aria-expanded={row.open}
                           onClick={toggleSettled}
-                          className="mt-1 flex h-[30px] w-full items-center gap-1.5 rounded-md px-2.5 text-[12px] text-faint hover:text-muted"
+                          data-tooltip="Quiet for 48 hours, or settled by you. They come back when there is something new."
+                          className="mt-1 flex h-[30px] w-full items-center gap-1.5 rounded-md px-2.5 text-[12px] text-muted hover:text-text"
                         >
                           Settled ({row.count})
-                          <ChevronRight size={13} className={`transition-transform ${row.open ? 'rotate-90' : ''}`} />
+                          <ChevronRight size={13} className={`transition-transform ${row.open ? 'rotate-90' : ''}`} aria-hidden />
                         </button>
                       )}
                     </div>
@@ -382,7 +455,7 @@ export function Sidebar() {
         </>
       )}
 
-      <footer className="flex h-10 shrink-0 items-center gap-2 border-t border-border px-3 text-[11px] text-faint">
+      <footer className="flex h-10 shrink-0 items-center gap-2 border-t border-border px-3 text-[11px] text-muted">
         {/* An update to act on takes the footer's place (Switchboard's first); the session count is the lesser news. */}
         {hasUpdatePill ? (
           <div className="flex min-w-0 flex-1">
@@ -394,7 +467,7 @@ export function Sidebar() {
           </div>
         ) : (
           <span className="min-w-0 flex-1 truncate">
-            {all.length} sessions{liveCount > 0 && ` · ${liveCount} open`}
+            {all.length} {all.length === 1 ? 'session' : 'sessions'}{liveCount > 0 && ` · ${liveCount} open`}
             {waiting > 0 && <span className="text-warn">{` · ${waiting} waiting`}</span>}
             {!complete && loaded && ' · scanning…'}
           </span>
@@ -406,7 +479,7 @@ export function Sidebar() {
           data-tooltip="Projects" aria-label="Projects"
           className={`flex size-7 items-center justify-center rounded-md hover:bg-border/60 hover:text-text ${view === 'projects' ? 'bg-border/60 text-text' : 'text-muted'}`}
         >
-          <FolderCog size={15} />
+          <FolderCog size={15} aria-hidden />
         </button>
         <button
           type="button"
@@ -415,11 +488,15 @@ export function Sidebar() {
           data-tooltip="Settings (⌘,)" aria-label="Settings (⌘,)"
           className={`flex size-7 items-center justify-center rounded-md hover:bg-border/60 hover:text-text ${view === 'settings' ? 'bg-border/60 text-text' : 'text-muted'}`}
         >
-          <Settings size={15} />
+          <Settings size={15} aria-hidden />
         </button>
       </footer>
 
-      {menu && <Menu x={menu.x} y={menu.y} entries={menu.entries} onClose={() => setMenu(null)} />}
+      {menu && <Menu x={menu.x} y={menu.y} entries={menu.entries} label={menu.label} onClose={() => setMenu(null)} />}
+      {/* Says when a session starts waiting for you; the row's icon alone can't be heard. */}
+      <p className="sr-only" aria-live="polite" data-waiting-announcement>
+        {waitingNotice}
+      </p>
       {deleting && (
         <ConfirmDialog
           title={`Delete “${deleting.title.length > 60 ? `${deleting.title.slice(0, 59)}…` : deleting.title}”?`}

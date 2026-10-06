@@ -3,9 +3,9 @@ import type { Effort, PermissionMode, ProjectDefaults } from '@switchboard/proto
 import { useEngineConnection } from '../../engine/useEngine.ts';
 import { MODE_CHOICES, MODE_LABEL } from '../../lib/modes.ts';
 import { useHosts } from '../../state/hostsStore.ts';
+import { EFFORT_LABEL, EFFORTS } from '../newSession/route.ts';
 import { Select } from '../ui/Select.tsx';
 
-const EFFORTS: Effort[] = ['low', 'medium', 'high', 'xhigh', 'max'];
 const field = 'h-7 min-w-0 rounded-md border border-border bg-bg px-2 text-[12px] text-text outline-none focus:border-accent-ink/60 disabled:opacity-50';
 /** The value an unset field shows; unset fields use the choices last made in the New session view. */
 const UNSET = '';
@@ -65,7 +65,7 @@ export function ProjectDefaultsEditor({ root, defaults, isGitRepo, onSave }: { r
           className={field}
           value={defaults.effort ?? UNSET}
           onChange={(value) => set({ effort: nullable<Effort>(value) })}
-          options={[{ value: UNSET, label: 'Global effort' }, ...EFFORTS.map((e) => ({ value: e, label: `${e} effort` }))]}
+          options={[{ value: UNSET, label: 'Global effort' }, ...EFFORTS.map((e) => ({ value: e, label: `${EFFORT_LABEL[e]} effort` }))]}
           dataAttrs={{ 'data-default-effort': true }}
         />
       </Row>

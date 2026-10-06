@@ -19,8 +19,14 @@ export function LinkError() {
           <p className="font-medium">Couldn't open that link</p>
           <p className="break-words text-muted">{error.message}</p>
         </div>
-        <button type="button" onClick={() => useLinks.getState().dismiss()} aria-label="Dismiss" className="-mr-1 shrink-0 rounded p-0.5 text-muted hover:bg-border/50 hover:text-text">
-          <X size={14} />
+        <button
+          type="button"
+          onClick={() => useLinks.getState().dismiss()}
+          aria-label="Dismiss"
+          data-tooltip="Dismiss"
+          className="-my-0.5 -mr-1.5 flex size-6 shrink-0 items-center justify-center rounded text-muted hover:bg-border/50 hover:text-text"
+        >
+          <X size={14} aria-hidden />
         </button>
       </div>
     </div>

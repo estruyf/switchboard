@@ -1,7 +1,7 @@
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { Blocks, FileDiff, SquareTerminal, X } from 'lucide-react';
-import { lazy, Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import type { ChangesBase, GitChanges, ImageAttachment, RewindResult, SlashCommand } from '@switchboard/protocol/client';
+import { lazy, Suspense, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import type { ChangesBase, GitChanges, ImageAttachment, PermissionRequest, RewindResult, SlashCommand } from '@switchboard/protocol/client';
 import { useEngineConnection } from '../../engine/useEngine.ts';
 import { guessHome, shortAge, tildify } from '../../lib/format.ts';
 import { nextMode } from '../../lib/modes.ts';
@@ -25,7 +25,7 @@ import { ConfirmDialog } from '../ConfirmDialog.tsx';
 import { ActionsBar } from '../actions/ActionsBar.tsx';
 import { OpenInButton } from '../OpenInButton.tsx';
 import { ProjectIcon } from '../ProjectIcon.tsx';
-import { PermissionCard } from '../session/PermissionCard.tsx';
+import { PermissionCard, permissionTitle } from '../session/PermissionCard.tsx';
 import { StatusBar } from '../session/StatusBar.tsx';
 import { ProfileBadge } from '../profiles/ProfileBadge.tsx';
 import { UsageBand } from '../UsageBand.tsx';
@@ -53,7 +53,7 @@ function StreamingBlock({ sessionId, since, showIndicator }: { sessionId: string
     return (
       <div className="mx-auto max-w-3xl px-6 pt-3 pb-2" data-streaming>
         <StreamingMarkdown text={block.text} />
-        <span className="mt-0.5 block h-3.5 w-1.5 animate-pulse bg-accent-ink" />
+        <span className="mt-0.5 block h-3.5 w-1.5 animate-pulse bg-accent-ink" aria-hidden />
       </div>
     );
   }
@@ -70,6 +70,35 @@ function StreamingBlock({ sessionId, since, showIndicator }: { sessionId: string
         {block?.kind === 'thinking' && block.text && <span className="min-w-0 truncate text-faint italic">{block.text.slice(-160)}</span>}
       </p>
     </div>
+  );
+}
+
+/**
+ * A polite screen-reader announcement when Claude finishes a turn or needs you to answer something.
+ * The transcript itself is not a live region: streamed text and rows the list mounts while you
+ * scroll would be read out non-stop.
+ */
+function Announcer({ sessionId, working, failed, permissions, cwd }: { sessionId: string; working: boolean; failed: boolean; permissions: PermissionRequest[]; cwd: string | null }) {
+  const [message, setMessage] = useState('');
+  // A trailing no-break space makes a repeated message a change, so it's read out again.
+  const say = (text: string) => setMessage((current) => (current.replace(/\u00a0$/, '') === text ? `${text}\u00a0` : text));
+  const announced = useRef(new Set<string>());
+  useEffect(() => {
+    const fresh = permissions.filter((p) => !announced.current.has(p.requestId));
+    fresh.forEach((p) => announced.current.add(p.requestId));
+    if (fresh.length > 0) say(`${permissionTitle(fresh[0]!, cwd)}. Answer it above the message box.`);
+  }, [permissions, cwd]);
+  // Switching to another session isn't Claude finishing: only a change within one session counts.
+  const previous = useRef({ sessionId, working });
+  useEffect(() => {
+    const was = previous.current;
+    previous.current = { sessionId, working };
+    if (was.sessionId === sessionId && was.working && !working) say(failed ? 'Claude stopped with an error.' : 'Claude finished.');
+  }, [sessionId, working, failed]);
+  return (
+    <p className="sr-only" role="status" aria-live="polite" data-announcer>
+      {message}
+    </p>
   );
 }
 
@@ -162,6 +191,7 @@ export function TranscriptView({ sessionId, pane = null, active = true }: { sess
     return [];
   }, [items]);
   const [todosOpen, setTodosOpen] = useState(true);
+  const todosId = useId();
 
   const activeHost = isActiveHost(host) ? host : null;
   const live = activeHost ? hostAsLive(activeHost) : registryLive;
@@ -180,6 +210,8 @@ export function TranscriptView({ sessionId, pane = null, active = true }: { sess
   // A branch switch (here or in another pane on the same checkout) changes what the panel shows.
   const branchSwitches = useCheckoutBranches((s) => s.switches);
   const { changes, isRepo, refresh: refreshChanges } = useGitChanges(cwd, changesBase, `${items.length}:${live?.status ?? ''}:${branchSwitches}`);
+  // The badge on the Changes button counts uncommitted files only (the panel can compare with a branch too).
+  const changedCount = changesBase === 'uncommitted' && changes ? changes.files.length : 0;
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (active && event.metaKey && event.shiftKey && !event.altKey && event.key.toLowerCase() === 'd') {
@@ -346,13 +378,14 @@ export function TranscriptView({ sessionId, pane = null, active = true }: { sess
         {projectRoot && <ProjectIcon project={project} root={projectRoot} size={22} />}
         <div className="min-w-24 flex-1">
           <h1 className="truncate text-[13px] font-semibold">{summary?.title ?? registryLive?.name ?? 'New session'}</h1>
-          <p className="truncate text-[11px] text-faint">{meta.join('  ·  ')}</p>
+          <p className="truncate text-[11px] text-muted">{meta.join('  ·  ')}</p>
         </div>
         <ProfileBadge profileId={profileId} className="rounded-full border border-border px-2 py-0.5 text-[11px] @max-[860px]:hidden" />
         {live && (
           <span className="flex shrink-0 items-center gap-1.5 text-[11px] text-muted" data-session-status>
             <StatusDot live={live} />
-            <span className="@max-[860px]:hidden">{liveLabel(live)}</span>
+            {/* In a narrow pane only the dot shows (its tooltip has the words); screen readers still get them. */}
+            <span className="@max-[860px]:sr-only">{liveLabel(live)}</span>
           </span>
         )}
         <AgentsButton items={items} sessionId={sessionId} cwd={cwd} sessionOpen={live !== null} />
@@ -370,22 +403,26 @@ export function TranscriptView({ sessionId, pane = null, active = true }: { sess
             type="button"
             data-toggle-changes
             onClick={() => toggleChanges()}
-            data-tooltip="Changes (⌘⇧D)" aria-label="Changes (⌘⇧D)"
+            data-tooltip={`${changesOpen ? 'Hide' : 'Show'} changed files (⌘⇧D)`}
+            aria-label={`${changesOpen ? 'Hide' : 'Show'} changed files${changedCount ? `, ${changedCount} changed` : ''} (⌘⇧D)`}
+            aria-expanded={changesOpen && active}
             className={`no-drag flex h-7 shrink-0 items-center gap-1 rounded-md border border-border px-1.5 text-[11.5px] hover:bg-border/50 ${changesOpen ? 'bg-accent/15 text-text' : 'text-muted'}`}
           >
             <FileDiff size={14} />
-            {changesBase === 'uncommitted' && changes && changes.files.length > 0 && <span className="tabular-nums">{changes.files.length}</span>}
+            {changedCount > 0 && <span className="tabular-nums">{changedCount}</span>}
           </button>
         )}
         <button
           type="button"
           data-toggle-terminal
           onClick={() => togglePanel()}
-          data-tooltip="Terminal (⌘J)" aria-label="Terminal (⌘J)"
+          data-tooltip={`${panelOpen ? 'Hide' : 'Show'} terminal (⌘J)${terminalCount ? ` · ${terminalCount} running` : ''}`}
+          aria-label={`${panelOpen ? 'Hide' : 'Show'} terminal${terminalCount ? `, ${terminalCount} running` : ''} (⌘J)`}
+          aria-expanded={panelOpen && active}
           className={`no-drag relative flex size-7 shrink-0 items-center justify-center rounded-md border border-border hover:bg-border/50 ${panelOpen ? 'bg-accent/15 text-text' : 'text-muted'}`}
         >
           <SquareTerminal size={14} />
-          {terminalCount > 0 && <span className="absolute -top-1 -right-1 size-2 rounded-full bg-ok" data-tooltip={`${terminalCount} running`} />}
+          {terminalCount > 0 && <span className="absolute -top-1 -right-1 size-2 rounded-full bg-ok" aria-hidden />}
         </button>
         <OpenInButton path={cwd} />
         {!pane && (
@@ -393,8 +430,9 @@ export function TranscriptView({ sessionId, pane = null, active = true }: { sess
             type="button"
             data-close-session
             onClick={() => useSessions.getState().closeSession()}
-            data-tooltip="Close session" aria-label="Close session"
-            className="no-drag flex size-7 shrink-0 items-center justify-center rounded-md text-faint hover:bg-border/50 hover:text-text"
+            data-tooltip="Close session (it keeps running)"
+            aria-label="Close session"
+            className="no-drag flex size-7 shrink-0 items-center justify-center rounded-md text-muted hover:bg-border/50 hover:text-text"
           >
             <X size={14} />
           </button>
@@ -404,8 +442,10 @@ export function TranscriptView({ sessionId, pane = null, active = true }: { sess
             type="button"
             data-close-pane
             onClick={() => useSessions.getState().closePane(pane)}
-            data-tooltip="Close this pane (⌘\\ closes the other one)" aria-label="Close this pane (⌘\\ closes the other one)"
-            className="no-drag flex size-7 shrink-0 items-center justify-center rounded-md text-faint hover:bg-border/50 hover:text-text"
+            // Braces, because a plain JSX attribute string keeps both backslashes of `\\`.
+            data-tooltip={'Close this pane (⌘\\ closes the other one)'}
+            aria-label="Close this pane"
+            className="no-drag flex size-7 shrink-0 items-center justify-center rounded-md text-muted hover:bg-border/50 hover:text-text"
           >
             <X size={14} />
           </button>
@@ -422,13 +462,17 @@ export function TranscriptView({ sessionId, pane = null, active = true }: { sess
               onTouchMove={markUserScroll}
               onPointerDown={markUserScroll}
               onKeyDown={onScrollKey}
+              role="region"
+              aria-label="Conversation"
               className="min-h-0 flex-1 overflow-y-auto"
               data-transcript
             >
               {status === 'loading' ? (
-                <p className="p-8 text-center text-[12px] text-faint">Loading transcript…</p>
+                <p className="p-8 text-center text-[12px] text-muted" role="status">
+                  Loading the conversation…
+                </p>
               ) : items.length === 0 && !activeHost ? (
-                <p className="p-8 text-center text-[12px] text-faint">This session has no messages yet.</p>
+                <p className="p-8 text-center text-[12px] text-muted">This session has no messages yet.</p>
               ) : (
                 <div className="relative mx-auto max-w-3xl px-6" style={{ height: virtualizer.getTotalSize() }}>
                   {virtualizer.getVirtualItems().map((row) => (
@@ -455,6 +499,7 @@ export function TranscriptView({ sessionId, pane = null, active = true }: { sess
               <StreamingBlock sessionId={sessionId} since={turnStart} showIndicator={activeGroupKey === null} />
             </div>
           </MessageActionsContext.Provider>
+          <Announcer sessionId={sessionId} working={working} failed={host?.state === 'error'} permissions={permissions} cwd={cwd} />
 
           {toolsOpen && cwd && <CapabilitiesDialog sessionId={sessionId} cwd={cwd} profileId={profileId} onClose={() => useOverlay.getState().close()} />}
       {rewinding && (
@@ -504,12 +549,21 @@ export function TranscriptView({ sessionId, pane = null, active = true }: { sess
             <div className="mx-auto grid max-w-3xl grid-cols-[minmax(0,1fr)] gap-2 px-6 pt-3 pb-1.5 @max-[860px]:px-4">
               {todos.some((t) => t.status !== 'completed') && (live || activeHost) && (
                 <div className="rounded-lg border border-border bg-card px-3 py-2" data-todo-strip>
-                  <button type="button" onClick={() => setTodosOpen((o) => !o)} className="flex w-full items-center gap-2 text-left text-[11px] text-muted">
-                    <span className={`inline-block text-[8px] transition-transform ${todosOpen ? 'rotate-90' : ''}`}>▶</span>
-                    Tasks · {todos.filter((t) => t.status === 'completed').length}/{todos.length} done
+                  <button
+                    type="button"
+                    onClick={() => setTodosOpen((o) => !o)}
+                    aria-expanded={todosOpen}
+                    aria-controls={todosOpen ? todosId : undefined}
+                    data-tooltip={todosOpen ? 'Hide Claude’s task list' : 'Show Claude’s task list'}
+                    className="flex w-full items-center gap-2 text-left text-[11px] text-muted hover:text-text"
+                  >
+                    <span className={`inline-block text-[8px] transition-transform ${todosOpen ? 'rotate-90' : ''}`} aria-hidden>
+                      ▶
+                    </span>
+                    Tasks · {todos.filter((t) => t.status === 'completed').length} of {todos.length} done
                   </button>
                   {todosOpen && (
-                    <div className="mt-1.5 max-h-40 overflow-y-auto">
+                    <div id={todosId} className="mt-1.5 max-h-40 overflow-y-auto">
                       <TodoList todos={todos} compact />
                     </div>
                   )}
@@ -533,7 +587,7 @@ export function TranscriptView({ sessionId, pane = null, active = true }: { sess
               {actionError && (
                 <p className="flex items-start gap-2 rounded-lg border border-error/40 bg-error/5 px-3 py-2 text-[12px] text-error" role="alert">
                   <span className="min-w-0 flex-1">{actionError}</span>
-                  <button type="button" onClick={() => setActionError(null)} className="shrink-0 text-faint hover:text-text">
+                  <button type="button" onClick={() => setActionError(null)} className="shrink-0 text-muted hover:text-text">
                     Dismiss
                   </button>
                 </p>
@@ -558,9 +612,15 @@ export function TranscriptView({ sessionId, pane = null, active = true }: { sess
                   {activeHost ? (
                     <StatusBar host={activeHost} />
                   ) : (
-                    <p className="flex h-7 items-center gap-2 px-1 text-[11px] text-faint">
-                      <span className="min-w-0 flex-1 truncate">
-                        {host?.state === 'error' ? <span className="text-error">Last run failed: {host.error}</span> : 'Not running in Switchboard. Sending a message resumes it here.'}
+                    <p className="flex h-7 items-center gap-2 px-1 text-[11px] text-muted">
+                      <span className="min-w-0 flex-1 truncate" data-tooltip={host?.state === 'error' ? (host.error ?? undefined) : undefined}>
+                        {host?.state === 'error' ? (
+                          <span className="text-error">Last run failed: {host.error}</span>
+                        ) : registryLive ? (
+                          `Open in ${ORIGIN_LABEL[registryLive.origin] || 'another Claude Code window'}, not in Switchboard.`
+                        ) : (
+                          'Not running in Switchboard. Send a message to pick it up here.'
+                        )}
                       </span>
                       <ContextMeter sessionId={sessionId} live={null} messages={messages} />
                     </p>
@@ -571,8 +631,10 @@ export function TranscriptView({ sessionId, pane = null, active = true }: { sess
                     type="button"
                     data-open-tools
                     onClick={() => useOverlay.getState().show('tools')}
-                    data-tooltip="MCP servers, skills, agents and plugins" aria-label="MCP servers, skills, agents and plugins"
-                    className="flex h-6 shrink-0 items-center gap-1 rounded-md px-1.5 text-[11px] text-faint hover:bg-border/50 hover:text-text"
+                    data-tooltip="Tools: the MCP servers, skills, agents and plugins this session can use"
+                    aria-label="Tools: MCP servers, skills, agents and plugins"
+                    aria-haspopup="dialog"
+                    className="flex h-6 shrink-0 items-center gap-1 rounded-md px-1.5 text-[11px] text-muted hover:bg-border/50 hover:text-text"
                   >
                     <Blocks size={12} />
                     <span className="@max-[860px]:hidden">Tools</span>

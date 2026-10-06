@@ -19,7 +19,7 @@ const toneClass: Record<Tone, string> = {
 };
 
 function Dot({ tone }: { tone: Tone }) {
-  return <span className={`inline-block size-2 shrink-0 rounded-full ${toneClass[tone]}`} />;
+  return <span aria-hidden className={`inline-block size-2 shrink-0 rounded-full ${toneClass[tone]}`} />;
 }
 
 function Card({ title, children, aside }: { title: string; children: ReactNode; aside?: ReactNode }) {
@@ -68,14 +68,16 @@ export function EngineDiagnostics() {
     ) : (
       <span className="flex items-center gap-2">
         <Dot tone="ok" /> Connected
-        {connection.generation > 1 && <span className="text-faint">· reconnected {connection.generation - 1}×</span>}
+        {connection.generation > 1 && <span className="text-muted">· reconnected {connection.generation - 1}×</span>}
       </span>
     );
 
   return (
     <div className="grid gap-4">
       {error && (
-        <div className="rounded-lg border border-error/40 bg-error/10 px-4 py-2.5 text-error">{error}</div>
+        <div role="alert" className="rounded-lg border border-error/40 bg-error/10 px-4 py-2.5 text-error">
+          {error}
+        </div>
       )}
 
       <Card
@@ -104,11 +106,13 @@ export function EngineDiagnostics() {
             <span className="flex items-center gap-2">
               <Dot tone="ok" />
               <Mono>{info.claude.version ?? 'unknown version'}</Mono>
-              <span className="truncate text-faint">{info.claude.path}</span>
+              <span className="truncate text-muted" data-tooltip={info.claude.path}>
+                {info.claude.path}
+              </span>
             </span>
           ) : (
             <span className="flex items-center gap-2">
-              <Dot tone="error" /> Not found on PATH. Install Claude Code or set its path in Settings.
+              <Dot tone="error" /> Not found on your PATH. Install Claude Code, check that <Mono>claude</Mono> runs in Terminal, then reopen Switchboard.
             </span>
           )}
         </Row>
@@ -118,7 +122,7 @@ export function EngineDiagnostics() {
             <span className="flex items-center gap-2">
               <Dot tone={info.shell.resolved ? 'ok' : 'warn'} />
               {info.shell.resolved ? 'Loaded from' : 'Fell back to app environment for'} <Mono>{info.shell.path}</Mono>
-              <span className="text-faint">· {info.shell.durationMs} ms</span>
+              <span className="text-muted">· {info.shell.durationMs} ms</span>
             </span>
           ) : (
             '—'
@@ -140,13 +144,13 @@ export function EngineDiagnostics() {
       </Card>
 
       <Card title="Engine log">
-        <div className="max-h-48 overflow-y-auto px-4 py-2 font-mono text-[12px] select-text">
+        <div role="log" aria-label="Engine log" tabIndex={0} className="max-h-48 overflow-y-auto px-4 py-2 font-mono text-[12px] select-text">
           {logs.length === 0 ? (
-            <p className="text-faint">No messages since this window connected.</p>
+            <p className="text-muted">No messages since this window connected.</p>
           ) : (
             logs.map((entry, i) => (
               <p key={i} className={logTone[entry.level]}>
-                <span className="text-faint">{new Date(entry.at).toLocaleTimeString()}</span> {entry.message}
+                <span className="text-muted">{new Date(entry.at).toLocaleTimeString()}</span> {entry.message}
               </p>
             ))
           )}

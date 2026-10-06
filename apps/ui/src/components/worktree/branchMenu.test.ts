@@ -51,7 +51,7 @@ describe('branchButton', () => {
     expect(branchButton(null, false)).toEqual({ label: 'detached', tooltip: 'Detached HEAD. Switch branch' });
   });
   it('says why it is unavailable while Claude works', () => {
-    expect(branchButton('main', true).tooltip).toBe('Wait for Claude to finish, or stop it first');
+    expect(branchButton('main', true).tooltip).toBe('Wait for Claude to finish (or stop it) to switch branches');
   });
 });
 

@@ -1,5 +1,5 @@
 import { Check, ChevronsUpDown, FolderOpen, FolderPlus } from 'lucide-react';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { basename, tildify } from '../../lib/format.ts';
 import { fuzzyScore } from '../../lib/fuzzy.ts';
 import { useProjects } from '../../state/projectsStore.ts';
@@ -8,7 +8,8 @@ import { ProjectIcon } from '../ProjectIcon.tsx';
 /**
  * The project header of a new session: the project's tile, name and path. The name opens your
  * projects, filterable by typing; typing an absolute path offers that folder, and "Open another
- * folder…" opens the system dialog.
+ * folder…" opens the system dialog. The open list is a combobox: focus stays in the (hidden until
+ * typed in) filter field and `aria-activedescendant` tells screen readers which row ↑ ↓ are on.
  */
 export function FolderPicker({
   value,
@@ -38,6 +39,8 @@ export function FolderPicker({
   const ref = useRef<HTMLDivElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
+  const id = useId();
+  const optionId = (index: number) => `${id}-option-${index}`;
 
   const options = useMemo(() => {
     const all = value && !folders.includes(value) ? [value, ...folders] : folders;
@@ -92,7 +95,7 @@ export function FolderPicker({
       {value ? (
         <ProjectIcon project={projects.get(value)} root={value} size={44} />
       ) : (
-        <span className="flex size-11 shrink-0 items-center justify-center rounded-[10px] border border-dashed border-border text-faint">
+        <span aria-hidden className="flex size-11 shrink-0 items-center justify-center rounded-[10px] border border-dashed border-border text-faint">
           <FolderOpen size={20} />
         </span>
       )}
@@ -103,8 +106,9 @@ export function FolderPicker({
           type="button"
           data-folder-select
           data-value={value ?? ''}
-          aria-haspopup="menu"
+          aria-haspopup="listbox"
           aria-expanded={open}
+          aria-label={current ? `Folder: ${current}. Change folder` : 'Choose a folder'}
           onClick={(e) => {
             setUpward(window.innerHeight - e.currentTarget.getBoundingClientRect().bottom < 340);
             setOpen((o) => !o);
@@ -112,16 +116,25 @@ export function FolderPicker({
           className="-mx-1.5 flex max-w-full min-w-0 items-center gap-1 rounded-md px-1.5 text-left hover:bg-border/40"
         >
           <span className={`min-w-0 truncate text-[20px] leading-8 font-semibold ${current ? 'text-text' : 'text-faint'}`}>{current ?? 'Choose a folder…'}</span>
-          <ChevronsUpDown size={15} className="shrink-0 text-faint" />
+          <ChevronsUpDown size={15} className="shrink-0 text-faint" aria-hidden />
         </button>
-        {value && <p className="truncate font-mono text-[11.5px] text-faint" data-tooltip={value}>{tildify(value, home)}</p>}
+        {value && (
+          <p className="truncate font-mono text-[11.5px] text-muted" data-tooltip={value}>
+            {tildify(value, home)}
+          </p>
+        )}
       </div>
 
       {open && (
         <div className={`absolute left-[58px] z-40 flex max-h-96 w-[min(27rem,calc(100%-58px))] ${upward ? 'bottom-full mb-1 flex-col-reverse' : 'top-full -mt-3 flex-col'}`} data-folder-panel>
-          <div className="flex max-h-96 min-h-0 flex-1 flex-col overflow-hidden rounded-lg border overlay" data-folder-list role="menu" aria-label="Your projects">
+          <div className="flex max-h-96 min-h-0 flex-1 flex-col overflow-hidden rounded-lg border overlay" data-folder-list>
             <input
               autoFocus
+              role="combobox"
+              aria-expanded
+              aria-controls={`${id}-list`}
+              aria-activedescendant={optionId(active)}
+              aria-autocomplete="list"
               value={filter}
               onChange={(e) => setFilter(e.target.value)}
               onKeyDown={(e) => {
@@ -137,17 +150,27 @@ export function FolderPicker({
               // Type to filter: the field only shows once there is something in it.
               className={filter ? 'h-9 shrink-0 border-b border-border bg-transparent px-3 text-[12.5px] text-text outline-none placeholder:text-faint' : 'sr-only'}
             />
-            <div ref={listRef} className="min-h-0 flex-1 overflow-y-auto py-1">
-              {!filter && <p className="px-3 pt-1.5 pb-1 text-[10px] tracking-wide text-faint uppercase">Your projects</p>}
-              {options.length === 0 && <p className="px-3 py-2 text-[12px] text-faint">No project matches.</p>}
+            <div ref={listRef} id={`${id}-list`} role="listbox" aria-label="Your projects" className="min-h-0 flex-1 overflow-y-auto py-1">
+              {!filter && (
+                <p role="presentation" className="px-3 pt-1.5 pb-1 text-[10px] tracking-wide text-faint uppercase">
+                  Your projects
+                </p>
+              )}
+              {options.length === 0 && (
+                <p role="presentation" className="px-3 py-2 text-[12px] text-muted">
+                  No project matches.
+                </p>
+              )}
               {options.map((folder, index) => {
                 const branch = branches.get(folder);
                 return (
                   <button
                     key={folder}
+                    id={optionId(index)}
                     type="button"
-                    role="menuitemradio"
-                    aria-checked={folder === value}
+                    role="option"
+                    tabIndex={-1}
+                    aria-selected={folder === value}
                     data-folder-option={folder}
                     data-active={index === active}
                     onMouseMove={() => setActive(index)}
@@ -157,24 +180,27 @@ export function FolderPicker({
                     <ProjectIcon project={projects.get(folder)} root={folder} size={22} />
                     <span className="min-w-0 flex-1">
                       <span className="block truncate text-[12.5px] text-text">{projects.get(folder)?.name ?? basename(folder)}</span>
-                      <span className="block truncate font-mono text-[11px] text-faint">
+                      <span className="block truncate font-mono text-[11px] text-muted">
                         {tildify(folder, home)}
                         {branch && ` · ${branch}`}
                       </span>
                     </span>
-                    {folder === value && <Check size={14} className="shrink-0 text-accent-ink" />}
+                    {folder === value && <Check size={14} className="shrink-0 text-accent-ink" aria-hidden />}
                   </button>
                 );
               })}
               <button
+                id={optionId(options.length)}
                 type="button"
-                role="menuitem"
+                role="option"
+                tabIndex={-1}
+                aria-selected={false}
                 data-active={active === options.length}
                 onMouseMove={() => setActive(options.length)}
                 onClick={() => pick(options.length)}
                 className={`mt-1 flex h-9 w-full items-center gap-2.5 border-t border-border px-3 text-left text-[12.5px] text-muted ${active === options.length ? 'bg-accent/15' : ''}`}
               >
-                <FolderPlus size={15} className="shrink-0" />
+                <FolderPlus size={15} className="shrink-0" aria-hidden />
                 Open another folder…
               </button>
             </div>

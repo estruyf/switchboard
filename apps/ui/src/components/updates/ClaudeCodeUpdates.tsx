@@ -22,10 +22,10 @@ function CommandToCopy({ command }: { command: string }) {
         type="button"
         onClick={() => void navigator.clipboard.writeText(command).then(() => setCopied(true))}
         data-tooltip={copied ? 'Copied' : 'Copy'}
-        aria-label="Copy command"
+        aria-label={copied ? 'Copied' : 'Copy command'}
         className="flex size-6 shrink-0 items-center justify-center rounded-md text-muted hover:bg-border/60 hover:text-text"
       >
-        {copied ? <Check size={13} className="text-ok" /> : <Copy size={13} />}
+        {copied ? <Check size={13} className="text-ok" aria-hidden /> : <Copy size={13} aria-hidden />}
       </button>
     </div>
   );
@@ -38,7 +38,7 @@ function UpdateOutput({ output, running }: { output: string; running: boolean })
     if (running && ref.current) ref.current.scrollTop = ref.current.scrollHeight;
   }, [output, running]);
   return (
-    <pre ref={ref} className="max-h-48 overflow-y-auto rounded-md border border-border bg-card px-3 py-2 font-mono text-[11.5px] leading-relaxed whitespace-pre-wrap text-muted" data-claude-update-output>
+    <pre ref={ref} role="log" aria-label="Update output" tabIndex={0} className="max-h-48 overflow-y-auto rounded-md border border-border bg-card px-3 py-2 font-mono text-[11.5px] leading-relaxed whitespace-pre-wrap text-muted" data-claude-update-output>
       {output || (running ? 'Starting…' : '')}
     </pre>
   );
@@ -67,12 +67,12 @@ export function ClaudeCodeUpdates({ now }: { now: number }) {
     <div className="grid gap-3 border-t border-border pt-5" data-claude-updates data-claude-update-status={state.status} data-claude-update-quiet={state.quiet}>
       <div className="flex items-start gap-3">
         <div className="min-w-0 flex-1">
-          <p className="text-[12.5px] font-medium">Claude Code</p>
-          <p className={`mt-0.5 text-[12px] ${failed ? 'text-error' : 'text-muted'}`} data-claude-update-text>
+          <h3 className="text-[12.5px] font-medium">Claude Code</h3>
+          <p role="status" className={`mt-0.5 text-[12px] ${failed ? 'text-error' : 'text-muted'}`} data-claude-update-text>
             {claudeUpdateStatusText(state)}
           </p>
-          {state.quiet && state.status === 'available' && <p className="mt-0.5 text-[11.5px] text-faint">Claude Code’s own auto-updater is turned off, so Switchboard doesn’t show a notice for it.</p>}
-          {state.status !== 'missing' && <p className="mt-0.5 text-[11.5px] text-faint">{lastChecked(state.checkedAt, now)}</p>}
+          {state.quiet && state.status === 'available' && <p className="mt-0.5 text-[11.5px] text-muted">Claude Code’s own auto-updater is turned off, so Switchboard doesn’t show a notice for it.</p>}
+          {state.status !== 'missing' && <p className="mt-0.5 text-[11.5px] text-muted">{lastChecked(state.checkedAt, now)}</p>}
         </div>
         <div className="flex shrink-0 gap-2">
           {newer && state.canUpdate && (
@@ -109,7 +109,11 @@ export function ClaudeCodeUpdates({ now }: { now: number }) {
       )}
 
       {(state.status === 'updating' || state.output) && <UpdateOutput output={state.output} running={state.status === 'updating'} />}
-      {refused && <p className="text-[12px] text-error">{refused}</p>}
+      {refused && (
+        <p role="alert" className="text-[12px] text-error">
+          {refused}
+        </p>
+      )}
       {state.status === 'updated' && (
         <button type="button" onClick={dismiss} className={`${button} justify-self-start`}>
           Done

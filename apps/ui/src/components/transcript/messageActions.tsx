@@ -23,19 +23,27 @@ export const messageUuid = (key: string) => key.split(':')[0]!;
 
 function Action({ title, onClick, children }: { title: string; onClick(): void; children: ReactNode }) {
   return (
-    <button type="button" data-tooltip={title} aria-label={title} onClick={onClick} className="flex size-6 items-center justify-center rounded text-faint hover:bg-border/60 hover:text-text">
+    <button type="button" data-tooltip={title} aria-label={title} onClick={onClick} className="flex size-6 items-center justify-center rounded text-muted hover:bg-border/60 hover:text-text">
       {children}
     </button>
   );
 }
 
-/** Small toolbar that appears when you hover a message. */
+/**
+ * Small toolbar that appears when you hover a message. It's invisible rather than removed the
+ * rest of the time, so Tab still reaches its buttons and it shows up while one has focus.
+ */
 export function MessageToolbar({ itemKey, kind, text }: { itemKey: string; kind: 'user' | 'text'; text: string }) {
   const actions = useContext(MessageActionsContext);
   if (!actions) return null;
   const uuid = messageUuid(itemKey);
   return (
-    <div className="absolute -top-3 right-2 z-10 hidden items-center gap-0.5 rounded-md border border-border bg-card px-0.5 shadow-sm group-hover/message:flex" data-message-actions>
+    <div
+      role="toolbar"
+      aria-label={kind === 'user' ? 'Actions for your message' : 'Actions for Claude’s message'}
+      className="pointer-events-none absolute -top-3 right-2 z-10 flex items-center gap-0.5 rounded-md border border-border bg-card px-0.5 opacity-0 shadow-sm group-hover/message:pointer-events-auto group-hover/message:opacity-100 focus-within:pointer-events-auto focus-within:opacity-100"
+      data-message-actions
+    >
       {kind === 'user' && (
         <>
           <Action title="Undo file changes since this message" onClick={() => actions.rewind(uuid)}>

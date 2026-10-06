@@ -9,8 +9,24 @@ All notable changes to Switchboard are listed here. Each release is also on the 
 - The **Open in** menu in a session's header has a **GitHub** entry when the project is on GitHub. It opens the branch you're on when it's pushed, and the repository otherwise.
 - When Claude leaves a command or agent running in the background, the session shows it: a slowly turning green ring in the sidebar, "Open, 1 background task running" in the header, and the task under the message box. Hover to see what's running.
 
+### Accessibility
+
+- Small grey text, timestamps and hints are easier to read in both themes, and so are green and pink status text in light mode.
+- You can use Switchboard with the keyboard alone. Menus work with the arrow keys and hand focus back when they close. Dialogs keep Tab inside them. ⇧F10 opens a session's menu in the sidebar. Hover-only buttons (message actions, Changes panel rows, project options) also show when you Tab to them.
+- VoiceOver reads each session in the sidebar as one sentence (title, project, status, how long ago), and every icon button, status dot, usage ring and context meter is labelled. It also announces when Claude finishes, needs permission or a session starts waiting for you.
+- Animations stop when *Reduce motion* is on in macOS. Spinners still turn.
+
+### Changes
+
+- A permission request no longer takes focus while you're typing, so pressing Enter can't approve a command by accident.
+- Deleting a project action asks first.
+- The terminal panel's **Claude TUI** tab is now called **Claude Code**.
+- New session explains what to do before a folder is chosen, instead of showing empty controls. A disabled Send or Start session button says why when you hover it.
+- Clearer wording across the app: empty states say what to do next, errors say what failed, and the action editor explains how to set a shortcut.
+
 ### Fixes
 
+- The Claude profiles page no longer runs off the side of the window when a sign-in command is long. The command wraps and has a copy button.
 - Diffs in the Changes panel scroll sideways with the line numbers kept in view, and added or removed lines are coloured across the whole width. A new button in the panel's header wraps long lines instead; Switchboard remembers your choice.
 - A session that starts again (after Stop, a while idle, or restarting Switchboard) keeps its permission mode, and the model and effort you picked for it, instead of going back to your defaults.
 - The model picker under a session shows the model it runs, such as Opus 5.5, instead of an extra row with the raw model id.

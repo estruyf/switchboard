@@ -5,7 +5,7 @@ import { useEngineConnection } from '../../engine/useEngine.ts';
 import { guessHome, tildify } from '../../lib/format.ts';
 import { useProfiles } from '../../state/profilesStore.ts';
 import { ConfirmDialog } from '../ConfirmDialog.tsx';
-import { Radio } from '../ui/Radio.tsx';
+import { Radio, RadioGroup } from '../ui/Radio.tsx';
 import { PROFILE_DOT } from './ProfileBadge.tsx';
 
 const field = 'h-7 min-w-0 rounded-md border border-border bg-bg px-2 text-[12px] text-text outline-none focus:border-accent-ink/60';
@@ -23,37 +23,54 @@ const quote = (path: string) => (/^[\w./~-]+$/.test(path) ? path : `'${path.repl
 /** The command that signs Claude Code in for one config folder. Switchboard never handles credentials itself. */
 export const loginCommand = (profile: Pick<ClaudeProfile, 'configDir' | 'builtin'>) => (profile.builtin ? 'claude' : `CLAUDE_CONFIG_DIR=${quote(profile.configDir)} claude`);
 
+const COLOR_NAME: Record<ProfileColor, string> = {
+  yellow: 'Yellow',
+  blue: 'Blue',
+  green: 'Green',
+  purple: 'Purple',
+  red: 'Red',
+  orange: 'Orange',
+  gray: 'Grey',
+};
+
+/** The profile's colour as a radio group: arrow keys move between swatches, and each one says its colour name. */
 function ColorPicker({ value, onChange }: { value: ProfileColor; onChange(color: ProfileColor): void }) {
   return (
-    <div role="radiogroup" aria-label="Colour" className="flex items-center gap-1">
+    <RadioGroup label="Colour" className="flex items-center gap-1">
       {PROFILE_COLORS.map((color) => (
         <button
           key={color}
           type="button"
           role="radio"
           aria-checked={value === color}
-          aria-label={color}
-          data-tooltip={color}
+          aria-label={COLOR_NAME[color]}
+          data-tooltip={COLOR_NAME[color]}
+          tabIndex={value === color ? 0 : -1}
           onClick={() => onChange(color)}
           className={`flex size-5 items-center justify-center rounded-full ${value === color ? 'ring-2 ring-accent-ink/70 ring-offset-1 ring-offset-card' : ''}`}
         >
-          <span className={`size-3.5 rounded-full ${PROFILE_DOT[color]}`} />
+          <span aria-hidden className={`size-3.5 rounded-full ${PROFILE_DOT[color]}`} />
         </button>
       ))}
-    </div>
+    </RadioGroup>
   );
 }
 
-function CopyCommand({ command }: { command: string }) {
+/**
+ * A command to run in Terminal, with a copy button. Long config paths wrap anywhere rather than
+ * widening the page; `block` puts it on its own line.
+ */
+function CopyCommand({ command, block = false }: { command: string; block?: boolean }) {
   const [copied, setCopied] = useState(false);
   return (
-    <span className="inline-flex max-w-full items-center gap-1 rounded-md bg-sidebar px-1.5 py-0.5 align-middle">
-      <code className="min-w-0 truncate font-mono text-[11.5px] text-text">{command}</code>
+    <span className={`${block ? 'flex w-full' : 'inline-flex max-w-full align-middle'} items-start gap-1.5 rounded-md bg-sidebar px-1.5 py-0.5`}>
+      <code className="min-w-0 font-mono text-[11.5px] break-all text-text">{command}</code>
       <button
         type="button"
-        data-tooltip="Copy" aria-label="Copy"
+        data-tooltip={copied ? 'Copied' : 'Copy'}
+        aria-label={copied ? 'Copied' : 'Copy command'}
         onClick={() => void navigator.clipboard.writeText(command).then(() => (setCopied(true), setTimeout(() => setCopied(false), 1500)))}
-        className="shrink-0 text-faint hover:text-text"
+        className="mt-px shrink-0 text-muted hover:text-text"
       >
         {copied ? <Check size={12} /> : <Copy size={12} />}
       </button>
@@ -74,8 +91,8 @@ function ProfileRow({ profile, home, onRemove }: { profile: ClaudeProfile; home:
   };
 
   return (
-    <li className="grid gap-2 rounded-lg border border-border bg-card px-3 py-2.5" data-profile={profile.id}>
-      <div className="flex flex-wrap items-center gap-2">
+    <li className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-2 rounded-lg border border-border bg-card px-3 py-2.5" data-profile={profile.id}>
+      <div className="flex min-w-0 flex-wrap items-center gap-2">
         <input
           className={`${field} w-40 font-medium`}
           value={name}
@@ -83,7 +100,7 @@ function ProfileRow({ profile, home, onRemove }: { profile: ClaudeProfile; home:
           onChange={(e) => setName(e.target.value)}
           onBlur={saveName}
           onKeyDown={(e) => e.key === 'Enter' && (e.currentTarget as HTMLInputElement).blur()}
-          aria-label="Profile name"
+          aria-label={`Name of the ${profile.name} profile`}
           data-profile-name
         />
         <ColorPicker value={profile.color} onChange={(color) => void call(client?.call('profiles.update', { id: profile.id, color }))} />
@@ -92,6 +109,7 @@ function ProfileRow({ profile, home, onRemove }: { profile: ClaudeProfile; home:
           <Radio
             checked={profile.isDefault}
             tabbable
+            label={`Use ${profile.name} by default`}
             onSelect={() => void call(client?.call('profiles.setDefault', { id: profile.id }))}
             className="items-center text-[12px] text-muted"
             dataAttrs={{ 'data-profile-default': profile.id }}
@@ -100,29 +118,41 @@ function ProfileRow({ profile, home, onRemove }: { profile: ClaudeProfile; home:
           </Radio>
         </span>
         {!profile.builtin && (
-          <button type="button" onClick={onRemove} data-tooltip="Remove from Switchboard" aria-label="Remove from Switchboard" className="rounded p-1 text-faint hover:text-error" data-remove-profile>
+          <button
+            type="button"
+            onClick={onRemove}
+            data-tooltip="Remove from Switchboard (the folder and its login stay on disk)"
+            aria-label={`Remove the ${profile.name} profile from Switchboard`}
+            className="rounded p-1 text-muted hover:text-error"
+            data-remove-profile
+          >
             <X size={14} />
           </button>
         )}
       </div>
       <p className="truncate text-[12px] text-muted" data-tooltip={profile.configDir}>
         {tildify(profile.configDir, home)}
-        {profile.builtin && <span className="text-faint"> · Claude Code’s own folder</span>}
+        {profile.builtin && <span> · Claude Code’s own folder</span>}
         {!profile.exists && <span className="text-warn"> · folder not found</span>}
       </p>
-      <p className="text-[12px] text-muted">
-        {profile.account ? (
-          <>
-            Signed in as <span className="text-text">{profile.account.email ?? 'a claude.ai account'}</span>
-            {profile.account.organization && <> · {profile.account.organization}</>}
-          </>
-        ) : (
-          <>
-            Not signed in yet. In a terminal, run <CopyCommand command={loginCommand(profile)} /> and type <code className="font-mono">/login</code>.
-          </>
-        )}
-      </p>
-      {error && <p className="text-[12px] text-error">{error}</p>}
+      {profile.account ? (
+        <p className="text-[12px] text-muted">
+          Signed in as <span className="text-text">{profile.account.email ?? 'a claude.ai account'}</span>
+          {profile.account.organization && <> · {profile.account.organization}</>}
+        </p>
+      ) : (
+        <div className="grid gap-1 text-[12px] text-muted">
+          <p>
+            Not signed in yet. In Terminal, run this command, then type <code className="font-mono">/login</code>:
+          </p>
+          <CopyCommand command={loginCommand(profile)} block />
+        </div>
+      )}
+      {error && (
+        <p role="alert" className="text-[12px] text-error">
+          {error}
+        </p>
+      )}
     </li>
   );
 }
@@ -137,6 +167,8 @@ function AddProfileForm({ home, onDone }: { home: string | null; onDone(): void 
   const [busy, setBusy] = useState(false);
   const suggested = home ? `${home}/.claude-${slug(name)}` : '';
   const path = (folder ?? suggested).trim().replace(/^~(?=\/)/, home ?? '~');
+  // Say why Add profile is unavailable instead of leaving a dimmed button to puzzle over.
+  const problem = !name.trim() ? 'Give the profile a name.' : !path ? 'Choose a config folder.' : !path.startsWith('/') ? 'Use a full path to the folder, starting with / or ~/.' : null;
 
   const submit = async () => {
     if (!client) return;
@@ -153,14 +185,15 @@ function AddProfileForm({ home, onDone }: { home: string | null; onDone(): void 
 
   return (
     <form
-      className="grid gap-2.5 rounded-lg border border-dashed border-border px-3 py-3"
+      className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-2.5 rounded-lg border border-dashed border-border px-3 py-3"
+      aria-label="Add a profile"
       onSubmit={(e) => {
         e.preventDefault();
         void submit();
       }}
       data-add-profile-form
     >
-      <div className="flex flex-wrap items-center gap-2">
+      <div className="flex min-w-0 flex-wrap items-center gap-2">
         <input className={`${field} w-40`} value={name} maxLength={60} onChange={(e) => setName(e.target.value)} placeholder="Name" aria-label="Name" autoFocus data-new-profile-name />
         <ColorPicker value={color} onChange={setColor} />
       </div>
@@ -179,19 +212,28 @@ function AddProfileForm({ home, onDone }: { home: string | null; onDone(): void 
           className={button}
           onClick={() => void window.switchboard?.pickFolder(path || undefined).then((picked) => picked && setFolder(picked))}
         >
-          <FolderOpen size={13} /> Choose…
+          <FolderOpen size={13} aria-hidden /> Choose…
         </button>
       </div>
       <p className="text-[12px] text-muted">
         Claude Code keeps a separate login, settings, plugins and sessions in each folder. A new folder is created; sign in there afterwards. Use an existing one (for
         example where you already run <code className="font-mono">CLAUDE_CONFIG_DIR=… claude</code>) to see its sessions.
       </p>
-      {error && <p className="text-[12px] text-error">{error}</p>}
-      <div className="flex justify-end gap-2">
+      {error && (
+        <p role="alert" className="text-[12px] text-error">
+          Couldn't add the profile: {error}
+        </p>
+      )}
+      <div className="flex items-center justify-end gap-2">
+        {problem && (
+          <p id="add-profile-problem" className="min-w-0 flex-1 text-[12px] text-muted">
+            {problem}
+          </p>
+        )}
         <button type="button" className={button} onClick={onDone}>
           Cancel
         </button>
-        <button type="submit" disabled={busy || !name.trim() || !path.startsWith('/')} className="h-7 rounded-md bg-accent px-3 text-[12px] font-medium text-on-accent disabled:opacity-50" data-add-profile-submit>
+        <button type="submit" disabled={busy || !!problem} aria-describedby={problem ? 'add-profile-problem' : undefined} className="h-7 rounded-md bg-accent px-3 text-[12px] font-medium text-on-accent disabled:opacity-50" data-add-profile-submit>
           Add profile
         </button>
       </div>
@@ -206,7 +248,7 @@ function SetupGuide() {
   // Not a grid: list items need display: list-item to keep their numbers.
   const step = 'space-y-1 pl-1 *:block';
   return (
-    <div className="rounded-lg border border-border" data-profile-guide>
+    <div className="min-w-0 rounded-lg border border-border" data-profile-guide>
       <button
         type="button"
         onClick={() => setOpen(!open)}
@@ -214,7 +256,7 @@ function SetupGuide() {
         className="flex w-full items-center gap-1.5 px-3 py-2 text-left text-[12px] text-muted hover:text-text"
         data-profile-guide-toggle
       >
-        <ChevronRight size={13} className={`shrink-0 transition-transform ${open ? 'rotate-90' : ''}`} />
+        <ChevronRight size={13} aria-hidden className={`shrink-0 transition-transform ${open ? 'rotate-90' : ''}`} />
         How to set up another profile
       </button>
       {open && (
@@ -265,8 +307,8 @@ export function ProfilesSettings() {
   const home = guessHome(profiles.map((p) => p.configDir)) ?? (builtin?.endsWith('/.claude') ? builtin.slice(0, -'/.claude'.length) : null);
 
   return (
-    <div className="grid gap-2" data-profiles>
-      <ul className="grid gap-2">
+    <div className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-2" data-profiles>
+      <ul className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-2" aria-label="Claude profiles">
         {profiles.map((profile) => (
           <ProfileRow key={`${profile.id}:${profile.name}`} profile={profile} home={home} onRemove={() => setRemoving(profile)} />
         ))}
@@ -275,7 +317,7 @@ export function ProfilesSettings() {
         <AddProfileForm home={home} onDone={() => setAdding(false)} />
       ) : (
         <button type="button" className={`${button} w-fit`} onClick={() => setAdding(true)} data-add-profile>
-          <Plus size={13} /> Add profile
+          <Plus size={13} aria-hidden /> Add profile
         </button>
       )}
       <SetupGuide />

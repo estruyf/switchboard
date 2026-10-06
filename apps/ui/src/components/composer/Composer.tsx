@@ -1,5 +1,5 @@
 import { AtSign, ImageOff, ImagePlus } from 'lucide-react';
-import { useEffect, useLayoutEffect, useRef, useState, type ClipboardEvent, type KeyboardEvent, type ReactNode } from 'react';
+import { useEffect, useId, useLayoutEffect, useRef, useState, type ClipboardEvent, type KeyboardEvent, type ReactNode } from 'react';
 import type { ImageAttachment, SlashCommand } from '@switchboard/protocol/client';
 import { useEngineConnection } from '../../engine/useEngine.ts';
 import { dropMessage, dropVerdict, MAX_ATTACHMENTS, mergeAttachments, planDrop, readImage } from './images.ts';
@@ -64,6 +64,7 @@ export function Composer(props: ComposerProps) {
   const rootRef = useRef<HTMLDivElement>(null);
   const listRef = useRef<HTMLUListElement>(null);
   const searchSeq = useRef(0);
+  const ids = useId();
 
   const presetSeq = props.preset?.seq;
   useEffect(() => {
@@ -148,7 +149,8 @@ export function Composer(props: ComposerProps) {
       setAttachments([]);
       setPalette(null);
     } catch (error) {
-      setNotice(error instanceof Error ? error.message : String(error));
+      // The text stays in the box, so trying again is one Enter away.
+      setNotice(`Not sent: ${error instanceof Error ? error.message : String(error)}`);
     } finally {
       setSending(false);
       ref.current?.focus();
@@ -268,20 +270,30 @@ export function Composer(props: ComposerProps) {
         </div>
       )}
       {palette && (
-        <ul ref={listRef} className="absolute right-0 bottom-full left-0 z-10 mb-2 max-h-72 overflow-y-auto rounded-lg border overlay" role="listbox" data-palette>
+        // Focus stays in the message box (aria-activedescendant points at the highlighted option), so the
+        // options are plain list items rather than buttons that Tab could land on.
+        <ul
+          ref={listRef}
+          id={`${ids}-palette`}
+          className="absolute right-0 bottom-full left-0 z-10 mb-2 max-h-72 overflow-y-auto rounded-lg border overlay"
+          role="listbox"
+          aria-label={palette.kind === 'slash' ? 'Commands' : 'Files'}
+          data-palette
+        >
           {palette.items.map((item, i) => (
-            <li key={item.value} role="option" aria-selected={i === palette.active}>
-              <button
-                type="button"
-                onMouseDown={(e) => {
-                  e.preventDefault();
-                  choose(item);
-                }}
-                className={`flex w-full items-baseline gap-3 px-3 py-1.5 text-left ${i === palette.active ? 'bg-accent/15' : ''}`}
-              >
-                <span className="shrink-0 font-mono text-[12px]">{item.label}</span>
-                <span className="min-w-0 truncate text-[11px] text-faint">{item.detail}</span>
-              </button>
+            <li
+              key={item.value}
+              id={`${ids}-option-${i}`}
+              role="option"
+              aria-selected={i === palette.active}
+              onMouseDown={(e) => {
+                e.preventDefault();
+                choose(item);
+              }}
+              className={`flex w-full cursor-default items-baseline gap-3 px-3 py-1.5 text-left hover:bg-accent/10 ${i === palette.active ? 'bg-accent/15' : ''}`}
+            >
+              <span className="shrink-0 font-mono text-[12px]">{item.label}</span>
+              <span className="min-w-0 truncate text-[11px] text-muted">{item.detail}</span>
             </li>
           ))}
         </ul>
@@ -292,14 +304,19 @@ export function Composer(props: ComposerProps) {
           <div className="mb-2 flex flex-wrap gap-2">
             {attachments.map((a, i) => (
               <div key={i} className="group relative size-14 overflow-hidden rounded-md border border-border">
-                <img src={`data:${a.mediaType};base64,${a.data}`} alt={a.name ?? 'attachment'} className="size-full object-cover" />
+                <img src={`data:${a.mediaType};base64,${a.data}`} alt={a.name ?? `Attached image ${i + 1}`} className="size-full object-cover" />
+                {/* Hidden until hover, but still in the Tab order: it appears when it has keyboard focus. */}
                 <button
                   type="button"
-                  onClick={() => setAttachments((current) => current.filter((_, j) => j !== i))}
-                  className="absolute top-0.5 right-0.5 hidden size-4 items-center justify-center rounded-full bg-black/70 text-[10px] text-white group-hover:flex"
-                  aria-label="Remove image"
+                  onClick={() => {
+                    setAttachments((current) => current.filter((_, j) => j !== i));
+                    ref.current?.focus();
+                  }}
+                  className="absolute top-0.5 right-0.5 flex size-4 items-center justify-center rounded-full bg-black/70 text-[10px] text-white opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
+                  aria-label={`Remove ${a.name ?? `image ${i + 1}`}`}
+                  data-tooltip="Remove"
                 >
-                  ×
+                  <span aria-hidden>×</span>
                 </button>
               </div>
             ))}
@@ -312,6 +329,12 @@ export function Composer(props: ComposerProps) {
           rows={1}
           disabled={disabled}
           placeholder={props.disabledReason ?? props.placeholder}
+          aria-label="Message to Claude"
+          aria-describedby={props.toolbar ? undefined : `${ids}-hint`}
+          // While the / or @ list is open, ↑ ↓ move through it without leaving the box.
+          aria-autocomplete="list"
+          aria-controls={palette ? `${ids}-palette` : undefined}
+          aria-activedescendant={palette ? `${ids}-option-${palette.active}` : undefined}
           spellCheck
           onChange={(e) => {
             setText(e.target.value);
@@ -322,17 +345,29 @@ export function Composer(props: ComposerProps) {
           onBlur={() => setTimeout(() => setPalette(null), 100)}
           className={`block max-h-80 w-full resize-none bg-transparent leading-relaxed text-text outline-none placeholder:text-faint ${props.large ? 'min-h-24 px-1 pt-1 text-[14.5px]' : 'text-[13.5px]'}`}
         />
-        {props.toolbar && notice && <p className="mt-1 truncate text-[11px] text-error">{notice}</p>}
+        {props.toolbar && notice && (
+          <p role="alert" className="mt-1 truncate text-[11px] text-error" data-tooltip={notice}>
+            {notice}
+          </p>
+        )}
         <div className={`flex items-center justify-between gap-2 ${props.toolbar ? '-mx-3 mt-2 flex-wrap border-t border-border px-2 pt-2' : 'mt-1.5'}`}>
           {props.toolbar ? (
             <div className="flex min-w-0 flex-wrap items-center gap-1">{props.toolbar}</div>
           ) : (
-            <span className="min-w-0 truncate text-[11px] text-faint">
-              {notice ? <span className="text-error">{notice}</span> : props.running ? 'Esc to interrupt · messages you send now are queued' : '/ for commands · @ for files · ⇧Tab mode'}
+            <span id={`${ids}-hint`} className="min-w-0 truncate text-[11px] text-muted">
+              {notice ? (
+                <span role="alert" className="text-error" data-tooltip={notice}>
+                  {notice}
+                </span>
+              ) : props.running ? (
+                'Esc to stop Claude · messages you send now are queued'
+              ) : (
+                `/ for commands · @ for files${props.onCycleMode ? ' · ⇧Tab to change mode' : ''}`
+              )}
             </span>
           )}
           <div className="flex shrink-0 items-center gap-1.5">
-            {props.dropHint && !text && attachments.length === 0 && !disabled && <span className="text-[11px] text-faint @max-[860px]:hidden">Paste or drop images and files</span>}
+            {props.dropHint && !text && attachments.length === 0 && !disabled && <span className="text-[11px] text-muted @max-[860px]:hidden">Paste or drop images and files</span>}
             <input
               ref={fileRef}
               type="file"
@@ -349,27 +384,31 @@ export function Composer(props: ComposerProps) {
               type="button"
               onClick={() => fileRef.current?.click()}
               disabled={disabled}
-              data-tooltip="Attach images (or paste / drop them). Dropped files and folders become @ mentions." aria-label="Attach images"
+              data-tooltip="Attach images (or paste / drop them). Dropped files and folders become @ mentions."
+              aria-label="Attach images"
               className="rounded-md p-1 text-muted hover:bg-border/50 hover:text-text disabled:opacity-40"
               data-attach
             >
               <ImagePlus size={15} />
             </button>
             {props.running && props.onInterrupt && (
-              <button type="button" onClick={props.onInterrupt} className="rounded-md border border-border px-2.5 py-1 text-[12px] text-muted hover:text-text">
+              <button type="button" onClick={props.onInterrupt} data-tooltip="Stop Claude (Esc)" aria-keyshortcuts="Escape" className="rounded-md border border-border px-2.5 py-1 text-[12px] text-muted hover:text-text">
                 Stop
               </button>
             )}
-            <button
-              type="button"
-              data-composer-submit
-              onClick={() => void submit()}
-              disabled={disabled || sending || (!text.trim() && attachments.length === 0)}
-              className={`flex items-center gap-2 rounded-md bg-accent px-3 text-[12px] font-medium text-on-accent disabled:opacity-40 ${props.submitHint ? 'h-7' : 'py-1'}`}
-            >
-              {sending ? 'Sending…' : (props.submitLabel ?? (props.running ? 'Queue' : 'Send'))}
-              {props.submitHint && !sending && <kbd className="font-sans text-[11px] font-normal opacity-60">{props.submitHint}</kbd>}
-            </button>
+            {/* A disabled button gets no hover, so the reason it's unavailable sits on this wrapper. */}
+            <span className="flex" data-tooltip={!sending ? (props.disabledReason ?? (!text.trim() && attachments.length === 0 ? 'Type a message first' : undefined)) : undefined}>
+              <button
+                type="button"
+                data-composer-submit
+                onClick={() => void submit()}
+                disabled={disabled || sending || (!text.trim() && attachments.length === 0)}
+                className={`flex items-center gap-2 rounded-md bg-accent px-3 text-[12px] font-medium text-on-accent disabled:pointer-events-none disabled:opacity-40 ${props.submitHint ? 'h-7' : 'py-1'}`}
+              >
+                {sending ? 'Sending…' : (props.submitLabel ?? (props.running ? 'Queue' : 'Send'))}
+                {props.submitHint && !sending && <kbd className="font-sans text-[11px] font-normal opacity-60">{props.submitHint}</kbd>}
+              </button>
+            </span>
           </div>
         </div>
       </div>

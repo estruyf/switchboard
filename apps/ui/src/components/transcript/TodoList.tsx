@@ -32,6 +32,8 @@ export function TodoList({ todos, compact = false }: { todos: Todo[]; compact?: 
             <Circle size={14} className="mt-px shrink-0 text-faint" />
           )}
           <span className={todo.status === 'completed' ? 'text-faint line-through' : todo.status === 'in_progress' ? 'font-medium text-text' : 'text-muted'}>
+            {/* The icon and strike-through show the state; say it in words too. */}
+            <span className="sr-only">{todo.status === 'completed' ? 'Done: ' : todo.status === 'in_progress' ? 'In progress: ' : 'To do: '}</span>
             {todo.status === 'in_progress' && todo.activeForm ? todo.activeForm : todo.content}
           </span>
         </li>

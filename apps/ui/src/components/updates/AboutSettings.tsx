@@ -46,7 +46,7 @@ export function AboutSettings() {
       <div className="flex items-center gap-4">
         <img src={appIcon} alt="" width={48} height={48} draggable={false} />
         <div className="grid gap-0.5">
-          <p className="text-[14px] font-semibold">Switchboard</p>
+          <h3 className="text-[14px] font-semibold">Switchboard</h3>
           {info && (
             <p className="text-[12.5px] text-muted">
               <span data-app-version={info.version} data-app-dev={info.dev}>
@@ -65,11 +65,11 @@ export function AboutSettings() {
           <p className="flex gap-3">
             {info && !info.dev && (
               <a href={releaseUrl(info.version)} target="_blank" rel="noreferrer" className={link}>
-                Release notes <ExternalLink size={11} />
+                Release notes <ExternalLink size={11} aria-hidden />
               </a>
             )}
             <a href={CHANGELOG_URL} target="_blank" rel="noreferrer" className={link} data-changelog-link>
-              Changelog <ExternalLink size={11} />
+              Changelog <ExternalLink size={11} aria-hidden />
             </a>
           </p>
         </div>
@@ -78,13 +78,14 @@ export function AboutSettings() {
       <div className="grid gap-3 border-t border-border pt-5">
         <div className="flex items-start gap-3">
           <div className="min-w-0 flex-1">
-            <p className="text-[12.5px] font-medium">Updates</p>
-            <p className={`mt-0.5 text-[12px] ${state?.status === 'error' ? 'text-error' : 'text-muted'}`} data-update-status={state?.status ?? 'unavailable'}>
+            <h3 className="text-[12.5px] font-medium">Updates</h3>
+            {/* A live region: a check started here reports its result without moving focus. */}
+            <p role="status" className={`mt-0.5 text-[12px] ${state?.status === 'error' ? 'text-error' : 'text-muted'}`} data-update-status={state?.status ?? 'unavailable'}>
               {state ? updateStatusText(state) : 'Updates are only available in the app.'}
             </p>
-            {state && state.status !== 'disabled' && <p className="mt-0.5 text-[11.5px] text-faint">{lastChecked(state.checkedAt, now)}</p>}
+            {state && state.status !== 'disabled' && <p className="mt-0.5 text-[11.5px] text-muted">{lastChecked(state.checkedAt, now)}</p>}
             {state?.status === 'downloading' && (
-              <div className="mt-2 h-1 overflow-hidden rounded-full bg-border">
+              <div role="progressbar" aria-label="Downloading the update" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(state.downloadPercent ?? 0)} className="mt-2 h-1 overflow-hidden rounded-full bg-border">
                 <div className="h-full bg-accent transition-[width]" style={{ width: `${state.downloadPercent ?? 0}%` }} />
               </div>
             )}
@@ -127,7 +128,9 @@ export function AboutSettings() {
         />
 
         <div className="grid gap-2">
-          <p className="text-[12.5px]">Channel</p>
+          <p className="text-[12.5px]" aria-hidden>
+            Channel
+          </p>
           <RadioGroup label="Update channel" className="grid gap-2.5">
             {CHANNELS.map(({ value, label, detail }) => (
               <Radio

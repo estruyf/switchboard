@@ -1,16 +1,19 @@
 import { RefreshCw, RotateCw, X } from 'lucide-react';
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react';
 import type { Capabilities, McpServerInfo } from '@switchboard/protocol/client';
 import { useEngineConnection } from '../../engine/useEngine.ts';
 import { ProfileBadge } from '../profiles/ProfileBadge.tsx';
+import { Switch } from '../ui/Toggle.tsx';
+import { useModalFocus } from '../ui/useModalFocus.ts';
 
 type Tab = 'mcp' | 'commands' | 'agents' | 'plugins';
 
-const MCP_TONE: Record<McpServerInfo['status'], { dot: string; label: string }> = {
+/** `hint` says what to do about a server that isn't working, when Claude Code gave no error of its own. */
+const MCP_TONE: Record<McpServerInfo['status'], { dot: string; label: string; hint?: string }> = {
   connected: { dot: 'bg-ok', label: 'Connected' },
   pending: { dot: 'bg-accent-ink animate-pulse', label: 'Connecting' },
-  'needs-auth': { dot: 'bg-warn', label: 'Needs sign-in' },
-  failed: { dot: 'bg-error', label: 'Failed' },
+  'needs-auth': { dot: 'bg-warn', label: 'Needs sign-in', hint: 'Sign in with /mcp in the Claude Code terminal (Terminal panel, then Claude Code).' },
+  failed: { dot: 'bg-error', label: 'Failed', hint: 'Claude Code could not start it. Check its settings, then reconnect.' },
   disabled: { dot: 'bg-faint', label: 'Off' },
 };
 
@@ -19,7 +22,7 @@ function Row({ title, meta, children, detail }: { title: ReactNode; meta?: React
     <div className="border-b border-border px-4 py-2 last:border-b-0">
       <div className="flex min-h-6 items-center gap-2">
         <div className="min-w-0 flex-1 truncate text-[12.5px]">{title}</div>
-        {meta && <span className="shrink-0 text-[11px] text-faint">{meta}</span>}
+        {meta && <span className="shrink-0 text-[11px] text-muted">{meta}</span>}
         {children}
       </div>
       {detail && <div className="mt-0.5 line-clamp-2 text-[11.5px] text-muted">{detail}</div>}
@@ -40,13 +43,16 @@ export function CapabilitiesDialog({ sessionId, cwd, profileId, onClose }: { ses
   const [tab, setTab] = useState<Tab>('mcp');
   const [filter, setFilter] = useState('');
   const [version, setVersion] = useState(0);
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const ids = useId();
+  useModalFocus(dialogRef);
 
   useEffect(() => {
     if (!client) return;
     let cancelled = false;
     client.call('session.capabilities', { sessionId, cwd, refresh: version > 0 }).then(
       (result) => !cancelled && (setCaps(result), setError(null)),
-      (e: Error) => !cancelled && setError(e.message),
+      (e: Error) => !cancelled && setError(`Couldn't ask Claude Code what's available: ${e.message}`),
     );
     return () => {
       cancelled = true;
@@ -66,7 +72,7 @@ export function CapabilitiesDialog({ sessionId, cwd, profileId, onClose }: { ses
       await client.call('session.mcp', { sessionId, server, action });
       setVersion((v) => v + 1);
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setError(`Couldn't ${action === 'reconnect' ? 'reconnect' : action === 'enable' ? 'turn on' : 'turn off'} ${server}: ${e instanceof Error ? e.message : String(e)}`);
     } finally {
       setBusy(null);
     }
@@ -90,96 +96,136 @@ export function CapabilitiesDialog({ sessionId, cwd, profileId, onClose }: { ses
     { id: 'agents', label: 'Agents', count: caps?.agents.length ?? null },
     { id: 'plugins', label: 'Plugins', count: caps?.plugins.length ?? null },
   ];
+  const tabLabel = tabs.find((t) => t.id === tab)!.label;
+
+  // ← → Home End move between the tabs and open the one they land on.
+  const onTabKey = (event: ReactKeyboardEvent<HTMLDivElement>) => {
+    const index = tabs.findIndex((t) => t.id === tab);
+    const next =
+      event.key === 'ArrowRight' ? (index + 1) % tabs.length : event.key === 'ArrowLeft' ? (index - 1 + tabs.length) % tabs.length : event.key === 'Home' ? 0 : event.key === 'End' ? tabs.length - 1 : null;
+    if (next === null) return;
+    event.preventDefault();
+    setTab(tabs[next]!.id);
+    document.getElementById(`${ids}-tab-${tabs[next]!.id}`)?.focus();
+  };
+  const subtitle = caps === null ? 'Asking Claude Code…' : caps.live ? 'Live from this session' : 'Read from this folder. Run the session here to turn MCP servers on or off.';
 
   return (
     <div className="no-drag fixed inset-0 z-[60] flex items-start justify-center bg-scrim pt-[10vh]" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
-      <div role="dialog" aria-label="Tools" className="flex max-h-[76vh] w-[640px] max-w-[92vw] flex-col overflow-hidden rounded-xl border overlay" data-capabilities>
+      <div
+        ref={dialogRef}
+        role="dialog"
+        aria-modal
+        aria-labelledby={`${ids}-title`}
+        aria-describedby={`${ids}-subtitle`}
+        className="flex max-h-[76vh] w-[640px] max-w-[92vw] flex-col overflow-hidden rounded-xl border overlay"
+        data-capabilities
+      >
         <div className="flex h-11 shrink-0 items-center gap-3 border-b border-border px-4">
-          <h2 className="text-[13px] font-semibold">Tools</h2>
+          <h2 id={`${ids}-title`} className="text-[13px] font-semibold">
+            Tools
+          </h2>
           {/* Plugins, MCP servers and skills differ per Claude profile. */}
           <ProfileBadge profileId={profileId} className="text-[11.5px]" />
-          <span className="min-w-0 flex-1 truncate text-[11.5px] text-faint">
-            {caps === null ? 'Asking Claude Code…' : caps.live ? 'Live from this session' : 'For this folder (start the session here to change MCP servers)'}
+          {/* Truncates in a narrow window; the tooltip keeps the whole sentence. */}
+          <span id={`${ids}-subtitle`} className="min-w-0 flex-1 truncate text-[11.5px] text-muted" data-tooltip={subtitle}>
+            {subtitle}
           </span>
-          <button type="button" data-tooltip="Refresh" aria-label="Refresh" onClick={() => setVersion((v) => v + 1)} className="flex size-6 items-center justify-center rounded text-faint hover:bg-border/60 hover:text-text">
+          <button type="button" data-tooltip="Ask Claude Code again" aria-label="Refresh" onClick={() => setVersion((v) => v + 1)} className="flex size-6 items-center justify-center rounded text-muted hover:bg-border/60 hover:text-text">
             <RefreshCw size={12} />
           </button>
-          <button type="button" data-tooltip="Close" aria-label="Close" onClick={onClose} className="flex size-6 items-center justify-center rounded text-faint hover:bg-border/60 hover:text-text">
+          <button type="button" data-tooltip="Close (Esc)" aria-label="Close" onClick={onClose} className="flex size-6 items-center justify-center rounded text-muted hover:bg-border/60 hover:text-text">
             <X size={13} />
           </button>
         </div>
 
         <div className="flex shrink-0 items-center gap-1 border-b border-border px-3 py-1.5">
-          {tabs.map((t) => (
-            <button
-              key={t.id}
-              type="button"
-              data-capabilities-tab={t.id}
-              onClick={() => setTab(t.id)}
-              className={`rounded-md px-2.5 py-1 text-[12px] ${tab === t.id ? 'bg-accent/15 text-text' : 'text-muted hover:text-text'}`}
-            >
-              {t.label}
-              {t.count !== null && <span className="ml-1.5 text-faint tabular-nums">{t.count}</span>}
-            </button>
-          ))}
+          <div role="tablist" aria-label="Kind of tool" onKeyDown={onTabKey} className="flex items-center gap-1">
+            {tabs.map((t) => (
+              <button
+                key={t.id}
+                type="button"
+                role="tab"
+                id={`${ids}-tab-${t.id}`}
+                aria-selected={tab === t.id}
+                aria-controls={`${ids}-panel`}
+                tabIndex={tab === t.id ? 0 : -1}
+                data-capabilities-tab={t.id}
+                onClick={() => setTab(t.id)}
+                className={`rounded-md px-2.5 py-1 text-[12px] ${tab === t.id ? 'bg-accent/15 text-text' : 'text-muted hover:text-text'}`}
+              >
+                {t.label}
+                {/* The smoke test reads the count from the tab's first span. */}
+                {t.count !== null && <span className="ml-1.5 text-muted tabular-nums">{t.count}</span>}
+              </button>
+            ))}
+          </div>
           <input
             value={filter}
             onChange={(e) => setFilter(e.target.value)}
+            // Typing narrows the list straight away, so the field takes focus when the dialog opens.
+            autoFocus
             placeholder="Filter"
+            aria-label={`Filter ${tabLabel.toLowerCase()}`}
             spellCheck={false}
-            className="ml-auto h-7 w-36 rounded-md border border-border bg-bg px-2 text-[12px] text-text outline-none focus:border-accent-ink/60"
+            className="ml-auto h-7 w-36 rounded-md border border-border bg-bg px-2 text-[12px] text-text outline-none placeholder:text-faint focus:border-accent-ink/60"
           />
         </div>
 
-        {error && <p className="border-b border-border px-4 py-2 text-[12px] text-error">{error}</p>}
+        {error && (
+          <p role="alert" className="border-b border-border px-4 py-2 text-[12px] text-error">
+            {error}
+          </p>
+        )}
 
-        <div className="min-h-0 flex-1 overflow-y-auto" data-capabilities-list={tab}>
-          {caps === null && !error && <p className="p-4 text-[12px] text-faint">Loading…</p>}
-          {caps && tab === 'mcp' && (lists.mcp.length === 0 ? <p className="p-4 text-[12px] text-faint">No MCP servers{needle ? ' match' : ' configured'}.</p> : lists.mcp.map((server) => {
+        <div id={`${ids}-panel`} role="tabpanel" aria-labelledby={`${ids}-tab-${tab}`} tabIndex={0} className="min-h-0 flex-1 overflow-y-auto outline-none" data-capabilities-list={tab}>
+          {caps === null && !error && (
+            <p role="status" className="p-4 text-[12px] text-muted">
+              Loading…
+            </p>
+          )}
+          {caps && tab === 'mcp' && (lists.mcp.length === 0 ? <p className="p-4 text-[12px] text-muted">No MCP servers{needle ? ' match' : ' configured'}.</p> : lists.mcp.map((server) => {
             const tone = MCP_TONE[server.status];
             return (
               <Row
                 key={server.name}
                 title={
                   <span className="flex items-center gap-2">
-                    <span className={`size-2 shrink-0 rounded-full ${tone.dot}`} data-tooltip={tone.label} role="img" aria-label={tone.label} />
+                    <span className={`size-2 shrink-0 rounded-full ${tone.dot}`} data-tooltip={tone.label} role="img" aria-label={`${tone.label}:`} />
                     <span className="truncate font-medium">{server.name}</span>
                     {server.scope && <span className="shrink-0 rounded bg-border/60 px-1.5 text-[10.5px] text-muted">{server.scope}</span>}
                   </span>
                 }
                 meta={server.status === 'connected' ? `${server.tools.length} tools` : tone.label}
-                detail={server.error ?? (server.tools.length ? server.tools.slice(0, 12).join(', ') + (server.tools.length > 12 ? ', …' : '') : null)}
+                detail={server.error ?? tone.hint ?? (server.tools.length ? server.tools.slice(0, 12).join(', ') + (server.tools.length > 12 ? ', …' : '') : null)}
               >
                 {caps.live && (
                   <>
                     {server.status !== 'disabled' && (
-                      <button type="button" data-tooltip="Reconnect" aria-label="Reconnect" disabled={busy === server.name} onClick={() => void mcp(server.name, 'reconnect')} className="flex size-6 items-center justify-center rounded text-faint hover:text-text disabled:opacity-40">
+                      <button type="button" data-tooltip="Reconnect" aria-label={`Reconnect ${server.name}`} disabled={busy === server.name} onClick={() => void mcp(server.name, 'reconnect')} className="flex size-6 items-center justify-center rounded text-faint hover:text-text disabled:opacity-40">
                         <RotateCw size={12} className={busy === server.name ? 'animate-spin' : ''} />
                       </button>
                     )}
-                    <button
-                      type="button"
-                      role="switch"
-                      aria-checked={server.status !== 'disabled'}
-                      data-tooltip={server.status === 'disabled' ? 'Turn on' : 'Turn off'} aria-label={server.status === 'disabled' ? 'Turn on' : 'Turn off'}
+                    {/* The switch's state (aria-checked) says on or off; its name says which server. */}
+                    <Switch
+                      checked={server.status !== 'disabled'}
+                      label={server.name}
                       disabled={busy === server.name}
-                      onClick={() => void mcp(server.name, server.status === 'disabled' ? 'enable' : 'disable')}
-                      className={`relative h-4 w-7 shrink-0 rounded-full transition-colors disabled:opacity-50 ${server.status === 'disabled' ? 'bg-border' : 'bg-accent'}`}
-                    >
-                      <span className={`absolute top-0.5 left-0.5 size-3 rounded-full bg-white shadow transition-transform ${server.status === 'disabled' ? '' : 'translate-x-3'}`} />
-                    </button>
+                      onChange={(on) => void mcp(server.name, on ? 'enable' : 'disable')}
+                      dataAttrs={{ 'data-tooltip': server.status === 'disabled' ? 'Turn on' : 'Turn off' }}
+                    />
                   </>
                 )}
               </Row>
             );
           }))}
-          {caps && tab === 'commands' && (lists.commands.length === 0 ? <p className="p-4 text-[12px] text-faint">No skills or custom commands{needle ? ' match' : ''}.</p> : lists.commands.map((c) => (
+          {caps && tab === 'commands' && (lists.commands.length === 0 ? <p className="p-4 text-[12px] text-muted">No skills or custom commands{needle ? ' match' : ''}.</p> : lists.commands.map((c) => (
             <Row key={c.name} title={<span className="font-mono">/{c.name}</span>} meta={c.argumentHint || undefined} detail={c.description} />
           )))}
-          {caps && tab === 'agents' && (lists.agents.length === 0 ? <p className="p-4 text-[12px] text-faint">No agents{needle ? ' match' : ''}.</p> : lists.agents.map((a) => (
+          {caps && tab === 'agents' && (lists.agents.length === 0 ? <p className="p-4 text-[12px] text-muted">No agents{needle ? ' match' : ''}.</p> : lists.agents.map((a) => (
             <Row key={a.name} title={<span className="font-medium">{a.name}</span>} meta={a.model ?? undefined} detail={a.description} />
           )))}
-          {caps && tab === 'plugins' && (lists.plugins.length === 0 ? <p className="p-4 text-[12px] text-faint">No plugins installed{needle ? ' that match' : ''}.</p> : lists.plugins.map((p) => (
+          {caps && tab === 'plugins' && (lists.plugins.length === 0 ? <p className="p-4 text-[12px] text-muted">No plugins installed{needle ? ' that match' : ''}.</p> : lists.plugins.map((p) => (
             <Row key={p.name} title={<span className="font-medium">{p.name}</span>} meta={[p.version && `v${p.version}`, p.scope].filter(Boolean).join(' · ') || undefined} detail={p.path} />
           )))}
         </div>

@@ -13,12 +13,32 @@ export function RadioMark({ checked, className = '' }: { checked: boolean; class
  * One option of a `RadioGroup` (`role="radio"`). Only the checked one is in the tab order; while none
  * is checked, pass `tabbable` on the first so the group can still be reached with Tab.
  */
-export function Radio({ checked, onSelect, disabled, tabbable, children, className = '', dataAttrs }: { checked: boolean; onSelect(): void; disabled?: boolean; tabbable?: boolean; children: ReactNode; className?: string; dataAttrs?: Record<`data-${string}`, string | boolean | undefined> }) {
+export function Radio({
+  checked,
+  onSelect,
+  disabled,
+  tabbable,
+  label,
+  children,
+  className = '',
+  dataAttrs,
+}: {
+  checked: boolean;
+  onSelect(): void;
+  disabled?: boolean;
+  tabbable?: boolean;
+  /** Accessible name when the visible text alone is ambiguous (several "Default" radios on one page). */
+  label?: string;
+  children: ReactNode;
+  className?: string;
+  dataAttrs?: Record<`data-${string}`, string | boolean | undefined>;
+}) {
   return (
     <button
       type="button"
       role="radio"
       aria-checked={checked}
+      aria-label={label}
       tabIndex={checked || tabbable ? 0 : -1}
       disabled={disabled}
       onClick={onSelect}

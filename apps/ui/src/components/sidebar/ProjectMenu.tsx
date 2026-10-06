@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { Check, FolderCog, FolderOpen, FolderPlus, Image, Layers, RotateCcw, Smile, Type, X } from 'lucide-react';
+import { useCallback, useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode, type RefObject } from 'react';
+import { Check, ChevronDown, Ellipsis, FolderCog, FolderOpen, FolderPlus, Image, Layers, RotateCcw, Smile, Type, X } from 'lucide-react';
 import type { ProjectIconChoice } from '@switchboard/protocol/client';
 import { useEngineConnection } from '../../engine/useEngine.ts';
 import { useProfiles } from '../../state/profilesStore.ts';
@@ -10,6 +10,7 @@ import { Menu, type MenuEntry } from '../Menu.tsx';
 import { useOpenIn } from '../OpenInButton.tsx';
 import { ProfileDot } from '../profiles/ProfileBadge.tsx';
 import { ProjectIcon } from '../ProjectIcon.tsx';
+import { Popover } from '../ui/Popover.tsx';
 
 const SUGGESTED = ['🚀', '🧪', '📦', '🛠️', '🌐', '📱', '🎨', '📝', '🤖', '⚡️', '🔥', '🧩', '📊', '🎬', '🚲', '☁️'];
 
@@ -65,10 +66,17 @@ function EmojiPicker({ x, y, root, onClose }: { x: number; y: number; root: stri
     onClose();
   };
   return (
-    <div style={{ left: x, top: y }} className="no-drag fixed z-50 w-56 rounded-lg border overlay p-2" onMouseDown={(e) => e.stopPropagation()}>
+    <div
+      role="dialog"
+      aria-label="Choose an emoji"
+      style={{ left: x, top: y }}
+      className="no-drag fixed z-50 w-56 rounded-lg border overlay p-2"
+      onMouseDown={(e) => e.stopPropagation()}
+      onKeyDown={(e) => e.key === 'Escape' && onClose()}
+    >
       <div className="grid grid-cols-8 gap-0.5">
         {SUGGESTED.map((emoji) => (
-          <button key={emoji} type="button" onClick={() => apply(emoji)} className="rounded py-0.5 text-[15px] hover:bg-accent/15">
+          <button key={emoji} type="button" onClick={() => apply(emoji)} className="rounded py-0.5 text-[15px] hover:bg-accent/15 focus-visible:bg-accent/15">
             {emoji}
           </button>
         ))}
@@ -85,12 +93,12 @@ function EmojiPicker({ x, y, root, onClose }: { x: number; y: number; root: stri
           value={value}
           maxLength={16}
           onChange={(e) => setValue(e.target.value)}
-          onKeyDown={(e) => e.key === 'Escape' && onClose()}
           placeholder="Or type any emoji (⌃⌘Space)"
+          aria-label="Emoji"
           className="h-7 min-w-0 flex-1 rounded-md border border-border bg-bg px-2 text-[12px] outline-none focus:border-accent-ink/60"
         />
-        <button type="button" onClick={onClose} className="rounded px-1.5 text-faint hover:text-text" aria-label="Cancel">
-          <X size={13} />
+        <button type="button" onClick={onClose} className="flex size-7 shrink-0 items-center justify-center rounded text-muted hover:text-text" aria-label="Cancel" data-tooltip="Cancel">
+          <X size={13} aria-hidden />
         </button>
       </form>
     </div>
@@ -160,7 +168,12 @@ export function useProjectIconEntries() {
   return { entries, picker };
 }
 
-/** "All projects ▾": filter the list to one of your projects, add one, or manage them. */
+/** Filter-menu items in order, for ↑ ↓ Home End (the per-project ⋯ buttons are for the mouse; → opens the same menu). */
+function filterItems(menu: HTMLElement | null): HTMLElement[] {
+  return menu ? Array.from(menu.querySelectorAll<HTMLElement>('[data-filter-item]')) : [];
+}
+
+/** "All projects ⌄": filter the list to one of your projects, add one, or manage them. */
 export function ProjectFilter({ counts }: { counts: Map<string, { total: number; active: number }> }) {
   const projects = useProjects((s) => s.projects);
   const filter = useProjects((s) => s.filter);
@@ -168,25 +181,76 @@ export function ProjectFilter({ counts }: { counts: Map<string, { total: number;
   const icons = useProjectIconEntries();
   const [open, setOpen] = useState<{ x: number; y: number } | null>(null);
   const [submenu, setSubmenu] = useState<{ root: string; x: number; y: number } | null>(null);
+  const buttonRef = useRef<HTMLButtonElement>(null);
+  const menuId = useId();
 
   const showAdd = useProjects((s) => s.showAdd);
   const sorted = addedProjects(projects);
   const current = filter ? projects.get(filter) : undefined;
+  const currentName = filter ? (current?.name ?? filter) : 'All projects';
+  const close = useCallback(() => setOpen(null), []);
+  const choose = (action: () => void) => {
+    setOpen(null);
+    buttonRef.current?.focus();
+    action();
+  };
+  /** Opens a project's icon and options menu beside its row. */
+  const more = (root: string, el: HTMLElement) => {
+    const rect = el.getBoundingClientRect();
+    setSubmenu({ root, x: rect.right - 8, y: rect.top });
+  };
+
+  const onMenuKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    const items = filterItems(event.currentTarget);
+    const index = items.indexOf(document.activeElement as HTMLElement);
+    let next: number | null = null;
+    if (event.key === 'ArrowDown') next = index < 0 ? 0 : (index + 1) % items.length;
+    else if (event.key === 'ArrowUp') next = index < 0 ? items.length - 1 : (index - 1 + items.length) % items.length;
+    else if (event.key === 'Home') next = 0;
+    else if (event.key === 'End') next = items.length - 1;
+    else if (event.key === 'Tab') {
+      event.preventDefault();
+      choose(() => {});
+      return;
+    } else if (event.key === 'ArrowRight' || event.key === 'ContextMenu' || (event.key === 'F10' && event.shiftKey)) {
+      const root = (document.activeElement as HTMLElement | null)?.dataset.projectRoot;
+      if (root) {
+        event.preventDefault();
+        more(root, document.activeElement as HTMLElement);
+      }
+      return;
+    }
+    if (next === null || items.length === 0) return;
+    event.preventDefault();
+    items[next]!.focus();
+  };
 
   return (
     <div className="flex items-center gap-1 px-3 pb-2">
       <button
+        ref={buttonRef}
         type="button"
         data-project-filter
+        aria-haspopup="menu"
+        aria-expanded={open !== null}
+        aria-controls={open ? menuId : undefined}
+        aria-label={`Show sessions from: ${currentName}`}
+        data-tooltip="Show one project’s sessions"
         onClick={(e) => {
           const rect = e.currentTarget.getBoundingClientRect();
           setOpen((current) => (current ? null : { x: rect.left, y: rect.bottom + 4 }));
         }}
+        onKeyDown={(e) => {
+          if (e.key === 'ArrowDown' && !open) {
+            e.preventDefault();
+            e.currentTarget.click();
+          }
+        }}
         className="no-drag flex h-7 min-w-0 flex-1 items-center gap-2 rounded-md px-1.5 text-left text-[12px] text-muted hover:bg-border/50 hover:text-text"
       >
-        {filter ? <ProjectIcon project={current} root={filter} /> : <Layers size={14} className="shrink-0" />}
-        <span className="min-w-0 flex-1 truncate">{filter ? (current?.name ?? filter) : 'All projects'}</span>
-        <span className="text-[9px] text-faint">▼</span>
+        {filter ? <ProjectIcon project={current} root={filter} /> : <Layers size={14} className="shrink-0" aria-hidden />}
+        <span className="min-w-0 flex-1 truncate">{currentName}</span>
+        <ChevronDown size={13} className={`shrink-0 text-faint transition-transform ${open ? 'rotate-180' : ''}`} aria-hidden />
       </button>
       <button
         type="button"
@@ -195,64 +259,134 @@ export function ProjectFilter({ counts }: { counts: Map<string, { total: number;
         onClick={() => showAdd(true)}
         className="no-drag flex size-7 items-center justify-center rounded-md text-muted hover:bg-border/50 hover:text-text"
       >
-        <FolderPlus size={15} />
+        <FolderPlus size={15} aria-hidden />
       </button>
 
       {open && (
-        <div
-          style={{ left: open.x, top: open.y }}
-          className="no-drag fixed z-40 max-h-[60vh] w-64 overflow-y-auto rounded-lg border overlay py-1"
-        >
-          <DismissLayer onDismiss={() => setOpen(null)} />
-          <FilterRow selected={!filter} onSelect={() => (setFilter(null), setOpen(null))} icon={<Layers size={14} />} label="All projects" />
-          <div className="my-1 border-t border-border" />
+        <FilterPopover id={menuId} x={open.x} y={open.y} anchor={buttonRef} onClose={close} closeOnEscape={!submenu} onKeyDown={onMenuKeyDown}>
+          <FilterRow selected={!filter} onSelect={() => choose(() => setFilter(null))} icon={<Layers size={14} aria-hidden />} label="All projects" />
+          <div role="separator" className="my-1 border-t border-border" />
           {sorted.map((project) => (
             <FilterRow
               key={project.root}
+              root={project.root}
               selected={filter === project.root}
-              onSelect={() => (setFilter(project.root), setOpen(null))}
-              onMore={(x, y) => setSubmenu({ root: project.root, x, y })}
+              onSelect={() => choose(() => setFilter(project.root))}
+              onMore={(el) => more(project.root, el)}
               icon={<ProjectIcon project={project} root={project.root} />}
               label={project.name}
               title={project.root}
               count={counts.get(project.root)?.total ?? 0}
             />
           ))}
-          {sorted.length === 0 && <p className="px-3 py-1.5 text-[12px] text-faint">No projects yet.</p>}
-          <div className="my-1 border-t border-border" />
-          <FilterRow selected={false} onSelect={() => (setOpen(null), showAdd(true))} icon={<FolderPlus size={14} />} label="Add project…" />
-          <FilterRow selected={false} onSelect={() => (setOpen(null), manage())} icon={<FolderCog size={14} />} label="Manage projects…" />
-        </div>
+          {sorted.length === 0 && (
+            <p role="none" className="px-3 py-1.5 text-[12px] text-muted">
+              No projects yet. Add the folders you work in.
+            </p>
+          )}
+          <div role="separator" className="my-1 border-t border-border" />
+          <FilterRow onSelect={() => choose(() => showAdd(true))} icon={<FolderPlus size={14} aria-hidden />} label="Add project…" />
+          <FilterRow onSelect={() => choose(() => manage())} icon={<FolderCog size={14} aria-hidden />} label="Manage projects…" />
+        </FilterPopover>
       )}
-      {submenu && <Menu x={submenu.x} y={submenu.y} entries={icons.entries(submenu.root, submenu)} onClose={() => setSubmenu(null)} />}
+      {submenu && (
+        <Menu
+          x={submenu.x}
+          y={submenu.y}
+          label={`${projects.get(submenu.root)?.name ?? submenu.root} options`}
+          entries={icons.entries(submenu.root, submenu)}
+          onClose={() => setSubmenu(null)}
+        />
+      )}
       {icons.picker}
     </div>
   );
 }
 
-/** Closes the dropdown on outside clicks without stealing clicks inside it. */
-function DismissLayer({ onDismiss }: { onDismiss(): void }) {
-  return <div className="fixed inset-0 -z-10" onMouseDown={onDismiss} />;
+/**
+ * The filter dropdown: a menu that focuses the current choice when it opens and hands focus back to
+ * the filter button when it closes, like `Menu`, but with checked rows, counts and per-project options.
+ */
+function FilterPopover({
+  id,
+  x,
+  y,
+  anchor,
+  onClose,
+  closeOnEscape,
+  onKeyDown,
+  children,
+}: {
+  id: string;
+  x: number;
+  y: number;
+  anchor: RefObject<HTMLButtonElement | null>;
+  onClose(): void;
+  closeOnEscape: boolean;
+  onKeyDown(event: KeyboardEvent<HTMLDivElement>): void;
+  children: ReactNode;
+}) {
+  useEffect(() => {
+    const menu = document.getElementById(id);
+    const items = filterItems(menu);
+    (items.find((el) => el.getAttribute('aria-checked') === 'true') ?? items[0])?.focus({ preventScroll: true });
+    return () => {
+      const active = document.activeElement;
+      if (!active || active === document.body) anchor.current?.focus({ preventScroll: true });
+    };
+  }, [id, anchor]);
+
+  return (
+    <Popover id={id} x={x} y={y} width={256} anchor={anchor} onClose={onClose} closeOnEscape={closeOnEscape} role="menu" aria-label="Show sessions from" onKeyDown={onKeyDown}>
+      {children}
+    </Popover>
+  );
 }
 
-function FilterRow(props: { selected: boolean; onSelect(): void; onMore?(x: number, y: number): void; icon: React.ReactNode; label: string; title?: string; count?: number }) {
+function FilterRow(props: { selected?: boolean; root?: string; onSelect(): void; onMore?(el: HTMLElement): void; icon: ReactNode; label: string; title?: string; count?: number }) {
+  const radio = props.selected !== undefined;
   return (
-    <div className="group flex items-center pr-1 hover:bg-accent/10" data-tooltip={props.title}>
-      <button type="button" onClick={props.onSelect} className="flex min-w-0 flex-1 items-center gap-2 px-3 py-1.5 text-left text-[12px]">
+    <div role="none" className="group flex items-center pr-1 hover:bg-accent/10 focus-within:bg-accent/10" data-tooltip={props.title}>
+      <button
+        type="button"
+        role={radio ? 'menuitemradio' : 'menuitem'}
+        aria-checked={radio ? props.selected : undefined}
+        tabIndex={-1}
+        data-filter-item
+        data-project-root={props.onMore ? props.root : undefined}
+        onClick={props.onSelect}
+        onContextMenu={
+          props.onMore
+            ? (e) => {
+                e.preventDefault();
+                props.onMore!(e.currentTarget);
+              }
+            : undefined
+        }
+        className="flex min-w-0 flex-1 items-center gap-2 px-3 py-1.5 text-left text-[12px] outline-none"
+      >
         {props.icon}
         <span className="min-w-0 flex-1 truncate">{props.label}</span>
-        {props.count !== undefined && <span className="text-[11px] text-faint tabular-nums">{props.count}</span>}
-        <span className="w-3">{props.selected && <Check size={12} className="text-accent-ink" />}</span>
+        {props.count !== undefined && (
+          <span className="text-[11px] text-muted tabular-nums">
+            {props.count}
+            <span className="sr-only">{props.count === 1 ? ' session' : ' sessions'}</span>
+          </span>
+        )}
+        <span className="w-3" aria-hidden>
+          {props.selected && <Check size={12} className="text-accent-ink" />}
+        </span>
       </button>
       {props.onMore && (
         <button
           type="button"
-          onClick={(e) => props.onMore!(e.clientX, e.clientY)}
-          className="rounded px-1 text-[13px] text-faint opacity-0 group-hover:opacity-100 hover:text-text"
-          aria-label="Project options"
-          data-tooltip="Icon and options"
+          tabIndex={-1}
+          onClick={(e) => props.onMore!(e.currentTarget)}
+          className="flex size-6 shrink-0 items-center justify-center rounded text-faint opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 hover:text-text"
+          aria-label={`Options for ${props.label}`}
+          data-tooltip="Icon and options (→)"
         >
-          ⋯
+          <Ellipsis size={14} aria-hidden />
         </button>
       )}
     </div>

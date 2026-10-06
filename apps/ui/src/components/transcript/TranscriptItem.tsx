@@ -1,5 +1,5 @@
 import { Bot, ClipboardList } from 'lucide-react';
-import { memo, useState, type ReactNode } from 'react';
+import { memo, useId, useState, type ReactNode } from 'react';
 import { useOpenIn } from '../OpenInButton.tsx';
 import { DiffView } from './DiffView.tsx';
 import { ActivityGroupView } from './ActivityGroup.tsx';
@@ -11,13 +11,27 @@ import { TranscriptImage } from './TranscriptImage.tsx';
 import { parseTodos, TodoList } from './TodoList.tsx';
 import { editHunks, toolSummary } from './toolSummary.ts';
 
-function Disclosure({ open, onToggle, children }: { open: boolean; onToggle: () => void; children: ReactNode }) {
+/**
+ * A row that shows or hides the details under it. `after` sits next to the toggle rather than
+ * inside it, because a button can't hold another control (screen readers and keyboards lose it).
+ */
+function Disclosure({ open, onToggle, controls, after, children }: { open: boolean; onToggle: () => void; controls: string; after?: ReactNode; children: ReactNode }) {
   return (
-    <button type="button" onClick={onToggle} className="flex w-full min-w-0 items-center gap-2 text-left">
-      <span className={`inline-block w-3 shrink-0 text-[9px] text-faint transition-transform ${open ? 'rotate-90' : ''}`}>▶</span>
-      {children}
-    </button>
+    <div className="flex w-full min-w-0 items-center gap-2">
+      <button type="button" onClick={onToggle} aria-expanded={open} aria-controls={open ? controls : undefined} className="flex min-w-0 flex-1 items-center gap-2 text-left">
+        <span className={`inline-block w-3 shrink-0 text-[9px] text-faint transition-transform ${open ? 'rotate-90' : ''}`} aria-hidden>
+          ▶
+        </span>
+        {children}
+      </button>
+      {after}
+    </div>
   );
+}
+
+/** Says who wrote a message, for screen readers; it also lets VoiceOver jump between messages by heading. */
+function Speaker({ name }: { name: string }) {
+  return <h2 className="sr-only">{name}</h2>;
 }
 
 const FILE_TOOLS = new Set(['Read', 'Write', 'Edit', 'MultiEdit', 'NotebookEdit']);
@@ -49,28 +63,32 @@ function ToolCard({ item, cwd, sessionId }: { item: ToolItem; cwd: string | null
   const isAgent = item.name === 'Task' || item.name === 'Agent';
   const { label, detail } = toolSummary(item.name, item.input, cwd);
   const failed = item.result?.isError ?? false;
+  const detailsId = useId();
 
   return (
     <div className="rounded-md border border-border bg-card/60 px-3 py-1.5" data-tool={item.name}>
-      <Disclosure open={open} onToggle={() => setOpen((o) => !o)}>
-        {isAgent ? <Bot size={13} className="shrink-0 text-accent-ink" /> : <ResultDot item={item} />}
+      <Disclosure
+        open={open}
+        onToggle={() => setOpen((o) => !o)}
+        controls={detailsId}
+        after={
+          target && (
+            <button
+              type="button"
+              data-tooltip={`Open ${target.path} in your editor`}
+              aria-label={`Open ${target.path} in your editor`}
+              onClick={() => void openIn(target.path, target.line ? { line: target.line } : {}).catch(() => {})}
+              className="shrink-0 rounded px-1 text-[11px] text-muted hover:bg-border/60 hover:text-accent-ink"
+            >
+              Open ↗
+            </button>
+          )
+        }
+      >
+        {isAgent ? <Bot size={13} className="shrink-0 text-accent-ink" aria-hidden /> : <ResultDot item={item} />}
         <span className="shrink-0 text-[12px] font-medium">{label}</span>
         <span className="min-w-0 flex-1 truncate font-mono text-[12px] text-muted">{detail}</span>
         {isAgent && item.result === null && <span className="size-3 shrink-0 animate-spin rounded-full border-[1.5px] border-accent-ink/25 border-t-accent-ink" data-tooltip="Running" role="img" aria-label="Running" />}
-        {target && (
-          <span
-            role="link"
-            tabIndex={0}
-            data-tooltip={`Open ${target.path} in your editor`} aria-label={`Open ${target.path} in your editor`}
-            onClick={(e) => {
-              e.stopPropagation();
-              void openIn(target.path, target.line ? { line: target.line } : {}).catch(() => {});
-            }}
-            className="shrink-0 rounded px-1 text-[11px] text-faint hover:bg-border/60 hover:text-accent-ink"
-          >
-            Open ↗
-          </span>
-        )}
       </Disclosure>
 
       {/* File changes show their diff without expanding, like the CLI. */}
@@ -80,11 +98,16 @@ function ToolCard({ item, cwd, sessionId }: { item: ToolItem; cwd: string | null
       <ToolImages item={item} sessionId={sessionId} />
 
       {open && (
-        <div className="mt-2 pb-1">
+        <div id={detailsId} className="mt-2 pb-1">
           <ToolDetails item={item} cwd={cwd} sessionId={sessionId} />
         </div>
       )}
-      {!open && failed && item.result && <p className="mt-1 line-clamp-2 font-mono text-[11.5px] text-error">{item.result.text}</p>}
+      {!open && failed && item.result && (
+        <p className="mt-1 line-clamp-2 font-mono text-[11.5px] text-error">
+          <span className="sr-only">Failed: </span>
+          {item.result.text}
+        </p>
+      )}
     </div>
   );
 }
@@ -95,8 +118,8 @@ function PlanCard({ item }: { item: ToolItem }) {
   return (
     <div className="rounded-lg border border-accent-ink/30 bg-card px-4 py-3" data-plan>
       <p className="mb-1 flex items-center gap-2 text-[12px] font-medium text-muted">
-        <ClipboardList size={14} className="text-accent-ink" /> Plan
-        {verdict && <span className={`rounded px-1.5 text-[10px] ${verdict === 'Approved' ? 'bg-ok/15 text-ok' : 'bg-border text-muted'}`}>{verdict}</span>}
+        <ClipboardList size={14} className="text-accent-ink" aria-hidden /> Plan
+        {verdict && <span className={`rounded px-1.5 text-[11px] ${verdict === 'Approved' ? 'bg-ok/15 text-ok' : 'bg-border text-muted'}`}>{verdict}</span>}
       </p>
       <Markdown text={typeof plan === 'string' ? plan : ''} />
     </div>
@@ -106,14 +129,18 @@ function PlanCard({ item }: { item: ToolItem }) {
 /** A background agent's final report (Every step mode; summarised, it's a step in the group). */
 function AgentReport({ title, text, failed }: { title: string; text: string; failed: boolean }) {
   const [open, setOpen] = useState(false);
+  const reportId = useId();
   return (
     <div className="rounded-md border border-border bg-card/60 px-3 py-1.5" data-agent-report>
-      <Disclosure open={open} onToggle={() => setOpen((o) => !o)}>
-        <Bot size={13} className="shrink-0 text-accent-ink" />
-        <span className={`min-w-0 flex-1 truncate text-[12px] ${failed ? 'text-error' : 'text-muted'}`}>{title}</span>
+      <Disclosure open={open} onToggle={() => setOpen((o) => !o)} controls={reportId}>
+        <Bot size={13} className="shrink-0 text-accent-ink" aria-hidden />
+        <span className={`min-w-0 flex-1 truncate text-[12px] ${failed ? 'text-error' : 'text-muted'}`}>
+          {title}
+          {failed && <span className="sr-only"> (did not complete)</span>}
+        </span>
       </Disclosure>
       {open && (
-        <div className="mt-2 pb-1">
+        <div id={reportId} className="mt-2 pb-1">
           <Markdown text={text} />
         </div>
       )}
@@ -123,12 +150,17 @@ function AgentReport({ title, text, failed }: { title: string; text: string; fai
 
 function Thinking({ text }: { text: string }) {
   const [open, setOpen] = useState(false);
+  const thoughtsId = useId();
   return (
-    <div className="text-[12px] text-faint">
-      <Disclosure open={open} onToggle={() => setOpen((o) => !o)}>
+    <div className="text-[12px] text-muted">
+      <Disclosure open={open} onToggle={() => setOpen((o) => !o)} controls={thoughtsId}>
         <span className="italic">Thinking</span>
       </Disclosure>
-      {open && <p className="mt-1 ml-5 whitespace-pre-wrap text-muted italic select-text">{text}</p>}
+      {open && (
+        <p id={thoughtsId} className="mt-1 ml-5 whitespace-pre-wrap text-muted italic select-text">
+          {text}
+        </p>
+      )}
     </div>
   );
 }
@@ -154,6 +186,7 @@ export const TranscriptItem = memo(function TranscriptItem({
     case 'user':
       return (
         <div className="group/message relative rounded-lg border border-border bg-card px-3.5 py-2.5">
+          <Speaker name={item.subagent ? 'Prompt to the subagent' : 'You'} />
           {!item.subagent && <MessageToolbar itemKey={item.key} kind="user" text={item.text} />}
           {/* Your prompts render as Markdown too, so code and code blocks are styled. */}
           {item.text && (
@@ -173,6 +206,7 @@ export const TranscriptItem = memo(function TranscriptItem({
     case 'command':
       return (
         <div className="flex items-center gap-2 font-mono text-[12px]">
+          <Speaker name="You ran a command" />
           <span className="rounded bg-accent/15 px-1.5 py-0.5 text-accent-ink">{item.name}</span>
           {item.args && <span className="truncate text-muted">{item.args}</span>}
         </div>
@@ -180,6 +214,7 @@ export const TranscriptItem = memo(function TranscriptItem({
     case 'text':
       return (
         <div className={`group/message relative ${indent}`}>
+          <Speaker name={item.subagent ? 'Subagent' : 'Claude'} />
           {!item.subagent && <MessageToolbar itemKey={item.key} kind="text" text={item.text} />}
           <Markdown text={item.text} />
         </div>
@@ -203,6 +238,6 @@ export const TranscriptItem = memo(function TranscriptItem({
     case 'agent-report':
       return <AgentReport title={item.title} text={item.text} failed={item.status !== 'completed'} />;
     case 'notice':
-      return <p className="text-center text-[11px] whitespace-pre-wrap text-faint">{item.text}</p>;
+      return <p className="text-center text-[11px] whitespace-pre-wrap text-muted">{item.text}</p>;
   }
 });

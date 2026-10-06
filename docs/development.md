@@ -49,7 +49,7 @@ SWITCHBOARD_LIVE_CWD=/path/to/throwaway-repo npx vitest run claude.live
 SWITCHBOARD_SMOKE_LIVE_CWD=/path/to/throwaway-repo npm run smoke
 ```
 
-The live smoke step drives the real window. It starts a session in that folder, attaches an image, approves a permission prompt, waits for the reply, runs a `/` command, checks the live Tools window, previews undoing file changes, forks from the reply, opens the Claude TUI tab and deletes the session. It refuses to submit if the folder field shows anything else.
+The live smoke step drives the real window. It starts a session in that folder, attaches an image, approves a permission prompt, waits for the reply, runs a `/` command, checks the live Tools window, previews undoing file changes, forks from the reply, opens the Claude Code terminal tab and deletes the session. It refuses to submit if the folder field shows anything else.
 
 ## Layout
 

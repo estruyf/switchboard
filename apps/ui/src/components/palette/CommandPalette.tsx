@@ -19,7 +19,7 @@ import {
   Upload,
   type LucideIcon,
 } from 'lucide-react';
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useEngineConnection } from '../../engine/useEngine.ts';
 import { shortAge } from '../../lib/format.ts';
 import { fuzzyScore } from '../../lib/fuzzy.ts';
@@ -36,6 +36,7 @@ import { useClaudeUpdate } from '../../state/claudeUpdateStore.ts';
 import { ACTION_ICON, formatShortcut, useProjectActionList } from '../actions/useActions.ts';
 import { useOpenIn } from '../OpenInButton.tsx';
 import { ProjectIcon } from '../ProjectIcon.tsx';
+import { useModalFocus } from '../ui/useModalFocus.ts';
 
 interface Item {
   id: string;
@@ -69,6 +70,10 @@ export function CommandPalette() {
   const [query, setQuery] = useState('');
   const [active, setActive] = useState(0);
   const listRef = useRef<HTMLDivElement>(null);
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const listId = useId();
+  const optionId = (index: number) => `${listId}-${index}`;
+  useModalFocus(dialogRef);
 
   const current = view === 'session' && selectedId ? selectedId : null;
   const summary = current ? sessions.get(current) : undefined;
@@ -185,11 +190,19 @@ export function CommandPalette() {
     else item.run();
   };
 
+  const typed = query.trim();
   return (
     <div className="no-drag fixed inset-0 z-[60] flex items-start justify-center bg-scrim pt-[14vh]" onMouseDown={(e) => e.target === e.currentTarget && close()}>
-      <div role="dialog" aria-label="Command palette" className="flex max-h-[60vh] w-[560px] max-w-[92vw] flex-col overflow-hidden rounded-xl border overlay" data-palette>
+      <div ref={dialogRef} role="dialog" aria-modal="true" aria-label="Command palette" className="flex max-h-[60vh] w-[560px] max-w-[92vw] flex-col overflow-hidden rounded-xl border overlay" data-palette>
+        {/* A combobox: focus stays in the field while ↑ ↓ move the highlighted result. */}
         <input
           autoFocus
+          role="combobox"
+          aria-expanded={results.length > 0}
+          aria-controls={listId}
+          aria-autocomplete="list"
+          aria-activedescendant={results[active] ? optionId(active) : undefined}
+          aria-label="Find a command, project action or session"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           onKeyDown={(e) => {
@@ -202,29 +215,43 @@ export function CommandPalette() {
           spellCheck={false}
           className="h-12 shrink-0 border-b border-border bg-transparent px-4 text-[14px] text-text outline-none placeholder:text-faint"
         />
-        <div ref={listRef} className="min-h-0 flex-1 overflow-y-auto py-1">
-          {results.length === 0 && <p className="px-4 py-6 text-center text-[12px] text-faint">Nothing matches.</p>}
+        {results.length === 0 && (
+          <div className="grid gap-1 px-4 py-6 text-center text-[12px]">
+            <p className="text-text">No commands or sessions match “{typed}”.</p>
+            <p className="text-muted">Try fewer letters, or search inside conversations with ⌘⇧F.</p>
+          </div>
+        )}
+        <div ref={listRef} id={listId} role="listbox" aria-label="Results" className={`min-h-0 flex-1 overflow-y-auto ${results.length ? 'py-1' : ''}`}>
           {results.map((item, index) => (
-            <div key={item.id}>
+            <div key={item.id} role="none">
               {(index === 0 || results[index - 1]!.group !== item.group) && (
-                <p className="px-4 pt-2 pb-1 text-[10.5px] tracking-wide text-faint uppercase">{item.group}</p>
+                <p aria-hidden className="px-4 pt-2 pb-1 text-[11px] tracking-wide text-muted uppercase">
+                  {item.group}
+                </p>
               )}
-              <button
-                type="button"
+              <div
+                id={optionId(index)}
+                role="option"
+                aria-selected={index === active}
                 data-active={index === active}
                 data-palette-item={item.id}
                 onMouseMove={() => setActive(index)}
-                onClick={() => choose(item)}
-                className={`flex h-8 w-full items-center gap-2.5 px-4 text-left text-[13px] ${index === active ? 'bg-accent/15 text-text' : 'text-text/85'}`}
+                onClick={(e) => choose(item, e.altKey)}
+                className={`flex h-8 w-full cursor-default items-center gap-2.5 px-4 text-left text-[13px] ${index === active ? 'bg-accent/15 text-text' : 'text-text/85'}`}
               >
-                <span className="flex w-4 shrink-0 justify-center text-muted">{item.icon}</span>
+                <span aria-hidden className="flex w-4 shrink-0 justify-center text-muted">
+                  {item.icon}
+                </span>
                 <span className="min-w-0 flex-1 truncate">{item.label}</span>
-                {item.group === 'Sessions' && item.keywords && <span className="max-w-[35%] shrink-0 truncate text-[11.5px] text-faint">{item.keywords}</span>}
+                {item.group === 'Sessions' && item.keywords && <span className="max-w-[35%] shrink-0 truncate text-[11.5px] text-muted">{item.keywords}</span>}
                 {item.hint && <span className="shrink-0 text-[11px] text-faint">{item.hint}</span>}
-              </button>
+              </div>
             </div>
           ))}
         </div>
+        <p className="sr-only" aria-live="polite">
+          {typed ? (results.length === 0 ? 'No results' : `${results.length} ${results.length === 1 ? 'result' : 'results'}`) : ''}
+        </p>
       </div>
     </div>
   );

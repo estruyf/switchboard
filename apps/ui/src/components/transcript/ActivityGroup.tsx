@@ -1,5 +1,5 @@
 import { ChevronRight, CircleAlert } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useEffect, useId, useState } from 'react';
 import type { ActivityGroup, DisplayItem } from './displayItems.ts';
 import { Markdown } from './Markdown.tsx';
 import { ToolDetails, ToolImages } from './ToolDetails.tsx';
@@ -55,15 +55,26 @@ function Step({ item, cwd, sessionId }: { item: DisplayItem; cwd: string | null;
   const [open, toggle] = useOpen(`step:${item.key}`);
   const label = stepLabel(item, cwd).past;
   const failed = item.kind === 'tool' && (item.result?.isError ?? false);
+  const detailsId = useId();
   return (
     <div data-step>
-      <button type="button" onClick={toggle} className="flex w-full min-w-0 items-center gap-1.5 px-3 py-2 text-left text-[12.5px] text-muted hover:text-text">
+      <button
+        type="button"
+        onClick={toggle}
+        aria-expanded={open}
+        aria-controls={open ? detailsId : undefined}
+        className="flex w-full min-w-0 items-center gap-1.5 px-3 py-2 text-left text-[12.5px] text-muted hover:text-text"
+      >
         <span className="min-w-0 truncate">{label}</span>
-        {failed && <CircleAlert size={12} className="shrink-0 text-error" aria-label="Failed" />}
-        <ChevronRight size={13} className={`shrink-0 text-faint transition-transform ${open ? 'rotate-90' : ''}`} />
+        {failed && (
+          <span className="flex shrink-0 items-center gap-1 text-[11px] text-error">
+            <CircleAlert size={12} aria-hidden /> failed
+          </span>
+        )}
+        <ChevronRight size={13} className={`shrink-0 text-faint transition-transform ${open ? 'rotate-90' : ''}`} aria-hidden />
       </button>
       {open && (
-        <div className="px-3 pb-2.5">
+        <div id={detailsId} className="px-3 pb-2.5">
           {item.kind === 'tool' ? (
             <ToolDetails item={item} cwd={cwd} sessionId={sessionId} withDiffAndImages />
           ) : item.kind === 'thinking' ? (
@@ -109,15 +120,31 @@ export function ActivityGroupView({
   const steps = items.filter((i) => i.kind !== 'thinking');
   const label = active ? (activeLabel ?? stepLabel(last, cwd).present) : steps.length === 1 ? stepLabel(steps[0]!, cwd).past : activitySummary(items);
   const images = items.filter((i) => i.kind === 'tool' && (i.result?.images.length ?? 0) > 0);
+  const stepsId = useId();
 
   return (
     <div data-activity={active ? 'active' : 'done'}>
-      <button type="button" onClick={toggle} className="group flex w-full min-w-0 items-center gap-2 rounded-md py-1 text-left text-[12.5px]" data-tooltip={open ? 'Hide steps' : 'Show steps'}>
-        <span className="flex w-4 shrink-0 justify-center">{active ? <WorkingDots /> : failures > 0 ? <CircleAlert size={12} className="text-error" /> : <span className="size-1.5 rounded-full bg-faint/70" />}</span>
+      <button
+        type="button"
+        onClick={toggle}
+        aria-expanded={open}
+        aria-controls={open ? stepsId : undefined}
+        className="group flex w-full min-w-0 items-center gap-2 rounded-md py-1 text-left text-[12.5px]"
+        data-tooltip={open ? 'Hide steps' : 'Show each step'}
+      >
+        <span className="flex w-4 shrink-0 justify-center" aria-hidden>
+          {active ? <WorkingDots /> : failures > 0 ? <CircleAlert size={12} className="text-error" /> : <span className="size-1.5 rounded-full bg-faint/70" />}
+        </span>
         <span className={`min-w-0 truncate ${active ? 'text-text/85' : 'text-muted group-hover:text-text'}`}>{label}</span>
         {failures > 0 && !active && <span className="shrink-0 text-error">· {failures} failed</span>}
-        {duration && <span className="shrink-0 text-faint tabular-nums">{duration}</span>}
-        <ChevronRight size={13} className={`shrink-0 text-faint transition-transform ${open ? 'rotate-90' : ''}`} />
+        {/* How long the run took (still counting while Claude works on it). */}
+        {duration && (
+          <span className="shrink-0 text-muted tabular-nums">
+            <span className="sr-only">{active ? ', running for ' : ', took '}</span>
+            {duration}
+          </span>
+        )}
+        <ChevronRight size={13} className={`shrink-0 text-faint transition-transform ${open ? 'rotate-90' : ''}`} aria-hidden />
       </button>
 
       {/* Images stay in view, like the attachments they often are (screenshots Claude took or read). */}
@@ -128,7 +155,7 @@ export function ActivityGroupView({
       )}
 
       {open && (
-        <div className="mt-1 ml-6 divide-y divide-border overflow-hidden rounded-lg border border-border" data-steps>
+        <div id={stepsId} className="mt-1 ml-6 divide-y divide-border overflow-hidden rounded-lg border border-border" data-steps>
           {items.map((item) => (
             <Step key={item.key} item={item} cwd={cwd} sessionId={sessionId} />
           ))}

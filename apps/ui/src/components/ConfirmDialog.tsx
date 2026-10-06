@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
+import { useModalFocus } from './ui/useModalFocus.ts';
 
 export interface ConfirmDialogProps {
   title: string;
@@ -16,6 +17,9 @@ export function ConfirmDialog(props: ConfirmDialogProps) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const confirmRef = useRef<HTMLButtonElement>(null);
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const id = useId();
+  useModalFocus(dialogRef);
 
   useEffect(() => {
     confirmRef.current?.focus();
@@ -38,10 +42,18 @@ export function ConfirmDialog(props: ConfirmDialogProps) {
 
   return (
     <div className="no-drag fixed inset-0 z-[60] flex items-center justify-center bg-scrim" onMouseDown={(e) => e.target === e.currentTarget && props.onClose()}>
-      <div role="alertdialog" aria-modal className="w-[420px] max-w-[90vw] rounded-xl border overlay p-5">
-        <h2 className="text-[14px] font-semibold">{props.title}</h2>
-        <div className="mt-2 text-[12.5px] leading-relaxed text-muted">{props.body}</div>
-        {(error || props.blockedReason) && <p className="mt-3 text-[12px] text-error">{error ?? props.blockedReason}</p>}
+      <div ref={dialogRef} role="alertdialog" aria-modal aria-labelledby={`${id}-title`} aria-describedby={`${id}-body`} className="w-[420px] max-w-[90vw] rounded-xl border overlay p-5">
+        <h2 id={`${id}-title`} className="text-[14px] font-semibold">
+          {props.title}
+        </h2>
+        <div id={`${id}-body`} className="mt-2 text-[12.5px] leading-relaxed text-muted">
+          {props.body}
+        </div>
+        {(error || props.blockedReason) && (
+          <p role="alert" className="mt-3 text-[12px] text-error">
+            {error ? `That didn't work: ${error}` : props.blockedReason}
+          </p>
+        )}
         <div className="mt-5 flex justify-end gap-2">
           <button type="button" onClick={props.onClose} className="rounded-md border border-border px-3 py-1 text-[12px] text-text hover:bg-border/50">
             Cancel

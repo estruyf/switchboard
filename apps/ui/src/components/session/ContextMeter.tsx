@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import type { ContextUsage, TranscriptMessage } from '@switchboard/protocol/client';
 import { useEngineConnection } from '../../engine/useEngine.ts';
 
@@ -44,6 +44,7 @@ export function ContextMeter({ sessionId, live, messages }: { sessionId: string;
   const [breakdown, setBreakdown] = useState<ContextUsage | null>(null);
   const [error, setError] = useState<string | null>(null);
   const ref = useRef<HTMLDivElement>(null);
+  const popupId = useId();
 
   useEffect(() => {
     if (!open || !client || !live) return;
@@ -66,8 +67,13 @@ export function ContextMeter({ sessionId, live, messages }: { sessionId: string;
     const tokens = lastTurnTokens(messages);
     if (tokens === null) return null;
     return (
-      <span className="flex shrink-0 items-center gap-1 whitespace-nowrap tabular-nums" data-tooltip="Context used at the end of the last turn" data-context-meter>
-        ≈{compactTokens(tokens)} context
+      <span
+        className="flex shrink-0 items-center gap-1 whitespace-nowrap tabular-nums"
+        data-tooltip="Tokens in Claude’s context window (what it keeps in mind for this conversation) at the end of the last turn"
+        data-context-meter
+      >
+        ≈{compactTokens(tokens)}
+        <span className="sr-only"> tokens of</span> context
       </span>
     );
   }
@@ -78,24 +84,29 @@ export function ContextMeter({ sessionId, live, messages }: { sessionId: string;
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
-        data-tooltip="Context window: click for what fills it"
+        aria-expanded={open}
+        aria-haspopup="dialog"
+        aria-controls={open ? popupId : undefined}
+        // The ring and a bare percentage mean little on their own: say what they measure.
+        aria-label={`Context window ${Math.round(live.percent)}% full, ${compactTokens(live.tokens)} of ${compactTokens(live.max)} tokens: show what fills it`}
+        data-tooltip="How full Claude’s context window is (what it keeps in mind for this conversation). Click for what fills it."
         className={`flex h-6 shrink-0 items-center gap-1.5 rounded-md px-1.5 whitespace-nowrap tabular-nums hover:bg-border/50 hover:text-text ${live.percent >= 75 ? 'text-warn' : ''}`}
       >
         <Ring percent={live.percent} />
         {Math.round(live.percent)}%<span className="@max-[860px]:hidden"> · {compactTokens(live.tokens)} / {compactTokens(live.max)}</span>
       </button>
       {open && (
-        <div className="absolute right-0 bottom-full z-30 mb-1.5 w-72 rounded-lg border overlay p-3 text-[12px] text-text" data-context-breakdown>
+        <div id={popupId} role="dialog" aria-label="Context window" className="absolute right-0 bottom-full z-30 mb-1.5 w-72 rounded-lg border overlay p-3 text-[12px] text-text" data-context-breakdown>
           <p className="font-semibold">Context window</p>
           <p className="mt-0.5 text-[11.5px] text-muted">
             {compactTokens(live.tokens)} of {compactTokens(live.max)} tokens ({Math.round(live.percent)}%){breakdown ? ` · ${breakdown.model}` : ''}
           </p>
           {error && <p className="mt-2 text-error">{error}</p>}
-          {!breakdown && !error && <p className="mt-2 text-faint">Loading…</p>}
+          {!breakdown && !error && <p className="mt-2 text-muted">Loading…</p>}
           {breakdown && (
             <>
-              {/* One bar, each category its own colour, like /context. */}
-              <div className="mt-2.5 flex h-2 overflow-hidden rounded-full bg-border">
+              {/* One bar, each category its own colour, like /context. The list below says the same in words. */}
+              <div className="mt-2.5 flex h-2 overflow-hidden rounded-full bg-border" aria-hidden>
                 {used.map((c, i) => (
                   <span key={c.name} style={{ width: `${(c.tokens / breakdown.maxTokens) * 100}%`, background: colorFor(c.color, i) }} data-tooltip={c.name} />
                 ))}
@@ -103,13 +114,13 @@ export function ContextMeter({ sessionId, live, messages }: { sessionId: string;
               <ul className="mt-2.5 grid gap-1">
                 {used.map((c, i) => (
                   <li key={c.name} className="flex items-center gap-2">
-                    <span className="size-2 shrink-0 rounded-sm" style={{ background: colorFor(c.color, i) }} />
+                    <span className="size-2 shrink-0 rounded-sm" style={{ background: colorFor(c.color, i) }} aria-hidden />
                     <span className="min-w-0 flex-1 truncate text-muted">{c.name}</span>
                     <span className="tabular-nums">{compactTokens(c.tokens)}</span>
                   </li>
                 ))}
                 <li className="flex items-center gap-2 border-t border-border pt-1">
-                  <span className="size-2 shrink-0 rounded-sm bg-border" />
+                  <span className="size-2 shrink-0 rounded-sm bg-border" aria-hidden />
                   <span className="min-w-0 flex-1 text-muted">Free</span>
                   <span className="tabular-nums">{compactTokens(Math.max(0, breakdown.maxTokens - breakdown.totalTokens))}</span>
                 </li>

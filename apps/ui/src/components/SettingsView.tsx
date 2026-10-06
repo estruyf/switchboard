@@ -1,5 +1,5 @@
 import { Activity, ArchiveRestore, ChevronLeft, Info, MessageSquare, Palette, PanelLeft, SlidersHorizontal, Users, X, type LucideIcon } from 'lucide-react';
-import { useEffect, type ReactNode } from 'react';
+import { useEffect, useId, type ReactNode } from 'react';
 import type { ColorScheme, SidebarStyle, StartupView, ToolActivity } from '@switchboard/protocol/bridge';
 import { usePreferences } from '../state/preferencesStore.ts';
 import { useSessions, type SettingsSection } from '../state/sessionsStore.ts';
@@ -105,10 +105,14 @@ function ActivityPreview({ mode }: { mode: ToolActivity }) {
 }
 
 function Section({ title, description, children }: { title: string; description?: string; children: ReactNode }) {
+  const id = useId();
+  // minmax(0, 1fr): a long path or command inside wraps or truncates instead of widening the page.
   return (
-    <section className="grid gap-3 py-6">
+    <section className="grid grid-cols-[minmax(0,1fr)] gap-3 py-6" aria-labelledby={id}>
       <div>
-        <h2 className="text-[13px] font-semibold">{title}</h2>
+        <h2 id={id} className="text-[13px] font-semibold">
+          {title}
+        </h2>
         {description && <p className="mt-0.5 text-[12px] text-muted">{description}</p>}
       </div>
       {children}
@@ -288,9 +292,9 @@ export function SettingsNav() {
   const section = useSessions((s) => s.settingsSection);
   const openSettings = useSessions((s) => s.openSettings);
   return (
-    <nav aria-label="Settings sections" className="flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto px-2 pb-2" data-settings-nav>
+    <nav aria-label="Settings" className="flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto px-2 pb-2" data-settings-nav>
       <button type="button" onClick={close} className="mb-2 flex h-7 items-center gap-1 rounded-md px-1.5 text-[12px] text-muted hover:bg-border/50 hover:text-text" data-settings-back>
-        <ChevronLeft size={14} /> Back to sessions
+        <ChevronLeft size={14} aria-hidden /> Back to sessions
       </button>
       {SECTIONS.map(({ id, label, icon: Icon }) => (
         <button
@@ -301,7 +305,7 @@ export function SettingsNav() {
           data-settings-section={id}
           className={`flex h-8 items-center gap-2.5 rounded-md px-2.5 text-left text-[12.5px] ${section === id ? 'bg-accent/15 font-medium text-text' : 'text-muted hover:bg-border/50 hover:text-text'}`}
         >
-          <Icon size={15} className={`shrink-0 ${section === id ? 'text-accent-ink' : ''}`} />
+          <Icon size={15} aria-hidden className={`shrink-0 ${section === id ? 'text-accent-ink' : ''}`} />
           <span className="truncate">{label}</span>
         </button>
       ))}
@@ -325,11 +329,11 @@ export function SettingsView() {
           data-tooltip="Close (Esc)" aria-label="Close settings"
           className="no-drag flex size-7 items-center justify-center rounded-md text-muted hover:bg-border/60 hover:text-text"
         >
-          <X size={15} />
+          <X size={15} aria-hidden />
         </button>
       </header>
       <div className="min-h-0 flex-1 overflow-y-auto">
-        <div className={`mx-auto px-6 ${section === 'diagnostics' ? 'max-w-3xl' : 'max-w-2xl'}`} data-settings-page={section}>
+        <div className={`mx-auto min-w-0 px-6 ${section === 'diagnostics' ? 'max-w-3xl' : 'max-w-2xl'}`} data-settings-page={section}>
           <SectionPage section={section} />
         </div>
       </div>

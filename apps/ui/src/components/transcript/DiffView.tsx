@@ -66,13 +66,19 @@ export const DiffView = memo(function DiffView({ hunks, truncated }: { hunks: Ar
           ),
         )}
       </div>
-      <div className="flex items-center gap-3 border-t border-border bg-sidebar px-3 py-1 text-[11px] text-faint">
-        <span className="text-ok">+{added}</span>
-        <span className="text-error">−{removed}</span>
+      <div className="flex items-center gap-3 border-t border-border bg-sidebar px-3 py-1 text-[11px] text-muted">
+        <span className="text-ok">
+          +{added}
+          <span className="sr-only"> lines added,</span>
+        </span>
+        <span className="text-error">
+          −{removed}
+          <span className="sr-only"> lines removed</span>
+        </span>
         {truncated && <span>long content shortened</span>}
         <span className="flex-1" />
         {rows.length > COLLAPSED_LINES && (
-          <button type="button" onClick={() => setExpanded((e) => !e)} className="hover:text-text">
+          <button type="button" onClick={() => setExpanded((e) => !e)} aria-expanded={expanded} className="hover:text-text">
             {expanded ? 'Show less' : `Show all ${rows.length} lines`}
           </button>
         )}

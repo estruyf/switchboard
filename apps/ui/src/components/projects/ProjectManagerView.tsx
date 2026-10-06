@@ -1,5 +1,5 @@
 import { AlertTriangle, ArrowDown, ArrowUp, ChevronRight, FolderPlus, Play, SquarePen, X, Zap } from 'lucide-react';
-import { useEffect, useMemo, useRef, useState, type MouseEvent } from 'react';
+import { useEffect, useId, useMemo, useRef, useState, type MouseEvent } from 'react';
 import type { ProjectDefaults, ProjectInfo } from '@switchboard/protocol/client';
 import { useEngineConnection } from '../../engine/useEngine.ts';
 import { guessHome, shortAge, tildify } from '../../lib/format.ts';
@@ -95,6 +95,7 @@ function ProjectRow({
   const reload = useProjects((s) => s.reload);
   const [isGitRepo, setIsGitRepo] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const panelId = useId();
 
   useEffect(() => {
     if (!client || !open || !project.exists) return;
@@ -124,18 +125,26 @@ function ProjectRow({
   return (
     <li className="rounded-lg border border-border bg-card" data-project-row={project.root}>
       <div className="flex items-center gap-3 px-3 py-2.5">
-        <button type="button" onClick={onIconMenu} data-tooltip="Change icon" aria-label="Change icon" className="shrink-0 rounded-md hover:opacity-80">
+        <button type="button" onClick={onIconMenu} data-tooltip="Change icon" aria-label={`Change the icon of ${project.name}`} aria-haspopup="menu" className="shrink-0 rounded-md hover:opacity-80">
           <ProjectIcon project={project} root={project.root} size={30} />
         </button>
-        <button type="button" onClick={onToggle} className="grid min-w-0 flex-1 text-left" aria-expanded={open} data-project-toggle>
+        <button
+          type="button"
+          onClick={onToggle}
+          className="grid min-w-0 flex-1 text-left"
+          aria-expanded={open}
+          aria-controls={open ? panelId : undefined}
+          data-tooltip={open ? 'Hide defaults' : 'Show defaults for new sessions'}
+          data-project-toggle
+        >
           <span className="flex min-w-0 items-center gap-1.5">
             <span className="truncate text-[13px] font-medium">{project.name}</span>
-            <ChevronRight size={13} className={`shrink-0 text-faint transition-transform ${open ? 'rotate-90' : ''}`} />
+            <ChevronRight size={13} aria-hidden className={`shrink-0 text-faint transition-transform ${open ? 'rotate-90' : ''}`} />
           </span>
-          <span className="flex min-w-0 items-center gap-1.5 text-[11.5px] text-faint">
+          <span className="flex min-w-0 items-center gap-1.5 text-[11.5px] text-muted">
             {!project.exists && (
               <span className="flex shrink-0 items-center gap-1 text-warn" data-tooltip="This folder no longer exists">
-                <AlertTriangle size={11} /> Folder not found ·
+                <AlertTriangle size={11} aria-hidden /> Folder not found ·
               </span>
             )}
             <span className="truncate">{tildify(project.root, home)}</span>
@@ -150,32 +159,59 @@ function ProjectRow({
           </span>
         </button>
         <div className="flex shrink-0 items-center gap-0.5">
-          <button type="button" className={iconButton} onClick={startHere} disabled={!project.exists} data-tooltip="New session in this project" aria-label="New session in this project">
-            <SquarePen size={14} />
+          {/* Names include the project: a screen reader hears "Move Website up", not five rows of "Move up". */}
+          <button
+            type="button"
+            className={iconButton}
+            onClick={startHere}
+            disabled={!project.exists}
+            data-tooltip="New session in this project"
+            aria-label={`New session in ${project.name}`}
+          >
+            <SquarePen size={14} aria-hidden />
           </button>
-          <button type="button" className={iconButton} onClick={onActions} data-tooltip="Project actions" aria-label="Project actions" data-project-actions>
-            <Zap size={14} />
+          <button type="button" className={iconButton} onClick={onActions} data-tooltip="Project actions" aria-label={`Actions of ${project.name}`} data-project-actions>
+            <Zap size={14} aria-hidden />
           </button>
-          <button type="button" className={iconButton} onClick={() => onMove(-1)} disabled={index === 0} data-tooltip="Move up" aria-label="Move up" data-move-up>
-            <ArrowUp size={14} />
+          <button type="button" className={iconButton} onClick={() => onMove(-1)} disabled={index === 0} data-tooltip="Move up in the list" aria-label={`Move ${project.name} up`} data-move-up>
+            <ArrowUp size={14} aria-hidden />
           </button>
-          <button type="button" className={iconButton} onClick={() => onMove(1)} disabled={index === total - 1} data-tooltip="Move down" aria-label="Move down" data-move-down>
-            <ArrowDown size={14} />
+          <button
+            type="button"
+            className={iconButton}
+            onClick={() => onMove(1)}
+            disabled={index === total - 1}
+            data-tooltip="Move down in the list"
+            aria-label={`Move ${project.name} down`}
+            data-move-down
+          >
+            <ArrowDown size={14} aria-hidden />
           </button>
-          <button type="button" className={`${iconButton} hover:text-error`} onClick={onRemove} data-tooltip="Remove from Switchboard" aria-label="Remove from Switchboard" data-remove-project>
-            <X size={14} />
+          <button
+            type="button"
+            className={`${iconButton} hover:text-error`}
+            onClick={onRemove}
+            data-tooltip="Remove from the project list (files stay on disk)"
+            aria-label={`Remove ${project.name} from the project list`}
+            data-remove-project
+          >
+            <X size={14} aria-hidden />
           </button>
         </div>
       </div>
       {open && (
-        <div className="grid gap-3 border-t border-border px-3 py-3">
+        <div id={panelId} className="grid gap-3 border-t border-border px-3 py-3">
           <p className="text-[12px] text-muted">New sessions in {project.name} start with these. The New session view can still change them for one session.</p>
           <ProfilePicker project={project} />
           <ProjectDefaultsEditor root={project.root} defaults={project.defaults} isGitRepo={isGitRepo} onSave={(d) => void save(d)} />
-          {error && <p className="text-[12px] text-error">{error}</p>}
+          {error && (
+            <p role="alert" className="text-[12px] text-error">
+              Couldn't save the defaults: {error}
+            </p>
+          )}
           <div className="flex flex-wrap gap-2">
             <button type="button" className={button} onClick={onActions}>
-              <Play size={12} /> Edit actions…
+              <Play size={12} aria-hidden /> Edit actions…
             </button>
           </div>
         </div>
@@ -223,7 +259,7 @@ export function ProjectManagerView() {
       <header className="drag flex h-13 shrink-0 items-center gap-3 border-b border-border px-6">
         <h1 className="flex-1 text-[13px] font-semibold">Projects</h1>
         <button type="button" className={`no-drag ${button}`} onClick={() => showAdd(true)} data-manager-add>
-          <FolderPlus size={13} /> Add project
+          <FolderPlus size={13} aria-hidden /> Add project
         </button>
       </header>
       <div className="min-h-0 flex-1 overflow-y-auto">
@@ -241,7 +277,7 @@ export function ProjectManagerView() {
               </button>
             </div>
           ) : (
-            <ul ref={listRef} className="grid gap-2">
+            <ul ref={listRef} className="grid gap-2" aria-label="Your projects">
               {list.map((project, index) => (
                 <ProjectRow
                   key={project.root}
@@ -254,14 +290,18 @@ export function ProjectManagerView() {
                   onMove={(delta) => void move(project.root, delta)}
                   onRemove={() => setRemoving(project)}
                   onActions={() => setActionsFor(project.root)}
-                  onIconMenu={(e) => setIconMenu({ root: project.root, x: e.clientX, y: e.clientY })}
+                  onIconMenu={(e) => {
+                    // From the keyboard there is no pointer position (detail 0): open under the icon instead.
+                    const rect = e.currentTarget.getBoundingClientRect();
+                    setIconMenu(e.detail ? { root: project.root, x: e.clientX, y: e.clientY } : { root: project.root, x: rect.left, y: rect.bottom + 4 });
+                  }}
                 />
               ))}
             </ul>
           )}
         </div>
       </div>
-      {iconMenu && <Menu x={iconMenu.x} y={iconMenu.y} entries={iconEntries} onClose={() => setIconMenu(null)} />}
+      {iconMenu && <Menu x={iconMenu.x} y={iconMenu.y} entries={iconEntries} label="Project icon" onClose={() => setIconMenu(null)} />}
       {icons.picker}
       {actionsFor && <ProjectActions root={actionsFor} onClose={() => setActionsFor(null)} />}
       {removing && (

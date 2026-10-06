@@ -63,6 +63,16 @@ export function BranchMenu({ sessionId, cwd, root, busy, onSwitched }: { session
     if (refocus) trigger.current?.focus();
   };
 
+  // Escape (or anything else that closes the menu) hands focus back to the button, unless it moved on.
+  const isOpen = open !== null;
+  useEffect(() => {
+    if (!isOpen) return;
+    return () => {
+      const active = document.activeElement;
+      if (!active || active === document.body) trigger.current?.focus({ preventScroll: true });
+    };
+  }, [isOpen]);
+
   const switchTo = async (branch: string) => {
     if (!client) throw new Error('Not connected to the engine');
     setSwitching(true);
@@ -86,7 +96,7 @@ export function BranchMenu({ sessionId, cwd, root, busy, onSwitched }: { session
       return;
     }
     // On failure the menu stays open with git's message, on the current branch.
-    switchTo(branch).then(() => close(true), (e: Error) => setError(e.message));
+    switchTo(branch).then(() => close(true), (e: Error) => setError(`Couldn't switch to ${branch}. ${e.message}`));
   };
 
   useEffect(() => {
@@ -101,6 +111,8 @@ export function BranchMenu({ sessionId, cwd, root, busy, onSwitched }: { session
     const focus = (i: number) => items[(i + items.length) % items.length]?.focus();
     if (event.key === 'ArrowDown') (event.preventDefault(), focus(index + 1));
     else if (event.key === 'ArrowUp') (event.preventDefault(), focus(index < 0 ? items.length - 1 : index - 1));
+    else if (event.key === 'Home' && index >= 0) (event.preventDefault(), focus(0));
+    else if (event.key === 'End' && index >= 0) (event.preventDefault(), focus(items.length - 1));
     else if (event.key === 'Enter' && index < 0 && items[0]) (event.preventDefault(), items[0].click());
   };
 
@@ -120,7 +132,8 @@ export function BranchMenu({ sessionId, cwd, root, busy, onSwitched }: { session
         aria-disabled={busy}
         aria-haspopup="menu"
         aria-expanded={open !== null}
-        aria-label={tooltip}
+        // The tooltip alone drops the branch name while Claude works; screen readers get both.
+        aria-label={busy ? `On ${label}. ${tooltip}` : tooltip}
         data-tooltip={tooltip}
         onClick={(e) => {
           if (busy) return;
@@ -137,9 +150,11 @@ export function BranchMenu({ sessionId, cwd, root, busy, onSwitched }: { session
         <ChevronDown size={12} className="shrink-0 @max-[860px]:hidden" />
       </button>
       {open && (
-        <Popover x={open.x} y={open.y} width={280} anchor={trigger} onClose={() => close(false)} role="menu" data-menu="branch" onKeyDown={onKeyDown}>
+        <Popover x={open.x} y={open.y} width={280} anchor={trigger} onClose={() => close(false)} role="menu" aria-label="Switch branch" data-menu="branch" onKeyDown={onKeyDown}>
           <div ref={panel}>
-            <p className="px-3 pt-1.5 pb-1 text-[10px] tracking-wide text-faint uppercase">Branch</p>
+            <p aria-hidden className="px-3 pt-1.5 pb-1 text-[10px] tracking-wide text-faint uppercase">
+              Branch
+            </p>
             {branches.length > FILTER_FROM && (
               <input
                 data-branch-filter
@@ -166,10 +181,14 @@ export function BranchMenu({ sessionId, cwd, root, busy, onSwitched }: { session
                 <Check size={13} className={`shrink-0 text-accent-ink ${branch === current ? '' : 'invisible'}`} />
               </button>
             ))}
-            {listed.length === 0 && <p className="px-3 py-1.5 text-[12px] text-faint">{query ? 'No matching branch' : 'No local branches'}</p>}
-            {switching && <p className="border-t border-border px-3 pt-1.5 pb-1 text-[11px] text-faint">Switching…</p>}
+            {listed.length === 0 && <p className="px-3 py-1.5 text-[12px] text-muted">{query ? 'No matching branch' : 'No local branches'}</p>}
+            {switching && (
+              <p role="status" className="border-t border-border px-3 pt-1.5 pb-1 text-[11px] text-muted">
+                Switching…
+              </p>
+            )}
             {error && (
-              <p className="mt-1 border-t border-border px-3 pt-1.5 pb-1 text-[11px] break-words whitespace-pre-wrap text-error" data-branch-error>
+              <p className="mt-1 border-t border-border px-3 pt-1.5 pb-1 text-[11px] break-words whitespace-pre-wrap text-error" role="alert" data-branch-error>
                 {error}
               </p>
             )}

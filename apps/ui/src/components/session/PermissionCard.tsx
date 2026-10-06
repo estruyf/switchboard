@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import type { PermissionDecision, PermissionRequest } from '@switchboard/protocol/client';
 import { useEngineConnection } from '../../engine/useEngine.ts';
 import { Markdown } from '../transcript/Markdown.tsx';
@@ -32,7 +32,13 @@ function DenyWithFeedback({ respond, busy, label = 'Deny' }: { respond: Respond;
   const [message, setMessage] = useState('');
   if (!open) {
     return (
-      <button type="button" disabled={busy} onClick={() => setOpen(true)} className={`${button} border border-border text-muted hover:text-text`}>
+      <button
+        type="button"
+        disabled={busy}
+        onClick={() => setOpen(true)}
+        data-tooltip="Say no, and optionally tell Claude what to do instead"
+        className={`${button} border border-border text-muted hover:text-text`}
+      >
         {label}…
       </button>
     );
@@ -50,6 +56,7 @@ function DenyWithFeedback({ respond, busy, label = 'Deny' }: { respond: Respond;
         value={message}
         onChange={(e) => setMessage(e.target.value)}
         placeholder="Tell Claude what to do instead (optional)"
+        aria-label="Tell Claude what to do instead (optional)"
         className="h-7 min-w-0 flex-1 rounded-md border border-border bg-bg px-2 text-[12px] outline-none focus:border-accent-ink/60"
       />
       <button type="submit" disabled={busy} className={`${button} border border-border text-text`}>
@@ -59,47 +66,90 @@ function DenyWithFeedback({ respond, busy, label = 'Deny' }: { respond: Respond;
   );
 }
 
-function ToolPermission({ request, cwd }: { request: PermissionRequest; cwd: string | null }) {
+/** What the card asks, in one line: its heading, and what the session announces when it appears. */
+export function permissionTitle(request: PermissionRequest, cwd: string | null): string {
+  if (request.toolName === 'AskUserQuestion') return 'Claude has a question for you';
+  if (request.toolName === 'ExitPlanMode') return 'Claude has a plan. Ready to start?';
+  return request.title ?? `Claude wants to use ${toolSummary(request.toolName, request.input, cwd).label}`;
+}
+
+/**
+ * Puts focus on the main answer, but only when nothing else has it: a prompt that pops up while
+ * you type in the message box must not catch your Enter and approve something you didn't read.
+ * Otherwise the session announces it, and ⇧Tab from the message box reaches it.
+ */
+function useFocusIfIdle() {
+  const ref = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    const active = document.activeElement;
+    if (!active || active === document.body) ref.current?.focus();
+  }, []);
+  return ref;
+}
+
+function ToolPermission({ request, cwd, titleId }: { request: PermissionRequest; cwd: string | null; titleId: string }) {
   const { respond, busy, error } = useRespond(request);
   const [showInput, setShowInput] = useState(false);
-  const { label, detail } = toolSummary(request.toolName, request.input, cwd);
+  const allowRef = useFocusIfIdle();
+  const inputId = useId();
+  const { detail } = toolSummary(request.toolName, request.input, cwd);
   const command = request.toolName === 'Bash' ? (request.input as { command?: string }).command : undefined;
   return (
     <div className="grid gap-2">
-      <p className="text-[13px] font-medium">{request.title ?? `Claude wants to use ${label}`}</p>
+      <h2 id={titleId} className="text-[13px] font-medium">
+        {permissionTitle(request, cwd)}
+      </h2>
       {command ? (
         <pre className="max-h-40 overflow-auto rounded-md bg-sidebar px-2.5 py-1.5 font-mono text-[12px] whitespace-pre-wrap select-text">{command}</pre>
       ) : (
         detail && <p className="truncate font-mono text-[12px] text-muted">{detail}</p>
       )}
       {request.description && <p className="text-[12px] text-muted">{request.description}</p>}
-      {request.decisionReason && <p className="text-[11px] text-faint">{request.decisionReason}</p>}
-      <button type="button" onClick={() => setShowInput((v) => !v)} className="w-fit text-[11px] text-faint hover:text-muted">
+      {request.decisionReason && <p className="text-[11px] text-muted">{request.decisionReason}</p>}
+      <button
+        type="button"
+        onClick={() => setShowInput((v) => !v)}
+        aria-expanded={showInput}
+        aria-controls={showInput ? inputId : undefined}
+        className="w-fit text-[11px] text-muted hover:text-text"
+      >
         {showInput ? 'Hide details' : 'Show details'}
       </button>
       {showInput && (
-        <pre className="max-h-56 overflow-auto rounded-md bg-sidebar px-2.5 py-1.5 font-mono text-[11.5px] whitespace-pre-wrap text-muted select-text">
+        <pre id={inputId} className="max-h-56 overflow-auto rounded-md bg-sidebar px-2.5 py-1.5 font-mono text-[11.5px] whitespace-pre-wrap text-muted select-text">
           {JSON.stringify(request.input, null, 2)}
         </pre>
       )}
       <div className="flex flex-wrap items-center gap-1.5">
-        <button type="button" data-permission-allow disabled={busy} onClick={() => void respond({ behavior: 'allow' })} className={`${button} bg-accent text-on-accent`} autoFocus>
-          Allow
+        <button
+          ref={allowRef}
+          type="button"
+          data-permission-allow
+          disabled={busy}
+          onClick={() => void respond({ behavior: 'allow' })}
+          data-tooltip="Allow this once; Claude asks again next time"
+          className={`${button} bg-accent text-on-accent`}
+        >
+          Allow once
         </button>
         {request.alwaysLabel && (
           <button
             type="button"
             disabled={busy}
-            data-tooltip={request.alwaysLabel}
+            data-tooltip={`Always allow: ${request.alwaysLabel}`}
             onClick={() => void respond({ behavior: 'allow', always: true })}
             className={`${button} max-w-80 truncate border border-border text-text`}
           >
-            Always: {request.alwaysLabel}
+            Always allow: {request.alwaysLabel}
           </button>
         )}
         <DenyWithFeedback respond={respond} busy={busy} />
       </div>
-      {error && <p className="text-[12px] text-error">{error}</p>}
+      {error && (
+        <p className="text-[12px] text-error" role="alert">
+          {error}
+        </p>
+      )}
     </div>
   );
 }
@@ -111,7 +161,7 @@ interface Question {
   options: Array<{ label: string; description?: string }>;
 }
 
-function AskUserQuestion({ request }: { request: PermissionRequest }) {
+function AskUserQuestion({ request, titleId }: { request: PermissionRequest; titleId: string }) {
   const { respond, busy, error } = useRespond(request);
   const input = request.input as { questions?: Question[] };
   const questions = input.questions ?? [];
@@ -131,16 +181,20 @@ function AskUserQuestion({ request }: { request: PermissionRequest }) {
   return (
     <form
       className="grid gap-3"
+      aria-labelledby={titleId}
       onSubmit={(e) => {
         e.preventDefault();
         const result = Object.fromEntries(questions.map((q) => [q.question, final(q).join(', ')]));
         void respond({ behavior: 'allow', updatedInput: { ...(request.input as Record<string, never>), answers: result } });
       }}
     >
+      <h2 id={titleId} className="sr-only">
+        {permissionTitle(request, null)}
+      </h2>
       {questions.map((q) => (
         <fieldset key={q.question} className="grid gap-1.5">
           <legend className="mb-1 text-[13px] font-medium">
-            {q.header && <span className="mr-2 rounded bg-border/70 px-1.5 py-0.5 text-[10px] text-muted uppercase">{q.header}</span>}
+            {q.header && <span className="mr-2 rounded bg-border/70 px-1.5 py-0.5 text-[11px] text-muted uppercase">{q.header}</span>}
             {q.question}
           </legend>
           {(() => {
@@ -175,7 +229,8 @@ function AskUserQuestion({ request }: { request: PermissionRequest }) {
           <input
             value={other[q.question] ?? ''}
             onChange={(e) => setOther((c) => ({ ...c, [q.question]: e.target.value }))}
-            placeholder="Other answer"
+            placeholder={q.multiSelect ? 'Something else (optional)' : 'Or type your own answer'}
+            aria-label={`Your own answer to: ${q.question}`}
             className="h-7 rounded-md border border-border bg-bg px-2 text-[12px] outline-none focus:border-accent-ink/60"
           />
         </fieldset>
@@ -185,13 +240,18 @@ function AskUserQuestion({ request }: { request: PermissionRequest }) {
           Answer
         </button>
         <DenyWithFeedback respond={respond} busy={busy} label="Skip" />
+        {!complete && !busy && <span className="text-[11px] text-muted">{questions.length > 1 ? 'Answer every question to send.' : 'Pick an answer to send.'}</span>}
       </div>
-      {error && <p className="text-[12px] text-error">{error}</p>}
+      {error && (
+        <p className="text-[12px] text-error" role="alert">
+          {error}
+        </p>
+      )}
     </form>
   );
 }
 
-function PlanApproval({ request }: { request: PermissionRequest }) {
+function PlanApproval({ request, titleId }: { request: PermissionRequest; titleId: string }) {
   const { respond, busy, error } = useRespond(request);
   const connection = useEngineConnection();
   const plan = (request.input as { plan?: string }).plan ?? '';
@@ -203,36 +263,58 @@ function PlanApproval({ request }: { request: PermissionRequest }) {
   };
   return (
     <div className="grid gap-2">
-      <p className="text-[13px] font-medium">Claude has a plan. Ready to start?</p>
+      <h2 id={titleId} className="text-[13px] font-medium">
+        {permissionTitle(request, null)}
+      </h2>
       <div className="max-h-[45vh] overflow-y-auto rounded-md border border-border bg-bg px-3 py-2">
         <Markdown text={plan} />
       </div>
       <div className="flex flex-wrap items-center gap-1.5">
-        <button type="button" disabled={busy} onClick={() => void approveWithEdits()} className={`${button} bg-accent text-on-accent`}>
+        <button
+          type="button"
+          disabled={busy}
+          onClick={() => void approveWithEdits()}
+          data-tooltip="Start, and let Claude edit files without asking each time"
+          className={`${button} bg-accent text-on-accent`}
+        >
           Approve and accept edits
         </button>
-        <button type="button" disabled={busy} onClick={() => void respond({ behavior: 'allow' })} className={`${button} border border-border text-text`}>
+        <button
+          type="button"
+          disabled={busy}
+          onClick={() => void respond({ behavior: 'allow' })}
+          data-tooltip="Start, and ask before each file edit"
+          className={`${button} border border-border text-text`}
+        >
           Approve, ask before edits
         </button>
         <DenyWithFeedback respond={respond} busy={busy} label="Keep planning" />
       </div>
-      {error && <p className="text-[12px] text-error">{error}</p>}
+      {error && (
+        <p className="text-[12px] text-error" role="alert">
+          {error}
+        </p>
+      )}
     </div>
   );
 }
 
-/** A pending permission prompt, rendered above the composer. */
+/**
+ * A pending permission prompt, rendered above the composer. It's a labelled region, so VoiceOver
+ * users can jump to it; the session view announces it when it appears.
+ */
 export function PermissionCard({ request, cwd }: { request: PermissionRequest; cwd: string | null }) {
+  const titleId = useId();
   return (
-    <div className="rounded-xl border border-warn/50 bg-warn/5 px-4 py-3 shadow-sm" data-permission-request>
-      {request.agentId && <p className="mb-1 text-[11px] text-faint">From a subagent</p>}
+    <section aria-labelledby={titleId} className="rounded-xl border border-warn/50 bg-warn/5 px-4 py-3 shadow-sm" data-permission-request>
+      {request.agentId && <p className="mb-1 text-[11px] text-muted">From a subagent</p>}
       {request.toolName === 'AskUserQuestion' ? (
-        <AskUserQuestion request={request} />
+        <AskUserQuestion request={request} titleId={titleId} />
       ) : request.toolName === 'ExitPlanMode' ? (
-        <PlanApproval request={request} />
+        <PlanApproval request={request} titleId={titleId} />
       ) : (
-        <ToolPermission request={request} cwd={cwd} />
+        <ToolPermission request={request} cwd={cwd} titleId={titleId} />
       )}
-    </div>
+    </section>
   );
 }

@@ -371,7 +371,7 @@ export function NewSessionView() {
         ]}
         width={260}
       >
-        <Cpu size={14} className="shrink-0" />
+        <Cpu size={14} className="shrink-0" aria-hidden />
         <span className="max-w-40 truncate">{modelLabel}</span>
       </ChoiceMenu>
       <Divider />
@@ -387,7 +387,7 @@ export function NewSessionView() {
         choices={MODE_CHOICES.map((mode) => ({ value: mode, label: MODE_LABEL[mode], description: MODE_DESCRIPTION[mode], dot: MODE_DOT[mode] }))}
         width={280}
       >
-        <span className={`size-2 shrink-0 rounded-full ${MODE_DOT[d.permissionMode] ?? 'bg-faint'}`} />
+        <span aria-hidden className={`size-2 shrink-0 rounded-full ${MODE_DOT[d.permissionMode] ?? 'bg-faint'}`} />
         {MODE_LABEL[d.permissionMode]}
         <kbd className="font-sans text-[11px] text-faint">⇧Tab</kbd>
       </ChoiceMenu>
@@ -435,79 +435,88 @@ export function NewSessionView() {
             </div>
 
             <div className="mx-3 flex flex-wrap items-center gap-x-1.5 gap-y-1.5 rounded-b-lg border border-t-0 border-border bg-border/15 px-3 py-1.5" data-route-tray>
-              <Socket>
-                <Segmented
-                  label="Workspace"
-                  value={useWorktree ? 'worktree' : 'current'}
-                  onChange={(workspace) => update({ workspace })}
-                  options={[
-                    { value: 'current', label: 'This checkout', title: 'Work on the checked-out branch, like running `claude` here' },
-                    { value: 'worktree', label: 'New worktree', title: canWorktree ? 'Claude Code creates a git worktree on a new branch' : 'Needs a git repository' },
-                  ]}
-                  disabled={!canWorktree}
-                />
-              </Socket>
-              {useWorktree && (
+              {/* Workspace and branch depend on the folder: until there is one, say so instead of showing empty controls. */}
+              {!cwd ? (
+                <span className="min-w-0 flex-1 py-0.5 text-[11.5px] text-muted" data-route-placeholder>
+                  After you choose a folder, pick where the edits go: this checkout, another branch or a new worktree.
+                </span>
+              ) : (
                 <>
-                  <Socket cable>
-                    <span className="text-[11.5px] text-muted">from</span>
+                  <Socket>
                     <Segmented
-                      label="Branch from"
-                      mono
-                      value={d.baseRef}
-                      onChange={(baseRef) => update({ baseRef })}
+                      label="Workspace"
+                      value={useWorktree ? 'worktree' : 'current'}
+                      onChange={(workspace) => update({ workspace })}
                       options={[
-                        { value: 'fresh', label: 'origin', title: "Branch from origin's default branch (Claude Code's default)" },
-                        { value: 'head', label: 'HEAD', title: 'Branch from your current local HEAD, including unpushed commits' },
+                        { value: 'current', label: 'This checkout', title: 'Work on the checked-out branch, like running `claude` here' },
+                        { value: 'worktree', label: 'New worktree', title: canWorktree ? 'Claude Code creates a git worktree on a new branch' : 'Needs a git repository' },
                       ]}
+                      disabled={!canWorktree}
                     />
+                  </Socket>
+                  {useWorktree && (
+                    <>
+                      <Socket cable>
+                        <span className="text-[11.5px] text-muted">from</span>
+                        <Segmented
+                          label="Branch from"
+                          mono
+                          value={d.baseRef}
+                          onChange={(baseRef) => update({ baseRef })}
+                          options={[
+                            { value: 'fresh', label: 'origin', title: "Branch from origin's default branch (Claude Code's default)" },
+                            { value: 'head', label: 'HEAD', title: 'Branch from your current local HEAD, including unpushed commits' },
+                          ]}
+                        />
+                      </Socket>
+                    </>
+                  )}
+                  <Socket cable grow on={useWorktree || !!checkoutBranch || !!branch}>
+                    <GitBranch size={12} className="shrink-0 text-faint" aria-hidden />
+                    {useWorktree ? (
+                      <label
+                        className="flex h-6 min-w-0 flex-1 items-center rounded-md border border-border bg-card px-2 font-mono text-[11.5px] focus-within:border-accent-ink/60"
+                        data-tooltip={`Branch worktree-${effectiveName} in .claude/worktrees/${effectiveName}`}
+                      >
+                        <span className="text-faint">worktree-</span>
+                        <input
+                          data-worktree-name
+                          aria-label="Worktree name"
+                          className="w-full min-w-0 bg-transparent text-text outline-none placeholder:text-faint"
+                          value={nameTouched ? worktreeName : ''}
+                          placeholder={worktreeSlug(draftPrompt)}
+                          spellCheck={false}
+                          onChange={(e) => {
+                            setNameTouched(e.target.value !== '');
+                            setWorktreeName(e.target.value.replace(/[^A-Za-z0-9._-]/g, '-'));
+                          }}
+                        />
+                      </label>
+                    ) : gitBranches.branches.length > 0 ? (
+                      <ChoiceMenu
+                        name="branch"
+                        value={checkoutBranch ?? ''}
+                        onChange={(b) => update({ branch: b })}
+                        title="Check out a branch before the session starts. Git keeps uncommitted changes, or refuses when they conflict."
+                        heading="Branch"
+                        choices={[
+                          { value: '', label: `Stay on ${gitBranches.current ?? 'the current checkout'}` },
+                          ...branchOptions.filter((b) => b !== gitBranches.current).map((b) => ({ value: b, label: `Check out ${b}` })),
+                        ]}
+                        width={280}
+                      >
+                        <span className="truncate font-mono text-[11.5px]" data-route-branch>
+                          {checkoutBranch ?? branch ?? '…'}
+                        </span>
+                      </ChoiceMenu>
+                    ) : (
+                      <span className="truncate font-mono text-[11.5px] text-muted" data-route-branch>
+                        {branch ?? (inspection && !inspection.isGitRepo ? 'no git' : '…')}
+                      </span>
+                    )}
                   </Socket>
                 </>
               )}
-              <Socket cable grow on={useWorktree || !!checkoutBranch || !!branch}>
-                <GitBranch size={12} className="shrink-0 text-faint" />
-                {useWorktree ? (
-                  <label
-                    className="flex h-6 min-w-0 flex-1 items-center rounded-md border border-border bg-card px-2 font-mono text-[11.5px] focus-within:border-accent-ink/60"
-                    data-tooltip={`Branch worktree-${effectiveName} in .claude/worktrees/${effectiveName}`}
-                  >
-                    <span className="text-faint">worktree-</span>
-                    <input
-                      data-worktree-name
-                      aria-label="Worktree name"
-                      className="w-full min-w-0 bg-transparent text-text outline-none placeholder:text-faint"
-                      value={nameTouched ? worktreeName : ''}
-                      placeholder={worktreeSlug(draftPrompt)}
-                      spellCheck={false}
-                      onChange={(e) => {
-                        setNameTouched(e.target.value !== '');
-                        setWorktreeName(e.target.value.replace(/[^A-Za-z0-9._-]/g, '-'));
-                      }}
-                    />
-                  </label>
-                ) : gitBranches.branches.length > 0 ? (
-                  <ChoiceMenu
-                    name="branch"
-                    value={checkoutBranch ?? ''}
-                    onChange={(b) => update({ branch: b })}
-                    title="Check out a branch before the session starts. Git keeps uncommitted changes, or refuses when they conflict."
-                    heading="Branch"
-                    choices={[
-                      { value: '', label: `Stay on ${gitBranches.current ?? 'the current checkout'}` },
-                      ...branchOptions.filter((b) => b !== gitBranches.current).map((b) => ({ value: b, label: `Check out ${b}` })),
-                    ]}
-                    width={280}
-                  >
-                    <span className="truncate font-mono text-[11.5px]" data-route-branch>
-                      {checkoutBranch ?? branch ?? '…'}
-                    </span>
-                  </ChoiceMenu>
-                ) : (
-                  <span className="truncate font-mono text-[11.5px] text-muted" data-route-branch>
-                    {branch ?? (inspection && !inspection.isGitRepo ? 'no git' : '…')}
-                  </span>
-                )}
-              </Socket>
               <span className="ml-auto pl-2">
                 <UsageBand compact profileId={profileId} />
               </span>
@@ -524,7 +533,7 @@ export function NewSessionView() {
             </div>
           )}
 
-          <div className="-mt-1 flex flex-wrap items-center justify-between gap-x-4 gap-y-2 px-4 text-[11.5px] text-faint" data-route-hint>
+          <div className="-mt-1 flex flex-wrap items-center justify-between gap-x-4 gap-y-2 px-4 text-[11.5px] text-muted" data-route-hint>
             <span className="min-w-0 truncate">
               {folderProblem ?? routeHint({ worktree: useWorktree, isGitRepo: canWorktree, branch: checkoutBranch ?? branch, name: effectiveName })}
             </span>
@@ -532,9 +541,9 @@ export function NewSessionView() {
               <span className="flex min-w-0 items-center gap-1.5" data-running-here>
                 <span className="size-1.5 shrink-0 rounded-full bg-accent-ink" aria-hidden />
                 <span className="min-w-0 truncate" data-tooltip={running.map((r) => r.title).join('\n')}>
-                  <span className="text-muted">{running.length} running here</span> · {running[0]!.title}
+                  <span className="text-text">{running.length} running here</span> · {running[0]!.title}
                 </span>
-                <button type="button" onClick={() => select(running[0]!.id)} className="shrink-0 text-link hover:underline" data-open-running>
+                <button type="button" onClick={() => select(running[0]!.id)} className="shrink-0 text-link hover:underline" aria-label={`Open ${running[0]!.title}`} data-open-running>
                   Open
                 </button>
               </span>
@@ -547,9 +556,11 @@ export function NewSessionView() {
             </Checkbox>
           )}
           {isProject && (
-            <div className="-mt-3 flex min-h-5 flex-wrap items-center gap-2 px-4 text-[11.5px] text-faint" data-project-defaults-bar>
+            <div className="-mt-3 flex min-h-5 flex-wrap items-center gap-2 px-4 text-[11.5px] text-muted" data-project-defaults-bar>
               {savedNote ? (
-                <span className="text-accent-ink">{savedNote}</span>
+                <span role="status" className="text-accent-ink">
+                  {savedNote}
+                </span>
               ) : unsaved ? (
                 <>
                   <span>These choices apply to this session only.</span>

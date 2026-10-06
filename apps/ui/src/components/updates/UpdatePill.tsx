@@ -31,7 +31,7 @@ function NotesButton({ version, notes }: { version: string; notes: string }) {
         aria-label={`What’s new in v${version}`}
         className="flex size-6 shrink-0 items-center justify-center rounded-md text-muted hover:bg-border/60 hover:text-text"
       >
-        <FileText size={13} />
+        <FileText size={13} aria-hidden />
       </button>
       {at && (
         <Popover x={at.x} y={at.y} above width={340} anchor={anchor} onClose={() => setAt(null)} role="dialog" aria-label={`What’s new in v${version}`} data-update-notes>
@@ -68,10 +68,15 @@ export function UpdatePillButton() {
         data-tooltip={pill.action === 'retry' ? (state.error ?? undefined) : undefined}
         className={`flex h-6 min-w-0 items-center gap-1.5 rounded-full border px-2 text-[11px] font-medium disabled:cursor-default ${TONE[pill.tone]}`}
       >
-        {pill.action !== 'dismiss' && <Icon size={12} className={`shrink-0 ${pill.tone === 'error' ? 'text-error' : pill.action ? 'text-accent-ink' : 'animate-spin'}`} />}
+        {pill.action !== 'dismiss' && <Icon size={12} aria-hidden className={`shrink-0 ${pill.tone === 'error' ? 'text-error' : pill.action ? 'text-accent-ink' : 'animate-spin'}`} />}
         <span className="truncate">{pill.label}</span>
         {pill.action === 'retry' && <span className="shrink-0 underline">Retry</span>}
-        {pill.action === 'dismiss' && <X size={11} className="shrink-0 text-faint" aria-label="Dismiss" />}
+        {pill.action === 'dismiss' && (
+          <>
+            <X size={11} className="shrink-0 text-muted" aria-hidden />
+            <span className="sr-only">, dismiss</span>
+          </>
+        )}
       </button>
       {notesVersion && state.releaseNotes && pill.action !== 'dismiss' && <NotesButton version={notesVersion} notes={state.releaseNotes} />}
       {dialog}

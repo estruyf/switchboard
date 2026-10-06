@@ -1,9 +1,10 @@
-import { Check, FolderOpen, X } from 'lucide-react';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Check, FolderOpen, Plus, X } from 'lucide-react';
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { guessHome, shortAge, tildify } from '../../lib/format.ts';
 import { knownFolders } from '../../state/projectList.ts';
 import { useProjects } from '../../state/projectsStore.ts';
 import { ProjectIcon } from '../ProjectIcon.tsx';
+import { useModalFocus } from '../ui/useModalFocus.ts';
 import { manage, useProjectActions } from '../sidebar/ProjectMenu.tsx';
 
 /**
@@ -18,6 +19,9 @@ export function AddProjectDialog({ onClose: close }: { onClose(): void }) {
   const [active, setActive] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const listRef = useRef<HTMLDivElement>(null);
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const id = useId();
+  useModalFocus(dialogRef);
   const lastAdded = useRef<string | null>(null);
   const onClose = useCallback(() => {
     close();
@@ -61,14 +65,18 @@ export function AddProjectDialog({ onClose: close }: { onClose(): void }) {
 
   return (
     <div className="no-drag fixed inset-0 z-[60] flex items-start justify-center bg-scrim pt-[12vh]" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
-      <div role="dialog" aria-modal aria-label="Add project" className="flex max-h-[70vh] w-[600px] max-w-[92vw] flex-col overflow-hidden rounded-xl border overlay" data-add-project-dialog>
+      <div ref={dialogRef} role="dialog" aria-modal aria-labelledby={`${id}-title`} aria-describedby={`${id}-intro`} className="flex max-h-[70vh] w-[600px] max-w-[92vw] flex-col overflow-hidden rounded-xl border overlay" data-add-project-dialog>
         <header className="flex items-center justify-between gap-3 border-b border-border px-4 py-3">
           <div className="min-w-0">
-            <h2 className="text-[14px] font-semibold">Add project</h2>
-            <p className="text-[12px] text-muted">Folders you have used Claude Code in, most recent first.</p>
+            <h2 id={`${id}-title`} className="text-[14px] font-semibold">
+              Add project
+            </h2>
+            <p id={`${id}-intro`} className="text-[12px] text-muted">
+              Folders you have used Claude Code in, most recent first. Add as many as you like, then choose Done.
+            </p>
           </div>
-          <button type="button" onClick={onClose} className="text-faint hover:text-text" aria-label="Close">
-            <X size={15} />
+          <button type="button" onClick={onClose} className="text-muted hover:text-text" aria-label="Close" data-tooltip="Close (Esc)">
+            <X size={15} aria-hidden />
           </button>
         </header>
         <input
@@ -81,12 +89,14 @@ export function AddProjectDialog({ onClose: close }: { onClose(): void }) {
             else if (e.key === 'Enter') (e.preventDefault(), void choose(active));
           }}
           placeholder="Filter by name or path"
+          aria-label="Filter folders by name or path"
+          aria-controls={`${id}-list`}
           spellCheck={false}
           className="h-10 shrink-0 border-b border-border bg-transparent px-4 text-[13px] text-text outline-none placeholder:text-faint"
         />
-        <div ref={listRef} className="min-h-0 flex-1 overflow-y-auto py-1">
+        <div ref={listRef} id={`${id}-list`} role="group" aria-label="Folders with Claude Code sessions" className="min-h-0 flex-1 overflow-y-auto py-1">
           {folders.length === 0 && (
-            <p className="px-4 py-3 text-[12px] text-faint">{query ? 'No folder matches.' : 'No Claude Code sessions found yet. Choose a folder instead.'}</p>
+            <p className="px-4 py-3 text-[12px] text-muted">{query ? 'No folder matches.' : 'No Claude Code sessions found yet. Choose a folder instead.'}</p>
           )}
           {folders.map((folder, index) => (
             <button
@@ -98,28 +108,33 @@ export function AddProjectDialog({ onClose: close }: { onClose(): void }) {
               onMouseMove={() => setActive(index)}
               onClick={() => void choose(index)}
               disabled={folder.added}
+              aria-label={folder.added ? `${folder.name}, already added` : `Add ${folder.name}`}
+              aria-describedby={`${id}-path-${index}`}
               data-tooltip={folder.root}
               className={`flex w-full items-center gap-2.5 px-4 py-1.5 text-left ${index === active ? 'bg-accent/15' : ''}`}
             >
               <ProjectIcon project={folder} root={folder.root} size={22} />
               <span className="grid min-w-0 flex-1">
                 <span className="truncate text-[12.5px] text-text">{folder.name}</span>
-                <span className="truncate text-[11.5px] text-faint">
+                <span id={`${id}-path-${index}`} className="truncate text-[11.5px] text-muted">
                   {tildify(folder.root, home)}
                   {!folder.exists && <span className="text-warn"> · folder not found</span>}
                 </span>
               </span>
-              <span className="shrink-0 text-right text-[11px] text-faint tabular-nums">
+              <span className="shrink-0 text-right text-[11px] text-muted tabular-nums">
                 {folder.sessionCount} {folder.sessionCount === 1 ? 'session' : 'sessions'}
                 {folder.lastActivity !== null && <span className="block">{shortAge(folder.lastActivity)}</span>}
               </span>
-              <span className="flex w-16 shrink-0 justify-end text-[11.5px]">
+              <span aria-hidden className="flex w-16 shrink-0 justify-end text-[11.5px]">
                 {folder.added ? (
                   <span className="flex items-center gap-1 text-accent-ink">
                     <Check size={12} /> Added
                   </span>
                 ) : (
-                  <span className={index === active ? 'text-text' : 'text-faint'}>Add</span>
+                  // Drawn as a small button so the row reads as something to click, not a plain label.
+                  <span className={`flex h-6 items-center gap-1 rounded-md border px-2 ${index === active ? 'border-accent-ink/60 bg-accent text-on-accent' : 'border-border text-text'}`}>
+                    <Plus size={11} /> Add
+                  </span>
                 )}
               </span>
             </button>
@@ -134,10 +149,14 @@ export function AddProjectDialog({ onClose: close }: { onClose(): void }) {
             onClick={() => void choose(folders.length)}
             className={`flex h-7 items-center gap-2 rounded-md border border-border px-2.5 text-[12px] text-text hover:bg-border/50 ${active === folders.length ? 'bg-accent/15' : ''}`}
           >
-            <FolderOpen size={13} />
+            <FolderOpen size={13} aria-hidden />
             Choose folder…
           </button>
-          {error && <span className="min-w-0 flex-1 truncate text-[12px] text-error">{error}</span>}
+          {error && (
+            <span role="alert" className="min-w-0 flex-1 truncate text-[12px] text-error" data-tooltip={error}>
+              Couldn't add the folder: {error}
+            </span>
+          )}
           <span className="flex-1" />
           <button type="button" onClick={onClose} className="h-7 rounded-md bg-accent px-3 text-[12px] font-medium text-on-accent">
             Done

@@ -8,14 +8,15 @@
   --sb-border: #e1e4e8;
   --sb-text: #202736;
   --sb-muted: #505869;
-  --sb-faint: #9ba4b7;
+  /* Faint is for small secondary text, so it keeps at least 4.5:1 on the background and sidebar. */
+  --sb-faint: #687082;
   /* Yellow fills (buttons, tints); accent-ink is the readable version for text, icons, dots and borders. */
   --sb-accent: #ffd43b;
   --sb-accent-ink: #916c00;
   --sb-on-accent: #15181f;
   --sb-link: #005cc5;
-  --sb-ok: #00a08c;
-  --sb-warn: #ed217c;
+  --sb-ok: #00806f;
+  --sb-warn: #d1186b;
   --sb-error: #d73a49;
   /* Claude profile colours (dots and tags that tell accounts apart). */
   --sb-profile-yellow: #b08300;
@@ -43,7 +44,7 @@
     --sb-border: #2d3142;
     --sb-text: #d9dbe1;
     --sb-muted: #9ba4b7;
-    --sb-faint: #6b7280;
+    --sb-faint: #8b94a6;
     --sb-accent: #ffd43b;
     --sb-accent-ink: #ffd43b;
     --sb-on-accent: #15181f;
@@ -153,7 +154,7 @@ body {
 :focus-visible {
   outline: none;
 }
-html[data-keyboard-nav] :is(button, a, summary, [role='menuitem'], [role='option'], [tabindex]):focus-visible {
+html[data-keyboard-nav] :is(button, a, summary, input, textarea, [contenteditable='true'], [role='menuitem'], [role='option'], [tabindex]):focus-visible {
   outline: 2px solid color-mix(in srgb, var(--sb-accent-ink) 55%, transparent);
   outline-offset: 1px;
 }
@@ -219,6 +220,15 @@ html[data-keyboard-nav] :is(button, a, summary, [role='menuitem'], [role='option
   .working-dots span {
     animation: none;
     opacity: 0.8;
+  }
+  /* Spinners keep turning (they mean "busy"); everything else stops moving. */
+  *:not(.animate-spin),
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
   }
 }
 

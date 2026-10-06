@@ -33,7 +33,7 @@ export function filterBranches(branches: readonly string[], current: string | nu
 /** What the header button says, and its tooltip (the name, for narrow panes where only the icon shows). */
 export function branchButton(current: string | null, busy: boolean): { label: string; tooltip: string } {
   const label = current ?? 'detached';
-  if (busy) return { label, tooltip: 'Wait for Claude to finish, or stop it first' };
+  if (busy) return { label, tooltip: 'Wait for Claude to finish (or stop it) to switch branches' };
   return { label, tooltip: current ? `On ${current}. Switch branch` : 'Detached HEAD. Switch branch' };
 }
 
