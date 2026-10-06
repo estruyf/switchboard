@@ -127,6 +127,11 @@ export class HostManager {
   private warm: Warm | undefined;
   /** When this app stopped a session's process; its registry entry lingers until the process exits. */
   private readonly closedAt = new Map<string, number>();
+  /**
+   * The permission mode each session last ran with. Claude Code doesn't store it in the
+   * transcript, so a resume (after Stop, the idle reaper or a rewind) would otherwise drop back to default.
+   */
+  private readonly lastMode = new Map<string, PermissionMode>();
   private readonly reaper: ReturnType<typeof setInterval>;
 
   constructor(private readonly deps: HostManagerDeps) {
@@ -190,7 +195,8 @@ export class HostManager {
     const cwd = this.deps.sessionCwd(sessionId);
     if (!cwd) throw new RpcError('NOT_FOUND', 'Unknown session, or its folder is not recorded');
     const profileId = this.deps.sessionProfile(sessionId);
-    return this.spawn({ sessionId, cwd, profileId, mode: fork ? 'fork' : 'resume', model: null, permissionMode: 'default', effort: null, worktree: null });
+    const permissionMode = this.lastMode.get(sessionId) ?? 'default';
+    return this.spawn({ sessionId, cwd, profileId, mode: fork ? 'fork' : 'resume', model: null, permissionMode, effort: null, worktree: null });
   }
 
   async send(params: { sessionId: string; text: string; attachments: ImageAttachment[]; fork: boolean }): Promise<{ sessionId: string; messageUuid: string }> {
@@ -507,6 +513,8 @@ export class HostManager {
       this.deps.commandCache?.set(key, host.commands);
     }
     if (host.models.length) this.models = host.models;
+    // Bypass needs an extra flag at startup, so a resume never brings it back on its own.
+    if (info.permissionMode !== 'bypassPermissions') this.lastMode.set(info.sessionId, info.permissionMode);
     this.deps.onInfo(info);
   }
 

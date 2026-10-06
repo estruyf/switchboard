@@ -344,6 +344,12 @@ export class SessionHost {
       }
       return;
     }
+    if (message.subtype === 'status') {
+      // Claude Code reports mode changes it makes itself here (leaving plan mode, auto mode falling back).
+      const mode = (message as { permissionMode?: PermissionMode }).permissionMode;
+      if (mode && mode !== this.info.permissionMode) this.update({ permissionMode: mode });
+      return;
+    }
     if (message.subtype === 'session_state_changed') {
       const state = STATE_FROM_SDK[(message as { state: string }).state];
       if (!state || this.closing) return;
@@ -393,6 +399,7 @@ export class SessionHost {
       this.commands = commands.map((c) => ({ name: c.name, description: c.description, argumentHint: c.argumentHint }));
       this.models = models.map((m) => ({
         value: m.value,
+        resolvedModel: m.resolvedModel,
         displayName: m.displayName,
         description: m.description,
         supportsEffort: m.supportsEffort ?? false,

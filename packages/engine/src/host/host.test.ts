@@ -313,6 +313,29 @@ describe('HostManager', () => {
     expect(lastState(t.infos, id)).toBe('closed');
     await until(() => t.queries[0]!.closed);
   });
+
+  it('resumes a stopped session in the permission mode it last had', async () => {
+    const t = setup({ cwds: { old: '/w' } });
+    await t.manager.send({ sessionId: 'old', text: 'hello', attachments: [], fork: false });
+    await until(() => lastState(t.infos, 'old') === 'idle');
+    expect(t.queries[0]!.options.permissionMode).toBe('default');
+    await t.manager.setPermissionMode('old', 'auto');
+    t.manager.close('old');
+
+    await t.manager.send({ sessionId: 'old', text: 'again', attachments: [], fork: false });
+    await until(() => t.queries.length === 2);
+    expect(t.queries[1]!.options.permissionMode).toBe('auto');
+    t.manager.closeAll();
+  });
+
+  it('follows mode changes Claude Code reports on its own', async () => {
+    const t = setup();
+    const id = await t.manager.create({ ...base, cwd: '/w', prompt: 'hello' });
+    await until(() => lastState(t.infos, id) === 'idle');
+    t.queries[0]!.out.push({ type: 'system', subtype: 'status', status: null, permissionMode: 'acceptEdits', session_id: id });
+    await until(() => t.infos.at(-1)?.permissionMode === 'acceptEdits');
+    t.manager.closeAll();
+  });
 });
 
 describe('buildOptions', () => {
