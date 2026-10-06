@@ -833,9 +833,21 @@ async function runProjectsStep(win: BrowserWindow): Promise<string> {
     return `New session did not start from the project's defaults (${String(await js(`document.querySelector('[data-folder-select]')?.dataset.value + ' ' + ${pickedEffort}`))})`;
   }
   await click('[data-effort="low"]');
-  if (!(await waitInPage(win, "document.querySelector('[data-save-project-defaults]')", 3_000))) return 'no Save as project default after a change';
+  await waitInPage(win, "document.querySelector('[data-route-branch]')?.innerText !== '…'", 3_000);
+  await shot(win, 'new-session-tray.png');
+  // The branch menu only reads branches; Escape closes it without switching.
+  await click('[data-branch-select]');
+  if (await waitInPage(win, "document.querySelector('[data-menu=\"branch\"] [data-choice-search]')", 2_000)) {
+    await shot(win, 'new-session-branch-menu.png');
+    win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Escape' });
+    await waitInPage(win, "!document.querySelector('[data-menu=\"branch\"]')", 2_000);
+  }
+  // Saving lives at the end of the "where" menu under the composer.
+  await click('[data-workspace-select]');
+  if (!(await waitInPage(win, "document.querySelector('[data-save-project-defaults]:not(:disabled)')", 3_000))) return 'no Save as project default after a change';
+  await shot(win, 'new-session-where-menu.png');
   await click('[data-save-project-defaults]');
-  if (!(await waitInPage(win, "!document.querySelector('[data-save-project-defaults]')", 3_000))) return 'Save as project default did not save';
+  if (!(await waitInPage(win, "document.querySelector('[data-saved-note]') && !document.querySelector('[data-menu=\"workspace\"]')", 3_000))) return 'Save as project default did not save';
 
   await click('[data-open-projects]');
   if (!(await waitInPage(win, `${row('[data-defaults-summary]')}?.innerText.includes('low effort')`, 3_000))) return 'the saved default did not reach the Projects view';
@@ -1317,7 +1329,7 @@ async function runNewSessionStep(win: BrowserWindow): Promise<string> {
   await js("document.querySelector('[data-model-select]').focus()");
   newSession();
   if (hasFolder && !(await waitInPage(win, promptFocused, 2_000))) return '⌘N on an open New session did not focus the prompt';
-  const hint = (await js("document.querySelector('[data-route-hint]').innerText.replace(/\\s+/g, ' ')")) as string;
+  const hint = (await js("document.querySelector('[data-route-tray]').innerText.replace(/\\s+/g, ' ')")) as string;
   await js(`document.querySelector('[data-session-id="${smokeSessionId}"]')?.click()`);
   await waitInPage(win, "document.querySelector('[data-transcript-item]')", 5_000);
   return `ok: ${hint}`;

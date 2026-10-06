@@ -22,6 +22,7 @@ All notable changes to Switchboard are listed here. Each release is also on the 
 
 - A prompt you start typing in **New session** is still there when you come back from a session or Settings. A **Clear** link under the message box empties it.
 - **Open in** (VS Code, another editor, a terminal, Finder or GitHub) is at the top of **New session** too, to look around the project before you start.
+- A simpler bar under the message box with two dropdowns: where the edits go (**Current checkout** or **New worktree**, with **Save as project default** at the end) and the branch, which you can search. For a new worktree it shows the branch it starts from, such as **From origin/main**. Your plan usage and the sessions already running in the project sit on one quiet line below it.
 
 ### Fixes
 
