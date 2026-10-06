@@ -41,6 +41,14 @@ export function StatusBar({ host }: { host: SessionHostInfo }) {
       <span className={host.state === 'error' ? 'text-error' : host.state === 'needs-you' ? 'text-warn' : ''} data-tooltip={host.error ?? undefined}>
         {STATE_LABEL[host.state]}
       </span>
+      {active && host.backgroundTasks.length > 0 && (
+        <>
+          <span>·</span>
+          <span className="shrink-0 text-ok" data-tooltip={host.backgroundTasks.map((t) => t.description).join('\n')} data-status-background>
+            {host.backgroundTasks.length === 1 ? '1 background task' : `${host.backgroundTasks.length} background tasks`}
+          </span>
+        </>
+      )}
       <span>·</span>
       <Select
         label="Model"

@@ -137,6 +137,7 @@ export class SessionHost {
       startedAt: Date.now(),
       queued: 0,
       profileId: config.profileId,
+      backgroundTasks: [],
     };
     this.initialized = new Promise((resolve, reject) => {
       this.initResolve = resolve;
@@ -260,8 +261,10 @@ export class SessionHost {
   }
 
   private update(patch: Partial<SessionHostInfo>): void {
-    if ((patch.state === 'closed' || patch.state === 'error') && this.closedAt === undefined) this.closedAt = Date.now();
-    this.info = { ...this.info, ...patch };
+    const ended = patch.state === 'closed' || patch.state === 'error';
+    if (ended && this.closedAt === undefined) this.closedAt = Date.now();
+    // Background tasks die with the process.
+    this.info = { ...this.info, ...patch, ...(ended ? { backgroundTasks: [] } : {}) };
     this.events.info(this.info);
   }
 
@@ -348,6 +351,14 @@ export class SessionHost {
       // Claude Code reports mode changes it makes itself here (leaving plan mode, auto mode falling back).
       const mode = (message as { permissionMode?: PermissionMode }).permissionMode;
       if (mode && mode !== this.info.permissionMode) this.update({ permissionMode: mode });
+      return;
+    }
+    if (message.subtype === 'background_tasks_changed') {
+      // The full set every time (replace, don't pair start/finish events). Ambient tasks such as
+      // live-update watchers aren't activity, so they don't count as background work.
+      const tasks = (message as { tasks?: Array<{ task_id: string; task_type: string; description: string; ambient?: boolean }> }).tasks ?? [];
+      if (this.closing) return;
+      this.update({ backgroundTasks: tasks.filter((t) => !t.ambient).map((t) => ({ taskId: t.task_id, type: t.task_type, description: t.description })) });
       return;
     }
     if (message.subtype === 'session_state_changed') {

@@ -99,6 +99,7 @@ export function hostAsLive(host: SessionHostInfo): LiveSession | null {
     // older one on top. Later activity comes from the transcript's own updatedAt.
     updatedAt: host.startedAt,
     profileId: host.profileId,
+    background: host.backgroundTasks.map((t) => t.description),
   };
 }
 

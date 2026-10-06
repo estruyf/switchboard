@@ -31,6 +31,15 @@ export const RewindResult = z.object({
 });
 export type RewindResult = z.infer<typeof RewindResult>;
 
+/** Work Claude Code keeps running after a turn ends: a background shell command, subagent or workflow. */
+export const BackgroundTask = z.object({
+  taskId: z.string(),
+  /** Claude Code's task type, e.g. `local_bash` or `local_agent`. */
+  type: z.string(),
+  description: z.string(),
+});
+export type BackgroundTask = z.infer<typeof BackgroundTask>;
+
 export const SessionHostInfo = z.object({
   sessionId: z.string(),
   /** The session's working directory (the worktree path for worktree sessions, once known). */
@@ -51,6 +60,8 @@ export const SessionHostInfo = z.object({
   queued: z.number(),
   /** The Claude profile (login) this process runs with. */
   profileId: z.string(),
+  /** Background tasks still running; the session can be idle (ready for a message) while these work. */
+  backgroundTasks: z.array(BackgroundTask),
 });
 export type SessionHostInfo = z.infer<typeof SessionHostInfo>;
 

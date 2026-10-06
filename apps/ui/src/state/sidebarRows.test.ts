@@ -47,6 +47,8 @@ describe('rowStatus', () => {
     expect(rowStatus(row('a', { live: live('running') }))).toBe('running');
     expect(rowStatus(row('a', { error: true, unread: true }))).toBe('error');
     expect(rowStatus(row('a', { unread: true, live: live('idle') }))).toBe('unread');
+    expect(rowStatus(row('a', { live: { ...live('idle'), background: ['npm run test:links'] } }))).toBe('background');
+    expect(rowStatus(row('a', { live: { ...live('idle'), background: [] } }))).toBe('idle');
     expect(rowStatus(row('a', { live: live('idle') }))).toBe('idle');
     expect(rowStatus(row('a'))).toBeNull();
   });
@@ -118,7 +120,7 @@ describe('toRows', () => {
   });
 
   it('prefers the state of sessions running in this app and flags failed runs', () => {
-    const host: SessionHostInfo = { sessionId: 'mine', cwd: '/p/a/.claude/worktrees/wt', state: 'needs-you', model: null, permissionMode: 'default', effort: null, costUsd: 0, contextPercent: null, contextTokens: null, contextMax: null, error: null, startedAt: 5, queued: 0, profileId: 'default' };
+    const host: SessionHostInfo = { sessionId: 'mine', cwd: '/p/a/.claude/worktrees/wt', state: 'needs-you', model: null, permissionMode: 'default', effort: null, costUsd: 0, contextPercent: null, contextTokens: null, contextMax: null, error: null, startedAt: 5, queued: 0, profileId: 'default', backgroundTasks: [] };
     const closed: SessionHostInfo = { ...host, sessionId: 'old', state: 'closed' };
     const rows = toRows(new Map(), new Map(), new Map([['mine', host], ['old', closed]]));
     expect(rows).toHaveLength(1);
@@ -127,7 +129,7 @@ describe('toRows', () => {
 
   it('puts a session started in this app above one already working', () => {
     const summary = { id: 'busy', title: 'busy', firstPrompt: null, customTitle: null, cwd: '/p/a', projectRoot: '/p/a', gitBranch: null, worktree: null, origin: 'cli', createdAt: null, updatedAt: NOW - HOUR, fileSize: null, tag: null, pinned: false, settledAt: null, viewedAt: null, unread: false, inApp: true, profileId: 'default' } as const;
-    const busy: SessionHostInfo = { sessionId: 'busy', cwd: '/p/a', state: 'running', model: null, permissionMode: 'default', effort: null, costUsd: 0, contextPercent: null, contextTokens: null, contextMax: null, error: null, startedAt: NOW - 2 * HOUR, queued: 0, profileId: 'default' };
+    const busy: SessionHostInfo = { sessionId: 'busy', cwd: '/p/a', state: 'running', model: null, permissionMode: 'default', effort: null, costUsd: 0, contextPercent: null, contextTokens: null, contextMax: null, error: null, startedAt: NOW - 2 * HOUR, queued: 0, profileId: 'default', backgroundTasks: [] };
     const fresh: SessionHostInfo = { ...busy, sessionId: 'fresh', state: 'starting', startedAt: NOW };
     const rows = toRows(new Map([['busy', summary]]), new Map(), new Map([['busy', busy], ['fresh', fresh]]));
     expect(ids(buildSessionList(rows, { search: '', project: null, now: NOW }).active)).toEqual(['fresh', 'busy']);

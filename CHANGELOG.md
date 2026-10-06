@@ -7,9 +7,11 @@ All notable changes to Switchboard are listed here. Each release is also on the 
 ### Sessions
 
 - The **Open in** menu in a session's header has a **GitHub** entry when the project is on GitHub. It opens the branch you're on when it's pushed, and the repository otherwise.
+- When Claude leaves a command or agent running in the background, the session shows it: a slowly turning green ring in the sidebar, "Open, 1 background task running" in the header, and the task under the message box. Hover to see what's running.
 
 ### Fixes
 
+- Switchboard no longer closes a session that has been idle for a while when a background task is still running in it. That used to stop the task before Claude could report back.
 - The permission mode picker under a session shows the same coloured dot as New session.
 - A session you just started goes to the top of the sidebar, even while another session is working.
 - The **Open in** menu is no longer hidden behind the conversation.

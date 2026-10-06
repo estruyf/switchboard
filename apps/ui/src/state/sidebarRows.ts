@@ -2,13 +2,15 @@ import type { SessionScope, StartupView } from '@switchboard/protocol/bridge';
 import type { SessionRowData } from './sessionsStore.ts';
 
 /** What the status icon on a row shows, most urgent first. */
-export type RowStatus = 'needs-you' | 'running' | 'error' | 'unread' | 'idle' | null;
+export type RowStatus = 'needs-you' | 'running' | 'error' | 'unread' | 'background' | 'idle' | null;
 
 export function rowStatus(row: SessionRowData): RowStatus {
   if (row.live?.status === 'needs-you') return 'needs-you';
   if (row.live?.status === 'running') return 'running';
   if (row.error) return 'error';
   if (row.unread) return 'unread';
+  // Idle between turns, but a background command or agent is still working.
+  if (row.live?.status === 'idle' && row.live.background?.length) return 'background';
   if (row.live?.status === 'idle') return 'idle';
   return null;
 }

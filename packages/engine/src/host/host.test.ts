@@ -336,6 +336,29 @@ describe('HostManager', () => {
     await until(() => t.infos.at(-1)?.permissionMode === 'acceptEdits');
     t.manager.closeAll();
   });
+
+  it('tracks background tasks and keeps their session open while they run', async () => {
+    const t = setup();
+    const id = await t.manager.create({ ...base, cwd: '/w', prompt: 'hello' });
+    await until(() => lastState(t.infos, id) === 'idle');
+    const tasks = (list: unknown[]) => t.queries[0]!.out.push({ type: 'system', subtype: 'background_tasks_changed', tasks: list, session_id: id });
+    tasks([
+      { task_id: 'b1', task_type: 'local_bash', description: 'npm run test:links' },
+      { task_id: 'w1', task_type: 'monitor', description: 'Watching files', ambient: true },
+    ]);
+    await until(() => t.infos.at(-1)!.backgroundTasks.length > 0);
+    expect(t.infos.at(-1)).toMatchObject({ state: 'idle', backgroundTasks: [{ taskId: 'b1', type: 'local_bash', description: 'npm run test:links' }] });
+
+    // Long idle, but a task is still running: the reaper leaves it alone.
+    t.manager.reapIdle(Date.now() + 2 * 60 * 60_000);
+    expect(lastState(t.infos, id)).toBe('idle');
+
+    tasks([]);
+    await until(() => t.infos.at(-1)!.backgroundTasks.length === 0);
+    t.manager.reapIdle(Date.now() + 2 * 60 * 60_000);
+    expect(lastState(t.infos, id)).toBe('closed');
+    t.manager.closeAll();
+  });
 });
 
 describe('buildOptions', () => {

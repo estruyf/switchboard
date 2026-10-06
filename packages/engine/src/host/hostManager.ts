@@ -550,10 +550,14 @@ export class HostManager {
     this.deps.onPermissionResolved(requestId, pending.request.sessionId);
   }
 
-  private reapIdle(): void {
+  /**
+   * Closes sessions that have been idle for a while. A session with background tasks is left
+   * alone: closing the process would kill them before Claude could report back. Public for tests.
+   */
+  reapIdle(now = Date.now()): void {
     const limit = this.deps.idleTimeoutMs ?? 30 * 60_000;
     for (const host of this.hosts.values()) {
-      if (host.active && host.info.state === 'idle' && Date.now() - host.lastActivity > limit) {
+      if (host.active && host.info.state === 'idle' && host.info.backgroundTasks.length === 0 && now - host.lastActivity > limit) {
         this.deps.log('info', `Closing idle session ${host.sessionId}`);
         this.closedAt.set(host.sessionId, Date.now());
         host.close();
