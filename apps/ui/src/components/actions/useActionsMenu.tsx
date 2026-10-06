@@ -9,21 +9,28 @@ import type { MenuEntry } from '../Menu.tsx';
 import { ActionEditor } from './ActionEditor.tsx';
 import { ACTION_ICON, formatShortcut, shortcutFromEvent, useProjectActionList } from './useActions.ts';
 
-/**
- * Project actions for the session header's More menu: an entry per action (with its shortcut) and
- * "Edit actions…", plus the dialogs they open (`overlays`, rendered by the caller). Also runs actions
- * from their shortcuts and from the command palette. Shell actions open a terminal tab; prompt
- * actions message Claude. `error`: the last run that failed.
- */
-export function useActionsMenu({ sessionId, projectRoot, cwd }: { sessionId: string; projectRoot: string | null; cwd: string | null }): {
+export interface ActionsMenu {
   entries: MenuEntry[];
   overlays: ReactNode;
   error: string | null;
-  /** The project's actions, for the quick buttons in the session header. */
+  /** The project's actions, for the pills above the message box. */
   actions: ListedAction[];
   /** Runs an action (asking first when it needs trust or confirmation). */
   run: (action: ListedAction) => void;
-} {
+  /** Opens the action editor; null when the session has no project to keep actions for. */
+  openEditor: (() => void) | null;
+}
+
+/**
+ * Project actions for the session view: a menu entry per action (with its shortcut) and
+ * "Edit actions…", plus the dialogs they open (`overlays`, rendered by the caller). Also runs actions
+ * from their shortcuts and from the command palette. Shell actions open a terminal tab; prompt
+ * actions message Claude. `error`: the last run that failed.
+ * Call it once per session view: every call adds its own shortcut listener and dialogs.
+ */
+export function useActionsMenu({ sessionId, projectRoot: root, cwd }: { sessionId: string; projectRoot: string | null; cwd: string | null }): ActionsMenu {
+  // A session whose folder is unknown has no real project to keep actions for: saving would be refused.
+  const projectRoot = root?.startsWith('/') ? root : null;
   const connection = useEngineConnection();
   const client = connection.status === 'connected' ? connection.client : null;
   const { actions, sharedFile, errors, reload } = useProjectActionList(projectRoot);
@@ -82,7 +89,8 @@ export function useActionsMenu({ sessionId, projectRoot, cwd }: { sessionId: str
     return () => window.removeEventListener('keydown', onKey);
   }, [actions]);
 
-  if (!projectRoot) return { entries: [], overlays: null, error: null, actions: [], run };
+  if (!projectRoot) return { entries: [], overlays: null, error: null, actions: [], run, openEditor: null };
+  const openEditor = () => setEditor(true);
   const entries: MenuEntry[] = [
     { heading: 'Project actions' },
     ...actions.map((a) => {
@@ -96,7 +104,7 @@ export function useActionsMenu({ sessionId, projectRoot, cwd }: { sessionId: str
         data: { 'data-action': a.id, 'data-tooltip': `${a.type === 'prompt' ? 'Ask Claude: ' : ''}${a.command}` },
       } satisfies MenuEntry;
     }),
-    { label: actions.length ? 'Edit actions…' : 'Add an action…', icon: <Settings2 size={13} />, onSelect: () => setEditor(true), data: { 'data-edit-actions': true } },
+    { label: actions.length ? 'Edit actions…' : 'Add an action…', icon: <Settings2 size={13} />, onSelect: openEditor, data: { 'data-edit-actions': true } },
   ];
 
   const overlays = (
@@ -144,5 +152,5 @@ export function useActionsMenu({ sessionId, projectRoot, cwd }: { sessionId: str
       )}
     </>
   );
-  return { entries, overlays, error, actions, run };
+  return { entries, overlays, error, actions, run, openEditor };
 }

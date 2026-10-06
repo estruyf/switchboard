@@ -4,7 +4,7 @@ import type { UsageLimit, UsageSnapshot } from '@switchboard/protocol/client';
 import { useEngineConnection } from '../engine/useEngine.ts';
 import { useProfiles } from '../state/profilesStore.ts';
 import { levelOf, LEVEL_COLOR, LEVEL_FILL, LEVEL_TEXT } from '../lib/levels.ts';
-import { ProfileBadge } from './profiles/ProfileBadge.tsx';
+import { ProfileBadge, ProfileDot } from './profiles/ProfileBadge.tsx';
 import { countdown, limitLabel, spokenLimit, visibleLimits } from './usageFormat.ts';
 
 interface UsageState {
@@ -183,5 +183,68 @@ export function UsageBand({ profileId, compact = false, footer = false }: { prof
         </div>
       )}
     </div>
+  );
+}
+
+/**
+ * One Claude profile's plan usage as a card, for Home: its name and account, a full-width bar per
+ * limit in the level's colour with the reset countdown, and any extra usage. `activity` is a line
+ * about its sessions ("2 working · 5 today").
+ */
+export function ProfileUsageCard({ profileId, activity }: { profileId: string; activity: string }) {
+  const profile = useProfiles((s) => s.profiles.find((p) => p.id === profileId));
+  const usage = useUsageFor(profileId);
+  const [now, setNow] = useState(Date.now());
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 30_000);
+    return () => clearInterval(timer);
+  }, []);
+  const limits = usage ? visibleLimits(usage.limits) : [];
+  const extra = usage?.extraUsage;
+  return (
+    <article className="grid content-start gap-2.5 rounded-xl border border-border bg-card p-3" aria-label={`${profile?.name ?? 'Profile'}: usage`} data-home-profile={profileId}>
+      <div className="flex min-w-0 items-center gap-2">
+        {/* Always named here (the badge elsewhere hides itself while there is only one profile). */}
+        {profile && <ProfileDot color={profile.color} size={8} />}
+        <span className="truncate text-ui font-semibold">{profile?.name ?? 'Claude'}</span>
+        {profile?.account?.email && <span className="min-w-0 truncate text-meta text-faint">{profile.account.email}</span>}
+      </div>
+      <p className="text-meta text-muted">{activity}</p>
+      {limits.length === 0 ? (
+        <p className="text-meta text-faint">{usage ? 'No plan limits reported.' : 'Loading usage…'}</p>
+      ) : (
+        <div className="grid gap-2" role="group" aria-label="Plan usage">
+          {limits.map((limit) => {
+            const level = levelOf(limit.percent);
+            return (
+              <div
+                key={`${limit.kind}:${limit.scope ?? ''}`}
+                role="meter"
+                aria-label={spokenLimit(limit, now)}
+                aria-valuenow={Math.round(Math.min(100, Math.max(0, limit.percent)))}
+                aria-valuemin={0}
+                aria-valuemax={100}
+                className="grid gap-1"
+              >
+                <div className="flex items-baseline gap-2 text-meta">
+                  <span className="text-muted">{footerLabel(limit)}</span>
+                  <span className="flex-1" />
+                  {limit.resetsAt && <span className="text-faint">resets in {countdown(limit.resetsAt, now)}</span>}
+                  <span className={`font-semibold tabular-nums ${LEVEL_TEXT[level] || 'text-text'}`}>{Math.round(limit.percent)}%</span>
+                </div>
+                <span className="h-1.5 overflow-hidden rounded-full bg-selected" aria-hidden>
+                  <span className={`block h-full rounded-full ${LEVEL_FILL[level]}`} style={{ width: `${Math.min(100, Math.max(2, limit.percent))}%` }} />
+                </span>
+              </div>
+            );
+          })}
+        </div>
+      )}
+      {extra?.enabled && extra.usedCredits !== null && extra.usedCredits > 0 && (
+        <p className="text-meta text-muted">
+          <span className="font-semibold text-ok">{money(extra.usedCredits, extra.currency)}</span> extra usage{extra.monthlyLimit !== null && ` of ${money(extra.monthlyLimit, extra.currency)}`}
+        </p>
+      )}
+    </article>
   );
 }

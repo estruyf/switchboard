@@ -9,7 +9,9 @@ import { inScope, waitingLabel } from '../../state/sidebarRows.ts';
 import { ProjectIcon } from '../ProjectIcon.tsx';
 import { activityByProject, latestBranches, recentFirst } from '../newSession/projectTiles.ts';
 import { WorkingDots } from '../transcript/ActivityGroup.tsx';
-import { homeSessions, homeSummary, projectMeta } from './homeModel.ts';
+import { homeSessions, homeSummary, profileActivity, profileActivityLine, projectMeta } from './homeModel.ts';
+import { useProfiles } from '../../state/profilesStore.ts';
+import { ProfileUsageCard } from '../UsageBand.tsx';
 
 const newSession = () => useSessions.getState().openNewSession();
 const open = (id: string) => useSessions.getState().select(id);
@@ -64,6 +66,10 @@ export function HomeView() {
     for (const p of permissions.values()) if (!bySession.has(p.sessionId)) bySession.set(p.sessionId, p);
     return bySession;
   }, [permissions]);
+  // Every Claude profile with its plan usage and what its sessions are doing; the default one first.
+  const profiles = useProfiles((s) => s.profiles);
+  const profileOrder = useMemo(() => [...profiles].filter((p) => p.exists).sort((a, b) => Number(b.isDefault) - Number(a.isDefault)), [profiles]);
+  const perProfile = useMemo(() => profileActivity(rows), [rows]);
   const nameOf = (root: string) => projects.get(root)?.name ?? basename(root);
   const now = Date.now();
 
@@ -179,6 +185,19 @@ export function HomeView() {
                     <span className="truncate text-ui font-semibold text-text">{nameOf(root)}</span>
                     <span className="truncate font-mono text-meta text-muted">{projectMeta(branches.get(root), activity.get(root)?.open ?? 0)}</span>
                   </button>
+                ))}
+              </div>
+            </section>
+          )}
+
+          {profileOrder.length > 0 && (
+            <section aria-labelledby="home-profiles" className="grid gap-2" data-home-profiles>
+              <h2 id="home-profiles" className="text-meta font-semibold tracking-wide text-faint uppercase">
+                {profileOrder.length > 1 ? 'Profiles' : 'Usage'}
+              </h2>
+              <div className="grid grid-cols-2 gap-2 @max-[640px]:grid-cols-1">
+                {profileOrder.map((profile) => (
+                  <ProfileUsageCard key={profile.id} profileId={profile.id} activity={profileActivityLine(perProfile.get(profile.id))} />
                 ))}
               </div>
             </section>

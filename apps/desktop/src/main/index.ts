@@ -648,6 +648,8 @@ async function runActionStep(win: BrowserWindow): Promise<boolean> {
   win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Escape' });
   win.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Escape' });
   if (!(await waitInPage(win, "!document.querySelector('[role=dialog]')", 3_000))) return false;
+  // The new action also gets a pill above the message box.
+  if (!(await waitInPage(win, "document.querySelector('[data-current-session] [data-action-pills] [data-action-pill=\"smoke-action\"]')", 3_000))) return false;
   await js("document.querySelector('[data-current-session] [data-actions-menu]').click()");
   if (!(await waitInPage(win, "document.querySelector('[role=menuitem][data-action=\"smoke-action\"]')", 3_000))) return false;
   await js("document.querySelector('[role=menuitem][data-action=\"smoke-action\"]').click()");
@@ -724,22 +726,22 @@ async function runSettingsStep(win: BrowserWindow): Promise<string> {
   };
 
   await click('[data-open-settings]');
-  // Settings is a sheet over the main area with its sections inside; the sidebar keeps its session list.
+  // Settings fills the main area with its sections inside; the sidebar keeps its session list.
   if (
     !(await waitInPage(
       win,
-      "document.querySelector('[data-settings][role=dialog][aria-modal=true] [data-settings-nav] [data-settings-section]') && document.querySelector('[data-settings-scrim]') && document.querySelector('[data-session-list]')",
+      "document.querySelector('[data-settings] [data-settings-nav] [data-settings-section]') && document.querySelector('[data-session-list]')",
       3_000,
     ))
   ) {
-    return 'settings did not open as a sheet with its sections, next to the session list';
+    return 'settings did not open with its sections, next to the session list';
   }
   if (!(await section('theme'))) return 'the Theme section did not open';
   await click('[data-color-scheme="light"]');
   if (!(await waitInPage(win, `${background} === 'rgb(255, 255, 255)'`, 2_000))) return 'Light did not apply';
   if (!(await section('sidebar'))) return 'the Sidebar section did not open';
   await click('[data-sidebar-style="large"]');
-  if (!(await withSettingsClosed(`${rowHeight} === 52 && [...document.querySelectorAll('[data-session-id] > *')].some((el) => el.offsetWidth === 34)`))) return 'Large icons did not apply';
+  if (!(await withSettingsClosed(`${rowHeight} === 48 && [...document.querySelectorAll('[data-session-id] > *')].some((el) => el.offsetWidth === 24)`))) return 'Large icons did not apply';
   await pause();
   await shot(win, 'settings-light.png');
   await section('theme');
@@ -1742,6 +1744,8 @@ async function runSmokeStep(win: BrowserWindow | null): Promise<void> {
         `(() => { const row = document.querySelectorAll('[data-session-id]')[${i}]; row?.click(); return row?.dataset.sessionId ?? null; })()`,
       )) as string | null;
       if (!id || !(await waitInPage(win, "document.querySelector('[data-transcript-item]')", 5_000))) continue;
+      // Later steps (actions, Changes, git) need a session whose folder is known.
+      if (!(await win.webContents.executeJavaScript("document.querySelector('[data-current-session]')?.dataset.projectRoot?.startsWith('/') ?? false"))) continue;
       fallback ??= id;
       if (await waitInPage(win, "document.querySelector('[data-activity], [data-tool]')", 1_000)) {
         smokeSessionId = id;

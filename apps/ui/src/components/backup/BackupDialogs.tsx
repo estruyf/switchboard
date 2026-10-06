@@ -45,7 +45,7 @@ function Shell({ title, subtitle, onClose, footer, children, attr }: { title: st
   );
 }
 
-const buttonClass = 'h-7 rounded-md border border-border px-3 text-[12px] text-text hover:bg-border/50 disabled:opacity-50';
+const buttonClass = 'btn-secondary';
 const primaryClass = 'h-7 rounded-md bg-accent px-3 text-[12px] font-medium text-on-accent disabled:opacity-50';
 
 function SectionChoices({ available, selected, onChange, attr }: { available: readonly BackupSection[]; selected: readonly BackupSection[]; onChange(next: BackupSection[]): void; attr: `data-${string}` }) {

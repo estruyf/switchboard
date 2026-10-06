@@ -55,7 +55,7 @@ export function ConfirmDialog(props: ConfirmDialogProps) {
           </p>
         )}
         <div className="mt-5 flex justify-end gap-2">
-          <button type="button" onClick={props.onClose} className="rounded-md border border-border px-3 py-1 text-[12px] text-text hover:bg-border/50">
+          <button type="button" onClick={props.onClose} className="btn-secondary">
             Cancel
           </button>
           {!props.blockedReason && (
@@ -65,7 +65,7 @@ export function ConfirmDialog(props: ConfirmDialogProps) {
               data-confirm
               disabled={busy}
               onClick={() => void confirm()}
-              className={`rounded-md px-3 py-1 text-[12px] font-medium disabled:opacity-50 ${props.danger ? 'bg-error text-white' : 'bg-accent text-on-accent'}`}
+              className={`h-7 rounded-md px-3 text-ui font-semibold disabled:opacity-50 ${props.danger ? 'bg-error text-white' : 'bg-accent text-on-accent'}`}
             >
               {busy ? 'Working…' : props.confirmLabel}
             </button>

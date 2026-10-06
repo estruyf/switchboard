@@ -26,3 +26,36 @@ export function projectMeta(branch: string | null | undefined, open: number): st
   const parts = [branch, open ? `${open} open` : null].filter(Boolean);
   return parts.length ? parts.join(' · ') : 'No sessions open';
 }
+
+/** What a Claude profile is doing right now, for its card on Home. */
+export interface ProfileActivity {
+  /** Sessions with a Claude Code process. */
+  open: number;
+  working: number;
+  needs: number;
+  /** Sessions with activity since midnight (local time). */
+  today: number;
+}
+
+/** Counts per profile id over the rows the sidebar lists. Profiles without sessions are absent: callers default to zeros. */
+export function profileActivity(rows: readonly SessionRowData[], now = Date.now()): Map<string, ProfileActivity> {
+  const midnight = new Date(now);
+  midnight.setHours(0, 0, 0, 0);
+  const out = new Map<string, ProfileActivity>();
+  for (const row of rows) {
+    const stats = out.get(row.profileId) ?? { open: 0, working: 0, needs: 0, today: 0 };
+    if (row.live) stats.open++;
+    if (row.live?.status === 'running') stats.working++;
+    if (row.live?.status === 'needs-you') stats.needs++;
+    if (row.updatedAt >= midnight.getTime()) stats.today++;
+    out.set(row.profileId, stats);
+  }
+  return out;
+}
+
+/** "2 working · 1 needs you · 5 today", leaving out what is zero; "No sessions today" when all are. */
+export function profileActivityLine(stats: ProfileActivity | undefined): string {
+  if (!stats) return 'No sessions today';
+  const parts = [stats.needs ? `${stats.needs} ${stats.needs === 1 ? 'needs' : 'need'} you` : null, stats.working ? `${stats.working} working` : null, stats.today ? `${stats.today} today` : null].filter(Boolean);
+  return parts.length ? parts.join(' · ') : 'No sessions today';
+}

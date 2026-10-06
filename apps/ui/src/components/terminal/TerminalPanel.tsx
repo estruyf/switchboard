@@ -112,7 +112,7 @@ export function TerminalPanel({ sessionId, cwd }: { sessionId: string; cwd: stri
   };
 
   return (
-    <section aria-label="Terminal" className="flex shrink-0 flex-col border-t border-border bg-sidebar" style={{ height }} data-terminal-panel>
+    <section aria-label="Terminal" className="theme-dark flex shrink-0 flex-col border-t border-border bg-bg text-text" style={{ height }} data-terminal-panel>
       <div
         role="separator"
         aria-orientation="horizontal"

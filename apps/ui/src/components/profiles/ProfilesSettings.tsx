@@ -9,7 +9,7 @@ import { Radio, RadioGroup } from '../ui/Radio.tsx';
 import { PROFILE_DOT } from './ProfileBadge.tsx';
 
 const field = 'h-7 min-w-0 rounded-md border border-border bg-bg px-2 text-[12px] text-text outline-none focus:border-accent-ink/60';
-const button = 'flex h-7 shrink-0 items-center gap-1.5 rounded-md border border-border px-2.5 text-[12px] text-text hover:bg-border/50 disabled:opacity-50';
+const button = 'btn-secondary shrink-0';
 
 const slug = (name: string) =>
   name

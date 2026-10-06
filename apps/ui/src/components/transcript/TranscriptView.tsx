@@ -16,6 +16,8 @@ import { useTerminals } from '../../state/terminalsStore.ts';
 // xterm.js is large; it loads the first time a terminal panel opens, not at startup.
 const TerminalPanel = lazy(() => import('../terminal/TerminalPanel.tsx').then((m) => ({ default: m.TerminalPanel })));
 import { Composer } from '../composer/Composer.tsx';
+import { ActionPills } from '../actions/ActionPills.tsx';
+import { useActionsMenu } from '../actions/useActionsMenu.tsx';
 import { CapabilitiesDialog } from '../capabilities/CapabilitiesDialog.tsx';
 import { ChangesPanel, useChangesLayout } from '../changes/ChangesPanel.tsx';
 import { ContextMeter } from '../session/ContextMeter.tsx';
@@ -45,8 +47,8 @@ const ORIGIN_LABEL = { cli: 'Terminal', desktop: 'Claude desktop', ide: 'IDE', s
 /** The status word in the header's meta line takes the colour of its dot. */
 const STATUS_TONE = { running: 'text-accent-ink', 'needs-you': 'text-warn', idle: 'text-ok' } as const;
 
-/** One half of the header's Changes | Terminal control. */
-const segment = 'flex h-full shrink-0 items-center gap-1.5 rounded px-2 text-ui @max-[860px]:px-1.5';
+/** One icon-only segment of the header's Changes | Terminal control. */
+const segment = 'flex h-full shrink-0 items-center gap-1 rounded-md px-1.5';
 
 /** The dot between the parts of the header's meta line (a narrow pane shows only the status dot and the branch, no separators). */
 const Sep = () => (
@@ -217,6 +219,9 @@ export function TranscriptView({ sessionId, pane = null, active = true }: { sess
   const backgroundTasks = activeHost?.backgroundTasks ?? [];
   /** The Claude profile (account) the session bills to. */
   const profileId = activeHost?.profileId ?? summary?.profileId ?? registryLive?.profileId ?? null;
+  // Project actions: called once here (it listens for their shortcuts and owns their dialogs), then
+  // shared by the pills above the message box and the header's ⋯ menu.
+  const actionsMenu = useActionsMenu({ sessionId, projectRoot, cwd });
 
   // The Changes panel (⌘⇧D): the checkout's git diff, with stage and revert.
   const changesOpen = useOverlay((s) => s.changesOpen);
@@ -484,7 +489,7 @@ export function TranscriptView({ sessionId, pane = null, active = true }: { sess
 
   return (
     // `@container`: the header compacts itself when the pane is narrow (two sessions side by side).
-    <div className="@container flex h-full min-h-0 flex-col" data-current-session={sessionId} data-drop-zone>
+    <div className="@container flex h-full min-h-0 flex-col" data-current-session={sessionId} data-project-root={projectRoot ?? undefined} data-drop-zone>
       {/* With two panes, the active one has an accent line along the top. */}
       <header
         className={`drag flex h-13 shrink-0 items-center gap-3 overflow-hidden border-b border-border px-6 @max-[860px]:gap-2 @max-[860px]:px-4 ${pane && active ? 'shadow-[inset_0_2px_0_var(--sb-accent)]' : ''}`}
@@ -533,8 +538,8 @@ export function TranscriptView({ sessionId, pane = null, active = true }: { sess
             )}
           </div>
         </div>
-        {/* Changes | Terminal: the two side panels as one segmented control. */}
-        <div role="group" aria-label="Panels" className="no-drag flex h-7 shrink-0 items-center gap-0.5 rounded-md border border-border p-0.5" data-panel-toggles>
+        {/* Changes | Terminal: the two side panels as one compact, icon-only segmented control. */}
+        <div role="group" aria-label="Panels" className="no-drag flex h-7 shrink-0 items-center gap-0.5 rounded-lg bg-card p-0.5" data-panel-toggles>
           {cwd && isRepo && (
             <button
               type="button"
@@ -546,9 +551,8 @@ export function TranscriptView({ sessionId, pane = null, active = true }: { sess
               aria-expanded={changesOpen && active}
               className={`${segment} ${changesOpen ? 'bg-selected text-text' : 'text-muted hover:bg-border/50 hover:text-text'}`}
             >
-              <FileDiff size={13} aria-hidden />
-              <span className="@max-[860px]:hidden">Changes</span>
-              {changedCount > 0 && <span className="rounded-full bg-border px-1.5 text-meta leading-4 text-text tabular-nums">{changedCount}</span>}
+              <FileDiff size={14} aria-hidden />
+              {changedCount > 0 && <span className="text-meta tabular-nums">{changedCount}</span>}
             </button>
           )}
           <button
@@ -561,9 +565,8 @@ export function TranscriptView({ sessionId, pane = null, active = true }: { sess
             aria-expanded={panelOpen && active}
             className={`${segment} relative ${panelOpen ? 'bg-selected text-text' : 'text-muted hover:bg-border/50 hover:text-text'}`}
           >
-            <SquareTerminal size={13} aria-hidden />
-            <span className="@max-[860px]:hidden">Terminal</span>
-            {terminalCount > 0 && <span className="size-1.5 shrink-0 rounded-full bg-ok" aria-hidden />}
+            <SquareTerminal size={14} aria-hidden />
+            {terminalCount > 0 && <span className="absolute top-1 right-1 size-1.5 rounded-full bg-ok" aria-hidden />}
           </button>
         </div>
         {cwd && isRepo && (
@@ -584,7 +587,7 @@ export function TranscriptView({ sessionId, pane = null, active = true }: { sess
         )}
         <MoreMenu
           sessionId={sessionId}
-          projectRoot={projectRoot}
+          actions={actionsMenu}
           cwd={cwd}
           items={items}
           sessionOpen={live !== null}
@@ -725,37 +728,40 @@ export function TranscriptView({ sessionId, pane = null, active = true }: { sess
           <div className="shrink-0 border-t border-border bg-bg">
             {/* minmax(0,1fr): the column stays as wide as the pane, so long lines truncate instead of pushing it wider. */}
             <div className="mx-auto grid max-w-3xl grid-cols-[minmax(0,1fr)] gap-2 px-6 pt-3 pb-1.5 @max-[860px]:px-4">
-              {(showTodos || backgroundTasks.length > 0) && (
+              {(actionsMenu.openEditor || showTodos || backgroundTasks.length > 0) && (
                 <div className="grid gap-1.5">
-                  {/* Claude's task list and its background tasks, as small pills; the task list opens below them. */}
+                  {/* The project's actions on the left; Claude's task list and its background tasks on the right, as small pills. The task list opens below them. */}
                   <div className="flex min-w-0 flex-wrap items-center gap-1.5">
-                    {showTodos && (
-                      <button
-                        type="button"
-                        onClick={() => setTodosOpen((o) => !o)}
-                        aria-expanded={todosOpen}
-                        aria-controls={todosOpen ? todosId : undefined}
-                        data-tooltip={todosOpen ? 'Hide Claude’s task list' : 'Show Claude’s task list'}
-                        className={`flex h-6 shrink-0 items-center gap-1.5 rounded-full border border-border px-2.5 text-meta hover:bg-border/50 hover:text-text ${todosOpen ? 'bg-selected text-text' : 'text-muted'}`}
-                        data-todo-strip
-                      >
-                        <ListTodo size={12} aria-hidden />
-                        <span className="tabular-nums">
-                          Tasks {todos.filter((t) => t.status === 'completed').length} of {todos.length}
+                    <ActionPills actions={actionsMenu} />
+                    <div className="ml-auto flex min-w-0 flex-wrap items-center justify-end gap-1.5">
+                      {showTodos && (
+                        <button
+                          type="button"
+                          onClick={() => setTodosOpen((o) => !o)}
+                          aria-expanded={todosOpen}
+                          aria-controls={todosOpen ? todosId : undefined}
+                          data-tooltip={todosOpen ? 'Hide Claude’s task list' : 'Show Claude’s task list'}
+                          className={`flex h-6 shrink-0 items-center gap-1.5 rounded-full border border-border px-2.5 text-meta hover:bg-border/50 hover:text-text ${todosOpen ? 'bg-selected text-text' : 'text-muted'}`}
+                          data-todo-strip
+                        >
+                          <ListTodo size={12} aria-hidden />
+                          <span className="tabular-nums">
+                            Tasks {todos.filter((t) => t.status === 'completed').length} of {todos.length}
+                          </span>
+                          <ChevronDown size={11} className={`transition-transform ${todosOpen ? 'rotate-180' : ''}`} aria-hidden />
+                        </button>
+                      )}
+                      {backgroundTasks.length > 0 && (
+                        <span
+                          className="flex h-6 min-w-0 items-center gap-1.5 rounded-full border border-ok/40 bg-ok/10 px-2.5 text-meta text-ok"
+                          data-tooltip={backgroundTasks.map((t) => t.description).join('\n')}
+                          data-status-background
+                        >
+                          <LoaderCircle size={11} className="shrink-0 animate-[spin_2s_linear_infinite]" aria-hidden />
+                          <span className="truncate">{backgroundTasks.length === 1 ? '1 background task' : `${backgroundTasks.length} background tasks`}</span>
                         </span>
-                        <ChevronDown size={11} className={`transition-transform ${todosOpen ? 'rotate-180' : ''}`} aria-hidden />
-                      </button>
-                    )}
-                    {backgroundTasks.length > 0 && (
-                      <span
-                        className="flex h-6 min-w-0 items-center gap-1.5 rounded-full border border-ok/40 bg-ok/10 px-2.5 text-meta text-ok"
-                        data-tooltip={backgroundTasks.map((t) => t.description).join('\n')}
-                        data-status-background
-                      >
-                        <LoaderCircle size={11} className="shrink-0 animate-[spin_2s_linear_infinite]" aria-hidden />
-                        <span className="truncate">{backgroundTasks.length === 1 ? '1 background task' : `${backgroundTasks.length} background tasks`}</span>
-                      </span>
-                    )}
+                      )}
+                    </div>
                   </div>
                   {showTodos && todosOpen && (
                     <div id={todosId} className="max-h-40 overflow-y-auto px-1" data-todo-list>
@@ -787,6 +793,7 @@ export function TranscriptView({ sessionId, pane = null, active = true }: { sess
                   </button>
                 </p>
               )}
+              {actionsMenu.overlays}
               <Composer
                 initialText={initialText}
                 cwd={cwd}
@@ -851,7 +858,7 @@ export function TranscriptView({ sessionId, pane = null, active = true }: { sess
             </div>
           </div>
           {panelOpen && active && (
-            <Suspense fallback={<div className="h-40 shrink-0 border-t border-border bg-sidebar" />}>
+            <Suspense fallback={<div className="theme-dark h-40 shrink-0 border-t border-border bg-bg" />}>
               <TerminalPanel sessionId={sessionId} cwd={cwd} />
             </Suspense>
           )}

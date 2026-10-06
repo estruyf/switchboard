@@ -63,7 +63,7 @@ export function CommitDialog({ branch, files, onCommit, onClose }: { branch: str
           </p>
         )}
         <div className="mt-4 flex justify-end gap-2">
-          <button type="button" onClick={onClose} className="rounded-md border border-border px-3 py-1 text-[12px] text-text hover:bg-border/50">
+          <button type="button" onClick={onClose} className="btn-secondary">
             Cancel
           </button>
           <button
@@ -71,7 +71,7 @@ export function CommitDialog({ branch, files, onCommit, onClose }: { branch: str
             data-confirm
             disabled={busy || !message.trim()}
             onClick={() => void commit()}
-            className="flex items-center gap-2 rounded-md bg-accent px-3 py-1 text-[12px] font-medium text-on-accent disabled:opacity-50"
+            className="flex h-7 items-center gap-2 rounded-md bg-accent px-3 text-ui font-semibold text-on-accent disabled:opacity-50"
           >
             {busy ? 'Committing…' : 'Commit'}
             {!busy && <kbd className="font-sans text-[11px] font-normal opacity-60">⌘↵</kbd>}

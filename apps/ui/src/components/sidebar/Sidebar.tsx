@@ -1,5 +1,5 @@
 import { useVirtualizer } from '@tanstack/react-virtual';
-import { Archive, ArchiveRestore, ChevronRight, FolderCog, GitBranch, House, Pin, Search, Settings, SquarePen, X } from 'lucide-react';
+import { Archive, ArchiveRestore, ChevronRight, FolderCog, GitBranch, House, Pin, Plus, Search, Settings, X } from 'lucide-react';
 import type { SidebarStyle } from '@switchboard/protocol/bridge';
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type MouseEvent, type PointerEvent } from 'react';
 import { useEngineConnection } from '../../engine/useEngine.ts';
@@ -17,7 +17,8 @@ import { NO_PICKS, rangePick, stepPick, togglePick, visiblePicks, type Picks } f
 import { ConfirmDialog } from '../ConfirmDialog.tsx';
 import { Menu, type MenuEntry } from '../Menu.tsx';
 import { useOpenIn } from '../OpenInButton.tsx';
-import { ProfileBadge } from '../profiles/ProfileBadge.tsx';
+import { PROFILE_DOT } from '../profiles/ProfileBadge.tsx';
+import { useMultipleProfiles, useProfile } from '../../state/profilesStore.ts';
 import { ProjectIcon } from '../ProjectIcon.tsx';
 import { updatePill } from '../../lib/updates.ts';
 import { useUpdates } from '../../state/updatesStore.ts';
@@ -29,7 +30,6 @@ import { inWorktree } from '../worktree/branchMenu.ts';
 import { ProjectFilter, useProjectIconEntries } from './ProjectMenu.tsx';
 import { sessionRowLabel } from './rowLabel.ts';
 import { StatusIcon } from './StatusIcon.tsx';
-import appIcon from '../../assets/app-icon.png';
 
 /** Drag the sidebar's right edge to resize it (clamped in the store); double-click resets the default width. */
 function SidebarResizeHandle() {
@@ -65,9 +65,9 @@ function SidebarResizeHandle() {
   );
 }
 
-const SESSION_ROW_HEIGHT: Record<SidebarStyle, number> = { large: 56, standard: 48, compact: 34 };
+const SESSION_ROW_HEIGHT: Record<SidebarStyle, number> = { large: 52, standard: 48, compact: 34 };
 const ARCHIVED_HEADER_HEIGHT = 34;
-const GROUP_HEADER_HEIGHT = 28;
+const GROUP_HEADER_HEIGHT = 34;
 
 const rowHeight = (row: SidebarListRow, style: SidebarStyle) =>
   row.kind === 'session' ? SESSION_ROW_HEIGHT[style] : row.kind === 'group' ? GROUP_HEADER_HEIGHT - (row.first ? 6 : 0) : ARCHIVED_HEADER_HEIGHT;
@@ -147,9 +147,27 @@ const SessionRow = memo(function SessionRow({
   const projectName = project?.name ?? data.projectRoot.split('/').pop();
   const titleTone = emphasised || selected ? 'font-semibold text-text' : archived ? 'text-muted' : 'text-text/85';
   const age = <span className={`shrink-0 text-meta tabular-nums ${ageTone}`}>{shortAge(data.updatedAt, now)}</span>;
-  const railTone = status && RAIL_TONE[status];
-  const rail = railTone && <span className={`absolute inset-y-1.5 left-0 w-[3px] rounded-full ${railTone}`} aria-hidden />;
+  // The line at the row's left edge. With more than one Claude profile it is the profile's colour, on
+  // every row, so you see whose account a session uses at a glance; the status then shows in the age's
+  // colour, the bold title and the group. With one profile it is the status (needs you, working, unread).
+  const multipleProfiles = useMultipleProfiles();
+  const profile = useProfile(data.profileId);
+  const statusRail = status && RAIL_TONE[status];
+  const profileRail = multipleProfiles && profile ? PROFILE_DOT[profile.color] : null;
+  const railTone = profileRail ?? statusRail;
+  const rail = railTone && (
+    <span
+      className={`absolute inset-y-1.5 left-0 w-[3px] rounded-full ${railTone} ${archived && !selected ? 'opacity-50' : ''}`}
+      data-profile-badge={profileRail && profile ? profile.id : undefined}
+      aria-hidden
+    />
+  );
   const pin = data.pinned && <Pin size={11} className="shrink-0 text-faint" aria-hidden />;
+  const icon = (size: number) => (
+    <span className={`flex shrink-0 ${archived && !selected ? 'opacity-60' : ''}`}>
+      <ProjectIcon project={project} root={data.projectRoot} size={size} />
+    </span>
+  );
   // Below the row's corner, for menus opened from the keyboard (or VoiceOver, which sends a contextmenu at 0,0).
   const menuAt = (el: HTMLElement) => {
     const rect = el.getBoundingClientRect();
@@ -178,7 +196,7 @@ const SessionRow = memo(function SessionRow({
         onMenu(menuAt(e.currentTarget), data);
       }
     },
-    'data-tooltip': [data.title, style === 'compact' ? projectName : null, style === 'compact' ? waitingFor : null, data.summary?.cwd].filter(Boolean).join('\n'),
+    'data-tooltip': [data.title, style === 'compact' ? projectName : null, style === 'compact' ? waitingFor : null, multipleProfiles && profile ? `Profile: ${profile.name}` : null, data.summary?.cwd].filter(Boolean).join('\n'),
   };
   // Selection is a neutral fill (a yellow tint vanishes on the light sidebar); picks add a ring on top.
   const surface = picked
@@ -193,9 +211,8 @@ const SessionRow = memo(function SessionRow({
     return (
       <button {...common} className={`relative flex h-8 w-full items-center gap-2 rounded-md px-2.5 text-left text-meta ${surface}`}>
         {rail}
-        <ProjectIcon project={project} root={data.projectRoot} size={16} />
+        {icon(16)}
         <span className={`min-w-0 flex-1 truncate text-body ${titleTone}`}>{data.title}</span>
-        <ProfileBadge profileId={data.profileId} dotOnly />
         {pin}
         {status ? <StatusIcon status={status} /> : age}
       </button>
@@ -215,13 +232,14 @@ const SessionRow = memo(function SessionRow({
           <span className="min-w-0 flex-1 truncate font-medium text-warn">{waitingFor}</span>
         ) : (
           <>
-            {branch && <GitBranch size={11} className={`shrink-0 ${data.isWorktree ? 'text-accent-ink/80' : ''}`} aria-hidden />}
-            <span className="min-w-0 flex-1 truncate">{place.join(' · ')}</span>
+            {status !== 'unread' && branch && <GitBranch size={11} className={`shrink-0 ${data.isWorktree ? 'text-accent-ink/80' : ''}`} aria-hidden />}
+            {/* Finished with something you haven't read: say so where the branch would be. */}
+            <span className="min-w-0 flex-1 truncate">{(status === 'unread' ? ['Finished, unread', filtered ? null : projectName].filter(Boolean) : place).join(' · ')}</span>
           </>
         )}
-        <ProfileBadge profileId={data.profileId} className="max-w-24" />
         {pin}
-        <StatusIcon status={status} />
+        {/* The rail and the age's colour already say needs you, working and unread; the icon is for the rest. */}
+        {!statusRail && <StatusIcon status={status} />}
       </span>
     </span>
   );
@@ -229,10 +247,11 @@ const SessionRow = memo(function SessionRow({
   return (
     <button
       {...common}
-      className={`relative flex w-full items-center rounded-lg pr-2.5 pl-3 text-left ${style === 'large' ? 'h-[52px] gap-2.5' : 'h-11'} ${surface}`}
+      className={`relative flex w-full items-center gap-2.5 rounded-lg pr-2.5 pl-3 text-left ${style === 'large' ? 'h-12' : 'h-11'} ${surface}`}
     >
       {rail}
-      {style === 'large' && <ProjectIcon project={project} root={data.projectRoot} size={34} />}
+      {/* The project's icon tells rows from different projects apart inside a status group. */}
+      {icon(style === 'large' ? 24 : 18)}
       {lines}
     </button>
   );
@@ -465,14 +484,14 @@ export function Sidebar() {
   return (
     <aside aria-label="Sidebar" className="relative flex shrink-0 flex-col border-r border-border bg-sidebar" style={{ width }} data-sidebar>
       {/* Traffic lights on the left; the bar doubles as a window drag handle. */}
-      <div className="drag flex h-13 shrink-0 items-center gap-2 pl-21">
-        <img src={appIcon} alt="" width={20} height={20} draggable={false} />
+      <div className="drag flex h-13 shrink-0 items-center gap-2 pl-24">
         <span className="text-body font-semibold text-text/90">Switchboard</span>
       </div>
 
       {/* The session list stays while Settings is open (a sheet over the main area), so "Needs you" stays in view. */}
-      <div className="flex items-center gap-1 px-3 pb-1.5">
-        <label className="no-drag flex h-7 min-w-0 flex-1 items-center gap-2 rounded-md px-1.5 text-muted focus-within:bg-card focus-within:ring-1 focus-within:ring-accent-ink/50 hover:bg-border/40">
+      <div className="flex items-center gap-1.5 px-3 pb-1.5">
+        {/* A real field on the darkest surface, so it reads as the place to type. */}
+        <label className="no-drag flex h-8 min-w-0 flex-1 items-center gap-2 rounded-lg bg-bg px-2.5 text-faint focus-within:ring-1 focus-within:ring-accent-ink/50">
           <Search size={14} className="shrink-0" aria-hidden />
           <input
             type="search"
@@ -490,7 +509,7 @@ export function Sidebar() {
           onClick={() => useSessions.getState().goHome()}
           data-tooltip="Home (⌘⇧H)" aria-label="Home (⌘⇧H)"
           aria-current={atHome ? 'page' : undefined}
-          className={`no-drag flex size-7 items-center justify-center rounded-md hover:bg-border/50 ${atHome ? 'bg-selected text-text' : 'text-muted hover:text-text'}`}
+          className={`no-drag flex size-8 shrink-0 items-center justify-center rounded-lg hover:bg-border/50 ${atHome ? 'bg-selected text-text' : 'text-muted hover:text-text'}`}
         >
           <House size={15} aria-hidden />
         </button>
@@ -499,9 +518,10 @@ export function Sidebar() {
           data-new-session
           onClick={() => useSessions.getState().openNewSession()}
           data-tooltip="New session (⌘N)" aria-label="New session (⌘N)"
-          className={`no-drag flex size-7 items-center justify-center rounded-md hover:bg-border/50 ${view === 'new' ? 'bg-accent/15 text-text' : 'text-muted hover:text-text'}`}
+          // The sidebar's one primary action: a yellow fill, like every primary button.
+          className={`no-drag flex size-8 shrink-0 items-center justify-center rounded-lg bg-accent text-on-accent hover:bg-accent/85 ${view === 'new' ? 'ring-2 ring-accent/40 ring-offset-1 ring-offset-sidebar' : ''}`}
         >
-          <SquarePen size={15} aria-hidden />
+          <Plus size={17} strokeWidth={2.4} aria-hidden />
         </button>
       </div>
 
@@ -575,9 +595,11 @@ export function Sidebar() {
                       aria-expanded={row.open}
                       onClick={toggleArchived}
                       data-tooltip="Quiet for 48 hours, or archived by you. They come back when there is something new."
-                      className="mt-1 flex h-[30px] w-full items-center gap-1.5 rounded-md px-2.5 text-ui text-muted hover:text-text"
+                      // Styled like the group headers above it, with the count in the same pill.
+                      className="mt-2 flex h-[26px] w-full items-center gap-1.5 rounded-md px-2.5 text-meta font-semibold tracking-wider text-faint uppercase hover:text-text"
                     >
-                      Archived ({row.count})
+                      Archived
+                      <span className="rounded-full bg-border/60 px-1.5 tabular-nums tracking-normal">{row.count}</span>
                       <ChevronRight size={13} className={`transition-transform ${row.open ? 'rotate-90' : ''}`} aria-hidden />
                     </button>
                   )}

@@ -1,28 +1,36 @@
-import { Pencil, Plus, Trash2, X } from 'lucide-react';
-import { useEffect, useId, useRef, useState } from 'react';
-import { ACTION_ICONS, type ActionIcon, type ActionSuggestion, type ListedAction, type ProjectAction } from '@switchboard/protocol/client';
+import { MoreHorizontal, Plus, Share2, X } from 'lucide-react';
+import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
+import { ACTION_ICONS, type ActionIcon, type ActionSuggestion, type ListedAction } from '@switchboard/protocol/client';
 import { useEngineConnection } from '../../engine/useEngine.ts';
 import { ConfirmDialog } from '../ConfirmDialog.tsx';
 import { useOpenIn } from '../OpenInButton.tsx';
-import { Checkbox } from '../ui/Checkbox.tsx';
 import { RadioGroup } from '../ui/Radio.tsx';
 import { Select } from '../ui/Select.tsx';
+import { Switch } from '../ui/Toggle.tsx';
 import { useModalFocus } from '../ui/useModalFocus.ts';
+import {
+  ACTION_VARIABLES,
+  actionKey,
+  EMPTY_DRAFT,
+  friendlySaveError,
+  groupActions,
+  insertVariable,
+  NAME_MAX,
+  projectName,
+  slug,
+  validateDraft,
+  visibleSuggestions,
+  type ActionDraft,
+  type DraftErrors,
+} from './actionForm.ts';
 import { ACTION_ICON, formatShortcut, RESERVED_SHORTCUTS, shortcutFromEvent } from './useActions.ts';
 
-type Draft = ProjectAction & { scope: 'project' | 'global' };
-
-const EMPTY: Draft = { id: '', name: '', icon: 'play', type: 'shell', command: '', cwd: 'session', confirm: false, shortcut: null, runOnWorktreeCreate: false, scope: 'project' };
-
-const slug = (name: string) =>
-  name
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-    .slice(0, 40) || 'action';
-
-const field = 'h-7 rounded-md border border-border bg-bg px-2 text-[12px] text-text outline-none focus:border-accent-ink/60';
-const SCOPE_LABEL = { project: 'This project', global: 'All projects', shared: '.switchboard.json' } as const;
+const field = 'h-7 w-full rounded-md border bg-bg px-2.5 text-ui text-text outline-none focus:border-accent-ink disabled:opacity-70';
+const fieldBorder = (invalid: boolean) => (invalid ? 'border-error' : 'border-edge');
+const kbd = 'rounded border border-edge px-1 font-sans text-meta text-muted';
+const fieldLabel = 'text-ui text-muted';
+/** How many icons the picker shows inline; the rest are behind its ⋯ button. */
+const INLINE_ICONS = 4;
 
 /** Readable names for the icon picker (the stored values are lucide-style ids such as `git-commit`). */
 const ICON_NAME: Record<ActionIcon, string> = {
@@ -41,24 +49,28 @@ const ICON_NAME: Record<ActionIcon, string> = {
   check: 'Check',
 };
 
+/** The form values of a listed action (`trusted` only matters in the list). */
+function draftOf(a: ListedAction): ActionDraft {
+  const { trusted, ...rest } = a;
+  void trusted;
+  return rest;
+}
+
 /**
- * Records a key combination: click (or press Space), then press the keys. Escape stops recording.
- * The hint underneath says so, since "None" alone doesn't tell anyone what the field does.
+ * Records a key combination, styled like an input: click (or press Space), then press the keys.
+ * Escape stops recording, and doesn't close the dialog since the key event is marked handled.
  */
-function ShortcutInput({ value, onChange }: { value: string | null; onChange(value: string | null): void }) {
+function ShortcutInput({ value, onChange, labelId }: { value: string | null; onChange(value: string | null): void; labelId: string }) {
   const [recording, setRecording] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const id = useId();
   return (
     <div className="grid gap-1">
-      <span id={`${id}-label`} className="text-muted">
-        Shortcut
-      </span>
-      <div className="flex items-center gap-2">
+      <div className={`${field} flex items-center gap-1 pr-1 focus-within:border-accent-ink ${recording ? 'border-accent-ink' : 'border-edge'}`}>
         <button
           type="button"
-          aria-labelledby={`${id}-label ${id}-value`}
-          aria-describedby={`${id}-hint`}
+          aria-labelledby={`${labelId} ${id}-value`}
+          aria-describedby={error ? `${id}-hint` : undefined}
           onClick={() => (setRecording(true), setError(null))}
           onBlur={() => setRecording(false)}
           onKeyDown={(e) => {
@@ -67,36 +79,149 @@ function ShortcutInput({ value, onChange }: { value: string | null; onChange(val
             if (e.key === 'Escape') return setRecording(false);
             const shortcut = shortcutFromEvent(e.nativeEvent);
             if (!shortcut) return;
-            if (!shortcut.includes('+')) return setError('Include ⌘, ⌃ or ⌥ in the shortcut');
+            if (!shortcut.includes('+')) return setError('Include ⌘, ⌃ or ⌥');
             if (RESERVED_SHORTCUTS.has(shortcut)) return setError(`${formatShortcut(shortcut)} is used by Switchboard`);
             onChange(shortcut);
             setRecording(false);
           }}
-          className={`${field} min-w-28 text-left ${recording ? 'border-accent-ink/60 text-accent-ink' : ''}`}
+          className="flex h-full min-w-0 flex-1 items-center gap-2 text-left outline-none disabled:cursor-default"
           data-action-shortcut
         >
-          <span id={`${id}-value`}>{recording ? 'Press keys…' : value ? formatShortcut(value) : 'None'}</span>
+          <span id={`${id}-value`} className="min-w-0 flex-1 truncate">
+            {recording ? <span className="text-accent-ink">Press keys, Esc cancels</span> : value ? <kbd className={`${kbd} text-text`}>{formatShortcut(value)}</kbd> : <span className="text-faint">None</span>}
+          </span>
+          {!recording && (
+            <span className="shrink-0 text-muted" aria-hidden>
+              {value ? 'Change' : 'Set'}
+            </span>
+          )}
         </button>
-        {value && (
-          <button type="button" onClick={() => onChange(null)} className="text-[11px] text-muted hover:text-text" aria-label="Clear the shortcut">
-            Clear
+        {value && !recording && (
+          <button type="button" onClick={() => onChange(null)} className="rounded p-0.5 text-muted hover:bg-border/50 hover:text-text" aria-label="Clear the shortcut" data-tooltip="Clear">
+            <X size={12} aria-hidden />
           </button>
         )}
       </div>
-      {error ? (
-        <span id={`${id}-hint`} role="alert" className="text-[11px] text-error">
+      {error && (
+        <span id={`${id}-hint`} role="alert" className="text-meta text-error">
           {error}
-        </span>
-      ) : (
-        <span id={`${id}-hint`} className="text-[11px] text-muted">
-          {recording ? 'Press the keys, e.g. ⌘⇧B. Esc cancels.' : 'Optional. Click, then press keys to run this action from the keyboard.'}
         </span>
       )}
     </div>
   );
 }
 
-/** Add, edit and remove project actions. Shared ones are read-only here (edit .switchboard.json). */
+/** One row of the left list: a real button inside an `<li>`. */
+function Row({ selected, onClick, children, data }: { selected?: boolean; onClick(): void; children: ReactNode; data?: Record<`data-${string}`, string | boolean> }) {
+  return (
+    <li>
+      <button
+        type="button"
+        onClick={onClick}
+        aria-current={selected ? 'true' : undefined}
+        className={`flex min-h-8 w-full items-center gap-2.5 rounded-md px-2.5 py-1 text-left text-ui text-text ${selected ? 'bg-selected font-semibold' : 'hover:bg-border/45'}`}
+        {...data}
+      >
+        {children}
+      </button>
+    </li>
+  );
+}
+
+function SectionTitle({ id, children }: { id: string; children: ReactNode }) {
+  return (
+    <p id={id} className="mt-5 mb-1.5 px-2.5 text-meta font-semibold tracking-wider text-muted uppercase first:mt-2">
+      {children}
+    </p>
+  );
+}
+
+/**
+ * The icon choice, sized like a field: the first few icons inline (the chosen one always among them),
+ * the rest in a listbox behind ⋯. While the listbox is open, Escape closes it rather than the dialog.
+ */
+function IconPicker({ value, onChange }: { value: ActionIcon; onChange(icon: ActionIcon): void }) {
+  const [open, setOpen] = useState(false);
+  const rootRef = useRef<HTMLDivElement>(null);
+  const moreRef = useRef<HTMLButtonElement>(null);
+  const listRef = useRef<HTMLDivElement>(null);
+  const inline: ActionIcon[] = ACTION_ICONS.slice(0, INLINE_ICONS);
+  if (!inline.includes(value)) inline[INLINE_ICONS - 1] = value;
+
+  useEffect(() => {
+    if (!open) return;
+    listRef.current?.querySelector<HTMLElement>('[aria-selected=true]')?.focus();
+    const onDown = (e: MouseEvent) => {
+      if (!rootRef.current?.contains(e.target as Node)) setOpen(false);
+    };
+    window.addEventListener('mousedown', onDown);
+    return () => window.removeEventListener('mousedown', onDown);
+  }, [open]);
+
+  const pick = (icon: ActionIcon) => {
+    onChange(icon);
+    setOpen(false);
+    moreRef.current?.focus();
+  };
+
+  const tile = (on: boolean) => `flex size-6 items-center justify-center rounded disabled:opacity-60 ${on ? 'bg-selected text-accent-ink' : 'text-muted hover:bg-border/50 hover:text-text'}`;
+
+  return (
+    <div ref={rootRef} className="relative flex h-7 items-center gap-0.5 rounded-md border border-edge bg-bg px-0.5" data-action-icon data-value={value}>
+      <RadioGroup label="Icon" className="flex gap-0.5">
+        {inline.map((icon) => {
+          const Icon = ACTION_ICON[icon];
+          const on = value === icon;
+          return (
+            <button key={icon} type="button" role="radio" aria-checked={on} aria-label={ICON_NAME[icon]} data-tooltip={ICON_NAME[icon]} tabIndex={on ? 0 : -1} onClick={() => onChange(icon)} className={tile(on)}>
+              <Icon size={14} aria-hidden />
+            </button>
+          );
+        })}
+      </RadioGroup>
+      <button ref={moreRef} type="button" aria-haspopup="listbox" aria-expanded={open} aria-label="More icons" data-tooltip="More icons" onClick={() => setOpen((o) => !o)} className={tile(open)}>
+        <MoreHorizontal size={14} aria-hidden />
+      </button>
+      {open && (
+        <div
+          ref={listRef}
+          role="listbox"
+          aria-label="Icon"
+          className="absolute top-full right-0 z-10 mt-1 grid grid-cols-5 gap-0.5 rounded-lg border p-1 overlay"
+          onKeyDown={(e) => {
+            if (e.key === 'Escape') {
+              e.preventDefault();
+              setOpen(false);
+              moreRef.current?.focus();
+              return;
+            }
+            const step = { ArrowRight: 1, ArrowLeft: -1, ArrowDown: 5, ArrowUp: -5 }[e.key];
+            if (!step) return;
+            e.preventDefault();
+            const options = [...(listRef.current?.querySelectorAll<HTMLElement>('[role=option]') ?? [])];
+            const next = options.indexOf(document.activeElement as HTMLElement) + step;
+            options[Math.max(0, Math.min(options.length - 1, next))]?.focus();
+          }}
+        >
+          {ACTION_ICONS.map((icon) => {
+            const Icon = ACTION_ICON[icon];
+            const on = value === icon;
+            return (
+              <button key={icon} type="button" role="option" aria-selected={on} aria-label={ICON_NAME[icon]} data-tooltip={ICON_NAME[icon]} tabIndex={on ? 0 : -1} onClick={() => pick(icon)} className={`size-7 ${tile(on)}`}>
+                <Icon size={14} aria-hidden />
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Add, edit and remove project actions: the list on the left, the selected action's form on the
+ * right. Shared ones (from .switchboard.json) show read-only, since they are edited in that file.
+ */
 export function ActionEditor({
   projectRoot,
   actions,
@@ -110,286 +235,461 @@ export function ActionEditor({
   actions: ListedAction[];
   sharedFile: string | null;
   errors: string[];
-  initial?: Partial<Draft> | null;
+  initial?: Partial<ActionDraft> | null;
   onChanged(): void;
   onClose(): void;
 }) {
   const connection = useEngineConnection();
   const client = connection.status === 'connected' ? connection.client : null;
   const openIn = useOpenIn();
-  const [draft, setDraft] = useState<Draft | null>(initial ? { ...EMPTY, ...initial } : null);
-  const [editingId, setEditingId] = useState<{ id: string; scope: 'project' | 'global' } | null>(null);
+  // Opened with a prefilled draft, it starts on a new action; otherwise on the first action, if any.
+  const [first] = useState(() => (initial ? undefined : (groupActions(actions).yours[0] ?? actions[0])));
+  /** The listed action the form shows, or null for a new one. */
+  const [selected, setSelected] = useState<ListedAction | null>(first ?? null);
+  const [draft, setDraft] = useState<ActionDraft>(() => (first ? draftOf(first) : { ...EMPTY_DRAFT, ...initial }));
   const [suggestions, setSuggestions] = useState<ActionSuggestion[]>([]);
+  const [showAll, setShowAll] = useState(false);
+  const [fieldErrors, setFieldErrors] = useState<DraftErrors>({});
   const [error, setError] = useState<string | null>(null);
   /** The action waiting for "Delete?" to be confirmed. */
   const [deleting, setDeleting] = useState<ListedAction | null>(null);
   const dialogRef = useRef<HTMLDivElement>(null);
+  const nameRef = useRef<HTMLInputElement>(null);
+  const commandRef = useRef<HTMLTextAreaElement>(null);
   const id = useId();
   useModalFocus(dialogRef);
+
+  const readOnly = selected?.scope === 'shared';
+  const { yours, shared } = groupActions(actions);
+  const { shown, hidden } = visibleSuggestions(suggestions, actions, showAll);
 
   useEffect(() => {
     if (client) void client.call('actions.suggest', { projectRoot }).then((r) => setSuggestions(r.suggestions));
   }, [client, projectRoot]);
 
-  // Escape steps back: from the form to the list, then closes. Not while recording a shortcut (it
-  // stops the recording), a dropdown is open (it closes the dropdown) or the delete confirmation is up.
+  // A new action starts in its name field; picking an existing one leaves focus on the list.
+  useEffect(() => {
+    if (!selected) nameRef.current?.focus();
+  }, [selected]);
+
+  // Escape closes. Not while recording a shortcut (it stops the recording), a dropdown is open (it
+  // closes the dropdown) or the delete confirmation is up.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== 'Escape' || e.defaultPrevented || deleting || document.querySelector('[role=listbox]')) return;
-      if (draft) (setDraft(null), setEditingId(null), setError(null));
-      else onClose();
+      onClose();
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [draft, deleting, onClose]);
+  }, [deleting, onClose]);
+
+  const edit = (next: Partial<ActionDraft>) => {
+    setDraft((d) => ({ ...d, ...next }));
+    // A field that changes no longer needs its message.
+    if ('name' in next) setFieldErrors((f) => ({ ...f, name: undefined }));
+    if ('command' in next) setFieldErrors((f) => ({ ...f, command: undefined }));
+    setError(null);
+  };
+
+  const select = (a: ListedAction | null, values?: Partial<ActionDraft>) => {
+    setSelected(a);
+    setDraft(a ? draftOf(a) : { ...EMPTY_DRAFT, ...values });
+    setFieldErrors({});
+    setError(null);
+  };
 
   const save = async () => {
-    if (!client || !draft) return;
+    if (!client || readOnly) return;
+    const editing = selected && selected.scope !== 'shared' ? selected : null;
+    const invalid = validateDraft(draft, actions, editing);
+    setFieldErrors(invalid);
+    if (invalid.name) return nameRef.current?.focus();
+    if (invalid.command) return commandRef.current?.focus();
     const { scope, ...action } = draft;
-    const id = editingId?.id ?? slug(action.name);
+    if (scope === 'shared') return;
+    const name = action.name.trim();
+    // An edit within the same scope keeps its id (so its shortcut and menu hook stay); a move or a new action gets one from the name.
+    const sameScope = editing?.scope === scope;
+    const newId = editing && sameScope ? editing.id : slug(name);
     try {
-      if (editingId && editingId.scope !== scope) await client.call('actions.delete', { projectRoot: editingId.scope === 'global' ? null : projectRoot, id: editingId.id });
+      if (editing && !sameScope)
+        await client.call('actions.delete', {
+          projectRoot: editing.scope === 'global' ? null : projectRoot,
+          id: editing.id,
+        });
       await client.call('actions.save', {
         projectRoot: scope === 'global' ? null : projectRoot,
-        action: { ...action, id: editingId && editingId.scope === scope ? id : slug(action.name), runOnWorktreeCreate: action.type === 'shell' && action.runOnWorktreeCreate },
-        ...(editingId && editingId.scope === scope && editingId.id !== slug(action.name) ? { previousId: editingId.id } : {}),
+        action: {
+          ...action,
+          name,
+          id: newId,
+          runOnWorktreeCreate: action.type === 'shell' && action.runOnWorktreeCreate,
+        },
+        ...(editing && sameScope && editing.id !== slug(name) ? { previousId: editing.id } : {}),
       });
-      setDraft(null);
-      setEditingId(null);
+      // Stay on the saved action, so its row is highlighted once the list reloads.
+      const saved: ListedAction = {
+        ...draft,
+        name,
+        id: newId,
+        scope,
+        trusted: true,
+      };
+      setSelected(saved);
+      setDraft(draftOf(saved));
       setError(null);
       onChanged();
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setError(friendlySaveError(e));
     }
   };
 
   const remove = async (a: ListedAction) => {
     if (!client || a.scope === 'shared') return;
-    await client.call('actions.delete', { projectRoot: a.scope === 'global' ? null : projectRoot, id: a.id });
+    await client.call('actions.delete', {
+      projectRoot: a.scope === 'global' ? null : projectRoot,
+      id: a.id,
+    });
+    select(null);
     onChanged();
   };
 
-  const used = new Set(actions.map((a) => a.command));
+  const insert = (name: string) => {
+    const el = commandRef.current;
+    const end = draft.command.length;
+    const { text, cursor } = insertVariable(draft.command, el?.selectionStart ?? end, el?.selectionEnd ?? end, name);
+    edit({ command: text });
+    // Put the cursor after the variable once React has written the new value.
+    requestAnimationFrame(() => {
+      el?.focus();
+      el?.setSelectionRange(cursor, cursor);
+    });
+  };
+
+  const PreviewIcon = ACTION_ICON[draft.icon];
+
+  const actionRow = (a: ListedAction) => {
+    const Icon = ACTION_ICON[a.icon];
+    return (
+      <Row key={actionKey(a)} selected={selected !== null && actionKey(selected) === actionKey(a)} onClick={() => select(a)}>
+        <Icon size={14} className="shrink-0 text-muted" aria-hidden />
+        <span className="min-w-0 flex-1 truncate">{a.name}</span>
+        {a.scope === 'global' && <span className="shrink-0 rounded border border-edge px-1.5 text-meta font-normal text-muted">All projects</span>}
+        {a.scope === 'shared' && <span className="shrink-0 rounded border border-edge px-1.5 text-meta font-normal text-muted">Shared</span>}
+        {a.shortcut && <kbd className={`${kbd} shrink-0`}>{formatShortcut(a.shortcut)}</kbd>}
+      </Row>
+    );
+  };
 
   return (
     <div className="no-drag fixed inset-0 z-[60] flex items-center justify-center bg-scrim" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
-      <div ref={dialogRef} role="dialog" aria-modal aria-labelledby={`${id}-title`} className="flex max-h-[85vh] w-[560px] max-w-[92vw] flex-col rounded-xl border overlay">
-        <header className="flex items-center justify-between border-b border-border px-5 py-3">
-          <h2 id={`${id}-title`} className="text-[14px] font-semibold">
-            {draft ? (editingId ? `Edit ${draft.name || 'action'}` : 'New action') : 'Project actions'}
+      <div
+        ref={dialogRef}
+        role="dialog"
+        aria-modal
+        aria-labelledby={`${id}-title ${id}-project`}
+        className="flex h-[650px] max-h-[85vh] w-[900px] max-w-[92vw] flex-col overflow-hidden rounded-xl border overlay"
+        onKeyDown={(e) => {
+          // ⌘↵ saves from any field. The shortcut recorder marks the keys it takes as handled.
+          if (e.key !== 'Enter' || !(e.metaKey || e.ctrlKey) || e.defaultPrevented || readOnly) return;
+          e.preventDefault();
+          void save();
+        }}
+      >
+        <header className="flex shrink-0 items-baseline gap-2.5 border-b border-edge px-5 py-3.5">
+          <h2 id={`${id}-title`} className="text-title font-semibold">
+            Project actions
           </h2>
-          <button type="button" onClick={onClose} className="text-muted hover:text-text" aria-label="Close" data-tooltip="Close (Esc)">
+          <span id={`${id}-project`} className="min-w-0 flex-1 truncate text-ui text-muted" data-tooltip={projectRoot}>
+            {projectName(projectRoot)}
+          </span>
+          <button type="button" onClick={onClose} className="self-center rounded p-1 text-muted hover:bg-border/50 hover:text-text" aria-label="Close" data-tooltip="Close (Esc)">
             <X size={15} aria-hidden />
           </button>
         </header>
 
-        <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
-          {errors.map((e) => (
-            <p key={e} role="alert" className="mb-2 rounded-md bg-error/10 px-2.5 py-1.5 text-[12px] text-error">
-              {e}
-            </p>
-          ))}
+        <div className="flex min-h-0 flex-1">
+          <nav aria-label="Actions" className="w-[280px] shrink-0 overflow-y-auto border-r border-edge px-2.5 py-2">
+            {yours.length > 0 && (
+              <>
+                <SectionTitle id={`${id}-yours`}>Yours</SectionTitle>
+                <ul aria-labelledby={`${id}-yours`} className="grid gap-px">
+                  {yours.map(actionRow)}
+                </ul>
+              </>
+            )}
+            <ul className="mt-2 grid">
+              <Row selected={selected === null} onClick={() => select(null)} data={{ 'data-add-action': true }}>
+                <Plus size={14} className="shrink-0 text-accent-ink" aria-hidden />
+                <span className="font-medium text-accent-ink">New action</span>
+              </Row>
+            </ul>
+            {shared.length > 0 && (
+              <>
+                <SectionTitle id={`${id}-shared`}>From .switchboard.json</SectionTitle>
+                <ul aria-labelledby={`${id}-shared`} className="grid gap-px">
+                  {shared.map(actionRow)}
+                </ul>
+              </>
+            )}
+            {shown.length > 0 && (
+              <>
+                <SectionTitle id={`${id}-suggest`}>Add from package.json</SectionTitle>
+                <ul aria-labelledby={`${id}-suggest`} className="grid gap-px">
+                  {shown.map((s) => (
+                    <Row
+                      key={s.command}
+                      onClick={() =>
+                        select(null, {
+                          name: s.name,
+                          command: s.command,
+                          type: s.type,
+                          icon: s.icon,
+                        })
+                      }
+                      data={{ 'data-action-suggestion': s.command }}
+                    >
+                      <span className="shrink-0 truncate">{s.name}</span>
+                      <span className="min-w-0 flex-1 truncate text-right font-mono text-meta text-faint">{s.command}</span>
+                      <Plus size={14} className="shrink-0 text-muted" aria-hidden />
+                    </Row>
+                  ))}
+                  {hidden > 0 && (
+                    <Row onClick={() => setShowAll(true)}>
+                      <span className="text-muted">{hidden} more scripts…</span>
+                    </Row>
+                  )}
+                </ul>
+              </>
+            )}
+          </nav>
 
-          {!draft && (
-            <>
-              <ul className="grid gap-1" aria-label="Actions">
-                {actions.length === 0 && <li className="text-[12px] text-muted">No actions yet. Add one, or pick a suggestion below.</li>}
-                {actions.map((a) => {
-                  const Icon = ACTION_ICON[a.icon];
-                  return (
-                    <li key={`${a.scope}:${a.id}`} className="group flex items-center gap-2 rounded-md px-2 py-1.5 hover:bg-border/40">
-                      <Icon size={14} className="shrink-0 text-muted" aria-hidden />
-                      <span className="text-[13px]">{a.name}</span>
-                      <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-muted" data-tooltip={a.command}>
-                        {a.type === 'prompt' ? `“${a.command}”` : a.command}
-                      </span>
-                      {a.shortcut && <span className="text-[11px] text-muted">{formatShortcut(a.shortcut)}</span>}
-                      <span className="rounded bg-border/70 px-1.5 text-[10px] text-muted">{SCOPE_LABEL[a.scope]}</span>
-                      {a.scope !== 'shared' ? (
-                        <>
-                          {/* Shown on hover, and whenever they have keyboard focus. */}
-                          <button
-                            type="button"
-                            onClick={() => (setDraft({ ...a, scope: a.scope as 'project' | 'global' }), setEditingId({ id: a.id, scope: a.scope as 'project' | 'global' }))}
-                            className="text-muted opacity-0 group-hover:opacity-100 hover:text-text focus-visible:opacity-100"
-                            aria-label={`Edit ${a.name}`}
-                            data-tooltip="Edit"
-                          >
-                            <Pencil size={13} aria-hidden />
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => setDeleting(a)}
-                            className="text-muted opacity-0 group-hover:opacity-100 hover:text-error focus-visible:opacity-100"
-                            aria-label={`Delete ${a.name}`}
-                            data-tooltip="Delete"
-                          >
-                            <Trash2 size={13} aria-hidden />
-                          </button>
-                        </>
-                      ) : (
-                        sharedFile && (
-                          <button type="button" onClick={() => void openIn(sharedFile)} className="text-[11px] text-muted opacity-0 group-hover:opacity-100 hover:text-text focus-visible:opacity-100">
-                            Edit file
-                          </button>
-                        )
-                      )}
-                    </li>
-                  );
-                })}
-              </ul>
-              <button type="button" data-add-action onClick={() => (setDraft({ ...EMPTY }), setEditingId(null))} className="mt-3 flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1 text-[12px] hover:bg-border/50">
-                <Plus size={13} aria-hidden /> Add action
-              </button>
-
-              {suggestions.some((s) => !used.has(s.command)) && (
-                <div className="mt-5">
-                  <p id={`${id}-suggestions`} className="mb-1.5 text-[11px] tracking-wide text-muted uppercase">
-                    Suggestions
-                  </p>
-                  <div role="group" aria-labelledby={`${id}-suggestions`} className="flex flex-wrap gap-1.5">
-                    {suggestions
-                      .filter((s) => !used.has(s.command))
-                      .map((s) => {
-                        const Icon = ACTION_ICON[s.icon];
-                        return (
-                          <button
-                            key={s.command}
-                            type="button"
-                            data-tooltip={s.command}
-                            onClick={() => (setDraft({ ...EMPTY, name: s.name, command: s.command, type: s.type, icon: s.icon }), setEditingId(null))}
-                            className="flex items-center gap-1.5 rounded-full border border-border px-2.5 py-0.5 text-[12px] text-muted hover:border-accent-ink/50 hover:text-text"
-                          >
-                            <Icon size={12} aria-hidden /> {s.name}
-                          </button>
-                        );
-                      })}
-                  </div>
-                </div>
-              )}
-              <p className="mt-5 text-[11px] leading-relaxed text-muted">
-                Share actions with your team by committing a <code className="font-mono">.switchboard.json</code> in the repo:{' '}
-                <code className="font-mono">{'{ "actions": [{ "name": "Test", "command": "npm test" }] }'}</code>. Each shared command asks for your approval once.
-                Commands can use <code className="font-mono">{'${branch} ${cwd} ${projectRoot} ${worktreeName} ${sessionId} ${sessionTitle}'}</code>.
-              </p>
-            </>
-          )}
-
-          {draft && (
-            <form
-              className="grid gap-3"
-              onSubmit={(e) => {
-                e.preventDefault();
-                void save();
-              }}
-            >
-              <div className="grid grid-cols-[1fr_auto] gap-2">
-                <input
-                  autoFocus
-                  required
-                  maxLength={40}
-                  placeholder="Name, e.g. Publish"
-                  aria-label="Name"
-                  value={draft.name}
-                  onChange={(e) => setDraft({ ...draft, name: e.target.value })}
-                  className={field}
-                  data-action-name
-                />
-                <Select
-                  label="Icon"
-                  className={`${field} w-36`}
-                  value={draft.icon}
-                  onChange={(icon) => setDraft({ ...draft, icon })}
-                  options={ACTION_ICONS.map((icon) => {
-                    const Icon = ACTION_ICON[icon];
-                    return { value: icon, label: ICON_NAME[icon], icon: <Icon size={13} aria-hidden /> };
-                  })}
-                  dataAttrs={{ 'data-action-icon': true }}
-                />
-              </div>
-              <RadioGroup label="What the action does" className="flex gap-1 rounded-md border border-border bg-bg p-0.5 text-[12px]">
-                {(['shell', 'prompt'] as const).map((type) => (
-                  <button
-                    key={type}
-                    type="button"
-                    role="radio"
-                    aria-checked={draft.type === type}
-                    tabIndex={draft.type === type ? 0 : -1}
-                    onClick={() => setDraft({ ...draft, type })}
-                    className={`flex-1 rounded px-2 py-1 ${draft.type === type ? 'bg-accent/15 text-text' : 'text-muted hover:text-text'}`}
-                    data-action-type={type}
-                  >
-                    {type === 'shell' ? 'Run a command' : 'Ask Claude'}
-                  </button>
-                ))}
-              </RadioGroup>
-              <textarea
-                required
-                rows={3}
-                value={draft.command}
-                onChange={(e) => setDraft({ ...draft, command: e.target.value })}
-                placeholder={draft.type === 'shell' ? 'npm run build && npm publish' : 'Commit the staged changes with a clear message'}
-                aria-label={draft.type === 'shell' ? 'Command' : 'Prompt for Claude'}
-                className={`${field} h-auto py-1.5 font-mono`}
-                data-action-command
-              />
-              <div className="grid grid-cols-2 gap-3 text-[12px]">
-                <label className="grid gap-1">
-                  <span className="text-muted">Saved for</span>
-                  <Select
-                    label="Saved for"
-                    className={field}
-                    value={draft.scope}
-                    onChange={(scope) => setDraft({ ...draft, scope })}
-                    options={[
-                      { value: 'project', label: 'This project' },
-                      { value: 'global', label: 'All projects' },
-                    ]}
-                  />
-                </label>
-                {draft.type === 'shell' && (
-                  <label className="grid gap-1">
-                    <span className="text-muted">Runs in</span>
-                    <Select
-                      label="Runs in"
-                      className={field}
-                      value={draft.cwd}
-                      onChange={(cwd) => setDraft({ ...draft, cwd })}
-                      options={[
-                        { value: 'session', label: 'Session folder (worktree)' },
-                        { value: 'project-root', label: 'Project root' },
-                      ]}
-                    />
-                  </label>
-                )}
-                <div className="col-span-2">
-                  <ShortcutInput value={draft.shortcut} onChange={(shortcut) => setDraft({ ...draft, shortcut })} />
-                </div>
-              </div>
-              <Checkbox checked={draft.confirm} onChange={(confirm) => setDraft({ ...draft, confirm })} className="text-[12px]" dataAttrs={{ 'data-action-confirm': true }}>
-                Ask before running
-              </Checkbox>
-              {draft.type === 'shell' && (
-                <Checkbox checked={draft.runOnWorktreeCreate} onChange={(runOnWorktreeCreate) => setDraft({ ...draft, runOnWorktreeCreate })} className="text-[12px]">
-                  Run in every new worktree before Claude starts (e.g. install dependencies)
-                </Checkbox>
-              )}
-              {error && (
-                <p role="alert" className="text-[12px] text-error">
-                  Couldn't save the action: {error}
+          <form
+            aria-label={selected ? selected.name : 'New action'}
+            className="flex min-w-0 flex-1 flex-col"
+            noValidate
+            onSubmit={(e) => {
+              e.preventDefault();
+              void save();
+            }}
+          >
+            <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5">
+              {errors.map((e) => (
+                <p key={e} role="alert" className="mb-3 rounded-md bg-error/10 px-2.5 py-1.5 text-ui text-error">
+                  {e}
+                </p>
+              ))}
+              {readOnly && (
+                <p className="mb-3 flex items-center gap-2 rounded-md bg-border/40 px-2.5 py-1.5 text-ui text-muted">
+                  <span className="flex-1">Shared from .switchboard.json in the repo. Edit the file to change it.</span>
+                  {sharedFile && (
+                    <button type="button" onClick={() => void openIn(sharedFile)} className="shrink-0 rounded px-1.5 py-0.5 text-text hover:bg-border/60">
+                      Edit file
+                    </button>
+                  )}
                 </p>
               )}
-              <div className="flex justify-end gap-2">
-                <button type="button" onClick={() => (setDraft(null), setEditingId(null), setError(null))} className="rounded-md border border-border px-3 py-1 text-[12px] hover:bg-border/50">
-                  Cancel
+              {/* A disabled fieldset makes every control read-only for a shared action in one place. */}
+              <fieldset disabled={readOnly} className="grid min-w-0 gap-4">
+                <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-x-3 gap-y-1">
+                  <label htmlFor={`${id}-name`} className={fieldLabel}>
+                    Name
+                  </label>
+                  <span className={fieldLabel} aria-hidden>
+                    Icon
+                  </span>
+                  <input
+                    ref={nameRef}
+                    id={`${id}-name`}
+                    placeholder="e.g. Publish"
+                    value={draft.name}
+                    onChange={(e) => edit({ name: e.target.value })}
+                    aria-invalid={!!fieldErrors.name}
+                    aria-describedby={fieldErrors.name ? `${id}-name-error` : undefined}
+                    className={`${field} ${fieldBorder(!!fieldErrors.name)}`}
+                    data-action-name
+                  />
+                  <IconPicker value={draft.icon} onChange={(icon) => edit({ icon })} />
+                  {fieldErrors.name ? (
+                    <span id={`${id}-name-error`} className="text-meta text-error">
+                      {fieldErrors.name}
+                    </span>
+                  ) : (
+                    draft.name.length > NAME_MAX - 5 && <span className="text-meta text-muted">{`${draft.name.length}/${NAME_MAX}`}</span>
+                  )}
+                </div>
+
+                <div className="grid gap-1">
+                  <RadioGroup label="What it does" className="grid grid-cols-2 gap-3">
+                    {(['shell', 'prompt'] as const).map((type) => {
+                      const on = draft.type === type;
+                      return (
+                        <button
+                          key={type}
+                          type="button"
+                          role="radio"
+                          aria-checked={on}
+                          tabIndex={on ? 0 : -1}
+                          onClick={() => edit({ type })}
+                          className={`rounded-lg border px-3.5 py-2.5 text-left disabled:opacity-70 ${on ? 'border-accent-ink bg-selected' : 'border-edge hover:bg-border/45'}`}
+                          data-action-type={type}
+                        >
+                          <span className="block text-ui font-semibold">{type === 'shell' ? 'Run a command' : 'Ask Claude'}</span>
+                          <span className="mt-0.5 block text-meta text-muted">{type === 'shell' ? 'Opens in a terminal tab of the session' : 'Sends a prompt to the session'}</span>
+                        </button>
+                      );
+                    })}
+                  </RadioGroup>
+                </div>
+
+                <div className="grid gap-1">
+                  <label htmlFor={`${id}-command`} className={fieldLabel}>
+                    {draft.type === 'shell' ? 'Command' : 'Prompt'}
+                  </label>
+                  <textarea
+                    ref={commandRef}
+                    id={`${id}-command`}
+                    rows={draft.type === 'shell' ? 1 : 3}
+                    value={draft.command}
+                    onChange={(e) => edit({ command: e.target.value })}
+                    placeholder={draft.type === 'shell' ? 'npm run build && npm publish' : 'Commit the staged changes with a clear message'}
+                    aria-invalid={!!fieldErrors.command}
+                    aria-describedby={fieldErrors.command ? `${id}-command-error` : undefined}
+                    className={`${field} ${fieldBorder(!!fieldErrors.command)} h-auto resize-y py-1.5 ${draft.type === 'shell' ? 'font-mono' : ''}`}
+                    data-action-command
+                  />
+                  {fieldErrors.command && (
+                    <span id={`${id}-command-error`} className="text-meta text-error">
+                      {fieldErrors.command}
+                    </span>
+                  )}
+                  <div role="group" aria-label="Insert a variable" className="mt-1 flex flex-wrap items-center gap-1.5">
+                    <span className="mr-0.5 text-ui text-muted" aria-hidden>
+                      Insert
+                    </span>
+                    {ACTION_VARIABLES.map((name) => (
+                      <button
+                        key={name}
+                        type="button"
+                        onClick={() => insert(name)}
+                        aria-label={`Insert \${${name}}`}
+                        className="h-6 rounded-md border border-edge px-2 font-mono text-meta text-muted hover:bg-border/50 hover:text-text"
+                      >
+                        {name}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-3 gap-3">
+                  <div className="grid content-start gap-1">
+                    <span className={fieldLabel}>Saved for</span>
+                    <Select
+                      label="Saved for"
+                      className={`${field} border-edge`}
+                      value={draft.scope}
+                      onChange={(scope) => edit({ scope })}
+                      disabled={readOnly}
+                      options={[
+                        { value: 'project', label: 'This project' },
+                        { value: 'global', label: 'All projects' },
+                        ...(readOnly
+                          ? [
+                            {
+                              value: 'shared' as const,
+                              label: '.switchboard.json',
+                            },
+                          ]
+                          : []),
+                      ]}
+                    />
+                  </div>
+                  {draft.type === 'shell' && (
+                    <div className="grid content-start gap-1">
+                      <span className={fieldLabel}>Runs in</span>
+                      <Select
+                        label="Runs in"
+                        className={`${field} border-edge`}
+                        value={draft.cwd}
+                        onChange={(cwd) => edit({ cwd })}
+                        disabled={readOnly}
+                        menuWidth={200}
+                        options={[
+                          {
+                            value: 'session',
+                            label: 'Session folder',
+                            hint: 'its worktree',
+                          },
+                          { value: 'project-root', label: 'Project root' },
+                        ]}
+                      />
+                    </div>
+                  )}
+                  <div className="grid content-start gap-1">
+                    <span id={`${id}-shortcut`} className={fieldLabel}>
+                      Shortcut
+                    </span>
+                    <ShortcutInput labelId={`${id}-shortcut`} value={draft.shortcut} onChange={(shortcut) => edit({ shortcut })} />
+                  </div>
+                </div>
+
+                <div className="grid gap-3">
+                  <label className="flex cursor-pointer items-center gap-3 text-ui">
+                    <Switch checked={draft.confirm} onChange={(confirm) => edit({ confirm })} disabled={readOnly} dataAttrs={{ 'data-action-confirm': true }} />
+                    <span>Ask before running</span>
+                  </label>
+                  {draft.type === 'shell' && (
+                    <label className="flex cursor-pointer items-center gap-3 text-ui">
+                      <Switch checked={draft.runOnWorktreeCreate} onChange={(runOnWorktreeCreate) => edit({ runOnWorktreeCreate })} disabled={readOnly} dataAttrs={{ 'data-action-worktree': true }} />
+                      <span>
+                        Run when a new worktree is created <span className="text-meta text-muted">· before Claude starts, for setup such as installing dependencies</span>
+                      </span>
+                    </label>
+                  )}
+                </div>
+
+                {error && (
+                  <p role="alert" className="rounded-md bg-error/10 px-2.5 py-1.5 text-ui text-error">
+                    {error}
+                  </p>
+                )}
+              </fieldset>
+            </div>
+
+            <footer className="flex shrink-0 items-center gap-2.5 border-t border-edge px-6 py-3">
+              {selected && !readOnly && (
+                <button type="button" onClick={() => setDeleting(selected)} className="-ml-2 h-7 rounded-md px-2 text-ui font-medium text-error hover:bg-error/10" data-delete-action>
+                  Delete
                 </button>
-                <button type="submit" data-save-action className="rounded-md bg-accent px-3 py-1 text-[12px] font-medium text-on-accent">
-                  Save
+              )}
+              <span className="flex-1" />
+              <span className="flex min-w-0 items-center gap-2.5 text-ui text-muted">
+                <span className="shrink-0">In the header as</span>
+                <span className="inline-flex h-7 min-w-0 items-center gap-1.5 rounded-full border border-edge px-3 text-ui text-text">
+                  <PreviewIcon size={13} className="shrink-0 text-muted" aria-hidden />
+                  <span className="truncate">{draft.name.trim() || 'Action'}</span>
+                  {draft.shortcut && <kbd className={kbd}>{formatShortcut(draft.shortcut)}</kbd>}
+                </span>
+              </span>
+              <span className="mx-1 h-5 w-px shrink-0 bg-edge" aria-hidden />
+              <button type="button" onClick={onClose} className="btn-secondary">
+                {readOnly ? 'Close' : 'Cancel'}
+              </button>
+              {!readOnly && (
+                <button type="submit" data-save-action aria-keyshortcuts="Meta+Enter" className="flex h-7 items-center gap-1.5 rounded-md bg-accent px-3 text-ui font-semibold text-on-accent">
+                  Save <kbd className="rounded border border-on-accent/30 px-1 font-sans text-meta font-medium">⌘↵</kbd>
                 </button>
-              </div>
-            </form>
-          )}
+              )}
+            </footer>
+          </form>
         </div>
+
+        <p className="flex shrink-0 items-center gap-2 border-t border-edge bg-bg/40 px-5 py-2.5 text-ui text-muted">
+          <Share2 size={14} className="shrink-0" aria-hidden />
+          <span>
+            Share actions with your team: commit a <code className="font-mono text-text">.switchboard.json</code> in the repo · each shared command asks for approval once.
+          </span>
+        </p>
       </div>
       {deleting && (
         <ConfirmDialog

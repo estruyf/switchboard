@@ -10,7 +10,6 @@ import { AboutSettings, SettingsVersion } from './updates/AboutSettings.tsx';
 import { Choice } from './ui/Choice.tsx';
 import { Radio, RadioGroup } from './ui/Radio.tsx';
 import { Toggle } from './ui/Toggle.tsx';
-import { useModalFocus } from './ui/useModalFocus.ts';
 
 /** The Demo Time palettes, fixed here so each preview shows its own theme whatever is active. */
 const PALETTE = {
@@ -299,7 +298,7 @@ export function SettingsNav() {
   const section = useSessions((s) => s.settingsSection);
   const openSettings = useSessions((s) => s.openSettings);
   return (
-    <nav aria-label="Settings sections" className="flex w-52 shrink-0 flex-col gap-0.5 overflow-y-auto border-r border-border bg-sidebar/60 p-2" data-settings-nav>
+    <nav aria-label="Settings sections" className="flex w-52 shrink-0 flex-col gap-0.5 overflow-y-auto border-r border-border p-2 pt-3" data-settings-nav>
       <h2 id="settings-title" className="px-2.5 pt-2 pb-3 text-title font-semibold">
         Settings
       </h2>
@@ -324,40 +323,44 @@ export function SettingsNav() {
 }
 
 /**
- * Settings as a sheet over the main area: the scrim covers the view it opened over, the sidebar stays
- * usable (so what needs you stays in sight). Its sections are on the left, the page on the right.
+ * Settings fills the main area, with its sections on the left and the page on the right. The app
+ * sidebar keeps its session list next to it, so what needs you stays in sight.
  */
 export function SettingsView() {
   const section = useSessions((s) => s.settingsSection);
   const sheet = useRef<HTMLDivElement>(null);
-  useModalFocus(sheet);
+  // Start keyboard focus in Settings (not a trap: the sidebar stays reachable with Tab).
+  useEffect(() => {
+    if (!sheet.current?.contains(document.activeElement)) sheet.current?.querySelector<HTMLElement>('[aria-current="page"]')?.focus();
+  }, []);
   useEscapeToClose(sheet);
 
+  // Settings takes the whole main area (the sidebar keeps its session list next to it). The view it
+  // was opened from stays mounted, inert, underneath, so closing returns to it as it was.
   return (
-    <div className="absolute inset-0 z-30 flex flex-col">
-      <div className="absolute inset-0 bg-black/30" onMouseDown={close} aria-hidden data-settings-scrim />
-      {/* The window stays draggable by its top edge. */}
-      <div className="drag relative h-10 shrink-0" />
-      <div
-        ref={sheet}
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="settings-title"
-        className="relative mx-auto mb-6 flex min-h-0 w-[calc(100%-3rem)] max-w-[1000px] flex-1 overflow-hidden rounded-xl border overlay"
-        data-settings
-      >
+    <div
+      ref={sheet}
+      role="region"
+      aria-labelledby="settings-title"
+      className="absolute inset-0 z-30 flex min-h-0 flex-col bg-bg"
+      data-settings
+    >
+      <div className="flex min-h-0 flex-1">
         <SettingsNav />
         <div className="relative flex min-w-0 flex-1 flex-col">
-          <button
-            type="button"
-            onClick={close}
-            data-close-settings
-            data-tooltip="Close (Esc)"
-            aria-label="Close settings"
-            className="absolute top-2.5 right-2.5 z-10 flex size-7 items-center justify-center rounded-md text-muted hover:bg-border/50 hover:text-text"
-          >
-            <X size={15} aria-hidden />
-          </button>
+          {/* The top strip keeps the window draggable, like every other view's header. */}
+          <div className="drag flex h-13 shrink-0 items-center justify-end px-4">
+            <button
+              type="button"
+              onClick={close}
+              data-close-settings
+              data-tooltip="Close (Esc)"
+              aria-label="Close settings"
+              className="no-drag flex size-7 items-center justify-center rounded-md text-muted hover:bg-border/50 hover:text-text"
+            >
+              <X size={15} aria-hidden />
+            </button>
+          </div>
           <div className="min-h-0 flex-1 overflow-y-auto">
             <div className={`mx-auto min-w-0 px-8 ${section === 'diagnostics' ? 'max-w-3xl' : 'max-w-2xl'}`} data-settings-page={section}>
               <SectionPage section={section} />

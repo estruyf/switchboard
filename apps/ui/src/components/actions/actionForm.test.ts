@@ -1,0 +1,111 @@
+import { describe, expect, it } from 'vitest';
+import type { ActionSuggestion, ListedAction } from '@switchboard/protocol/client';
+import { EMPTY_DRAFT, friendlySaveError, groupActions, insertVariable, projectName, slug, validateDraft, visibleSuggestions } from './actionForm.ts';
+
+const action = (over: Partial<ListedAction>): ListedAction => ({
+  ...EMPTY_DRAFT,
+  id: 'test',
+  name: 'Test',
+  command: 'npm test',
+  trusted: true,
+  ...over,
+  scope: over.scope ?? 'project',
+});
+const suggestion = (name: string): ActionSuggestion => ({
+  name,
+  command: `npm run ${name}`,
+  type: 'shell',
+  icon: 'play',
+});
+
+describe('slug', () => {
+  it('turns a name into an id', () => {
+    expect(slug('Run Tests!')).toBe('run-tests');
+  });
+  it('falls back when nothing usable is left', () => {
+    expect(slug('✨')).toBe('action');
+  });
+});
+
+describe('groupActions', () => {
+  it('puts project and global actions under yours, shared ones apart', () => {
+    const list = [action({ id: 'a' }), action({ id: 'b', scope: 'global' }), action({ id: 'c', scope: 'shared' })];
+    const { yours, shared } = groupActions(list);
+    expect(yours.map((a) => a.id)).toEqual(['a', 'b']);
+    expect(shared.map((a) => a.id)).toEqual(['c']);
+  });
+});
+
+describe('visibleSuggestions', () => {
+  const all = ['a', 'b', 'c', 'd', 'e', 'f'].map(suggestion);
+  it('shows the first four and counts the rest', () => {
+    const { shown, hidden } = visibleSuggestions(all, [], false);
+    expect(shown.map((s) => s.name)).toEqual(['a', 'b', 'c', 'd']);
+    expect(hidden).toBe(2);
+  });
+  it('shows them all when expanded', () => {
+    expect(visibleSuggestions(all, [], true)).toEqual({
+      shown: all,
+      hidden: 0,
+    });
+  });
+  it('leaves out commands already added', () => {
+    const { shown } = visibleSuggestions(all.slice(0, 2), [action({ command: 'npm run a' })], false);
+    expect(shown.map((s) => s.name)).toEqual(['b']);
+  });
+});
+
+describe('validateDraft', () => {
+  it('needs a name and a command', () => {
+    expect(validateDraft({ ...EMPTY_DRAFT, name: '  ' }, [], null)).toEqual({
+      name: 'Give the action a name.',
+      command: 'Enter the command to run.',
+    });
+  });
+  it('asks for a prompt for Ask Claude actions', () => {
+    expect(validateDraft({ ...EMPTY_DRAFT, name: 'X', type: 'prompt' }, [], null).command).toBe('Enter what to ask Claude.');
+  });
+  it('limits the name to 40 characters', () => {
+    expect(validateDraft({ ...EMPTY_DRAFT, name: 'x'.repeat(41), command: 'ls' }, [], null).name).toMatch(/40/);
+  });
+  it('flags a name another action in the same scope already uses', () => {
+    expect(validateDraft({ ...EMPTY_DRAFT, name: 'test', command: 'ls' }, [action({})], null).name).toMatch(/already/);
+  });
+  it('allows the same name in another scope, or for the action being edited', () => {
+    expect(validateDraft({ ...EMPTY_DRAFT, name: 'Test', command: 'ls', scope: 'global' }, [action({})], null)).toEqual({});
+    expect(validateDraft({ ...EMPTY_DRAFT, name: 'Test', command: 'ls' }, [action({})], { scope: 'project', id: 'test' })).toEqual({});
+  });
+});
+
+describe('friendlySaveError', () => {
+  it('replaces protocol validation messages', () => {
+    expect(friendlySaveError(new Error('Invalid params for actions.save'))).toBe('Couldn’t save: check the name and command.');
+  });
+  it('keeps other messages', () => {
+    expect(friendlySaveError('disk full')).toBe('Couldn’t save: disk full');
+  });
+});
+
+describe('insertVariable', () => {
+  it('inserts at the cursor', () => {
+    expect(insertVariable('echo ', 5, 5, 'branch')).toEqual({
+      text: 'echo ${branch}',
+      cursor: 14,
+    });
+  });
+  it('replaces the selection', () => {
+    expect(insertVariable('cd X now', 3, 4, 'cwd')).toEqual({
+      text: 'cd ${cwd} now',
+      cursor: 9,
+    });
+  });
+  it('clamps positions outside the text', () => {
+    expect(insertVariable('ab', 10, 12, 'sessionId').text).toBe('ab${sessionId}');
+  });
+});
+
+describe('projectName', () => {
+  it('takes the last folder', () => {
+    expect(projectName('/Users/me/code/switchboard/')).toBe('switchboard');
+  });
+});

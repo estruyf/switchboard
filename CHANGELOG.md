@@ -7,17 +7,19 @@ All notable changes to Switchboard are listed here. Each release is also on the 
 ### A fresh look
 
 - **The sidebar puts what needs you first.** Sessions are grouped into **Needs you**, **Working**, **Today**, **Yesterday** and **Earlier**. Each row has a coloured bar for its state: pink when it waits for you (with what it waits for), yellow while Claude works, and blue when it finished and you haven't read it yet. The selected row is easier to see in light mode.
-- **Home** shows what needs you, what is working, and a quick start for your projects. Open it with the house button at the top of the sidebar, ⌘⇧H or the command palette; closing a session (×) also goes there.
+- **Home** shows what needs you, what is working, each Claude profile's plan usage (5-hour and weekly, with when they reset) and what its sessions are doing, and a quick start for your projects. Open it with the house button at the top of the sidebar, ⌘⇧H or the command palette; closing a session (×) also goes there.
 - **New session** is centred and starts with your projects as tiles: the four you used last, the rest one click away, and ⌘1 to ⌘9 to pick one. Where the session runs (current checkout or a new worktree, and the branch) sits on top of the message box, with a Worktree switch. Below it, pick up a recent session in that project.
 - **Permission requests stand out** with a pink frame. ⌘↵ allows, Esc denies, and you can tell Claude what to do instead. Questions show numbered answers you can pick with 1 to 9.
-- **A calmer session header**: Changes and Terminal are one switch, the git button is the main action, and **Open in** moved into the **⋯** menu (⌘O still works). Your first three **project actions** are buttons right in the header; all of them are still in the **⋯** menu.
+- **A calmer session header**: Changes and Terminal are one compact switch, the git button is the main action, and **Open in** moved into the **⋯** menu (⌘O still works). Your **project actions** are pills above the message box, with their shortcuts; all of them are still in the **⋯** menu.
+- **Project actions** have a clearer editor: your actions on the left, the selected one on the right, variables you can insert with a click, and package.json scripts to add in one go.
 - **Terminal** (⌘J) opens a shell straight away instead of asking what to open, and closing its last tab hides the panel. Claude Code's terminal interface moved to **⋯ → Open in → Claude Code**.
 - The context meter always shows its ring and opens on a click, also for a session you haven't sent a message to yet.
 - **Usage and context change colour** as they fill up: green, then orange from 60%, red from 85%. Claude's task list and background tasks are small pills above the message box.
 - **The conversation has fewer boxes.** Your prompts are cards on the right; tool runs, agent reports and task lists are quiet lines that open on a click.
-- **Settings opens as a sheet**, so the session list (and anything waiting for you) stays in view.
+- **Settings uses the main area** and leaves the sidebar's session list in place, so anything waiting for you stays in view.
 - **The Changes panel can be resized** by dragging its edge (or with ← →), and the diff can fill the window.
 - With two sessions side by side, the one you're not working in fades back.
+- The terminal is always dark, also when the app uses the light theme.
 
 ### Sidebar
 

@@ -4,8 +4,7 @@ import { useEngineConnection } from '../../engine/useEngine.ts';
 import { useMultipleProfiles, useProfile } from '../../state/profilesStore.ts';
 import { useSessions } from '../../state/sessionsStore.ts';
 import { openTerminal } from '../../state/terminalsStore.ts';
-import { useActionsMenu } from '../actions/useActionsMenu.tsx';
-import { ACTION_ICON, ariaShortcut, formatShortcut } from '../actions/useActions.ts';
+import type { ActionsMenu } from '../actions/useActionsMenu.tsx';
 import { Menu, useMenu, type MenuEntry } from '../Menu.tsx';
 import { useOpenInEntries } from '../OpenInButton.tsx';
 import { ProfileDot } from '../profiles/ProfileBadge.tsx';
@@ -13,18 +12,17 @@ import type { DisplayItem } from '../transcript/displayItems.ts';
 import { AgentsDialog, useAgentRuns } from '../transcript/AgentsDialog.tsx';
 
 const MENU_WIDTH = 260;
-/** How many project actions get a button in the header; the rest are in the ⋯ menu. */
-const QUICK_ACTIONS = 3;
 
 /**
  * The session header's "⋯" menu: opening the folder in an editor, terminal or Finder (⌘O opens the
  * default one), opening the session in Claude Code's terminal interface, the project's actions (and "Edit actions…"), the agents Claude
  * started, the Claude profile the session bills to, and stopping the session's Claude Code process.
- * A dot on the button says agents are running.
+ * A dot on the button says agents are running. The project actions come from the session view's
+ * single `useActionsMenu` (it also feeds the pills above the message box and renders the dialogs).
  */
 export function MoreMenu({
   sessionId,
-  projectRoot,
+  actions,
   cwd,
   items,
   sessionOpen,
@@ -32,7 +30,7 @@ export function MoreMenu({
   onStop,
 }: {
   sessionId: string;
-  projectRoot: string | null;
+  actions: ActionsMenu;
   cwd: string | null;
   items: readonly DisplayItem[];
   /** The session is open somewhere (here or another Claude Code window), so agents can still be running. */
@@ -43,7 +41,6 @@ export function MoreMenu({
 }) {
   const menu = useMenu();
   const buttonRef = useRef<HTMLButtonElement>(null);
-  const actions = useActionsMenu({ sessionId, projectRoot, cwd });
   const { agents, running } = useAgentRuns(items, sessionOpen);
   const [agentsOpen, setAgentsOpen] = useState(false);
   const closeAgents = useCallback(() => setAgentsOpen(false), []);
@@ -109,30 +106,6 @@ export function MoreMenu({
         </span>
       )}
       {openIn.status}
-      {/* The first few project actions sit in the header, one click away; all of them (and Edit actions…) stay in the menu. */}
-      {actions.actions.length > 0 && (
-        <div className="mr-1 flex items-center gap-0.5" role="group" aria-label="Project actions" data-quick-actions>
-          {actions.actions.slice(0, QUICK_ACTIONS).map((action) => {
-            const Icon = ACTION_ICON[action.icon];
-            const shortcut = action.shortcut ? formatShortcut(action.shortcut) : null;
-            return (
-              <button
-                key={action.id}
-                type="button"
-                onClick={() => actions.run(action)}
-                data-quick-action={action.id}
-                data-tooltip={`${action.type === 'prompt' ? 'Ask Claude: ' : ''}${action.command}${shortcut ? ` (${shortcut})` : ''}`}
-                aria-label={action.name}
-                aria-keyshortcuts={action.shortcut ? ariaShortcut(action.shortcut) : undefined}
-                className="flex h-7 max-w-36 items-center gap-1.5 rounded-md px-2 text-ui text-muted hover:bg-border/50 hover:text-text @max-[860px]:px-1.5"
-              >
-                <Icon size={14} className="shrink-0" aria-hidden />
-                <span className="truncate @max-[860px]:sr-only">{action.name}</span>
-              </button>
-            );
-          })}
-        </div>
-      )}
       <button
         ref={buttonRef}
         type="button"
@@ -154,7 +127,6 @@ export function MoreMenu({
         {running > 0 && <span className="absolute top-0.5 right-0.5 size-1.5 animate-pulse rounded-full bg-accent-ink" aria-hidden />}
       </button>
       {menu.at && <Menu x={menu.at.x} y={menu.at.y} width={MENU_WIDTH} entries={entries} onClose={menu.close} label="More" />}
-      {actions.overlays}
       {agentsOpen && <AgentsDialog agents={agents} running={running} sessionId={sessionId} cwd={cwd} onClose={closeAgents} />}
     </div>
   );
