@@ -3,12 +3,11 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import type { ImageAttachment, ProjectInspection, SlashCommand } from '@switchboard/protocol/client';
 import { useEngineConnection } from '../../engine/useEngine.ts';
 import { ChoiceMenu } from './ChoiceMenu.tsx';
-import { EffortDial } from './EffortDial.tsx';
 import { FolderPicker } from './FolderPicker.tsx';
-import { MODE_DESCRIPTION, routeHint } from './route.ts';
+import { routeHint } from './route.ts';
 import { filterBranches } from '../worktree/branchMenu.ts';
 import { basename, guessHome } from '../../lib/format.ts';
-import { MODE_CHOICES, MODE_DOT, MODE_LABEL, nextMode, worktreeSlug } from '../../lib/modes.ts';
+import { nextMode, worktreeSlug } from '../../lib/modes.ts';
 import { useHosts } from '../../state/hostsStore.ts';
 import { useLinks } from '../../state/linksStore.ts';
 import { usePreferences } from '../../state/preferencesStore.ts';
@@ -16,9 +15,9 @@ import { useProfiles } from '../../state/profilesStore.ts';
 import { addedProjects } from '../../state/projectList.ts';
 import { useProjects } from '../../state/projectsStore.ts';
 import { realBranch, toRows, useSessions } from '../../state/sessionsStore.ts';
-import { inScope, isActive, isArchived } from '../../state/sidebarRows.ts';
+import { inScope, isActive } from '../../state/sidebarRows.ts';
 import { Composer } from '../composer/Composer.tsx';
-import { PROFILE_DOT } from '../profiles/ProfileBadge.tsx';
+import { ComposerChipRow } from '../composer/ComposerChips.tsx';
 import { Checkbox } from '../ui/Checkbox.tsx';
 import { OpenInButton } from '../OpenInButton.tsx';
 import { UsageBand } from '../UsageBand.tsx';
@@ -30,8 +29,6 @@ const DEFAULTS_KEY = 'newSession.defaults';
 
 /** The prompt typed here and not sent yet: it is still in the box after visiting a session or Settings. */
 let unsentPrompt = '';
-
-const Divider = () => <span className="mx-1 h-4 w-px shrink-0 bg-border" aria-hidden />;
 
 /**
  * Starts a new Claude Code session. The prompt is the main thing; around it sit the project, the
@@ -294,13 +291,13 @@ export function NewSessionView() {
 
   // Sessions with a Claude Code process in this project right now, newest first. Like the
   // sidebar's live count, only those the main list shows: sessions started outside Switchboard
-  // only count when the scope shows them, and settled or archived ones don't count at all.
+  // only count when the scope shows them, and archived ones don't count at all.
   const running = useMemo(
     () => {
       if (!cwd) return [];
       const now = Date.now();
       return toRows(sessions, live, hosts)
-        .filter((row) => row.live && row.projectRoot === cwd && inScope(row, scope) && isActive(row, now) && !isArchived(row))
+        .filter((row) => row.live && row.projectRoot === cwd && inScope(row, scope) && isActive(row, now))
         .sort((a, b) => b.updatedAt - a.updatedAt);
     },
     [sessions, live, hosts, cwd, scope],
@@ -342,65 +339,26 @@ export function NewSessionView() {
   }, [pendingStart, client, cwd, loaded, projectsLoaded, settled, lookingFor, inspection]);
 
   const modelLabel = d.model ? (models.find((m) => m.value === d.model)?.displayName ?? d.model) : 'Default model';
-  const toolbar = (
-    <>
-      {profiles.length > 1 && (
-        <>
-          <ChoiceMenu
-            name="profile"
-            value={profileId}
-            onChange={(id) => setProfileOverride(id)}
-            title={profile?.account?.email ? `Claude profile · signed in as ${profile.account.email}` : 'Claude profile'}
-            heading="Profile"
-            placement="up"
-            choices={profiles.map((p) => ({
-              value: p.id,
-              label: `${p.name}${p.id === (projectProfile ?? defaultProfile) ? (projectProfile ? ' (project)' : ' (default)') : ''}`,
-              description: p.account?.email ?? undefined,
-              dot: PROFILE_DOT[p.color],
-            }))}
-            width={260}
-          >
-            {profile && <span className={`size-2 shrink-0 rounded-full ${PROFILE_DOT[profile.color]}`} aria-hidden />}
-            <span className="max-w-32 truncate">{profile?.name ?? 'Profile'}</span>
-          </ChoiceMenu>
-          <Divider />
-        </>
-      )}
-      <ChoiceMenu
-        name="model"
-        value={d.model}
-        onChange={(model) => update({ model })}
-        title="Model"
-        heading="Model"
-        placement="up"
-        choices={[
+  // The same chip row as in a session.
+  const controls = (
+    <ComposerChipRow
+      profile={{
+        value: profileId,
+        onChange: (id) => setProfileOverride(id),
+        labelFor: (p) => `${p.name}${p.id === (projectProfile ?? defaultProfile) ? (projectProfile ? ' (project)' : ' (default)') : ''}`,
+      }}
+      model={{
+        value: d.model,
+        label: modelLabel,
+        onChange: (model) => update({ model }),
+        choices: [
           { value: '', label: 'Default model', description: models.find((m) => m.value === 'default')?.description || 'What Claude Code would pick' },
           ...models.filter((m) => m.value !== 'default').map((m) => ({ value: m.value, label: m.displayName, description: m.description })),
-        ]}
-        width={260}
-        chevron
-      >
-        <span className="max-w-40 truncate">{modelLabel}</span>
-      </ChoiceMenu>
-      <Divider />
-      <EffortDial value={d.effort} onChange={(effort) => update({ effort })} />
-      <Divider />
-      <ChoiceMenu
-        name="mode"
-        value={d.permissionMode}
-        onChange={(permissionMode) => update({ permissionMode })}
-        title="Permission mode · ⇧Tab in the prompt switches it"
-        heading="Permissions"
-        placement="up"
-        choices={MODE_CHOICES.map((mode) => ({ value: mode, label: MODE_LABEL[mode], description: MODE_DESCRIPTION[mode], dot: MODE_DOT[mode] }))}
-        width={280}
-        chevron
-      >
-        <span aria-hidden className={`size-2 shrink-0 rounded-full ${MODE_DOT[d.permissionMode] ?? 'bg-faint'}`} />
-        {MODE_LABEL[d.permissionMode]}
-      </ChoiceMenu>
-    </>
+        ],
+      }}
+      effort={{ value: d.effort, onChange: (effort) => update({ effort }) }}
+      mode={{ value: d.permissionMode, onChange: (permissionMode) => update({ permissionMode }) }}
+    />
   );
 
   const folderProblem = !cwd
@@ -441,7 +399,7 @@ export function NewSessionView() {
                 autoFocus
                 focusRequest={focusRequest}
                 preset={preset}
-                toolbar={toolbar}
+                controls={controls}
                 onCycleMode={() => update({ permissionMode: nextMode(d.permissionMode) })}
                 disabledReason={!client ? 'Connecting to the engine…' : !cwd ? 'Choose a folder first' : inspection && !inspection.exists ? 'That folder no longer exists' : null}
                 onSubmit={create}

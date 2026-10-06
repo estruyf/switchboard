@@ -12,7 +12,6 @@ interface ProjectsState {
   loaded: boolean;
   /** Show only this project's sessions; null = all projects. */
   filter: string | null;
-  settledOpen: boolean;
   archivedOpen: boolean;
   /** Bumped to ask for a reload after icon or project changes. */
   version: number;
@@ -26,7 +25,6 @@ interface ProjectsState {
   newSessionWorktree: boolean;
   setProjects(projects: ProjectInfo[]): void;
   setFilter(root: string | null): void;
-  toggleSettled(): void;
   toggleArchived(): void;
   reload(): void;
   showAdd(open: boolean): void;
@@ -38,7 +36,6 @@ export const useProjects = create<ProjectsState>()((set) => ({
   projects: new Map(),
   loaded: false,
   filter: null,
-  settledOpen: false,
   archivedOpen: false,
   version: 0,
   adding: false,
@@ -47,7 +44,6 @@ export const useProjects = create<ProjectsState>()((set) => ({
   newSessionWorktree: false,
   setProjects: (projects) => set({ projects: new Map(projects.map((p) => [p.root, p])), loaded: true }),
   setFilter: (filter) => set({ filter }),
-  toggleSettled: () => set((s) => ({ settledOpen: !s.settledOpen })),
   toggleArchived: () => set((s) => ({ archivedOpen: !s.archivedOpen })),
   reload: () => set((s) => ({ version: s.version + 1 })),
   showAdd: (adding) => set({ adding }),

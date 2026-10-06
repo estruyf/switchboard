@@ -31,9 +31,7 @@ export interface ComposerProps {
   autoFocus?: boolean;
   /** Changing it focuses the prompt again (New session asked for while already open). */
   focusRequest?: number;
-  /** Controls shown in the card's bottom bar in place of the hint line (the new session view). */
-  toolbar?: ReactNode;
-  /** Compact controls in the card's bottom-left corner in place of the hint line (a session's model, mode and effort). */
+  /** Compact controls in the card's bottom-left corner in place of the hint line (the model, mode and effort chips). */
   controls?: ReactNode;
   /** Buttons in the card's bottom-right corner, before attach (a session's Tools). */
   actions?: ReactNode;
@@ -308,7 +306,8 @@ export function Composer(props: ComposerProps) {
         </ul>
       )}
 
-      <div className={`rounded-xl border bg-card px-3 pt-2.5 pb-2 shadow-sm transition-colors ${disabled ? 'border-border opacity-60' : 'border-border focus-within:border-accent-ink/60'}`}>
+      {/* Disabled dims the text, not the card: the chips' menus open from inside it and must stay readable. */}
+      <div className={`rounded-xl border border-border bg-card px-3 pt-2.5 pb-2 shadow-sm transition-colors ${disabled ? '' : 'focus-within:border-accent-ink/60'}`}>
         {attachments.length > 0 && (
           <div className="mb-2 flex flex-wrap gap-2">
             {attachments.map((a, i) => (
@@ -339,7 +338,7 @@ export function Composer(props: ComposerProps) {
           disabled={disabled}
           placeholder={props.disabledReason ?? props.placeholder}
           aria-label="Message to Claude"
-          aria-describedby={props.toolbar ? undefined : `${ids}-hint`}
+          aria-describedby={`${ids}-hint`}
           aria-keyshortcuts={props.running && props.onInterrupt ? 'Escape' : undefined}
           // While the / or @ list is open, ↑ ↓ move through it without leaving the box.
           aria-autocomplete="list"
@@ -353,17 +352,15 @@ export function Composer(props: ComposerProps) {
           onKeyDown={onKeyDown}
           onPaste={onPaste}
           onBlur={() => setTimeout(() => setPalette(null), 100)}
-          className={`block max-h-80 w-full resize-none bg-transparent leading-relaxed text-text outline-none placeholder:text-faint ${props.large ? 'min-h-24 px-1 pt-1 text-[14.5px]' : 'text-[13.5px]'}`}
+          className={`block max-h-80 w-full resize-none bg-transparent leading-relaxed text-text outline-none placeholder:text-faint disabled:opacity-60 ${props.large ? 'min-h-24 px-1 pt-1 text-[14.5px]' : 'text-[13.5px]'}`}
         />
-        {(props.toolbar || props.controls) && notice && (
+        {props.controls && notice && (
           <p role="alert" className="mt-1 truncate text-[11px] text-error" data-tooltip={notice}>
             {notice}
           </p>
         )}
-        <div className={`flex items-center justify-between gap-2 ${props.toolbar ? '-mx-3 mt-2 flex-wrap border-t border-border px-2 pt-2' : 'mt-1.5'}`}>
-          {props.toolbar ? (
-            <div className="flex min-w-0 flex-wrap items-center gap-1">{props.toolbar}</div>
-          ) : props.controls ? (
+        <div className="mt-1.5 flex items-center justify-between gap-2">
+          {props.controls ? (
             <div className="-ml-1.5 flex min-w-0 flex-1 items-center">
               {props.controls}
               {/* The keys still get read out with the message box; the chips take the hint's place on screen. */}

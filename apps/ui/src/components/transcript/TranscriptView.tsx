@@ -29,7 +29,6 @@ import { ProjectIcon } from '../ProjectIcon.tsx';
 import { PermissionCard, permissionTitle } from '../session/PermissionCard.tsx';
 import { MoreMenu } from '../session/MoreMenu.tsx';
 import { SessionControls } from '../session/StatusBar.tsx';
-import { ProfileBadge } from '../profiles/ProfileBadge.tsx';
 import { UsageBand } from '../UsageBand.tsx';
 import { liveLabel, StatusDot } from '../StatusDot.tsx';
 import { formatDuration, useTicker, WorkingDots } from './ActivityGroup.tsx';
@@ -802,10 +801,9 @@ export function TranscriptView({ sessionId, pane = null, active = true }: { sess
                   )
                 }
               />
-              {/* One quiet line: the profile and its plan usage, and how full the context is. */}
+              {/* One quiet line: plan usage (of the session's profile, which is a chip in the box) and how full the context is. */}
               <div className="flex min-h-6 items-center gap-3 px-1 text-[11.5px] text-muted" data-session-footer>
                 <div className="flex min-w-0 flex-1 items-center gap-3 overflow-hidden">
-                  <ProfileBadge profileId={profileId} className="text-[11.5px]" />
                   <UsageBand profileId={profileId} footer />
                 </div>
                 <ContextMeter

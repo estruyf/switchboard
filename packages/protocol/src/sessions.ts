@@ -33,9 +33,7 @@ export const SessionSummary = z.object({
   tag: z.string().nullable(),
   /** Kept at the top of the list. */
   pinned: z.boolean(),
-  /** When the user settled it by hand; new activity after this brings it back. */
-  settledAt: z.number().nullable(),
-  /** When the user archived it: hidden from the sidebar (Settled too) until it has new activity. */
+  /** When the user archived it by hand; new activity after this brings it back to the main list. */
   archivedAt: z.number().nullable(),
   /** When the user last looked at it in this app. */
   viewedAt: z.number().nullable(),

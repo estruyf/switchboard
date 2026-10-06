@@ -32,31 +32,21 @@ export function startupSession(rows: SessionRowData[], lastId: unknown, startupV
 }
 
 /**
- * Main list or "Settled"? Anything that wants attention (working, waiting,
- * failed, unread, open in Switchboard) or is pinned stays up. Settling by hand hides a
- * session until it has new activity; otherwise sessions settle after 48 h.
+ * Main list or "Archived"? Anything that wants attention (working, waiting,
+ * failed, unread, open in Switchboard) or is pinned stays up. Archiving by hand hides a
+ * session until it has new activity; otherwise sessions are archived after 48 h.
  */
 export function isActive(row: SessionRowData, now: number): boolean {
   // Anything that needs you always shows.
   if (row.live?.status === 'needs-you' || row.error) return true;
   if (row.pinned) return true;
-  // Settled by hand: hidden until there's something new to see. A session that's still
-  // working stays settled (its constant updates aren't news); it comes back once it finishes.
-  if (row.settledAt !== null && (row.settledAt >= row.updatedAt || row.live?.status === 'running')) return false;
+  // Archived by hand: hidden until there's something new to see. A session that's still
+  // working stays archived (its constant updates aren't news); it comes back once it finishes.
+  if (row.archivedAt !== null && (row.archivedAt >= row.updatedAt || row.live?.status === 'running')) return false;
   if (row.live?.status === 'running') return true;
   // Open in Switchboard counts; a process idling elsewhere doesn't (Claude desktop reopens
   // many old sessions at launch, and they shouldn't all come back).
   return row.live?.origin === 'app' || row.unread || now - row.updatedAt < RECENT_MS;
-}
-
-/**
- * Archived: out of the sidebar altogether (Settled too) until there's something new, like settling.
- * Anything that needs you still shows, and a session archived while working stays hidden until it finishes.
- */
-export function isArchived(row: SessionRowData): boolean {
-  if (row.archivedAt === null) return false;
-  if (row.live?.status === 'needs-you' || row.error) return false;
-  return row.archivedAt >= row.updatedAt || row.live?.status === 'running';
 }
 
 export interface SessionListOptions {
@@ -73,26 +63,21 @@ const matches = (row: SessionRowData, needle: string) =>
   row.projectRoot.toLowerCase().includes(needle) ||
   (row.branch?.toLowerCase().includes(needle) ?? false);
 
-/**
- * Splits sessions into the main list (pinned first, then newest), the settled list and the archived
- * list (both newest first).
- */
+/** Splits sessions into the main list (pinned first, then newest) and the archived list (newest first). */
 export function buildSessionList(
   rows: readonly SessionRowData[],
   options: SessionListOptions,
-): { active: SessionRowData[]; settled: SessionRowData[]; archived: SessionRowData[] } {
+): { active: SessionRowData[]; archived: SessionRowData[] } {
   const needle = options.search.trim().toLowerCase();
   const active: SessionRowData[] = [];
-  const settled: SessionRowData[] = [];
   const archived: SessionRowData[] = [];
   for (const row of rows) {
     if (options.scope && !inScope(row, options.scope)) continue;
     if (options.project && row.projectRoot !== options.project) continue;
     if (needle && !matches(row, needle)) continue;
-    (isArchived(row) ? archived : isActive(row, options.now) ? active : settled).push(row);
+    (isActive(row, options.now) ? active : archived).push(row);
   }
   active.sort((a, b) => Number(b.pinned) - Number(a.pinned) || b.updatedAt - a.updatedAt);
-  settled.sort((a, b) => b.updatedAt - a.updatedAt);
   archived.sort((a, b) => b.updatedAt - a.updatedAt);
-  return { active, settled, archived };
+  return { active, archived };
 }

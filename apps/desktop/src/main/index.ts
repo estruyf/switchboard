@@ -409,6 +409,17 @@ async function chooseOption(win: BrowserWindow, selector: string, value: string)
   return waitInPage(win, `!document.querySelector('[data-select-list]') && document.querySelector(${JSON.stringify(selector)}).dataset.value === ${JSON.stringify(value)}`, 3_000);
 }
 
+/** Picks `value` from a composer chip's menu (`ChoiceMenu`): the chip `[data-<name>-select]` inside `scope`, its menu `[data-menu=<name>]`. */
+async function chooseChoice(win: BrowserWindow, name: string, value: string, scope = 'body'): Promise<boolean> {
+  const js = (code: string) => win.webContents.executeJavaScript(code);
+  const chip = `document.querySelector(${JSON.stringify(`${scope} [data-${name}-select]`)})`;
+  await js(`${chip}.click()`);
+  const option = `document.querySelector(${JSON.stringify(`[data-menu="${name}"] [data-choice="${value}"]`)})`;
+  if (!(await waitInPage(win, option, 3_000))) return false;
+  await js(`${option}.click()`);
+  return waitInPage(win, `!document.querySelector('[data-menu="${name}"]') && ${chip}.dataset.value === ${JSON.stringify(value)}`, 3_000);
+}
+
 /**
  * Optional live step (SWITCHBOARD_SMOKE_LIVE_CWD): starts a real Haiku session
  * through the UI, approves its permission prompt and waits for the reply.
@@ -514,8 +525,8 @@ async function runLiveSessionStep(win: BrowserWindow, cwd: string): Promise<stri
   await waitInPage(win, "!document.querySelector('[data-capabilities]')", 2_000);
 
   // Effort can change mid-session, and the context meter opens a breakdown like /context.
-  if (!(await chooseOption(win, '[data-effort-select]', 'low'))) return 'effort did not change';
-  await chooseOption(win, '[data-effort-select]', '');
+  if (!(await chooseChoice(win, 'effort', 'low', '[data-current-session]'))) return 'effort did not change';
+  await chooseChoice(win, 'effort', '', '[data-current-session]');
   if (!(await waitInPage(win, "document.querySelector('[data-context-meter] button')", 15_000))) return 'no context meter for the running session';
   const contextLabel = ((await js("document.querySelector('[data-context-meter] button').innerText")) as string).trim();
   await js("document.querySelector('[data-context-meter] button').click()");
@@ -607,8 +618,8 @@ let findResult = 'not run';
 let paletteResult = 'not run';
 let toolsResult = 'not run';
 let splitResult = 'not run';
-let settleResult = 'not run';
 let archiveResult = 'not run';
+let archiveManyResult = 'not run';
 let dropResult = 'not run';
 let controlsResult = 'not run';
 let projectsResult = 'not run';
@@ -828,11 +839,11 @@ async function runProjectsStep(win: BrowserWindow): Promise<string> {
 
   // A new session in the project starts from its defaults; a change there can be saved back.
   await click('[data-new-session]');
-  const pickedEffort = "document.querySelector('[data-effort-dial] [aria-checked=\"true\"]')?.dataset.effort";
+  const pickedEffort = "document.querySelector('[data-new-session-view] [data-effort-select]')?.dataset.value";
   if (!(await waitInPage(win, `document.querySelector('[data-folder-select]')?.dataset.value === ${JSON.stringify(root)} && ${pickedEffort} === 'high'`, 5_000))) {
     return `New session did not start from the project's defaults (${String(await js(`document.querySelector('[data-folder-select]')?.dataset.value + ' ' + ${pickedEffort}`))})`;
   }
-  await click('[data-effort="low"]');
+  if (!(await chooseChoice(win, 'effort', 'low', '[data-new-session-view]'))) return 'could not change the effort in New session';
   await waitInPage(win, "document.querySelector('[data-route-branch]')?.innerText !== '…'", 3_000);
   await shot(win, 'new-session-tray.png');
   // The branch menu only reads branches; Escape closes it without switching.
@@ -1311,20 +1322,21 @@ async function runNewSessionStep(win: BrowserWindow): Promise<string> {
   if (!(await waitInPage(win, "document.activeElement?.closest('[data-menu=\"model\"]')", 2_000))) return 'the model menu did not open with focus';
   escape();
   if (!(await waitInPage(win, "!document.querySelector('[data-menu=\"model\"]') && document.activeElement?.matches('[data-model-select]')", 2_000))) return 'Escape did not close the model menu';
-  const effortBefore = (await js("document.querySelector('[data-effort-dial] [aria-checked=\"true\"]')?.dataset.effort ?? ''")) as string;
-  // Clicking the picked bar again clears it, so pick one that isn't picked yet.
+  // The effort chip sits in the same row as the model and permission chips.
+  const effortBefore = (await js("document.querySelector('[data-new-session-view] [data-effort-select]')?.dataset.value ?? ''")) as string;
   const pick = effortBefore === 'high' ? 'max' : 'high';
-  await click(`[data-effort="${pick}"]`);
-  if (!(await waitInPage(win, `document.querySelector('[data-effort="${pick}"]').getAttribute('aria-checked') === 'true' && document.querySelector('[data-effort-reset]')`, 2_000))) return 'picking an effort did not stick';
+  if (!(await chooseChoice(win, 'effort', pick, '[data-new-session-view]'))) return 'picking an effort did not stick';
+  const sameRow = (await js(
+    "(() => { const row = (s) => document.querySelector('[data-new-session-view] ' + s)?.getBoundingClientRect(); const m = row('[data-model-select]'), e = row('[data-effort-select]'), send = row('[data-composer-submit]'); return !!(m && e && send) && Math.abs(m.top - e.top) < 4 && Math.abs(m.top + m.height / 2 - (send.top + send.height / 2)) < 6; })()",
+  )) as boolean;
+  if (!sameRow) return 'the chips and Start session are not on one row';
   await click('[data-mode-select]');
   if (!(await waitInPage(win, "document.querySelectorAll('[data-menu=\"mode\"] [role=menuitemradio]').length >= 4", 2_000))) return 'the permission menu did not open';
   await new Promise((resolve) => setTimeout(resolve, 200));
   await shot(win, 'new-session-view.png');
   escape();
-  await click('[data-effort-reset]');
-  if (!(await waitInPage(win, "!document.querySelector('[data-effort-dial] [aria-checked=\"true\"]') && !document.querySelector('[data-effort-reset]')", 2_000))) return 'Default did not clear the effort';
-  // Put back the effort the profile had, so the remembered defaults are as they were.
-  if (effortBefore) await click(`[data-effort="${effortBefore}"]`);
+  // Put back the effort it had (the default, usually), so the remembered defaults are as they were.
+  if (!(await chooseChoice(win, 'effort', effortBefore, '[data-new-session-view]'))) return 'could not put the effort back';
   // ⌘N while already on New session puts the cursor back in the prompt.
   await js("document.querySelector('[data-model-select]').focus()");
   newSession();
@@ -1585,16 +1597,16 @@ async function runDropStep(win: BrowserWindow): Promise<string> {
 }
 
 /**
- * Right-click → Settle moves a session out of the main list, even one that's working (its updates
- * used to bring it straight back); "Move back" returns it. Flags live in the throwaway profile.
+ * Right-click → Archive moves a session out of the main list, even one that's working (its updates
+ * used to bring it straight back); "Unarchive" returns it. Flags live in the throwaway profile.
  */
-async function runSettleStep(win: BrowserWindow): Promise<string> {
+async function runArchiveStep(win: BrowserWindow): Promise<string> {
   const js = (code: string) => win.webContents.executeJavaScript(code);
   // Prefer a session that's working right now: that's the case that used to do nothing.
   const id = (await js(
     "(() => { const rows = [...document.querySelectorAll('[data-session-id]')]; const busy = rows.find((r) => r.querySelector('[aria-label=\"Claude is working\"]')); return (busy ?? rows[0])?.dataset.sessionId ?? null; })()",
   )) as string | null;
-  if (!id) return 'no session to settle';
+  if (!id) return 'no session to archive';
   const working = (await js(`!!document.querySelector('[data-session-id="${id}"] [aria-label="Claude is working"]')`)) as boolean;
   const menu = async (label: string) => {
     const opened = await js(
@@ -1605,19 +1617,19 @@ async function runSettleStep(win: BrowserWindow): Promise<string> {
     await js(`[...document.querySelectorAll('[role=menuitem]')].find((b) => b.innerText.startsWith(${JSON.stringify(label)})).click()`);
     return true;
   };
-  // In the main list: rendered and above the "Settled" header. The list is virtualised, so check from the top.
+  // In the main list: rendered and above the "Archived" header. The list is virtualised, so check from the top.
   const toTop = "document.querySelector('[data-session-list]').scrollTop = 0";
-  const inMainList = `(() => { const row = document.querySelector('[data-session-id="${id}"]'); if (!row) return false; const header = document.querySelector('[data-settled-toggle]'); return !header || row.getBoundingClientRect().top < header.getBoundingClientRect().top; })()`;
-  if (!(await menu('Settle'))) return 'no Settle item';
+  const inMainList = `(() => { const row = document.querySelector('[data-session-id="${id}"]'); if (!row) return false; const header = document.querySelector('[data-archived-toggle]'); return !header || row.getBoundingClientRect().top < header.getBoundingClientRect().top; })()`;
+  if (!(await menu('Archive'))) return 'no Archive item';
   await js(toTop);
-  if (!(await waitInPage(win, `!${inMainList}`, 3_000))) return `settling did nothing${working ? ' (a working session)' : ''}`;
-  // Open the Settled section (scroll down until its header renders) and move it back.
-  for (let i = 0; i < 40 && !(await js("!!document.querySelector('[data-settled-toggle]')")); i++) {
+  if (!(await waitInPage(win, `!${inMainList}`, 3_000))) return `archiving did nothing${working ? ' (a working session)' : ''}`;
+  // Open the Archived section (scroll down until its header renders) and move it back.
+  for (let i = 0; i < 40 && !(await js("!!document.querySelector('[data-archived-toggle]')")); i++) {
     await js("document.querySelector('[data-session-list]').scrollTop += 400");
     await new Promise((resolve) => setTimeout(resolve, 50));
   }
-  if ((await js("document.querySelector('[data-settled-toggle]')?.dataset.open ?? 'missing'")) === 'false') await js("document.querySelector('[data-settled-toggle]').click()");
-  // Settled rows render as they scroll into view: keep scrolling until this one appears.
+  if ((await js("document.querySelector('[data-archived-toggle]')?.dataset.open ?? 'missing'")) === 'false') await js("document.querySelector('[data-archived-toggle]').click()");
+  // Archived rows render as they scroll into view: keep scrolling until this one appears.
   for (let i = 0; i < 60 && !(await js(`!!document.querySelector('[data-session-id="${id}"]')`)); i++) {
     await js("document.querySelector('[data-session-list]').scrollTop += 300");
     await new Promise((resolve) => setTimeout(resolve, 50));
@@ -1625,29 +1637,29 @@ async function runSettleStep(win: BrowserWindow): Promise<string> {
   await js(`document.querySelector('[data-session-id="${id}"]')?.scrollIntoView({ block: 'center' })`);
   if (!(await waitInPage(win, `!!document.querySelector('[data-session-id="${id}"]')`, 3_000))) {
     const seen = await js(
-      `JSON.stringify({ header: document.querySelector('[data-settled-toggle]')?.innerText, open: document.querySelector('[data-settled-toggle]')?.dataset.open, rows: document.querySelectorAll('[data-session-id]').length, scroll: document.querySelector('[data-settled-toggle]')?.closest('.overflow-y-auto')?.scrollTop })`,
+      `JSON.stringify({ header: document.querySelector('[data-archived-toggle]')?.innerText, open: document.querySelector('[data-archived-toggle]')?.dataset.open, rows: document.querySelectorAll('[data-session-id]').length, scroll: document.querySelector('[data-archived-toggle]')?.closest('.overflow-y-auto')?.scrollTop })`,
     );
-    return `settled session not found under Settled: ${seen}`;
+    return `archived session not found under Archived: ${seen}`;
   }
-  if (!(await menu('Move back'))) return 'no "Move back" item';
+  if (!(await menu('Unarchive'))) return 'no Unarchive item';
   await js(toTop);
-  if (!(await waitInPage(win, inMainList, 3_000))) return 'moving back did nothing';
-  return `ok: settled ${working ? 'a working session' : 'a session'} and moved it back`;
+  if (!(await waitInPage(win, inMainList, 3_000))) return 'unarchiving did nothing';
+  return `ok: archived ${working ? 'a working session' : 'a session'} and unarchived it`;
 }
 
 /**
- * ⌘-click picks a second session, right-click → "Archive 2 sessions" hides both (Settled too), and the selection bar under
- * "Archived" brings them back. Flags live in the throwaway profile.
+ * ⌘-click picks a second session, right-click → "Archive 2 sessions" moves both under "Archived", and the selection bar
+ * there brings them back. Flags live in the throwaway profile.
  */
-async function runArchiveStep(win: BrowserWindow): Promise<string> {
+async function runArchiveManyStep(win: BrowserWindow): Promise<string> {
   const js = (code: string) => win.webContents.executeJavaScript(code);
   const pause = (ms = 50) => new Promise((resolve) => setTimeout(resolve, ms));
   const list = "document.querySelector('[data-session-list]')";
   await js(`${list}.scrollTop = 0`);
   await pause(100);
-  // Two sessions from the main list (above the first section header), leaving the smoke session alone.
+  // Two sessions from the main list (above the Archived header), leaving the smoke session alone.
   const ids = (await js(`(() => {
-    const header = document.querySelector('[data-settled-toggle], [data-archived-toggle]');
+    const header = document.querySelector('[data-archived-toggle]');
     const top = header ? header.getBoundingClientRect().top : Infinity;
     return [...document.querySelectorAll('[data-session-id]')]
       .filter((r) => r.getBoundingClientRect().top < top && r.dataset.sessionId !== ${JSON.stringify(smokeSessionId)} && r.dataset.indexed === 'true' && !r.querySelector('[aria-label="Claude is working"]'))
@@ -1657,7 +1669,7 @@ async function runArchiveStep(win: BrowserWindow): Promise<string> {
   const row = (id: string) => `document.querySelector('[data-session-id="${id}"]')`;
   const click = (id: string, meta: boolean) => js(`${row(id)}?.dispatchEvent(new MouseEvent('click', { bubbles: true, metaKey: ${meta} }))`);
   const inMainList = (id: string) =>
-    `(() => { const r = ${row(id)}; if (!r) return false; const h = document.querySelector('[data-settled-toggle], [data-archived-toggle]'); return !h || r.getBoundingClientRect().top < h.getBoundingClientRect().top; })()`;
+    `(() => { const r = ${row(id)}; if (!r) return false; const h = document.querySelector('[data-archived-toggle]'); return !h || r.getBoundingClientRect().top < h.getBoundingClientRect().top; })()`;
   const [a, b] = ids as [string, string];
 
   await click(a, false);
@@ -1677,7 +1689,7 @@ async function runArchiveStep(win: BrowserWindow): Promise<string> {
   await js(`${list}.scrollTop = 0`);
   if (!(await waitInPage(win, `!${inMainList(a)} && !${inMainList(b)} && !document.querySelector('[data-selection-bar]')`, 3_000))) return 'archiving left the sessions in the main list';
 
-  // Find them under Archived (the last section; scroll until its header renders) and bring them back.
+  // Find them under Archived (scroll until its header renders) and bring them back.
   for (let i = 0; i < 80 && !(await js("!!document.querySelector('[data-archived-toggle]')")); i++) {
     await js(`${list}.scrollTop += 400`);
     await pause();
@@ -1769,8 +1781,8 @@ async function runSmokeStep(win: BrowserWindow | null): Promise<void> {
     paletteResult = await runPaletteStep(win).catch((error: Error) => `failed: ${error.message}`);
     toolsResult = await runToolsStep(win).catch((error: Error) => `failed: ${error.message}`);
     splitResult = await runSplitStep(win).catch((error: Error) => `failed: ${error.message}`);
-    settleResult = await runSettleStep(win).catch((error: Error) => `failed: ${error.message}`);
     archiveResult = await runArchiveStep(win).catch((error: Error) => `failed: ${error.message}`);
+    archiveManyResult = await runArchiveManyStep(win).catch((error: Error) => `failed: ${error.message}`);
     dropResult = await runDropStep(win).catch((error: Error) => `failed: ${error.message}`);
     controlsResult = await runControlsStep(win).catch((error: Error) => `failed: ${error.message}`);
     newSessionResult = await runNewSessionStep(win).catch((error: Error) => `failed: ${error.message}`);
@@ -1826,8 +1838,8 @@ async function runSmokeStep(win: BrowserWindow | null): Promise<void> {
         paletteResult,
         toolsResult,
         splitResult,
-        settleResult,
         archiveResult,
+        archiveManyResult,
         dropResult,
         controlsResult,
         newSessionResult,

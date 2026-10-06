@@ -37,8 +37,7 @@ export function sessionRowLabel(row: {
   project: string | undefined;
   status: RowStatus;
   pinned: boolean;
-  settled: boolean;
-  archived?: boolean;
+  archived: boolean;
   /** One of several sessions picked with ⌘- or ⇧-click. */
   picked?: boolean;
   beside: boolean;
@@ -49,7 +48,6 @@ export function sessionRowLabel(row: {
   if (row.project) parts.push(row.project);
   if (row.status) parts.push(STATUS_LABEL[row.status]);
   if (row.pinned) parts.push('pinned');
-  if (row.settled) parts.push('settled');
   if (row.archived) parts.push('archived');
   if (row.picked) parts.push('in the selection');
   if (row.beside) parts.push('open in the other pane');
