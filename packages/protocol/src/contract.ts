@@ -359,6 +359,13 @@ export const contract = {
     },
     /** Kills the process (if still running) and forgets the terminal. */
     'terminal.close': { params: z.object({ id: z.string() }), result: z.object({}) },
+    /** Stops the running process like Ctrl+C (then terminates, then kills it); the tab stays open with the exit code. */
+    'terminal.stop': { params: z.object({ id: z.string() }), result: z.object({}) },
+    /**
+     * Runs an exited terminal's process again in the same tab. A project action is looked up again,
+     * so an edited command is used and one that is no longer approved is refused with UNTRUSTED.
+     */
+    'terminal.restart': { params: z.object({ id: z.string() }), result: TerminalInfo },
   },
   events: {
     'engine.log': LogEntry,

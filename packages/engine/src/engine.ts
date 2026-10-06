@@ -354,6 +354,30 @@ export function createEngine(options: EngineOptions): Engine {
   /** Runs an action's command in a terminal tab of the session and returns the terminal id. */
   const runShellAction = async (sessionId: string, cwd: string, name: string, command: string) =>
     (await terminals.open({ sessionId, cwd, kind: 'action', command, title: name, cols: 100, rows: 20, fork: false, env: profileEnv(sessionProfile(sessionId)) })).id;
+  /** Terminals started by `actions.run`, so Restart can look the action up again. */
+  const actionRuns = new Map<string, { sessionId: string; projectRoot: string; cwd: string; id: string }>();
+
+  /** Finds a project action and refuses an unapproved one. */
+  const findAction = (projectRoot: string, id: string) => {
+    const action = actions.list(projectRoot).actions.find((a) => a.id === id);
+    if (!action) throw new RpcError('NOT_FOUND', 'No such action');
+    if (!action.trusted) throw new RpcError('UNTRUSTED', `"${action.name}" comes from ${projectRoot}/.switchboard.json and has not been approved yet`);
+    return action;
+  };
+
+  /** The values `${…}` placeholders in an action's command expand to. */
+  const actionVars = (sessionId: string, projectRoot: string, cwd: string) => {
+    const location = resolver.resolve(cwd);
+    return {
+      cwd,
+      projectRoot,
+      branch: resolver.branch(location) ?? '',
+      worktreeName: location.worktree?.name ?? '',
+      sessionId,
+      sessionTitle: sessions.get(sessionId)?.title ?? '',
+    };
+  };
+
   /** A terminal for a session gets its profile's config folder, so `claude` in it uses the same login. */
   const profileEnv = (profileId: string): Record<string, string> => {
     const { envDir } = profiles.runtime(profileId);
@@ -661,24 +685,16 @@ export function createEngine(options: EngineOptions): Engine {
     },
     'actions.suggest': ({ projectRoot }) => ({ suggestions: suggestActions(projectRoot) }),
     'actions.run': async ({ sessionId, projectRoot, cwd, id }) => {
-      const action = actions.list(projectRoot).actions.find((a) => a.id === id);
-      if (!action) throw new RpcError('NOT_FOUND', 'No such action');
-      if (!action.trusted) throw new RpcError('UNTRUSTED', `"${action.name}" comes from ${projectRoot}/.switchboard.json and has not been approved yet`);
-      const location = resolver.resolve(cwd);
-      const vars = {
-        cwd,
-        projectRoot,
-        branch: resolver.branch(location) ?? '',
-        worktreeName: location.worktree?.name ?? '',
-        sessionId,
-        sessionTitle: sessions.get(sessionId)?.title ?? '',
-      };
+      const action = findAction(projectRoot, id);
+      const vars = actionVars(sessionId, projectRoot, cwd);
       if (action.type === 'prompt') {
         const sent = await hosts.send({ sessionId, text: expandCommand(action.command, vars, false), attachments: [], fork: false });
         return { kind: 'prompt' as const, sessionId: sent.sessionId, messageUuid: sent.messageUuid };
       }
       const runIn = action.cwd === 'project-root' ? projectRoot : cwd;
-      return { kind: 'terminal' as const, terminalId: await runShellAction(sessionId, runIn, action.name, expandCommand(action.command, vars, true)) };
+      const terminalId = await runShellAction(sessionId, runIn, action.name, expandCommand(action.command, vars, true));
+      actionRuns.set(terminalId, { sessionId, projectRoot, cwd, id });
+      return { kind: 'terminal' as const, terminalId };
     },
     'search.query': async ({ query, limit }) => ({ hits: search.search(query, limit), indexing: { ...search.progress } }),
     'git.changes': async ({ cwd, base }) => {
@@ -795,7 +811,30 @@ export function createEngine(options: EngineOptions): Engine {
     'terminal.close': ({ id }) => {
       terminals.close(id);
       terminalViewers.delete(id);
+      actionRuns.delete(id);
       return {};
+    },
+    'terminal.stop': ({ id }) => {
+      terminals.stop(id);
+      return {};
+    },
+    'terminal.restart': async ({ id }) => {
+      // An action is looked up again: it may have been edited, deleted or lost its approval since.
+      const run = actionRuns.get(id);
+      let change: { command?: string; cwd?: string } = {};
+      if (run) {
+        const action = findAction(run.projectRoot, run.id);
+        if (action.type !== 'shell') throw new RpcError('NOT_FOUND', `"${action.name}" no longer runs in a terminal`);
+        change = {
+          command: expandCommand(action.command, actionVars(run.sessionId, run.projectRoot, run.cwd), true),
+          cwd: action.cwd === 'project-root' ? run.projectRoot : run.cwd,
+        };
+      }
+      try {
+        return await terminals.restart(id, change);
+      } catch (error) {
+        throw new RpcError('TERMINAL_FAILED', (error as Error).message);
+      }
     },
   };
 

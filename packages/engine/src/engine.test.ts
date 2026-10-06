@@ -187,6 +187,74 @@ describe('engine over a MessagePort', () => {
     await client.call('actions.trust', { projectRoot: project, id: 'shared' });
     await expect(client.call('actions.run', { sessionId: SESSION_ID, projectRoot: project, cwd: project, id: 'shared' })).resolves.toMatchObject({ kind: 'terminal' });
   });
+
+  it('stops an action terminal and restarts it in the same tab, checking the action again', async () => {
+    const spawned: Array<{ args: string[]; exit: (event: { exitCode: number; signal?: number }) => void; written: string[] }> = [];
+    const dataDir = mkdtempSync(join(tmpdir(), 'switchboard-engine-'));
+    const project = mkdtempSync(join(tmpdir(), 'switchboard-project-'));
+    const sharedFile = join(project, '.switchboard.json');
+    writeFileSync(sharedFile, JSON.stringify({ actions: [{ id: 'dev', name: 'Dev', command: 'npm run dev' }] }));
+    const engine = createEngine({
+      dataDir,
+      claudeConfigDir: join(dataDir, 'claude'),
+      shellEnv: Promise.resolve({ shell: '/bin/zsh', env: { PATH: '', SHELL: '/bin/zsh' }, resolved: false, durationMs: 0 }),
+      claudeBinary: '/nonexistent/claude',
+      sessionSource: fakeSource,
+      spawnPty: async () => (_file, args) => {
+        const entry: (typeof spawned)[number] = { args, exit: () => {}, written: [] };
+        spawned.push(entry);
+        return {
+          pid: 999_999_000 + spawned.length,
+          onData: () => ({ dispose() {} }),
+          onExit: (listener) => ((entry.exit = listener), { dispose() {} }),
+          write: (data) => void entry.written.push(data),
+          resize() {},
+          kill() {},
+        };
+      },
+    });
+    const { port1, port2 } = new MessageChannel();
+    const detach = engine.attach(messagePortTransport(asDomPort(port1)));
+    const client = createRpcClient<Contract>(messagePortTransport(asDomPort(port2)));
+    cleanups.push(() => {
+      client.dispose();
+      detach();
+      engine.close();
+      port1.close();
+      port2.close();
+      rmSync(dataDir, { recursive: true, force: true });
+      rmSync(project, { recursive: true, force: true });
+    });
+    const exitCode = async () => (await client.call('terminal.list', {})).terminals[0]!.exitCode;
+
+    await client.call('actions.trust', { projectRoot: project, id: 'dev' });
+    const run = await client.call('actions.run', { sessionId: SESSION_ID, projectRoot: project, cwd: project, id: 'dev' });
+    if (run.kind !== 'terminal') throw new Error('expected a terminal');
+    await expect(client.call('terminal.restart', { id: run.terminalId })).rejects.toMatchObject({ code: 'TERMINAL_FAILED' });
+
+    // Stop sends Ctrl+C; a process that dies of SIGINT reports 130, not 0.
+    await client.call('terminal.stop', { id: run.terminalId });
+    expect(spawned[0]!.written).toEqual(['\x03']);
+    spawned[0]!.exit({ exitCode: 0, signal: 2 });
+    expect(await exitCode()).toBe(130);
+
+    const restarted = await client.call('terminal.restart', { id: run.terminalId });
+    expect(restarted).toMatchObject({ id: run.terminalId, kind: 'action', title: 'Dev', exitCode: null });
+    expect(spawned.map((s) => s.args)).toEqual([['-ilc', 'npm run dev'], ['-ilc', 'npm run dev']]);
+    expect((await client.call('terminal.list', {})).terminals).toHaveLength(1);
+    // The first process exiting late doesn't touch the restarted one.
+    spawned[0]!.exit({ exitCode: 1 });
+    expect(await exitCode()).toBeNull();
+
+    // An edited shared command needs approval again before it reruns.
+    spawned[1]!.exit({ exitCode: 0 });
+    writeFileSync(sharedFile, JSON.stringify({ actions: [{ id: 'dev', name: 'Dev', command: 'npm run dev -- --open' }] }));
+    await expect(client.call('terminal.restart', { id: run.terminalId })).rejects.toMatchObject({ code: 'UNTRUSTED' });
+    expect(spawned).toHaveLength(2);
+    await client.call('actions.trust', { projectRoot: project, id: 'dev' });
+    await client.call('terminal.restart', { id: run.terminalId });
+    expect(spawned[2]!.args).toEqual(['-ilc', 'npm run dev -- --open']);
+  });
 });
 
 describe('Claude profiles', () => {

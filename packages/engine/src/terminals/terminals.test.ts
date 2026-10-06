@@ -56,6 +56,21 @@ describe('TerminalManager with a real pty', () => {
     manager.close(info.id);
     expect(manager.list()).toEqual([]);
   });
+
+  it('stops an action with Ctrl+C and restarts it in the same tab', async () => {
+    const cwd = tempDir();
+    const { manager, output } = setup();
+    const info = await manager.open({ sessionId: 's1', cwd, kind: 'action', command: 'echo started; sleep 30', title: 'Dev', cols: 80, rows: 24, fork: false });
+    await until(() => (output.get(info.id) ?? '').includes('started'));
+    manager.stop(info.id);
+    await until(() => manager.list()[0]?.exitCode !== null);
+    expect(manager.list()[0]!.exitCode).toBe(130);
+
+    const restarted = await manager.restart(info.id, { command: 'echo again' });
+    expect(restarted).toMatchObject({ id: info.id, exitCode: null });
+    await until(() => manager.list()[0]?.exitCode === 0);
+    expect(manager.replay(info.id).replay).toMatch(/started[\s\S]*Restarted[\s\S]*again/);
+  });
 });
 
 describe('TerminalManager', () => {

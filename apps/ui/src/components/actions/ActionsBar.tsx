@@ -62,6 +62,8 @@ export function ActionsBar({ sessionId, projectRoot, cwd }: { sessionId: string;
     const withShortcut = actions.filter((a) => a.shortcut);
     if (withShortcut.length === 0) return;
     const onKey = (event: KeyboardEvent) => {
+      // In a terminal, ⌃ and ⌥ keys belong to the shell (⌃C stops a running action); only ⌘ shortcuts run actions there.
+      if (!event.metaKey && (event.target as HTMLElement | null)?.closest?.('.xterm')) return;
       const shortcut = shortcutFromEvent(event);
       const action = shortcut && withShortcut.find((a) => a.shortcut === shortcut);
       if (action) {

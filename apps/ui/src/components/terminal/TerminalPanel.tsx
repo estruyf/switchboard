@@ -1,4 +1,4 @@
-import { Plus, Sparkles, SquareTerminal, X } from 'lucide-react';
+import { Plus, Sparkles, Square, SquareTerminal, X } from 'lucide-react';
 import { useMemo, useState, type PointerEvent } from 'react';
 import type { TerminalInfo, TerminalKind } from '@switchboard/protocol/client';
 import { useEngineConnection } from '../../engine/useEngine.ts';
@@ -50,6 +50,23 @@ export function TerminalPanel({ sessionId, cwd }: { sessionId: string; cwd: stri
   };
 
   const close = (terminal: TerminalInfo) => void client?.call('terminal.close', { id: terminal.id });
+
+  const stop = (terminal: TerminalInfo) => void client?.call('terminal.stop', { id: terminal.id }).catch((e: Error) => setError(e.message));
+
+  /** An action runs again in its own tab (the engine checks it is still approved); shells and the TUI open a fresh tab. */
+  const restart = async (terminal: TerminalInfo) => {
+    if (terminal.kind !== 'action') {
+      close(terminal);
+      return open(terminal.kind);
+    }
+    if (!client) return;
+    setError(null);
+    try {
+      await client.call('terminal.restart', { id: terminal.id });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  };
 
   // Drag the top edge to resize.
   const startResize = (event: PointerEvent<HTMLDivElement>) => {
@@ -139,12 +156,23 @@ export function TerminalPanel({ sessionId, cwd }: { sessionId: string; cwd: stri
             <div key={t.id} className={t.id === active?.id ? 'absolute inset-0' : 'hidden'}>
               <XTerm id={t.id} active={t.id === active?.id} />
               {t.exitCode !== null && t.id === active?.id && (
-                <div className="absolute right-3 bottom-2 flex items-center gap-2 rounded-md border border-border bg-card px-2 py-1 text-[11px] text-muted shadow">
+                <div className="absolute right-3 bottom-2 flex items-center gap-2 rounded-md border border-border bg-card px-2 py-1 text-[11px] text-muted shadow" data-terminal-exited>
                   Exited with code {t.exitCode}
-                  <button type="button" onClick={() => (close(t), void open(t.kind))} className="text-accent-ink hover:underline">
+                  <button type="button" onClick={() => void restart(t)} className="text-accent-ink hover:underline" data-terminal-restart>
                     Restart
                   </button>
                 </div>
+              )}
+              {t.exitCode === null && t.kind === 'action' && t.id === active?.id && (
+                <button
+                  type="button"
+                  onClick={() => stop(t)}
+                  data-terminal-stop
+                  data-tooltip="Stop (⌃C)"
+                  className="absolute right-3 bottom-2 flex items-center gap-1.5 rounded-md border border-border bg-card px-2 py-1 text-[11px] text-muted shadow hover:text-text"
+                >
+                  <Square size={10} className="fill-current" /> Stop
+                </button>
               )}
             </div>
           ))
