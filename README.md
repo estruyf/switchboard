@@ -17,6 +17,7 @@ It uses the Claude Code you already have installed, with your login, settings, c
 - See at a glance which sessions are **working**, **waiting for you**, **finished** or **unread**.
 - Filter by one of your projects, filter by title, and pin the sessions you keep coming back to.
 - **Search every conversation** (⌘⇧F): your prompts and Claude's replies across all sessions, with the matching words highlighted. Pick a result to jump straight to that message.
+- **Find in a conversation** (⌘F): every match in the session you're reading is highlighted; ↩ and ⇧↩ step through them.
 - Give each project an icon. Switchboard picks one up from the repo when it can (a logo or favicon).
 - Sessions running in your terminal show up too, live.
 
@@ -106,6 +107,7 @@ To stop the checks, turn off *Check for Claude Code updates automatically* in Se
 |---|---|
 | ⌘N | New session |
 | ⌘K | Command palette (⌥↩ opens a session beside the current one) |
+| ⌘F | Find in this conversation (↩ next, ⇧↩ previous) |
 | ⌘⇧F | Search all conversations |
 | ↑ ↓ | Move through sessions in the sidebar |
 | ⌘⌫ | Delete the selected session (to the Trash) |

@@ -599,6 +599,7 @@ let changesPanel: string = 'not run';
 let branchResult: string = 'not run';
 let openInResult: string = 'not run';
 let searchResult = 'not run';
+let findResult = 'not run';
 let paletteResult = 'not run';
 let toolsResult = 'not run';
 let splitResult = 'not run';
@@ -1177,6 +1178,43 @@ async function runOpenInStep(win: BrowserWindow): Promise<string> {
 }
 
 /** ⌘⇧F, type a word, open the first hit: the session opens with that message highlighted. */
+/**
+ * Find in the session (⌘F), read-only: searches for a word from one of Claude's replies, checks the
+ * count and the drawn highlights, steps to the next match with Enter and closes with Escape.
+ */
+async function runFindStep(win: BrowserWindow): Promise<string> {
+  const js = (code: string) => win.webContents.executeJavaScript(code);
+  const key = (keyCode: string, modifiers: Array<'meta' | 'shift'> = []) => {
+    win.webContents.sendInputEvent({ type: 'keyDown', keyCode, modifiers });
+    win.webContents.sendInputEvent({ type: 'keyUp', keyCode, modifiers });
+  };
+  // A word Claude wrote that's on screen now.
+  const word = (await js(
+    "[...document.querySelectorAll('[data-item-kind=\"text\"]')].reverse().map((row) => row.innerText.match(/[A-Za-z]{6,}/)?.[0]).find(Boolean) ?? null",
+  )) as string | null;
+  if (!word) return 'ok: no reply from Claude on screen to search for';
+  await js("document.querySelector('[data-transcript]').focus?.()");
+  key('F', ['meta']);
+  if (!(await waitInPage(win, "document.activeElement?.matches('[data-find-input]')", 3_000))) return '⌘F did not open the find bar';
+  await setFieldValue(win, '[data-find-input]', word);
+  if (!(await waitInPage(win, "/^\\d+ of \\d+$/.test(document.querySelector('[data-find-count]')?.innerText ?? '')", 3_000))) {
+    return `no matches counted for "${word}" (${await js("document.querySelector('[data-find-count]')?.innerText")})`;
+  }
+  if (!(await waitInPage(win, "CSS.highlights.get('find')?.size > 0 && CSS.highlights.get('find-current')?.size === 1", 3_000))) return `"${word}" counted but not highlighted`;
+  const first = (await js("document.querySelector('[data-find-count]').innerText")) as string;
+  const [at, total] = first.split(' of ').map(Number) as [number, number];
+  await shot(win, 'find.png');
+  key('Return');
+  // It starts at the first match on screen; Enter goes one further, wrapping round after the last.
+  const expected = `${(at % total) + 1} of ${total}`;
+  if (!(await waitInPage(win, `document.querySelector('[data-find-count]')?.innerText === ${JSON.stringify(expected)}`, 3_000))) {
+    return `Enter went to "${await js("document.querySelector('[data-find-count]')?.innerText")}", expected "${expected}"`;
+  }
+  key('Escape');
+  if (!(await waitInPage(win, "!document.querySelector('[data-find-bar]') && !CSS.highlights.get('find')?.size", 3_000))) return 'Escape did not close find and clear the highlights';
+  return `ok: "${word}" found ${total}× (started at ${at}), highlighted, Enter stepped to the next, Escape closed it`;
+}
+
 async function runSearchStep(win: BrowserWindow): Promise<string> {
   const js = (code: string) => win.webContents.executeJavaScript(code);
   win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'F', modifiers: ['meta', 'shift'] });
@@ -1607,6 +1645,7 @@ async function runSmokeStep(win: BrowserWindow | null): Promise<void> {
     changesPanel = await runChangesStep(win);
     branchResult = await runBranchStep(win).catch((error: Error) => `failed: ${error.message}`);
     openInResult = await runOpenInStep(win).catch((error: Error) => `failed: ${error.message}`);
+    findResult = await runFindStep(win).catch((error: Error) => `failed: ${error.message}`);
     searchResult = await runSearchStep(win).catch((error: Error) => `failed: ${error.message}`);
     paletteResult = await runPaletteStep(win).catch((error: Error) => `failed: ${error.message}`);
     toolsResult = await runToolsStep(win).catch((error: Error) => `failed: ${error.message}`);
@@ -1662,6 +1701,7 @@ async function runSmokeStep(win: BrowserWindow | null): Promise<void> {
         branchResult,
         openInResult,
         searchResult,
+        findResult,
         paletteResult,
         toolsResult,
         splitResult,

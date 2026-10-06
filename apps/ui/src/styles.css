@@ -247,3 +247,12 @@ html[data-keyboard-nav] :is(button, a, summary, input, textarea, [contenteditabl
     box-shadow: 0 0 0 3px transparent;
   }
 }
+
+/* Find in session (⌘F): every match, and the one you're on. */
+::highlight(find) {
+  background-color: color-mix(in srgb, var(--sb-accent) 35%, transparent);
+}
+::highlight(find-current) {
+  background-color: var(--sb-accent);
+  color: var(--sb-on-accent);
+}

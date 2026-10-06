@@ -3,6 +3,7 @@ import { Blocks, FileDiff, SquareTerminal, X } from 'lucide-react';
 import { lazy, Suspense, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { ChangesBase, GitChanges, ImageAttachment, PermissionRequest, RewindResult, SlashCommand } from '@switchboard/protocol/client';
 import { useEngineConnection } from '../../engine/useEngine.ts';
+import { clearFindHighlights, rangesIn, setFindHighlights } from '../../lib/findHighlights.ts';
 import { guessHome, shortAge, tildify } from '../../lib/format.ts';
 import { nextMode } from '../../lib/modes.ts';
 import { hostAsLive, isActiveHost, useHosts } from '../../state/hostsStore.ts';
@@ -33,6 +34,8 @@ import { liveLabel, StatusDot } from '../StatusDot.tsx';
 import { formatDuration, useTicker, WorkingDots } from './ActivityGroup.tsx';
 import { AgentsButton } from './AgentsButton.tsx';
 import { buildDisplayItems, groupActivity, type RenderItem } from './displayItems.ts';
+import { FindBar } from './FindBar.tsx';
+import { findMatches, searchableText, startMatch } from './findInSession.ts';
 import { StreamingMarkdown } from './Markdown.tsx';
 import { MessageActionsContext, messageUuid, pendingDrafts, type MessageActions } from './messageActions.tsx';
 import { parseTodos, TodoList } from './TodoList.tsx';
@@ -218,6 +221,12 @@ export function TranscriptView({ sessionId, pane = null, active = true }: { sess
         event.preventDefault();
         toggleChanges();
       }
+      // ⌘F finds in this conversation (the terminal keeps its own keys).
+      if (active && event.metaKey && !event.shiftKey && !event.altKey && event.key.toLowerCase() === 'f' && !(event.target as HTMLElement | null)?.closest?.('.xterm')) {
+        event.preventDefault();
+        setFindQuery((q) => q ?? '');
+        setFindFocus((n) => n + 1);
+      }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
@@ -271,6 +280,8 @@ export function TranscriptView({ sessionId, pane = null, active = true }: { sess
     if (!el) return;
     if (el.scrollHeight - el.scrollTop - el.clientHeight < 160) stickToBottom.current = true;
     else if (Date.now() - userScrollAt.current < 1_000) stickToBottom.current = false;
+    // Rows mount and unmount while scrolling; their matches need highlighting again.
+    if (findQuery !== null) schedulePaint();
   };
   const onScrollKey = (event: { key: string }) => {
     if (['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', 'Home', 'End', ' '].includes(event.key)) markUserScroll();
@@ -305,6 +316,82 @@ export function TranscriptView({ sessionId, pane = null, active = true }: { sess
     const timer = setTimeout(() => setHighlightKey(null), 2_500);
     return () => clearTimeout(timer);
   }, [focusMessage, renderItems, virtualizer]);
+
+  // Find in the conversation (⌘F). Matches come from the messages' text, so rows that aren't
+  // mounted count too; the highlights are drawn on the rows that are.
+  const [findQuery, setFindQuery] = useState<string | null>(null);
+  const [findFocus, setFindFocus] = useState(0);
+  const [findCurrent, setFindCurrent] = useState(-1);
+  const findOwner = useId();
+  const matches = useMemo(() => (findQuery === null ? [] : findMatches(renderItems, findQuery)), [findQuery, renderItems]);
+  const needle = findQuery?.trim().toLowerCase() ?? '';
+  // Scroll the current match into view on the next paint (after the row has been mounted).
+  const revealCurrent = useRef(false);
+  const paintFrame = useRef(0);
+  const paint = () => {
+    const root = scrollRef.current;
+    if (!root || !needle) return clearFindHighlights(findOwner);
+    const match = matches[findCurrent];
+    const all: Range[] = [];
+    let current: Range | null = null;
+    for (const row of root.querySelectorAll<HTMLElement>('[data-transcript-item]')) {
+      const index = Number(row.dataset.index);
+      const item = renderItems[index];
+      if (!item || searchableText(item) === null) continue;
+      const ranges = rangesIn(row, needle);
+      all.push(...ranges);
+      // The text renders as Markdown, so a row can show fewer matches than its source has.
+      if (match?.index === index) current = ranges[Math.min(match.nth, ranges.length - 1)] ?? null;
+    }
+    setFindHighlights(findOwner, all, current);
+    if (revealCurrent.current && current) {
+      revealCurrent.current = false;
+      // A long message is taller than the view: centre the match itself, not its row.
+      const box = root.getBoundingClientRect();
+      const rect = current.getBoundingClientRect();
+      if (rect.top < box.top + 48 || rect.bottom > box.bottom - 48) root.scrollTop += rect.top - (box.top + box.height / 2);
+    }
+  };
+  const schedulePaint = () => {
+    cancelAnimationFrame(paintFrame.current);
+    paintFrame.current = requestAnimationFrame(paint);
+  };
+  // A new search starts at the first match from the top of the view down.
+  useEffect(() => {
+    if (findQuery === null) return;
+    const top = scrollRef.current?.scrollTop ?? 0;
+    const firstVisible = virtualizer.getVirtualItems().find((row) => row.end > top)?.index ?? 0;
+    setFindCurrent(startMatch(matches, firstVisible));
+    revealCurrent.current = true;
+    // Only when the text changes: new messages arriving mustn't move you to another match.
+  }, [needle]);
+  const stepFind = (direction: 1 | -1) => {
+    if (matches.length === 0) return;
+    setFindCurrent((current) => (current + direction + matches.length) % matches.length);
+    revealCurrent.current = true;
+  };
+  useEffect(() => {
+    const match = matches[findCurrent];
+    if (match && revealCurrent.current) {
+      stickToBottom.current = false;
+      virtualizer.scrollToIndex(match.index, { align: 'center' });
+      // Rows are measured as they render: settle a frame later, then find the match in the row.
+      requestAnimationFrame(() => {
+        virtualizer.scrollToIndex(match.index, { align: 'center' });
+        schedulePaint();
+      });
+    } else {
+      schedulePaint();
+    }
+  }, [findCurrent, matches, totalSize]);
+  const closeFind = () => {
+    setFindQuery(null);
+    setFindCurrent(-1);
+    clearFindHighlights(findOwner);
+  };
+  useEffect(() => () => clearFindHighlights(findOwner), [findOwner]);
+  // Another session in this pane starts without a search.
+  useEffect(() => closeFind(), [sessionId]);
 
   // Fork, edit and rewind from a message.
   const [initialText] = useState(() => {
@@ -453,7 +540,18 @@ export function TranscriptView({ sessionId, pane = null, active = true }: { sess
       </header>
 
       <div className="flex min-h-0 flex-1">
-        <div className="flex min-w-0 flex-1 flex-col">
+        <div className="relative flex min-w-0 flex-1 flex-col">
+          {findQuery !== null && (
+            <FindBar
+              query={findQuery}
+              onQuery={setFindQuery}
+              count={matches.length}
+              current={findCurrent}
+              onStep={stepFind}
+              onClose={closeFind}
+              focusNonce={findFocus}
+            />
+          )}
           <MessageActionsContext.Provider value={messageActions}>
             <div
               ref={scrollRef}

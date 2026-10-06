@@ -1,0 +1,75 @@
+import { ChevronDown, ChevronUp, X } from 'lucide-react';
+import { useEffect, useRef } from 'react';
+
+/**
+ * Find in the conversation (⌘F): Enter or ⌘G goes to the next match, ⇧Enter or ⇧⌘G to the
+ * previous one, Escape closes. `focusNonce` changes when ⌘F is pressed again, to refocus the field.
+ */
+export function FindBar({
+  query,
+  onQuery,
+  count,
+  current,
+  onStep,
+  onClose,
+  focusNonce,
+}: {
+  query: string;
+  onQuery: (query: string) => void;
+  count: number;
+  current: number;
+  onStep: (direction: 1 | -1) => void;
+  onClose: () => void;
+  focusNonce: number;
+}) {
+  const input = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    input.current?.focus();
+    input.current?.select();
+  }, [focusNonce]);
+
+  const status = !query.trim() ? '' : count === 0 ? 'No results' : `${current + 1} of ${count}`;
+  const button = 'flex size-6 items-center justify-center rounded text-muted enabled:hover:bg-border/60 enabled:hover:text-text disabled:opacity-40';
+  return (
+    <div
+      role="search"
+      aria-label="Find in conversation"
+      className="absolute top-2 right-4 z-20 flex items-center gap-1 rounded-lg border border-border bg-card py-1 pr-1 pl-2.5 shadow-lg"
+      data-find-bar
+    >
+      <input
+        ref={input}
+        value={query}
+        onChange={(event) => onQuery(event.target.value)}
+        onKeyDown={(event) => {
+          if (event.key === 'Escape') {
+            // Escape here only closes the bar; it must not reach the message box and stop Claude.
+            event.preventDefault();
+            event.stopPropagation();
+            onClose();
+          } else if (event.key === 'Enter' || (event.metaKey && event.key.toLowerCase() === 'g')) {
+            event.preventDefault();
+            onStep(event.shiftKey ? -1 : 1);
+          }
+        }}
+        placeholder="Find in conversation"
+        aria-label="Find in conversation"
+        spellCheck={false}
+        className="w-48 bg-transparent text-[12.5px] text-text outline-none placeholder:text-faint @max-[860px]:w-32"
+        data-find-input
+      />
+      <span className="min-w-14 text-right text-[11px] text-faint tabular-nums" role="status" aria-live="polite" data-find-count>
+        {status}
+      </span>
+      <button type="button" className={button} disabled={count === 0} onClick={() => onStep(-1)} data-tooltip="Previous (⇧Enter)" aria-label="Previous match">
+        <ChevronUp size={14} />
+      </button>
+      <button type="button" className={button} disabled={count === 0} onClick={() => onStep(1)} data-tooltip="Next (Enter)" aria-label="Next match">
+        <ChevronDown size={14} />
+      </button>
+      <button type="button" className={button} onClick={onClose} data-tooltip="Close (Esc)" aria-label="Close find">
+        <X size={13} />
+      </button>
+    </div>
+  );
+}

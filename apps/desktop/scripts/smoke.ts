@@ -44,6 +44,8 @@ console.log(`${String(result.branchResult).startsWith('ok') ? '✓' : '✗'} bra
 if (!String(result.branchResult).startsWith('ok')) process.exitCode = 1;
 console.log(`${String(result.openInResult).startsWith('ok') ? '✓' : '✗'} open in menu: ${result.openInResult}`);
 if (!String(result.openInResult).startsWith('ok')) process.exitCode = 1;
+console.log(`${String(result.findResult).startsWith('ok') ? '✓' : '✗'} find in session: ${result.findResult}`);
+if (!String(result.findResult).startsWith('ok')) process.exitCode = 1;
 console.log(`${String(result.searchResult).startsWith('ok') ? '✓' : '✗'} search: ${result.searchResult}`);
 if (!String(result.searchResult).startsWith('ok')) process.exitCode = 1;
 console.log(`${String(result.paletteResult).startsWith('ok') ? '✓' : '✗'} command palette: ${result.paletteResult}`);
