@@ -10,3 +10,4 @@ export * from './git.ts';
 export * from './capabilities.ts';
 export * from './usage.ts';
 export * from './profiles.ts';
+export * from './backup.ts';

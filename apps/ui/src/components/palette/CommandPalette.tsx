@@ -1,6 +1,7 @@
 import {
   Activity,
   Blocks,
+  Download,
   FileDiff,
   FolderCog,
   FolderPlus,
@@ -14,6 +15,7 @@ import {
   SquareTerminal,
   StopCircle,
   Sun,
+  Upload,
   type LucideIcon,
 } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
@@ -21,6 +23,7 @@ import { useEngineConnection } from '../../engine/useEngine.ts';
 import { shortAge } from '../../lib/format.ts';
 import { fuzzyScore } from '../../lib/fuzzy.ts';
 import { isActiveHost, useHosts } from '../../state/hostsStore.ts';
+import { useBackup } from '../../state/backupStore.ts';
 import { useOverlay } from '../../state/overlayStore.ts';
 import { usePreferences } from '../../state/preferencesStore.ts';
 import { addedProjects } from '../../state/projectList.ts';
@@ -81,6 +84,8 @@ export function CommandPalette() {
       { id: 'settings', group: 'Commands', label: 'Settings', keywords: 'preferences', hint: '⌘,', icon: icon(Settings), run: () => useSessions.getState().openSettings() },
       { id: 'projects', group: 'Commands', label: 'Manage projects', keywords: 'folders defaults', icon: icon(FolderCog), run: () => setView('projects') },
       { id: 'add-project', group: 'Commands', label: 'Add project…', keywords: 'folder', icon: icon(FolderPlus), run: () => useProjects.getState().showAdd(true) },
+      { id: 'export-settings', group: 'Commands', label: 'Export settings…', keywords: 'backup save move mac projects actions preferences', icon: icon(Upload), run: () => useBackup.getState().show('export') },
+      { id: 'import-settings', group: 'Commands', label: 'Import settings…', keywords: 'backup restore move mac projects actions preferences', icon: icon(Download), run: () => useBackup.getState().show('import') },
       { id: 'diagnostics', group: 'Commands', label: 'Engine diagnostics', keywords: 'settings log version', icon: icon(Activity), run: () => useSessions.getState().openSettings('diagnostics') },
       { id: 'theme-system', group: 'Commands', label: 'Theme: Match System', keywords: 'appearance', icon: icon(Monitor), run: () => updatePrefs({ colorScheme: 'system' }) },
       { id: 'theme-light', group: 'Commands', label: 'Theme: Light', keywords: 'appearance', icon: icon(Sun), run: () => updatePrefs({ colorScheme: 'light' }) },

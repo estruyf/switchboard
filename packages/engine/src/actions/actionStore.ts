@@ -56,6 +56,8 @@ interface Row {
   confirm: number;
   shortcut: string | null;
   run_on_worktree_create: number;
+  project_id: string | null;
+  imported: number;
 }
 
 const fromRow = (row: Row): ProjectAction =>
@@ -78,23 +80,33 @@ export class ActionStore {
   constructor(db: DatabaseSync) {
     this.statements = {
       list: db.prepare('SELECT * FROM project_actions WHERE COALESCE(project_id, \'\') = ? ORDER BY sort, name'),
+      all: db.prepare('SELECT * FROM project_actions ORDER BY COALESCE(project_id, \'\'), sort, name'),
       upsert: db.prepare(`
-        INSERT INTO project_actions (id, project_id, name, icon, type, command, cwd_mode, confirm, shortcut, run_on_worktree_create, sort)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO project_actions (id, project_id, name, icon, type, command, cwd_mode, confirm, shortcut, run_on_worktree_create, sort, imported)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT (COALESCE(project_id, ''), id) DO UPDATE SET
           name = excluded.name, icon = excluded.icon, type = excluded.type, command = excluded.command,
           cwd_mode = excluded.cwd_mode, confirm = excluded.confirm, shortcut = excluded.shortcut,
-          run_on_worktree_create = excluded.run_on_worktree_create`),
+          run_on_worktree_create = excluded.run_on_worktree_create, imported = excluded.imported`),
       remove: db.prepare("DELETE FROM project_actions WHERE COALESCE(project_id, '') = ? AND id = ?"),
+      approve: db.prepare("UPDATE project_actions SET imported = 0 WHERE COALESCE(project_id, '') = ? AND id = ?"),
       count: db.prepare("SELECT COUNT(*) AS n FROM project_actions WHERE COALESCE(project_id, '') = ?"),
       trusted: db.prepare('SELECT 1 FROM trusted_commands WHERE project_id = ? AND command_hash = ?'),
       trust: db.prepare('INSERT OR IGNORE INTO trusted_commands (project_id, command_hash, trusted_at) VALUES (?, ?, ?)'),
     };
   }
 
-  private own(projectRoot: string | null): ProjectAction[] {
-    return (this.statements.list.all(projectRoot ?? '') as unknown as Row[]).map(fromRow);
+  private own(projectRoot: string | null): Array<{ action: ProjectAction; imported: boolean }> {
+    return (this.statements.list.all(projectRoot ?? '') as unknown as Row[]).map((row) => ({ action: fromRow(row), imported: row.imported === 1 }));
   }
+
+  /** Every action of yours, in order, per scope (null: global), with whether it came from a settings file and awaits approval. */
+  all(): Array<{ projectRoot: string | null; action: ProjectAction; imported: boolean }> {
+    return (this.statements.all.all() as unknown as Row[]).map((row) => ({ projectRoot: row.project_id, action: fromRow(row), imported: row.imported === 1 }));
+  }
+
+  /** Imported shell actions run only once you've seen and approved their command. */
+  private static trustedOwn = (entry: { action: ProjectAction; imported: boolean }) => !entry.imported || entry.action.type !== 'shell';
 
   /** Reads the repo's shared actions. Invalid entries are reported, not fatal. */
   shared(projectRoot: string): { actions: ProjectAction[]; file: string | null; errors: string[] } {
@@ -131,13 +143,14 @@ export class ActionStore {
   list(projectRoot: string): { actions: ListedAction[]; sharedFile: string | null; errors: string[] } {
     const shared = this.shared(projectRoot);
     const merged = new Map<string, ListedAction>();
-    for (const action of this.own(null)) merged.set(action.id, { ...action, scope: 'global', trusted: true });
+    for (const entry of this.own(null)) merged.set(entry.action.id, { ...entry.action, scope: 'global', trusted: ActionStore.trustedOwn(entry) });
     for (const action of shared.actions) merged.set(action.id, { ...action, scope: 'shared', trusted: this.isTrusted(projectRoot, action.command) });
-    for (const action of this.own(projectRoot)) merged.set(action.id, { ...action, scope: 'project', trusted: true });
+    for (const entry of this.own(projectRoot)) merged.set(entry.action.id, { ...entry.action, scope: 'project', trusted: ActionStore.trustedOwn(entry) });
     return { actions: [...merged.values()], sharedFile: shared.file, errors: shared.errors };
   }
 
-  save(projectRoot: string | null, action: ProjectAction, previousId?: string): void {
+  /** Saves one of your actions at the end of its scope (or in place). Saving from the editor approves it: you've seen the command. */
+  save(projectRoot: string | null, action: ProjectAction, previousId?: string, imported = false): void {
     const scope = projectRoot ?? '';
     if (previousId && previousId !== action.id) this.statements.remove.run(scope, previousId);
     const sort = (this.statements.count.get(scope) as { n: number }).n;
@@ -153,7 +166,13 @@ export class ActionStore {
       action.shortcut,
       action.runOnWorktreeCreate ? 1 : 0,
       sort,
+      imported ? 1 : 0,
     );
+  }
+
+  /** Approves an imported action of yours (null: global). */
+  approve(projectRoot: string | null, id: string): void {
+    this.statements.approve.run(projectRoot ?? '', id);
   }
 
   remove(projectRoot: string | null, id: string): void {

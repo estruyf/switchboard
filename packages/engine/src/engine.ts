@@ -2,6 +2,7 @@ import { existsSync, readdirSync, readFileSync, rmSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import {
+  BACKUP_SECTIONS,
   BUILTIN_PROFILE_ID,
   contract,
   RpcError,
@@ -37,6 +38,7 @@ import { openCacheDatabase } from './db/database.ts';
 import { findClaude } from './system/claudeBinary.ts';
 import { normaliseMessage } from './claude/transcript.ts';
 import { SessionIndex } from './sessions/sessionIndex.ts';
+import { exportSettings, planImport, readSettingsFile, writeBackup, writeSettingsFile, type SettingsStores } from './settings/settingsTransfer.ts';
 import { TerminalManager, type SpawnPty } from './terminals/terminalManager.ts';
 import { TranscriptHub } from './sessions/transcriptHub.ts';
 import { detectEditors, openInEditor } from './system/editors.ts';
@@ -362,7 +364,11 @@ export function createEngine(options: EngineOptions): Engine {
   const findAction = (projectRoot: string, id: string) => {
     const action = actions.list(projectRoot).actions.find((a) => a.id === id);
     if (!action) throw new RpcError('NOT_FOUND', 'No such action');
-    if (!action.trusted) throw new RpcError('UNTRUSTED', `"${action.name}" comes from ${projectRoot}/.switchboard.json and has not been approved yet`);
+    if (!action.trusted) {
+      const from = action.scope === 'shared' ? `${projectRoot}/.switchboard.json` : 'a settings file';
+      throw new RpcError('UNTRUSTED', `"${action.name}" comes from ${from} and has not been approved yet`);
+    }
+
     return action;
   };
 
@@ -414,6 +420,7 @@ export function createEngine(options: EngineOptions): Engine {
   };
 
   const defaultEditorKey = 'editor.default';
+  const settingsStores: SettingsStores = { db: cache.db, appState, projects, actions };
   const editorEnv = () => shell.forLookup();
 
   /** Session count and latest activity per project folder, for the project list. */
@@ -688,7 +695,8 @@ export function createEngine(options: EngineOptions): Engine {
     'actions.trust': ({ projectRoot, id }) => {
       const action = actions.list(projectRoot).actions.find((a) => a.id === id);
       if (!action) throw new RpcError('NOT_FOUND', 'No such action');
-      actions.trust(projectRoot, action.command);
+      if (action.scope === 'shared') actions.trust(projectRoot, action.command);
+      else actions.approve(action.scope === 'global' ? null : projectRoot, action.id);
       return {};
     },
     'actions.suggest': ({ projectRoot }) => ({ suggestions: suggestActions(projectRoot) }),
@@ -825,6 +833,25 @@ export function createEngine(options: EngineOptions): Engine {
     'terminal.stop': ({ id }) => {
       terminals.stop(id);
       return {};
+    },
+    'settings.export': ({ path, sections, preferences, appVersion }) => {
+      writeSettingsFile(path, exportSettings(settingsStores, { sections, preferences, appVersion }));
+      log('info', `Exported settings (${sections.join(', ')}) to ${path}`);
+      return { path };
+    },
+    'settings.import': ({ path, sections, mode, relocate, preferences, appVersion, apply }) => {
+      const plan = planImport(settingsStores, readSettingsFile(path), { sections, mode, relocate, preferences });
+      if (!apply) return { preview: plan.preview, backupPath: null, preferences: null };
+      // Everything as it is now, so the import can be undone by importing this file with Replace.
+      const backupPath = writeBackup(join(options.dataDir, 'backups'), exportSettings(settingsStores, { sections: BACKUP_SECTIONS, preferences, appVersion }));
+      const result = plan.apply();
+      // Owned and continued sessions and session flags are also held in memory.
+      for (const { id } of cache.db.prepare('SELECT id FROM owned_sessions').all() as Array<{ id: string }>) owned.add(id);
+      for (const { id } of cache.db.prepare('SELECT id FROM continued_sessions').all() as Array<{ id: string }>) continued.add(id);
+      sessions.reloadFlags();
+      broadcast('settings.imported', {});
+      log('info', `Imported settings from ${path} (${mode}); backup at ${backupPath}`);
+      return { preview: plan.preview, backupPath, preferences: result.preferences };
     },
     'terminal.restart': async ({ id }) => {
       // An action is looked up again: it may have been edited, deleted or lost its approval since.

@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { app, BrowserWindow, dialog, ipcMain, Menu, MessageChannelMain, nativeTheme, shell, type MenuItemConstructorOptions } from 'electron';
@@ -325,6 +325,37 @@ ipcMain.handle(IpcChannel.pickImage, async (event, defaultPath: unknown) => {
   return result.canceled ? null : (result.filePaths[0] ?? null);
 });
 
+/** The smoke run has no one to answer a file dialog: it exports to (and previews) a file in its throwaway profile. */
+const smokeSettingsFile = () => join(app.getPath('userData'), 'smoke-settings-export.json');
+
+ipcMain.handle(IpcChannel.chooseExportFile, async (event, defaultName: unknown) => {
+  if (smokeOutDir) return smokeSettingsFile();
+  const win = BrowserWindow.fromWebContents(event.sender);
+  const name = typeof defaultName === 'string' && /^[\w.-]+\.json$/.test(defaultName) ? defaultName : 'switchboard-settings.json';
+  const options: Electron.SaveDialogOptions = {
+    title: 'Export Switchboard settings',
+    defaultPath: join(app.getPath('documents'), name),
+    filters: [{ name: 'Switchboard settings', extensions: ['json'] }],
+    properties: ['createDirectory', 'showOverwriteConfirmation'],
+  };
+  const result = win ? await dialog.showSaveDialog(win, options) : await dialog.showSaveDialog(options);
+  if (result.canceled || !result.filePath) return null;
+  return result.filePath.toLowerCase().endsWith('.json') ? result.filePath : `${result.filePath}.json`;
+});
+
+ipcMain.handle(IpcChannel.chooseImportFile, async (event) => {
+  if (smokeOutDir) return smokeSettingsFile();
+  const win = BrowserWindow.fromWebContents(event.sender);
+  const options: Electron.OpenDialogOptions = {
+    title: 'Import Switchboard settings',
+    defaultPath: app.getPath('documents'),
+    properties: ['openFile'],
+    filters: [{ name: 'Switchboard settings', extensions: ['json'] }],
+  };
+  const result = win ? await dialog.showOpenDialog(win, options) : await dialog.showOpenDialog(options);
+  return result.canceled ? null : (result.filePaths[0] ?? null);
+});
+
 const readyReports: TimedReport[] = [];
 ipcMain.on(IpcChannel.rendererReady, (event, report: RendererReadyReport) => {
   const timed: TimedReport = {
@@ -566,6 +597,7 @@ let controlsResult = 'not run';
 let projectsResult = 'not run';
 let profilesResult = 'not run';
 let aboutResult = 'not run';
+let backupResult = 'not run';
 let newSessionResult = 'not run';
 let deepLinkResult = 'not run';
 let rendering: Record<string, number> = {};
@@ -897,6 +929,52 @@ async function runAboutStep(win: BrowserWindow): Promise<string> {
   await shot(win, 'about.png');
   await js("document.querySelector('[data-close-settings]').click()");
   return `ok: ${navVersion}${off ? `, updates off ("${updater.state.disabledReason}")` : `, updates ${updater.state.status}`}${mockCheck}`;
+}
+
+/**
+ * Settings → Backup: exports to a file in the throwaway profile (main skips the save dialog in a smoke run)
+ * and checks it parses, then opens the import preview of that file and cancels. Nothing is imported.
+ */
+async function runBackupStep(win: BrowserWindow): Promise<string> {
+  const js = (code: string) => win.webContents.executeJavaScript(code);
+  const click = (selector: string) => js(`document.querySelector(${JSON.stringify(selector)}).click()`);
+  const file = smokeSettingsFile();
+  rmSync(file, { force: true });
+  if (!(await js("Boolean(document.querySelector('[data-settings]'))"))) await click('[data-open-settings]');
+  if (!(await waitInPage(win, "document.querySelector('[data-settings-section=\"backup\"]')", 3_000))) return 'Settings has no Backup section';
+  await click('[data-settings-section="backup"]');
+  if (!(await waitInPage(win, "document.querySelector('[data-backup-export]')", 2_000))) return 'the Backup section did not open';
+  await click('[data-backup-export]');
+  if (!(await waitInPage(win, "document.querySelector('[data-export-dialog] [data-export-section=\"sessions\"][aria-checked=\"false\"]')", 2_000))) return 'the export dialog did not open with sessions left out';
+  await click('[data-export-settings]');
+  if (!(await waitInPage(win, "document.querySelector('[data-export-saved]')", 5_000))) return 'the export did not finish';
+  await shot(win, 'backup-export.png');
+  let exported: Record<string, unknown>;
+  try {
+    exported = JSON.parse(readFileSync(file, 'utf8')) as Record<string, unknown>;
+  } catch (error) {
+    return `the exported file does not parse: ${(error as Error).message}`;
+  }
+  if (exported.kind !== 'switchboard-settings' || exported.format !== 1) return `not a settings file: ${JSON.stringify(exported).slice(0, 200)}`;
+  if (typeof exported.preferences !== 'object' || !Array.isArray(exported.projects) || typeof exported.actions !== 'object' || 'sessions' in exported) {
+    return `unexpected sections: ${Object.keys(exported).join(', ')}`;
+  }
+  win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Escape' });
+  if (!(await waitInPage(win, "!document.querySelector('[data-export-dialog]')", 2_000))) return 'Escape did not close the export dialog';
+
+  // The preview of the file just exported: everything is already set up, so there is nothing to import.
+  await click('[data-backup-import]');
+  if (!(await waitInPage(win, "document.querySelector('[data-import-dialog] [data-import-preview]')", 5_000))) return 'the import preview did not open';
+  await click('[data-import-mode="replace"]');
+  const summary = (await js("document.querySelector('[data-import-summary]')?.textContent ?? ''")) as string;
+  const disabled = (await js("document.querySelector('[data-import-settings]')?.disabled === true")) as boolean;
+  await shot(win, 'backup-import.png');
+  win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Escape' });
+  if (!(await waitInPage(win, "!document.querySelector('[data-import-dialog]') && document.querySelector('[data-settings]')", 2_000))) return 'Escape did not close only the import dialog';
+  await click('[data-close-settings]');
+  if (existsSync(join(app.getPath('userData'), 'backups'))) return 'a backup was written without importing';
+  if (!disabled) return `importing the file just exported would change something: ${summary}`;
+  return `ok (${summary})`;
 }
 
 /** Tool calls are summarised by default: open the last finished group and count its steps. */
@@ -1386,6 +1464,7 @@ async function runSmokeStep(win: BrowserWindow | null): Promise<void> {
     projectsResult = await runProjectsStep(win).catch((error: Error) => `failed: ${error.message}`);
     profilesResult = await runProfilesStep(win).catch((error: Error) => `failed: ${error.message}`);
     aboutResult = await runAboutStep(win).catch((error: Error) => `failed: ${error.message}`);
+    backupResult = await runBackupStep(win).catch((error: Error) => `failed: ${error.message}`);
     // Diagnostics (in Settings) renders a sample through Shiki, which loads in its own chunks on first use.
     await win.webContents.executeJavaScript("document.querySelector('[data-open-settings]').click()");
     await waitInPage(win, "document.querySelector('[data-settings-section=\"diagnostics\"]')", 3_000);
@@ -1433,6 +1512,7 @@ async function runSmokeStep(win: BrowserWindow | null): Promise<void> {
         projectsResult,
         profilesResult,
         aboutResult,
+        backupResult,
         highlighted,
         usageBand,
         rendering,

@@ -191,4 +191,10 @@ export const migrations: readonly string[] = [
   );
   ALTER TABLE project_settings ADD COLUMN profile_id TEXT;
   `,
+
+  // v10: actions brought in from a settings file. Imported shell actions need approval before they run,
+  // like shared ones; approving or editing one clears the flag.
+  `
+  ALTER TABLE project_actions ADD COLUMN imported INTEGER NOT NULL DEFAULT 0;
+  `,
 ];

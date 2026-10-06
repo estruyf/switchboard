@@ -1,8 +1,9 @@
-import { Activity, ChevronLeft, Info, MessageSquare, Palette, PanelLeft, SlidersHorizontal, Users, X, type LucideIcon } from 'lucide-react';
+import { Activity, ArchiveRestore, ChevronLeft, Info, MessageSquare, Palette, PanelLeft, SlidersHorizontal, Users, X, type LucideIcon } from 'lucide-react';
 import { useEffect, type ReactNode } from 'react';
 import type { ColorScheme, SidebarStyle, StartupView, ToolActivity } from '@switchboard/protocol/bridge';
 import { usePreferences } from '../state/preferencesStore.ts';
 import { useSessions, type SettingsSection } from '../state/sessionsStore.ts';
+import { BackupSettings } from './backup/BackupSettings.tsx';
 import { EngineDiagnostics } from './EngineDiagnostics.tsx';
 import { ProfilesSettings } from './profiles/ProfilesSettings.tsx';
 import { AboutSettings, SettingsVersion } from './updates/AboutSettings.tsx';
@@ -143,6 +144,7 @@ const SECTIONS: Array<{ id: SettingsSection; label: string; icon: LucideIcon }> 
   { id: 'sidebar', label: 'Sidebar', icon: PanelLeft },
   { id: 'conversation', label: 'Conversation', icon: MessageSquare },
   { id: 'profiles', label: 'Claude profiles', icon: Users },
+  { id: 'backup', label: 'Backup', icon: ArchiveRestore },
   { id: 'diagnostics', label: 'Diagnostics', icon: Activity },
   { id: 'about', label: 'About', icon: Info },
 ];
@@ -256,6 +258,15 @@ function SectionPage({ section }: { section: SettingsSection }) {
             />
           </Section>
         </>
+      );
+    case 'backup':
+      return (
+        <Section
+          title="Backup"
+          description="Move your setup to another Mac, restore it after a reset, or share your actions: preferences, projects with their icons, and project actions. Your sessions stay in ~/.claude."
+        >
+          <BackupSettings />
+        </Section>
       );
     case 'diagnostics':
       return (

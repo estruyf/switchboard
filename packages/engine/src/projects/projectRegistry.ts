@@ -1,11 +1,12 @@
 import { createHash } from 'node:crypto';
-import { copyFileSync, existsSync, mkdirSync, statSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, statSync, writeFileSync } from 'node:fs';
 import { basename, extname, join } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 import { ProjectDefaults, RpcError, type ProjectIcon, type ProjectIconChoice, type ProjectInfo } from '@switchboard/protocol';
 import { detectIconPath, iconDataUrl, MAX_ICON_BYTES } from './projectIcons.ts';
 
-type StoredIcon = { kind: 'emoji'; value: string } | { kind: 'file'; path: string } | { kind: 'none' };
+/** A custom icon as stored: a file is Switchboard's own copy, in the icon folder. */
+export type StoredIcon = { kind: 'emoji'; value: string } | { kind: 'file'; path: string } | { kind: 'none' };
 
 interface Row {
   root: string;
@@ -24,18 +25,22 @@ export interface FolderActivity {
 
 const NO_DEFAULTS: ProjectDefaults = ProjectDefaults.parse({});
 
-/** Reads stored defaults leniently: a field that no longer validates falls back to unset. */
+/** Reads defaults leniently: a field that no longer validates falls back to unset. */
+export function parseDefaults(input: unknown): ProjectDefaults {
+  const raw = (typeof input === 'object' && input !== null ? input : {}) as Record<string, unknown>;
+  const shape = ProjectDefaults.shape;
+  const out = { ...NO_DEFAULTS } as Record<string, unknown>;
+  for (const key of Object.keys(shape) as Array<keyof typeof shape>) {
+    const parsed = shape[key].safeParse(raw[key]);
+    if (parsed.success) out[key] = parsed.data;
+  }
+  return out as ProjectDefaults;
+}
+
 function readDefaults(json: string | null): ProjectDefaults {
   if (!json) return NO_DEFAULTS;
   try {
-    const raw = JSON.parse(json) as Record<string, unknown>;
-    const shape = ProjectDefaults.shape;
-    const out = { ...NO_DEFAULTS } as Record<string, unknown>;
-    for (const key of Object.keys(shape) as Array<keyof typeof shape>) {
-      const parsed = shape[key].safeParse(raw[key]);
-      if (parsed.success) out[key] = parsed.data;
-    }
-    return out as ProjectDefaults;
+    return parseDefaults(JSON.parse(json));
   } catch {
     return NO_DEFAULTS;
   }
@@ -83,6 +88,15 @@ export class ProjectRegistry {
     return (this.statements.all.all() as unknown as Row[])
       .filter((r) => r.added_at !== null)
       .sort((a, b) => (a.sort ?? Infinity) - (b.sort ?? Infinity) || (a.added_at ?? 0) - (b.added_at ?? 0) || a.root.localeCompare(b.root));
+  }
+
+  /** Added projects in order, with their stored icon (null: detected) and defaults (null: none), for a settings file. */
+  addedEntries(): Array<{ root: string; icon: StoredIcon | null; defaults: ProjectDefaults | null }> {
+    return this.addedRows().map((row) => ({
+      root: row.root,
+      icon: row.icon_json ? (JSON.parse(row.icon_json) as StoredIcon) : null,
+      defaults: row.defaults_json ? readDefaults(row.defaults_json) : null,
+    }));
   }
 
   /** Added projects in order, then every other folder with sessions, most recently active first. */
@@ -148,15 +162,26 @@ export class ProjectRegistry {
         if (!stat?.isFile()) throw new RpcError('NOT_FOUND', `Not a file: ${choice.path}`);
         if (stat.size > MAX_ICON_BYTES) throw new RpcError('TOO_LARGE', 'Icons must be 200 KB or smaller');
         // Copy it in, so the icon survives the original being moved or deleted.
-        mkdirSync(this.iconDir, { recursive: true });
-        const target = join(this.iconDir, `${createHash('sha1').update(root).digest('hex').slice(0, 16)}${extname(choice.path).toLowerCase()}`);
-        copyFileSync(choice.path, target);
-        if (!iconDataUrl(target)) throw new RpcError('UNSUPPORTED', 'Use an SVG, PNG, ICO, JPEG, WebP or GIF image');
-        stored = { kind: 'file', path: target };
+        stored = this.storeIcon(root, extname(choice.path), (target) => copyFileSync(choice.path, target));
         break;
       }
     }
     this.statements.upsertIcon.run(root, stored ? JSON.stringify(stored) : null);
+  }
+
+  /** Sets a custom icon from image bytes (from a settings file). */
+  setIconImage(root: string, ext: string, data: Buffer): void {
+    if (data.length > MAX_ICON_BYTES) throw new RpcError('TOO_LARGE', 'Icons must be 200 KB or smaller');
+    const stored = this.storeIcon(root, ext, (target) => writeFileSync(target, data));
+    this.statements.upsertIcon.run(root, JSON.stringify(stored));
+  }
+
+  private storeIcon(root: string, ext: string, write: (target: string) => void): StoredIcon {
+    mkdirSync(this.iconDir, { recursive: true });
+    const target = join(this.iconDir, `${createHash('sha1').update(root).digest('hex').slice(0, 16)}${ext.toLowerCase()}`);
+    write(target);
+    if (!iconDataUrl(target)) throw new RpcError('UNSUPPORTED', 'Use an SVG, PNG, ICO, JPEG, WebP or GIF image');
+    return { kind: 'file', path: target };
   }
 
   private row(root: string): Row | undefined {

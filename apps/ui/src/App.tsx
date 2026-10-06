@@ -7,6 +7,7 @@ import { QuitPrompt } from './components/QuitPrompt.tsx';
 import { CommandPalette } from './components/palette/CommandPalette.tsx';
 import { SearchDialog } from './components/search/SearchDialog.tsx';
 import { AddProjectDialog } from './components/projects/AddProjectDialog.tsx';
+import { BackupDialogs } from './components/backup/BackupDialogs.tsx';
 import { ProjectManagerView } from './components/projects/ProjectManagerView.tsx';
 import { SettingsView } from './components/SettingsView.tsx';
 import { useUsageSync } from './components/UsageBand.tsx';
@@ -178,6 +179,7 @@ export function App() {
       {overlay === 'search' && <SearchDialog />}
       {overlay === 'palette' && <CommandPalette />}
       {adding && <AddProjectDialog onClose={() => useProjects.getState().showAdd(false)} />}
+      <BackupDialogs />
       <TooltipLayer />
     </div>
   );

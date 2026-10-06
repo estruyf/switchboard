@@ -33,6 +33,7 @@ import { ActionRunResult, ActionSuggestion, ListedAction, ProjectAction } from '
 import { ChangesBase, GitChanges, WorktreeStatus } from './git.ts';
 import { Capabilities } from './capabilities.ts';
 import { ProfileColor, ProfilesSnapshot } from './profiles.ts';
+import { BackupSectionSchema, FolderMapping, ImportMode, ImportPreview } from './backup.ts';
 
 export const ClaudeInstall = z.object({
   path: z.string(),
@@ -83,6 +84,10 @@ const AbsolutePath = z.string().min(1).max(4096).startsWith('/');
 const Prompt = z.string().max(200_000);
 const ProfileId = z.string().min(1).max(100);
 const ProfileName = z.string().trim().min(1).max(60);
+const SettingsFilePath = AbsolutePath.regex(/\.json$/i, 'Settings files end in .json');
+/** The app's preferences, which main keeps: the renderer passes them in and applies what comes back. */
+const PreferencesRecord = z.record(z.string(), z.unknown());
+
 
 /** Every request the UI can make and every event the engine can push. */
 export const contract = {
@@ -291,7 +296,7 @@ export const contract = {
       result: z.object({}),
     },
     'actions.delete': { params: z.object({ projectRoot: AbsolutePath.nullable(), id: z.string() }), result: z.object({}) },
-    /** Approves a shared action's exact command (an edited command needs approval again). */
+    /** Approves a shared action's exact command (an edited command needs approval again), or an imported action of yours. */
     'actions.trust': { params: z.object({ projectRoot: AbsolutePath, id: z.string() }), result: z.object({}) },
     /** Starter actions for a project (package.json scripts, git, gh). */
     'actions.suggest': { params: z.object({ projectRoot: AbsolutePath }), result: z.object({ suggestions: z.array(ActionSuggestion) }) },
@@ -371,6 +376,31 @@ export const contract = {
      * so an edited command is used and one that is no longer approved is refused with UNTRUSTED.
      */
     'terminal.restart': { params: z.object({ id: z.string() }), result: TerminalInfo },
+
+    // --- Settings backup -----------------------------------------------------------------------
+    /** Writes the chosen kinds of user choices (never the cache) to a settings file. */
+    'settings.export': {
+      params: z.object({ path: SettingsFilePath, sections: z.array(BackupSectionSchema).min(1), preferences: PreferencesRecord, appVersion: z.string().max(100) }),
+      result: z.object({ path: z.string() }),
+    },
+    /**
+     * Reads a settings file and reports what importing it would change. With `apply`, first backs up the
+     * current settings (`backupPath`), then imports; `preferences` is what the renderer should apply.
+     * Imported shell actions need approval again before they run.
+     */
+    'settings.import': {
+      params: z.object({
+        path: SettingsFilePath,
+        sections: z.array(BackupSectionSchema),
+        mode: ImportMode.default('merge'),
+        relocate: z.array(FolderMapping).max(5000).default([]),
+        /** The current preferences, to compare with and to back up. */
+        preferences: PreferencesRecord,
+        appVersion: z.string().max(100),
+        apply: z.boolean().default(false),
+      }),
+      result: z.object({ preview: ImportPreview, backupPath: z.string().nullable(), preferences: PreferencesRecord.nullable() }),
+    },
   },
   events: {
     'engine.log': LogEntry,
@@ -389,6 +419,8 @@ export const contract = {
     'profiles.changed': ProfilesSnapshot,
     /** Full list whenever terminals start, exit or close. */
     'terminals.changed': z.object({ terminals: z.array(TerminalInfo) }),
+    /** Settings were imported: reload projects and actions. */
+    'settings.imported': z.object({}),
   },
 } as const satisfies ContractShape;
 

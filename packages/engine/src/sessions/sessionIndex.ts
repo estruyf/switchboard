@@ -104,10 +104,22 @@ export class SessionIndex {
         INSERT INTO session_flags (id, pinned, settled_at, viewed_at) VALUES (?, ?, ?, ?)
         ON CONFLICT (id) DO UPDATE SET pinned = excluded.pinned, settled_at = excluded.settled_at, viewed_at = excluded.viewed_at`),
     };
+    this.loadFlags();
+    this.loadCache();
+  }
+
+  private loadFlags(): void {
+    this.flags.clear();
     for (const row of this.statements.flagsAll.all() as Array<{ id: string; pinned: number; settled_at: number | null; viewed_at: number | null }>) {
       this.flags.set(row.id, { pinned: row.pinned === 1, settledAt: row.settled_at, viewedAt: row.viewed_at });
     }
-    this.loadCache();
+  }
+
+  /** Reads the flags again after they were written elsewhere (a settings import), and sends every session again. */
+  reloadFlags(): void {
+    this.loadFlags();
+    if (this.entries.size === 0) return;
+    this.options.onChange({ upserted: [...this.entries.values()].map((e) => this.decorate(e.summary)), removed: [], complete: this.complete });
   }
 
   private loadCache(): void {
