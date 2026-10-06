@@ -6,7 +6,7 @@ import { ChoiceMenu } from './ChoiceMenu.tsx';
 import { FolderPicker } from './FolderPicker.tsx';
 import { routeHint } from './route.ts';
 import { filterBranches } from '../worktree/branchMenu.ts';
-import { basename, guessHome } from '../../lib/format.ts';
+import { basename, guessHome, shortAge } from '../../lib/format.ts';
 import { nextMode, worktreeSlug } from '../../lib/modes.ts';
 import { useHosts } from '../../state/hostsStore.ts';
 import { useLinks } from '../../state/linksStore.ts';
@@ -14,14 +14,21 @@ import { usePreferences } from '../../state/preferencesStore.ts';
 import { useProfiles } from '../../state/profilesStore.ts';
 import { addedProjects } from '../../state/projectList.ts';
 import { useProjects } from '../../state/projectsStore.ts';
-import { realBranch, toRows, useSessions } from '../../state/sessionsStore.ts';
-import { inScope, isActive } from '../../state/sidebarRows.ts';
+import { toRows, useSessions } from '../../state/sessionsStore.ts';
+import { inScope, rowStatus } from '../../state/sidebarRows.ts';
 import { Composer } from '../composer/Composer.tsx';
 import { ComposerChipRow } from '../composer/ComposerChips.tsx';
 import { Checkbox } from '../ui/Checkbox.tsx';
+import { Button } from '../ui/Button.tsx';
+import { Kbd } from '../ui/Kbd.tsx';
+import { Notice } from '../ui/Notice.tsx';
+import { SectionHeader } from '../ui/SectionHeader.tsx';
+import { Switch } from '../ui/Toggle.tsx';
+import { ProjectIcon } from '../ProjectIcon.tsx';
 import { OpenInButton } from '../OpenInButton.tsx';
 import { UsageBand } from '../UsageBand.tsx';
 import { linkNoticeText } from './linkNotice.ts';
+import { activityByProject, latestBranches, pickUpRows, recentFirst, tileStatus } from './projectTiles.ts';
 import { branchLabel, branchNote, freshBase } from './trayLabels.ts';
 import { globalPatch, INITIAL_CHOICES, readGlobals, sameDefaults, startingChoices, toProjectDefaults, type Choices, type GlobalChoices } from './choices.ts';
 
@@ -46,6 +53,7 @@ export function NewSessionView() {
   const hosts = useHosts((s) => s.hosts);
   const live = useSessions((s) => s.live);
   const scope = usePreferences((s) => s.prefs.sessionScope);
+  const view = useSessions((s) => s.view);
   const [cwd, setCwd] = useState<string | null>(null);
   const [globals, setGlobals] = useState<GlobalChoices>(INITIAL_CHOICES);
   const [d, setD] = useState<Choices>({ ...INITIAL_CHOICES, branch: '' });
@@ -99,15 +107,16 @@ export function NewSessionView() {
   const projectProfile = project?.profileId && profiles.some((p) => p.id === project.profileId) ? project.profileId : null;
   const profileId = (profileOverride && profiles.some((p) => p.id === profileOverride) ? profileOverride : null) ?? projectProfile ?? defaultProfile;
   const profile = profiles.find((p) => p.id === profileId);
-  // The branch each folder had checked out in its latest session (worktree sessions are on their own branch).
-  const lastBranches = useMemo(() => {
-    const latest = new Map<string, { at: number; branch: string | null }>();
-    for (const s of sessions.values()) {
-      if (s.worktree || (latest.get(s.projectRoot)?.at ?? -1) >= s.updatedAt) continue;
-      latest.set(s.projectRoot, { at: s.updatedAt, branch: realBranch(s.gitBranch) });
-    }
-    return new Map([...latest].map(([root, { branch }]) => [root, branch]));
-  }, [sessions]);
+  const lastBranches = useMemo(() => latestBranches(sessions.values()), [sessions]);
+  // The sessions the sidebar lists (sessions from other apps only when the scope shows them): the
+  // tiles' status lines and "Pick up in" come from these.
+  const rows = useMemo(() => toRows(sessions, live, hosts).filter((row) => inScope(row, scope)), [sessions, live, hosts, scope]);
+  const activity = useMemo(() => activityByProject(rows), [rows]);
+  const recent = useMemo(
+    () => recentFirst(folders, (root) => Math.max(projects.get(root)?.lastActivity ?? 0, activity.get(root)?.lastActivity ?? 0) || null),
+    [folders, projects, activity],
+  );
+  const statusOf = (root: string) => tileStatus(activity.get(root), projects.get(root)?.lastActivity ?? null, Date.now());
 
   // Restore the last folder and global choices.
   useEffect(() => {
@@ -289,19 +298,7 @@ export function NewSessionView() {
     setSavedNote(`Saved as ${project?.name ?? basename(cwd)}'s defaults`);
   };
 
-  // Sessions with a Claude Code process in this project right now, newest first. Like the
-  // sidebar's live count, only those the main list shows: sessions started outside Switchboard
-  // only count when the scope shows them, and archived ones don't count at all.
-  const running = useMemo(
-    () => {
-      if (!cwd) return [];
-      const now = Date.now();
-      return toRows(sessions, live, hosts)
-        .filter((row) => row.live && row.projectRoot === cwd && inScope(row, scope) && isActive(row, now))
-        .sort((a, b) => b.updatedAt - a.updatedAt);
-    },
-    [sessions, live, hosts, cwd, scope],
-  );
+  const pickUp = useMemo(() => (cwd ? pickUpRows(rows, cwd, Date.now()) : []), [rows, cwd]);
 
   /** `fromLink`: started by an `autostart` link, which never adds the folder to your projects. */
   const create = async (text: string, attachments: ImageAttachment[], fromLink = false) => {
@@ -373,9 +370,35 @@ export function NewSessionView() {
       : 'Pick where Claude should work. Folders you add as projects are listed here.'
     : !inspection ? 'Checking folder…' : !inspection.exists ? 'This folder no longer exists.' : null;
 
+  const projectName = cwd ? (project?.name ?? basename(cwd)) : null;
+  const clearButton = (attr: 'data-clear-link-prompt' | 'data-clear-draft') => (
+    <Button variant="quiet" size="sm" onClick={clearPrompt} className="-my-1 shrink-0" {...{ [attr]: true }}>
+      Clear
+    </Button>
+  );
+  // One notice at a time, the most pressing first: a missing folder, a prompt from a link, a saved default, a restored draft.
+  const notice =
+    cwd && inspection && !inspection.exists ? (
+      <span className="min-w-0 truncate text-error" data-route-hint>
+        {folderProblem}
+      </span>
+    ) : linkPrompt !== null ? (
+      <Notice inline icon={<Link2 size={13} className="text-accent-ink" aria-hidden />} actions={clearButton('data-clear-link-prompt')} data-link-notice>
+        {pendingStart !== null ? 'Starting a session with the prompt from an external link…' : linkNoticeText(linkPrompt)}
+      </Notice>
+    ) : savedNote ? (
+      <span role="status" className="min-w-0 truncate text-accent-ink" data-saved-note>
+        {savedNote}
+      </span>
+    ) : restored ? (
+      <Notice inline icon={<PencilLine size={13} className="text-accent-ink" aria-hidden />} actions={clearButton('data-clear-draft')} data-draft-notice>
+        Your unsent prompt from before.
+      </Notice>
+    ) : null;
+
   return (
     <div className="flex h-full min-h-0 flex-col" data-drop-zone>
-      {/* No title bar: the eyebrow names the view. The strip keeps the window draggable. */}
+      {/* No title bar: the heading names the view. The strip keeps the window draggable. */}
       <div className="drag flex h-13 shrink-0 items-center justify-end px-4">
         {/* To look around the whole project before (or instead of) asking Claude. */}
         {cwd && inspection?.path === cwd && inspection.exists && <OpenInButton path={cwd} shortcut={false} />}
@@ -383,37 +406,50 @@ export function NewSessionView() {
 
       <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
         <div className="mx-auto my-auto grid w-full max-w-3xl grid-cols-[minmax(0,1fr)] gap-5 px-6 pt-2 pb-12" data-new-session-view>
-          <FolderPicker value={cwd} folders={folders} home={home} branches={folderBranches} onChange={changeFolder} onChooseOther={() => void chooseFolder()} openRequest={pickerRequest} />
+          <div className="text-center">
+            {/* The one hero heading in the app, a little larger than text-title. */}
+            <h1 className="text-hero leading-tight font-semibold">Where do we start?</h1>
+            <p className="mt-1 text-ui text-muted">
+              <Kbd keys="⌘1" /> to <Kbd keys="⌘9" /> picks a project, or start typing its name
+            </p>
+          </div>
 
-          <div>
-            <div className="relative z-10">
-              <Composer
-                initialText={initialText}
-                onTextChange={setDraftPrompt}
-                cwd={cwd}
-                commands={commands}
-                placeholder="What should Claude work on?"
-                submitLabel="Start session"
-                submitHint="⌘↵"
-                large
-                autoFocus
-                focusRequest={focusRequest}
-                preset={preset}
-                controls={controls}
-                onCycleMode={() => update({ permissionMode: nextMode(d.permissionMode) })}
-                disabledReason={!client ? 'Connecting to the engine…' : !cwd ? 'Choose a folder first' : inspection && !inspection.exists ? 'That folder no longer exists' : null}
-                onSubmit={create}
-              />
-            </div>
+          <FolderPicker
+            value={cwd}
+            folders={recent}
+            home={home}
+            branches={folderBranches}
+            statusOf={statusOf}
+            onChange={changeFolder}
+            onChooseOther={() => void chooseFolder()}
+            shortcuts={view === 'new'}
+            openRequest={pickerRequest}
+          />
 
-            <div className="mx-3 flex min-h-9 items-center justify-between gap-2 rounded-b-lg border border-t-0 border-border bg-border/15 px-1.5 py-1" data-route-tray>
+          {/* The message box with its route strip on top: the strip's bottom edge is the card's top border. */}
+          <div className="[&>div>.rounded-xl]:rounded-t-none">
+            <div className="flex min-h-10 min-w-0 items-center gap-1 rounded-t-xl border border-b-0 border-border bg-border/25 px-1.5 py-1" data-route-tray>
               {/* Where and branch depend on the folder: until there is one, say why instead of showing empty controls. */}
               {!cwd ? (
-                <span className="min-w-0 flex-1 px-1.5 py-0.5 text-[11.5px] text-muted" data-route-placeholder data-route-hint>
+                <span className="min-w-0 flex-1 px-1.5 py-0.5 text-ui text-muted" data-route-placeholder data-route-hint>
                   {folderProblem}
                 </span>
               ) : (
                 <>
+                  <button
+                    type="button"
+                    onClick={() => setPickerRequest((n) => n + 1)}
+                    aria-label={`Project: ${projectName}. Change project`}
+                    data-tooltip={cwd}
+                    data-route-project
+                    className="flex h-7 min-w-0 shrink items-center gap-1.5 rounded-md px-1.5 text-ui font-semibold text-text hover:bg-border/50"
+                  >
+                    <ProjectIcon project={project} root={cwd} size={16} />
+                    <span className="truncate">{projectName}</span>
+                  </button>
+                  <span aria-hidden className="text-faint">
+                    /
+                  </span>
                   <ChoiceMenu
                     name="workspace"
                     value={useWorktree ? 'worktree' : 'current'}
@@ -429,7 +465,7 @@ export function NewSessionView() {
                     extra={
                       useWorktree && (
                         <label
-                          className="mx-3 mt-1 mb-1 flex h-6 items-center rounded-md border border-border bg-bg px-2 font-mono text-[11.5px] focus-within:border-accent-ink"
+                          className="mx-3 mt-1 mb-1 flex h-6 items-center rounded-md border border-border bg-bg px-2 font-mono text-meta focus-within:border-accent-ink"
                           data-tooltip={`Branch worktree-${effectiveName} in .claude/worktrees/${effectiveName}`}
                         >
                           <span className="text-faint">worktree-</span>
@@ -465,7 +501,6 @@ export function NewSessionView() {
                       onChange={(baseRef) => update({ baseRef })}
                       title="The branch the new worktree starts from"
                       heading="Branch from"
-                      align="right"
                       chevron
                       mono
                       search="Search branches"
@@ -487,7 +522,6 @@ export function NewSessionView() {
                       onChange={(b) => update({ branch: b === gitBranches.current ? '' : b })}
                       title="Check out a branch before the session starts. Git keeps uncommitted changes, or refuses when they conflict."
                       heading="Branch"
-                      align="right"
                       chevron
                       mono
                       search="Search branches"
@@ -503,69 +537,87 @@ export function NewSessionView() {
                       </span>
                     </ChoiceMenu>
                   ) : (
-                    <span className="flex min-w-0 items-center gap-1.5 px-2 text-[12px] text-muted">
+                    <span className="flex min-w-0 items-center gap-1.5 px-2 text-ui text-muted">
                       <GitBranch size={14} className="shrink-0" aria-hidden />
                       <span className="truncate" data-route-branch>
                         {trayBranch}
                       </span>
                     </span>
                   )}
+
+                  <span className="flex-1" />
+                  {/* The quick way to the most common route change; the menu has the details (base, name). */}
+                  <label
+                    className={`flex shrink-0 items-center gap-2 px-1.5 text-ui ${canWorktree ? 'cursor-pointer text-muted' : 'text-faint'}`}
+                    data-tooltip={canWorktree ? 'Work in an isolated copy of the repository' : 'Needs a git repository'}
+                  >
+                    Worktree
+                    <Switch checked={useWorktree} disabled={!canWorktree} onChange={(on) => update({ workspace: on ? 'worktree' : 'current' })} dataAttrs={{ 'data-worktree-switch': true }} />
+                  </label>
                 </>
               )}
             </div>
+
+            <Composer
+              initialText={initialText}
+              onTextChange={setDraftPrompt}
+              cwd={cwd}
+              commands={commands}
+              placeholder="What should Claude work on?"
+              submitLabel="Start session"
+              submitHint="⌘↵"
+              large
+              autoFocus
+              focusRequest={focusRequest}
+              preset={preset}
+              controls={controls}
+              onCycleMode={() => update({ permissionMode: nextMode(d.permissionMode) })}
+              disabledReason={!client ? 'Connecting to the engine…' : !cwd ? 'Choose a folder first' : inspection && !inspection.exists ? 'That folder no longer exists' : null}
+              onSubmit={create}
+            />
           </div>
 
-          <div className="-mt-2 flex min-h-5 flex-wrap items-center justify-between gap-x-4 gap-y-2 px-4 text-[11.5px] text-muted" data-tray-footer>
-            <span className="flex min-w-0 items-center gap-3">
-              {cwd && inspection && !inspection.exists ? (
-                <span className="min-w-0 truncate" data-route-hint>
-                  {folderProblem}
-                </span>
-              ) : (
-                <UsageBand footer profileId={profileId} />
-              )}
-              {savedNote && (
-                <span role="status" className="truncate text-accent-ink" data-saved-note>
-                  {savedNote}
-                </span>
-              )}
+          <div className="-mt-2 flex min-h-5 items-center justify-between gap-4 px-2 text-meta text-muted" data-tray-footer>
+            <span className="flex min-w-0 items-center">{notice}</span>
+            <span className="shrink-0">
+              <UsageBand footer profileId={profileId} />
             </span>
-            {running.length > 0 && (
-              <span className="flex min-w-0 items-center gap-1.5" data-running-here>
-                <span className="size-1.5 shrink-0 rounded-full bg-accent-ink" aria-hidden />
-                <span className="min-w-0 truncate" data-tooltip={running.map((r) => r.title).join('\n')}>
-                  <span className="text-text">{running.length} running here</span> · {running[0]!.title}
-                </span>
-                <button type="button" onClick={() => select(running[0]!.id)} className="shrink-0 text-link hover:underline" aria-label={`Open ${running[0]!.title}`} data-open-running>
-                  Open
-                </button>
-              </span>
-            )}
           </div>
-
-          {linkPrompt !== null && (
-            <div className="-mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 px-4 text-[11.5px] text-muted" data-link-notice role="status">
-              <Link2 size={13} className="shrink-0 text-accent-ink" aria-hidden />
-              <span className="min-w-0">{pendingStart !== null ? 'Starting a session with the prompt from an external link…' : linkNoticeText(linkPrompt)}</span>
-              <button type="button" onClick={clearPrompt} className="text-link hover:underline" data-clear-link-prompt>
-                Clear
-              </button>
-            </div>
-          )}
-          {linkPrompt === null && restored && (
-            <div className="-mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 px-4 text-[11.5px] text-muted" data-draft-notice role="status">
-              <PencilLine size={13} className="shrink-0 text-accent-ink" aria-hidden />
-              <span className="min-w-0">Your unsent prompt from before.</span>
-              <button type="button" onClick={clearPrompt} className="text-link hover:underline" data-clear-draft>
-                Clear
-              </button>
-            </div>
-          )}
 
           {cwd && !isProject && inspection?.exists && (
-            <Checkbox checked={addAsProject} onChange={setAddAsProject} className="-mt-3 w-fit px-4 text-[11.5px] text-muted" dataAttrs={{ 'data-add-as-project': true }}>
+            <Checkbox checked={addAsProject} onChange={setAddAsProject} className="-mt-3 w-fit px-2 text-meta text-muted" dataAttrs={{ 'data-add-as-project': true }}>
               Add {basename(cwd)} to your projects
             </Checkbox>
+          )}
+
+          {cwd && pickUp.length > 0 && (
+            <section aria-label={`Pick up in ${projectName}`} data-pick-up>
+              <SectionHeader as="h2" className="px-2">
+                Pick up in {projectName}
+              </SectionHeader>
+              <ul className="mt-1 grid">
+                {pickUp.map((row) => {
+                  const status = rowStatus(row);
+                  const dot = status === 'needs-you' ? 'bg-warn' : status === 'running' ? 'bg-accent-ink animate-pulse' : status === 'unread' ? 'bg-unread' : 'bg-faint/50';
+                  return (
+                    <li key={row.id}>
+                      <button
+                        type="button"
+                        onClick={() => select(row.id)}
+                        className="flex h-8 w-full min-w-0 items-center gap-2.5 rounded-md px-2 text-left hover:bg-border/45"
+                        data-pick-up-session={row.id}
+                      >
+                        <span aria-hidden className={`size-1.5 shrink-0 rounded-full ${dot}`} />
+                        <span className="min-w-0 flex-1 truncate text-ui text-text">{row.title || 'Untitled session'}</span>
+                        {status === 'needs-you' && <span className="shrink-0 text-meta text-warn">Needs you</span>}
+                        {status === 'running' && <span className="shrink-0 text-meta text-accent-ink">Working</span>}
+                        <span className="shrink-0 text-meta text-faint tabular-nums">{shortAge(row.updatedAt)}</span>
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+            </section>
           )}
         </div>
       </div>

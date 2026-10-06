@@ -1,5 +1,5 @@
-import { Activity, ArchiveRestore, ChevronLeft, Info, MessageSquare, Palette, PanelLeft, SlidersHorizontal, Users, X, type LucideIcon } from 'lucide-react';
-import { useEffect, useId, type ReactNode } from 'react';
+import { Activity, ArchiveRestore, Info, MessageSquare, Palette, PanelLeft, SlidersHorizontal, Users, X, type LucideIcon } from 'lucide-react';
+import { useEffect, useId, useRef, type ReactNode, type RefObject } from 'react';
 import type { ColorScheme, SidebarStyle, StartupView, ToolActivity } from '@switchboard/protocol/bridge';
 import { usePreferences } from '../state/preferencesStore.ts';
 import { useSessions, type SettingsSection } from '../state/sessionsStore.ts';
@@ -7,6 +7,7 @@ import { BackupSettings } from './backup/BackupSettings.tsx';
 import { EngineDiagnostics } from './EngineDiagnostics.tsx';
 import { ProfilesSettings } from './profiles/ProfilesSettings.tsx';
 import { AboutSettings, SettingsVersion } from './updates/AboutSettings.tsx';
+import { Button } from './ui/Button.tsx';
 import { Choice } from './ui/Choice.tsx';
 import { Radio, RadioGroup } from './ui/Radio.tsx';
 import { Toggle } from './ui/Toggle.tsx';
@@ -48,12 +49,12 @@ function RowPreview({ style }: { style: SidebarStyle }) {
     <div className="absolute inset-0 flex flex-col justify-center gap-1.5 bg-sidebar px-3">
       {rows.map((i) =>
         style === 'compact' ? (
-          <div key={i} className={`flex items-center gap-1.5 rounded px-1.5 py-1 ${i === 0 ? 'bg-accent/15' : ''}`}>
+          <div key={i} className={`flex items-center gap-1.5 rounded px-1.5 py-1 ${i === 0 ? 'bg-selected' : ''}`}>
             {icon(8)}
             {line('60%', true)}
           </div>
         ) : (
-          <div key={i} className={`flex items-center gap-2 rounded px-1.5 py-1 ${i === 0 ? 'bg-accent/15' : ''} ${i === 2 ? 'hidden' : ''}`}>
+          <div key={i} className={`flex items-center gap-2 rounded px-1.5 py-1 ${i === 0 ? 'bg-selected' : ''} ${i === 2 ? 'hidden' : ''}`}>
             {style === 'large' && icon(20)}
             <div className="grid flex-1 gap-1">
               <div className="flex items-center gap-1">
@@ -110,10 +111,10 @@ function Section({ title, description, children }: { title: string; description?
   return (
     <section className="grid grid-cols-[minmax(0,1fr)] gap-3 py-6" aria-labelledby={id}>
       <div>
-        <h2 id={id} className="text-[13px] font-semibold">
+        <h2 id={id} className="text-body font-semibold">
           {title}
         </h2>
-        {description && <p className="mt-0.5 text-[12px] text-muted">{description}</p>}
+        {description && <p className="mt-0.5 text-ui text-muted">{description}</p>}
       </div>
       {children}
     </section>
@@ -138,6 +139,7 @@ const STYLES: Array<{ value: SidebarStyle; label: string }> = [
 ];
 
 const STARTUP: Array<{ value: StartupView; label: string; detail: string }> = [
+  { value: 'home', label: 'Home', detail: 'Shows what needs you, what is working, and your projects.' },
   { value: 'last', label: 'The last session', detail: 'Opens the session you had open, if the sidebar lists it. Otherwise New session.' },
   { value: 'new', label: 'New session', detail: 'Starts ready for a new prompt.' },
 ];
@@ -153,20 +155,26 @@ const SECTIONS: Array<{ id: SettingsSection; label: string; icon: LucideIcon }> 
   { id: 'about', label: 'About', icon: Info },
 ];
 
-const close = () => useSessions.getState().setView('session');
+const close = () => useSessions.getState().closeSettings();
 
-/** Escape closes Settings, unless it belongs to an open dialog, menu or dropdown, or to a field being edited. */
-function useEscapeToClose() {
+/**
+ * Escape closes Settings, unless it belongs to another open dialog, menu or dropdown, or to a field
+ * being edited. The sheet is a dialog itself, so only the others count.
+ */
+function useEscapeToClose(sheet: RefObject<HTMLElement | null>) {
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (event.key !== 'Escape' || event.defaultPrevented) return;
-      if (document.querySelector('[role=dialog], [role=alertdialog], [role=menu], [role=listbox]')) return;
+      const overlays = [...document.querySelectorAll('[role=dialog], [role=alertdialog], [role=menu], [role=listbox]')];
+      if (overlays.some((el) => el !== sheet.current)) return;
       if (event.target instanceof HTMLElement && event.target.closest('input, textarea, [contenteditable=true]')) return;
+      // The session behind keeps its own Escape (deny a permission, stop Claude): this press is ours.
+      event.preventDefault();
       close();
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, []);
+  }, [sheet]);
 }
 
 /** One page of Settings: everything for the section chosen in its sidebar. */
@@ -246,8 +254,8 @@ function SectionPage({ section }: { section: SettingsSection }) {
             <RadioGroup label="On startup" className="grid gap-2.5">
               {STARTUP.map(({ value, label, detail }) => (
                 <Radio key={value} checked={prefs.startupView === value} onSelect={() => update({ startupView: value })} dataAttrs={{ 'data-startup-view': value }}>
-                  <span className="block text-[12.5px] text-text">{label}</span>
-                  <span className="block text-[12px] text-muted">{detail}</span>
+                  <span className="block text-ui text-text">{label}</span>
+                  <span className="block text-ui text-muted">{detail}</span>
                 </Radio>
               ))}
             </RadioGroup>
@@ -287,15 +295,15 @@ function SectionPage({ section }: { section: SettingsSection }) {
   }
 }
 
-/** Settings' sections, shown in the app sidebar in place of the session list while Settings is open. */
+/** Settings' sections, on the left of the Settings sheet. */
 export function SettingsNav() {
   const section = useSessions((s) => s.settingsSection);
   const openSettings = useSessions((s) => s.openSettings);
   return (
-    <nav aria-label="Settings" className="flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto px-2 pb-2" data-settings-nav>
-      <button type="button" onClick={close} className="mb-2 flex h-7 items-center gap-1 rounded-md px-1.5 text-[12px] text-muted hover:bg-border/50 hover:text-text" data-settings-back>
-        <ChevronLeft size={14} aria-hidden /> Back to sessions
-      </button>
+    <nav aria-label="Settings sections" className="flex w-52 shrink-0 flex-col gap-0.5 overflow-y-auto border-r border-border p-2 pt-3" data-settings-nav>
+      <h2 id="settings-title" className="px-2.5 pt-2 pb-3 text-title font-semibold">
+        Settings
+      </h2>
       {SECTIONS.map(({ id, label, icon: Icon }) => (
         <button
           key={id}
@@ -303,38 +311,55 @@ export function SettingsNav() {
           onClick={() => openSettings(id)}
           aria-current={section === id ? 'page' : undefined}
           data-settings-section={id}
-          className={`flex h-8 items-center gap-2.5 rounded-md px-2.5 text-left text-[12.5px] ${section === id ? 'bg-accent/15 font-medium text-text' : 'text-muted hover:bg-border/50 hover:text-text'}`}
+          className={`flex h-8 shrink-0 items-center gap-2.5 rounded-md px-2.5 text-left text-ui ${section === id ? 'bg-selected font-semibold text-text' : 'text-muted hover:bg-border/45 hover:text-text'}`}
         >
           <Icon size={15} aria-hidden className={`shrink-0 ${section === id ? 'text-accent-ink' : ''}`} />
           <span className="truncate">{label}</span>
         </button>
       ))}
-      <SettingsVersion />
+      <div className="mt-auto">
+        <SettingsVersion />
+      </div>
     </nav>
   );
 }
 
+/**
+ * Settings fills the main area, with its sections on the left and the page on the right. The app
+ * sidebar keeps its session list next to it, so what needs you stays in sight.
+ */
 export function SettingsView() {
   const section = useSessions((s) => s.settingsSection);
-  useEscapeToClose();
+  const sheet = useRef<HTMLDivElement>(null);
+  // Start keyboard focus in Settings (not a trap: the sidebar stays reachable with Tab).
+  useEffect(() => {
+    if (!sheet.current?.contains(document.activeElement)) sheet.current?.querySelector<HTMLElement>('[aria-current="page"]')?.focus();
+  }, []);
+  useEscapeToClose(sheet);
 
+  // Settings takes the whole main area (the sidebar keeps its session list next to it). The view it
+  // was opened from stays mounted, inert, underneath, so closing returns to it as it was.
   return (
-    <div className="flex h-full min-h-0 flex-col" data-settings>
-      <header className="drag flex h-13 shrink-0 items-center border-b border-border pr-3 pl-6">
-        <h1 className="flex-1 text-[13px] font-semibold">Settings</h1>
-        <button
-          type="button"
-          onClick={close}
-          data-close-settings
-          data-tooltip="Close (Esc)" aria-label="Close settings"
-          className="no-drag flex size-7 items-center justify-center rounded-md text-muted hover:bg-border/60 hover:text-text"
-        >
-          <X size={15} aria-hidden />
-        </button>
-      </header>
-      <div className="min-h-0 flex-1 overflow-y-auto">
-        <div className={`mx-auto min-w-0 px-6 ${section === 'diagnostics' ? 'max-w-3xl' : 'max-w-2xl'}`} data-settings-page={section}>
-          <SectionPage section={section} />
+    <div
+      ref={sheet}
+      role="region"
+      aria-labelledby="settings-title"
+      className="absolute inset-0 z-30 flex min-h-0 flex-col bg-bg"
+      data-settings
+    >
+      <div className="flex min-h-0 flex-1">
+        <SettingsNav />
+        <div className="relative flex min-w-0 flex-1 flex-col">
+          {/* The top strip keeps the window draggable, like every other view's header. */}
+          {/* Same padding as the session header, so the close button stays put when Settings opens over it. */}
+          <div className="drag flex h-13 shrink-0 items-center justify-end px-6">
+            <Button variant="quiet" iconOnly icon={<X size={15} aria-hidden />} kbd="Esc" onClick={close} data-close-settings data-tooltip="Close (Esc)" aria-label="Close settings" className="no-drag" />
+          </div>
+          <div className="min-h-0 flex-1 overflow-y-auto">
+            <div className={`mx-auto min-w-0 px-8 ${section === 'diagnostics' ? 'max-w-3xl' : 'max-w-2xl'}`} data-settings-page={section}>
+              <SectionPage section={section} />
+            </div>
+          </div>
         </div>
       </div>
     </div>

@@ -14,11 +14,10 @@ import { Menu, type MenuEntry } from '../Menu.tsx';
 import { ProfileBadge } from '../profiles/ProfileBadge.tsx';
 import { ProjectIcon } from '../ProjectIcon.tsx';
 import { useProjectActions, useProjectIconEntries } from '../sidebar/ProjectMenu.tsx';
+import { Button } from '../ui/Button.tsx';
 import { Select } from '../ui/Select.tsx';
 import { ProjectDefaultsEditor } from './ProjectDefaultsEditor.tsx';
 
-const button = 'flex h-7 items-center gap-1.5 rounded-md border border-border px-2 text-[12px] text-text hover:bg-border/50 disabled:opacity-40';
-const iconButton = 'flex size-7 items-center justify-center rounded-md text-muted hover:bg-border/50 hover:text-text disabled:opacity-30';
 
 /** Shows a summary of the defaults a project sets, e.g. "Opus · high effort · worktree". */
 function describeDefaults(d: ProjectDefaults): string {
@@ -160,43 +159,46 @@ function ProjectRow({
         </button>
         <div className="flex shrink-0 items-center gap-0.5">
           {/* Names include the project: a screen reader hears "Move Website up", not five rows of "Move up". */}
-          <button
-            type="button"
-            className={iconButton}
+          <Button
+            variant="quiet"
+            iconOnly
+            icon={<SquarePen size={14} aria-hidden />}
             onClick={startHere}
             disabled={!project.exists}
             data-tooltip="New session in this project"
             aria-label={`New session in ${project.name}`}
-          >
-            <SquarePen size={14} aria-hidden />
-          </button>
-          <button type="button" className={iconButton} onClick={onActions} data-tooltip="Project actions" aria-label={`Actions of ${project.name}`} data-project-actions>
-            <Zap size={14} aria-hidden />
-          </button>
-          <button type="button" className={iconButton} onClick={() => onMove(-1)} disabled={index === 0} data-tooltip="Move up in the list" aria-label={`Move ${project.name} up`} data-move-up>
-            <ArrowUp size={14} aria-hidden />
-          </button>
-          <button
-            type="button"
-            className={iconButton}
+          />
+          <Button variant="quiet" iconOnly icon={<Zap size={14} aria-hidden />} onClick={onActions} data-tooltip="Project actions" aria-label={`Actions of ${project.name}`} data-project-actions />
+          <Button
+            variant="quiet"
+            iconOnly
+            icon={<ArrowUp size={14} aria-hidden />}
+            onClick={() => onMove(-1)}
+            disabled={index === 0}
+            data-tooltip="Move up in the list"
+            aria-label={`Move ${project.name} up`}
+            data-move-up
+          />
+          <Button
+            variant="quiet"
+            iconOnly
+            icon={<ArrowDown size={14} aria-hidden />}
             onClick={() => onMove(1)}
             disabled={index === total - 1}
             data-tooltip="Move down in the list"
             aria-label={`Move ${project.name} down`}
             data-move-down
-          >
-            <ArrowDown size={14} aria-hidden />
-          </button>
-          <button
-            type="button"
-            className={`${iconButton} hover:text-error`}
+          />
+          <Button
+            variant="quiet"
+            iconOnly
+            icon={<X size={14} aria-hidden />}
             onClick={onRemove}
             data-tooltip="Remove from the project list (files stay on disk)"
             aria-label={`Remove ${project.name} from the project list`}
+            className="hover:text-error!"
             data-remove-project
-          >
-            <X size={14} aria-hidden />
-          </button>
+          />
         </div>
       </div>
       {open && (
@@ -210,9 +212,9 @@ function ProjectRow({
             </p>
           )}
           <div className="flex flex-wrap gap-2">
-            <button type="button" className={button} onClick={onActions}>
-              <Play size={12} aria-hidden /> Edit actions…
-            </button>
+            <Button icon={<Play size={12} aria-hidden />} onClick={onActions}>
+              Edit actions…
+            </Button>
           </div>
         </div>
       )}
@@ -258,9 +260,9 @@ export function ProjectManagerView() {
     <div className="@container flex h-full min-h-0 flex-col" data-project-manager>
       <header className="drag flex h-13 shrink-0 items-center gap-3 border-b border-border px-6">
         <h1 className="flex-1 text-[13px] font-semibold">Projects</h1>
-        <button type="button" className={`no-drag ${button}`} onClick={() => showAdd(true)} data-manager-add>
-          <FolderPlus size={13} aria-hidden /> Add project
-        </button>
+        <Button icon={<FolderPlus size={13} aria-hidden />} onClick={() => showAdd(true)} className="no-drag" data-manager-add>
+          Add project
+        </Button>
       </header>
       <div className="min-h-0 flex-1 overflow-y-auto">
         <div className="mx-auto grid max-w-3xl gap-4 px-6 py-6">
@@ -272,9 +274,9 @@ export function ProjectManagerView() {
             <div className="grid justify-items-start gap-2 rounded-lg border border-dashed border-border px-4 py-5" data-no-projects>
               <p className="text-[13px] font-medium">No projects yet</p>
               <p className="text-[12px] text-muted">Add the folders you want to start Claude Code sessions in. Folders you have used Claude Code in are suggested.</p>
-              <button type="button" className="mt-1 h-7 rounded-md bg-accent px-3 text-[12px] font-medium text-on-accent" onClick={() => showAdd(true)}>
+              <Button variant="primary" onClick={() => showAdd(true)} className="mt-1">
                 Add a project
-              </button>
+              </Button>
             </div>
           ) : (
             <ul ref={listRef} className="grid gap-2" aria-label="Your projects">

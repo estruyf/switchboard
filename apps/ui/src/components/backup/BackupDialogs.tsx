@@ -1,52 +1,18 @@
-import { ArrowRight, FolderOpen, Undo2, X } from 'lucide-react';
-import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react';
+import { ArrowRight, FolderOpen, Undo2 } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
 import { BACKUP_SECTIONS, settingsFileName, type BackupSection, type FolderMapping, type ImportChange, type ImportMode, type ImportPreview } from '@switchboard/protocol/client';
 import { useEngineConnection } from '../../engine/useEngine.ts';
 import { DEFAULT_EXPORT_SECTIONS, groupChanges, hasEffect, SECTION_INFO, summarizeChanges } from '../../lib/backup.ts';
 import { guessHome, tildify } from '../../lib/format.ts';
 import { useBackup } from '../../state/backupStore.ts';
 import { usePreferences } from '../../state/preferencesStore.ts';
+import { Button } from '../ui/Button.tsx';
 import { Checkbox } from '../ui/Checkbox.tsx';
+import { Dialog } from '../ui/Dialog.tsx';
 import { Radio, RadioGroup } from '../ui/Radio.tsx';
-import { useModalFocus } from '../ui/useModalFocus.ts';
 
 const appVersion = () => window.switchboard?.appInfo.version ?? 'unknown';
 const message = (e: unknown) => (e instanceof Error ? e.message : String(e));
-
-function Shell({ title, subtitle, onClose, footer, children, attr }: { title: string; subtitle: string; onClose(): void; footer: ReactNode; children: ReactNode; attr: `data-${string}` }) {
-  const ref = useRef<HTMLDivElement>(null);
-  const id = useId();
-  useModalFocus(ref);
-  useEffect(() => {
-    const onKey = (event: KeyboardEvent) => event.key === 'Escape' && onClose();
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [onClose]);
-  return (
-    <div className="no-drag fixed inset-0 z-[60] flex items-start justify-center bg-scrim pt-[10vh]" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
-      <div ref={ref} role="dialog" aria-modal aria-labelledby={`${id}-title`} aria-describedby={`${id}-subtitle`} className="flex max-h-[80vh] w-[620px] max-w-[92vw] flex-col overflow-hidden rounded-xl border overlay" {...{ [attr]: true }}>
-        <header className="flex items-start justify-between gap-3 border-b border-border px-5 py-3.5">
-          <div className="min-w-0">
-            <h2 id={`${id}-title`} className="text-[14px] font-semibold">
-              {title}
-            </h2>
-            <p id={`${id}-subtitle`} className="mt-0.5 text-[12px] text-muted">
-              {subtitle}
-            </p>
-          </div>
-          <button type="button" onClick={onClose} className="text-muted hover:text-text" aria-label="Close" data-tooltip="Close (Esc)">
-            <X size={15} aria-hidden />
-          </button>
-        </header>
-        <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">{children}</div>
-        <footer className="flex items-center justify-end gap-2 border-t border-border px-5 py-3">{footer}</footer>
-      </div>
-    </div>
-  );
-}
-
-const buttonClass = 'h-7 rounded-md border border-border px-3 text-[12px] text-text hover:bg-border/50 disabled:opacity-50';
-const primaryClass = 'h-7 rounded-md bg-accent px-3 text-[12px] font-medium text-on-accent disabled:opacity-50';
 
 function SectionChoices({ available, selected, onChange, attr }: { available: readonly BackupSection[]; selected: readonly BackupSection[]; onChange(next: BackupSection[]): void; attr: `data-${string}` }) {
   return (
@@ -91,20 +57,21 @@ export function ExportDialog({ onClose }: { onClose(): void }) {
   };
 
   return (
-    <Shell
+    <Dialog
+      placement="top"
       title="Export settings"
       subtitle="Save your Switchboard setup to a file, to move to another Mac, restore after a reset, or share your actions. Sessions stay in ~/.claude."
       onClose={onClose}
-      attr="data-export-dialog"
+      data-export-dialog
       footer={
         saved ? (
           <>
             <span role="status" className="min-w-0 flex-1 truncate text-[12px] text-ok" data-export-saved={saved} data-tooltip={saved}>
               Saved to {saved}
             </span>
-            <button type="button" onClick={onClose} className={primaryClass}>
+            <Button variant="primary" onClick={onClose}>
               Done
-            </button>
+            </Button>
           </>
         ) : (
           <>
@@ -115,18 +82,16 @@ export function ExportDialog({ onClose }: { onClose(): void }) {
             ) : (
               sections.length === 0 && <span className="min-w-0 flex-1 text-[12px] text-muted">Choose at least one thing to include.</span>
             )}
-            <button type="button" onClick={onClose} className={buttonClass}>
-              Cancel
-            </button>
-            <button type="button" onClick={() => void save()} disabled={busy || sections.length === 0 || !client} className={primaryClass} data-export-settings>
+            <Button onClick={onClose}>Cancel</Button>
+            <Button variant="primary" onClick={() => void save()} disabled={busy || sections.length === 0 || !client} data-export-settings>
               {busy ? 'Exporting…' : 'Export…'}
-            </button>
+            </Button>
           </>
         )
       }
     >
       <SectionChoices available={BACKUP_SECTIONS} selected={sections} onChange={setSections} attr="data-export-section" />
-    </Shell>
+    </Dialog>
   );
 }
 
@@ -226,7 +191,8 @@ export function ImportDialog({ onClose }: { onClose(): void }) {
   const exported = preview?.exportedAt ? new Date(preview.exportedAt) : null;
 
   return (
-    <Shell
+    <Dialog
+      placement="top"
       title="Import settings"
       subtitle={
         preview
@@ -234,23 +200,21 @@ export function ImportDialog({ onClose }: { onClose(): void }) {
           : `Reading ${path.split('/').pop()}…`
       }
       onClose={onClose}
-      attr="data-import-dialog"
+      data-import-dialog
       footer={
         backupPath ? (
-          <button type="button" onClick={onClose} className={primaryClass} data-import-done>
+          <Button variant="primary" onClick={onClose} data-import-done>
             Done
-          </button>
+          </Button>
         ) : (
           <>
             <span role={error ? 'alert' : 'status'} className={`min-w-0 flex-1 truncate text-[12px] ${error ? 'text-error' : 'text-muted'}`} data-tooltip={error ?? undefined} data-import-summary>
               {error ?? (preview ? summarizeChanges(preview.changes, preview.unchanged) : '')}
             </span>
-            <button type="button" onClick={onClose} className={buttonClass}>
-              Cancel
-            </button>
-            <button type="button" onClick={() => void apply()} disabled={busy || !effect || !client} className={primaryClass} data-import-settings>
+            <Button onClick={onClose}>Cancel</Button>
+            <Button variant="primary" onClick={() => void apply()} disabled={busy || !effect || !client} data-import-settings>
               {busy ? 'Importing…' : mode === 'replace' ? 'Replace' : 'Import'}
-            </button>
+            </Button>
           </>
         )
       }
@@ -300,9 +264,9 @@ export function ImportDialog({ onClose }: { onClose(): void }) {
                     {tildify(folder, home)}
                   </span>
                   <span className="text-warn">not found</span>
-                  <button type="button" onClick={() => void pointAt(folder)} className={`${buttonClass} flex items-center gap-1.5`} aria-label={`Choose a folder for ${tildify(folder, home)}`}>
-                    <FolderOpen size={12} aria-hidden /> Choose folder…
-                  </button>
+                  <Button icon={<FolderOpen size={12} aria-hidden />} onClick={() => void pointAt(folder)} aria-label={`Choose a folder for ${tildify(folder, home)}`}>
+                    Choose folder…
+                  </Button>
                 </div>
               ))}
               {relocate.map((m) => (
@@ -315,15 +279,15 @@ export function ImportDialog({ onClose }: { onClose(): void }) {
                   <span className="min-w-0 flex-1 truncate font-mono text-[11.5px] text-text" data-tooltip={m.to}>
                     {tildify(m.to, home)}
                   </span>
-                  <button
-                    type="button"
+                  <Button
+                    variant="quiet"
+                    size="sm"
+                    iconOnly
+                    icon={<Undo2 size={13} aria-hidden />}
                     onClick={() => setRelocate((list) => list.filter((x) => x.from !== m.from))}
-                    className="text-muted hover:text-text"
                     aria-label={`Undo the new folder for ${m.from}`}
                     data-tooltip="Undo"
-                  >
-                    <Undo2 size={13} aria-hidden />
-                  </button>
+                  />
                 </div>
               ))}
             </div>
@@ -350,7 +314,7 @@ export function ImportDialog({ onClose }: { onClose(): void }) {
           </div>
         </div>
       )}
-    </Shell>
+    </Dialog>
   );
 }
 

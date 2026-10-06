@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { LiveSession, SessionHostInfo } from '@switchboard/protocol/client';
 import { toRows, useSessions, type SessionRowData } from './sessionsStore.ts';
-import { buildSessionList, inScope, isActive, RECENT_MS, rowStatus, startupSession } from './sidebarRows.ts';
+import { buildListRows, buildSessionList, groupSessions, inScope, isActive, RECENT_MS, rowStatus, sessionGroup, sessionsByHeader, startOfDay, startupSession, waitingLabel } from './sidebarRows.ts';
 
 const NOW = Date.UTC(2026, 9, 5, 12);
 const HOUR = 3_600_000;
@@ -113,6 +113,86 @@ describe('buildSessionList', () => {
   });
 });
 
+describe('groupSessions', () => {
+  // Relative to local midnight, so the tests hold in any time zone.
+  const midnight = startOfDay(NOW);
+  const rows = [
+    row('pinned-yesterday', { updatedAt: midnight - HOUR, pinned: true }),
+    row('today', { updatedAt: midnight + HOUR }),
+    row('waiting', { updatedAt: midnight - 3 * 24 * HOUR, live: live('needs-you') }),
+    row('busy', { updatedAt: NOW, live: live('running') }),
+    row('yesterday', { updatedAt: midnight - 2 * HOUR }),
+    row('earlier', { updatedAt: midnight - 30 * HOUR }),
+    row('failed-today', { updatedAt: NOW - 60_000, error: true }),
+  ];
+
+  it('puts needs-you and working first, then the rest by the day of their last activity', () => {
+    expect(sessionGroup(rows[2]!, NOW)).toBe('needs-you');
+    expect(sessionGroup(rows[3]!, NOW)).toBe('working');
+    expect(sessionGroup(rows[1]!, NOW)).toBe('today');
+    expect(sessionGroup(row('x', { updatedAt: midnight }), NOW)).toBe('today');
+    expect(sessionGroup(row('x', { updatedAt: midnight - 1 }), NOW)).toBe('yesterday');
+    expect(sessionGroup(rows[5]!, NOW)).toBe('earlier');
+    // A failed run is news, but not a section of its own: its badge shows it.
+    expect(sessionGroup(rows[6]!, NOW)).toBe('today');
+    // Idle with a background task isn't "Working": nothing for you to watch in the conversation.
+    expect(sessionGroup(row('x', { live: { ...live('idle'), background: ['npm test'] } }), NOW)).toBe('today');
+  });
+
+  it('keeps the given order inside a section and skips empty sections', () => {
+    const groups = groupSessions(rows, NOW);
+    expect(groups.map((g) => [g.group, ids(g.rows)])).toEqual([
+      ['needs-you', ['waiting']],
+      ['working', ['busy']],
+      ['today', ['today', 'failed-today']],
+      ['yesterday', ['pinned-yesterday', 'yesterday']],
+      ['earlier', ['earlier']],
+    ]);
+    expect(groupSessions([rows[1]!], NOW).map((g) => g.group)).toEqual(['today']);
+    expect(groupSessions([], NOW)).toEqual([]);
+  });
+
+  it('keeps pinned sessions at the top of their section', () => {
+    const list = buildSessionList([row('new', { updatedAt: NOW - 60_000 }), row('pin', { updatedAt: midnight + 1, pinned: true })], { search: '', project: null, now: NOW });
+    expect(groupSessions(list.active, NOW).map((g) => ids(g.rows))).toEqual([['pin', 'new']]);
+  });
+});
+
+describe('buildListRows', () => {
+  const midnight = startOfDay(NOW);
+  const active = [row('busy', { live: live('running') }), row('a', { updatedAt: midnight + HOUR }), row('b', { updatedAt: midnight + 2 * HOUR })];
+  const archived = [row('old', { updatedAt: old })];
+  const shape = (rows: ReturnType<typeof buildListRows>) =>
+    rows.map((r) => (r.kind === 'session' ? r.data.id : r.kind === 'group' ? `[${r.group} ${r.count}${r.first ? ' first' : ''}]` : `[archived ${r.count} ${r.open ? 'open' : 'closed'}]`));
+
+  it('puts a header above each section and the Archived toggle last', () => {
+    expect(shape(buildListRows(active, archived, { now: NOW, archivedOpen: false }))).toEqual(['[working 1 first]', 'busy', '[today 2]', 'a', 'b', '[archived 1 closed]']);
+    const open = buildListRows(active, archived, { now: NOW, archivedOpen: true });
+    expect(shape(open)).toEqual(['[working 1 first]', 'busy', '[today 2]', 'a', 'b', '[archived 1 open]', 'old']);
+    expect(open.at(-1)).toMatchObject({ kind: 'session', archived: true });
+  });
+
+  it('shows no Archived toggle without archived sessions, and no headers for an empty list', () => {
+    expect(shape(buildListRows([], [], { now: NOW, archivedOpen: true }))).toEqual([]);
+    expect(shape(buildListRows([], archived, { now: NOW, archivedOpen: true }))).toEqual(['[archived 1 open]', 'old']);
+  });
+
+  it('lists the sessions under each header, for Select all', () => {
+    const open = sessionsByHeader(buildListRows(active, archived, { now: NOW, archivedOpen: true }));
+    expect([...open]).toEqual([['working', ['busy']], ['today', ['a', 'b']], ['archived', ['old']]]);
+    expect(sessionsByHeader(buildListRows(active, archived, { now: NOW, archivedOpen: false })).get('archived')).toEqual([]);
+  });
+});
+
+describe('waitingLabel', () => {
+  it('says what a waiting session asks for', () => {
+    expect(waitingLabel('Bash')).toBe('Permission: Bash');
+    expect(waitingLabel('AskUserQuestion')).toBe('Question');
+    expect(waitingLabel('ExitPlanMode')).toBe('Plan to review');
+    expect(waitingLabel(null)).toBe('Waiting for you');
+  });
+});
+
 describe('toRows', () => {
   it('merges live state and adds rows for live sessions without a transcript yet', () => {
     const l = { ...live('running'), sessionId: 'new', cwd: '/p/a/sub', startedAt: 7 };
@@ -182,5 +262,6 @@ describe('startupSession', () => {
     expect(startupSession(rows, 'gone', 'last', 'all')).toBeNull();
     expect(startupSession(rows, null, 'last', 'all')).toBeNull();
     expect(startupSession(rows, 'mine', 'new', 'all')).toBeNull();
+    expect(startupSession(rows, 'mine', 'home', 'all')).toBeNull();
   });
 });

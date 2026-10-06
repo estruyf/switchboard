@@ -1,5 +1,6 @@
 import { Download, Upload, type LucideIcon } from 'lucide-react';
 import { useBackup } from '../../state/backupStore.ts';
+import { Button } from '../ui/Button.tsx';
 
 function Row({ label, detail, button, icon: Icon, onClick, attr }: { label: string; detail: string; button: string; icon: LucideIcon; onClick(): void; attr: `data-${string}` }) {
   return (
@@ -8,9 +9,9 @@ function Row({ label, detail, button, icon: Icon, onClick, attr }: { label: stri
         <span className="block text-[12.5px]">{label}</span>
         <span className="block text-[12px] text-muted">{detail}</span>
       </span>
-      <button type="button" onClick={onClick} className="flex h-7 shrink-0 items-center gap-1.5 rounded-md border border-border px-3 text-[12px] text-text hover:bg-border/50" {...{ [attr]: true }}>
-        <Icon size={13} /> {button}
-      </button>
+      <Button icon={<Icon size={13} />} onClick={onClick} className="shrink-0" {...{ [attr]: true }}>
+        {button}
+      </Button>
     </div>
   );
 }

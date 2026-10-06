@@ -10,6 +10,7 @@ import { Menu, type MenuEntry } from '../Menu.tsx';
 import { useOpenIn } from '../OpenInButton.tsx';
 import { ProfileDot } from '../profiles/ProfileBadge.tsx';
 import { ProjectIcon } from '../ProjectIcon.tsx';
+import { Button } from '../ui/Button.tsx';
 import { Popover } from '../ui/Popover.tsx';
 
 const SUGGESTED = ['🚀', '🧪', '📦', '🛠️', '🌐', '📱', '🎨', '📝', '🤖', '⚡️', '🔥', '🧩', '📊', '🎬', '🚲', '☁️'];
@@ -252,15 +253,7 @@ export function ProjectFilter({ counts }: { counts: Map<string, { total: number;
         <span className="min-w-0 flex-1 truncate">{currentName}</span>
         <ChevronDown size={13} className={`shrink-0 text-faint transition-transform ${open ? 'rotate-180' : ''}`} aria-hidden />
       </button>
-      <button
-        type="button"
-        data-tooltip="Add a project" aria-label="Add a project"
-        data-add-project
-        onClick={() => showAdd(true)}
-        className="no-drag flex size-7 items-center justify-center rounded-md text-muted hover:bg-border/50 hover:text-text"
-      >
-        <FolderPlus size={15} aria-hidden />
-      </button>
+      <Button variant="quiet" iconOnly icon={<FolderPlus size={15} aria-hidden />} aria-label="Add a project" data-add-project onClick={() => showAdd(true)} className="no-drag" />
 
       {open && (
         <FilterPopover id={menuId} x={open.x} y={open.y} anchor={buttonRef} onClose={close} closeOnEscape={!submenu} onKeyDown={onMenuKeyDown}>

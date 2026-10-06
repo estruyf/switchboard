@@ -1,5 +1,6 @@
 import { useEffect } from 'react';
 import { NewSessionView } from './components/newSession/NewSessionView.tsx';
+import { HomeView } from './components/home/HomeView.tsx';
 import { TooltipLayer } from './components/ui/Tooltip.tsx';
 import { useOpenIn } from './components/OpenInButton.tsx';
 import { LinkError } from './components/LinkError.tsx';
@@ -18,8 +19,7 @@ import { isActiveHost, useHosts } from './state/hostsStore.ts';
 import { useLinksSync } from './state/linksStore.ts';
 import { useSessions } from './state/sessionsStore.ts';
 import { useOverlay } from './state/overlayStore.ts';
-import { usePreferences, usePreferencesSync } from './state/preferencesStore.ts';
-import { addedProjects } from './state/projectList.ts';
+import { usePreferencesSync } from './state/preferencesStore.ts';
 import { useProfilesSync } from './state/profilesStore.ts';
 import { useProjects, useProjectsSync } from './state/projectsStore.ts';
 import { useSidebarSync } from './state/sidebarStore.ts';
@@ -34,6 +34,11 @@ function useShortcuts() {
   const openIn = useOpenIn();
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
+      if (event.metaKey && event.shiftKey && !event.altKey && event.key.toLowerCase() === 'h') {
+        event.preventDefault();
+        useSessions.getState().goHome();
+        return;
+      }
       if (event.metaKey && event.shiftKey && !event.altKey && event.key.toLowerCase() === 'f') {
         event.preventDefault();
         const overlay = useOverlay.getState();
@@ -83,45 +88,6 @@ function useShortcuts() {
   }, [openIn]);
 }
 
-function EmptyState() {
-  const scope = usePreferences((s) => s.prefs.sessionScope);
-  // The sidebar's count: with "Switchboard sessions only", sessions from other apps aren't listed there either.
-  const count = useSessions((s) => (scope === 'all' ? s.sessions.size : [...s.sessions.values()].filter((summary) => summary.inApp).length));
-  const liveCount = useSessions((s) => s.live.size);
-  const noProjects = useProjects((s) => addedProjects(s.projects).length === 0);
-  const loaded = useProjects((s) => s.loaded);
-  return (
-    <div className="flex h-full flex-col">
-      <div className="drag h-13 shrink-0" />
-      <div className="flex flex-1 flex-col items-center justify-center gap-1 pb-16 text-center">
-        {loaded && noProjects ? (
-          <div className="grid max-w-sm justify-items-center gap-1.5" data-onboarding>
-            <h1 className="text-[14px] font-medium">Add your first project</h1>
-            <p className="text-[12px] text-muted">
-              Projects are the folders you start Claude Code sessions in. Pick from the folders you have used Claude Code in, or choose any folder.
-            </p>
-            <button type="button" onClick={() => useProjects.getState().showAdd(true)} className="mt-2 h-7 rounded-md bg-accent px-3 text-[12px] font-medium text-on-accent" data-onboarding-add>
-              Add a project
-            </button>
-          </div>
-        ) : (
-          <div className="grid max-w-sm justify-items-center gap-1.5">
-            <h1 className="text-[14px] font-medium">{count > 0 ? 'Pick a session' : 'No sessions yet'}</h1>
-            <p className="text-[12px] text-muted">
-              {count > 0
-                ? `${count} ${count === 1 ? 'session' : 'sessions'} in the sidebar${liveCount > 0 ? `, ${liveCount} open right now` : ''}. Click one, or use ↑ ↓ there to move through them.`
-                : 'Start a session in one of your projects and it shows up in the sidebar.'}
-            </p>
-            <button type="button" onClick={() => useSessions.getState().openNewSession()} className="mt-2 h-7 rounded-md bg-accent px-3 text-[12px] font-medium text-on-accent" data-empty-new-session>
-              New session (⌘N)
-            </button>
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
 /** Keeps main informed about what's on screen, and opens sessions main asks for (notification clicks). */
 function useWindowFocus() {
   const view = useSessions((s) => s.view);
@@ -151,6 +117,8 @@ export function App() {
   useShortcuts();
   useWindowFocus();
   const view = useSessions((s) => s.view);
+  const settingsFrom = useSessions((s) => s.settingsFrom);
+  const behind = view === 'settings' ? settingsFrom : view;
   const mainId = useSessions((s) => s.mainId);
   const splitId = useSessions((s) => s.splitId);
   const activePane = useSessions((s) => s.activePane);
@@ -160,28 +128,37 @@ export function App() {
   return (
     <div className="flex h-full">
       <Sidebar />
-      <main className="flex min-w-0 flex-1 flex-col overflow-hidden">
-        {view === 'settings' ? (
-          <SettingsView />
-        ) : view === 'projects' ? (
+      <main className="relative flex min-w-0 flex-1 flex-col overflow-hidden">
+        {/* Settings is a sheet over the view it opened from, which stays on screen (inert) behind it. */}
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col" inert={view === 'settings'}>
+        {behind === 'projects' ? (
           <ProjectManagerView />
-        ) : view === 'new' ? (
+        ) : behind === 'new' ? (
           <NewSessionView />
         ) : mainId && splitId ? (
           // Two sessions side by side; clicking in a pane makes it the active one.
           <div className="flex min-h-0 flex-1" data-split>
-            <div className="flex min-w-0 flex-1 flex-col" onMouseDownCapture={() => useSessions.getState().focusPane('main')}>
+            {/* The inactive pane dims as a whole, and brightens a little on hover to say a click makes it active. */}
+            <div
+              className={`flex min-w-0 flex-1 flex-col transition-opacity duration-150 ${activePane === 'main' ? '' : 'opacity-60 hover:opacity-85'}`}
+              onMouseDownCapture={() => useSessions.getState().focusPane('main')}
+            >
               <TranscriptView key={`main:${mainId}`} sessionId={mainId} pane="main" active={activePane === 'main'} />
             </div>
-            <div className="flex min-w-0 flex-1 flex-col border-l border-border" onMouseDownCapture={() => useSessions.getState().focusPane('split')}>
+            <div
+              className={`flex min-w-0 flex-1 flex-col border-l border-border transition-opacity duration-150 ${activePane === 'split' ? '' : 'opacity-60 hover:opacity-85'}`}
+              onMouseDownCapture={() => useSessions.getState().focusPane('split')}
+            >
               <TranscriptView key={`split:${splitId}`} sessionId={splitId} pane="split" active={activePane === 'split'} />
             </div>
           </div>
         ) : mainId ? (
           <TranscriptView key={mainId} sessionId={mainId} />
         ) : (
-          <EmptyState />
+          <HomeView />
         )}
+        </div>
+        {view === 'settings' && <SettingsView />}
       </main>
       <QuitPrompt />
       <LinkError />

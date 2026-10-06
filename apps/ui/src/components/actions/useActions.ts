@@ -19,17 +19,7 @@ export const ACTION_ICON: Record<ActionIcon, LucideIcon> = {
   check: Check,
 };
 
-export { formatShortcut, RESERVED_SHORTCUTS, shortcutFromEvent } from '../../lib/shortcuts.ts';
-
-const ARIA_KEYS: Record<string, string> = { cmd: 'Meta', ctrl: 'Control', alt: 'Alt', shift: 'Shift', enter: 'Enter', backspace: 'Backspace' };
-
-/** `cmd+shift+p` as `aria-keyshortcuts` spells it (`Meta+Shift+P`), so VoiceOver can announce an action's shortcut. */
-export function ariaShortcut(shortcut: string): string {
-  return shortcut
-    .split('+')
-    .map((part) => ARIA_KEYS[part] ?? (part.length === 1 ? part.toUpperCase() : part))
-    .join('+');
-}
+export { ariaShortcut, formatShortcut, RESERVED_SHORTCUTS, shortcutFromEvent } from '../../lib/shortcuts.ts';
 
 /** A project's actions (yours, shared and global), reloaded on demand. */
 export function useProjectActionList(projectRoot: string | null) {

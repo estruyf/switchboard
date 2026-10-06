@@ -1,0 +1,50 @@
+import type { ButtonHTMLAttributes, ReactNode, Ref } from 'react';
+import { ariaShortcut, shortcutGlyphs, storedShortcut } from '../../lib/shortcuts.ts';
+import { buttonClass, type ButtonSize, type ButtonVariant } from './buttonStyles.ts';
+import { Kbd } from './Kbd.tsx';
+
+interface BaseProps extends ButtonHTMLAttributes<HTMLButtonElement> {
+  /** `primary`: the one yellow action per area. `secondary` (default): Cancel, Close, Choose…. `quiet`: toolbar icons and inline controls. `danger`: deletes or reverts. */
+  variant?: ButtonVariant;
+  /** `sm` 24px, `md` 28px (toolbars, dialogs), `lg` 32px (cards, the message box, a view's main action). */
+  size?: ButtonSize;
+  /** Shown before the label. */
+  icon?: ReactNode;
+  /** The shortcut that does the same (`⌘↵`, `Esc`, or a stored `cmd+enter`): shown in a `<kbd>` and announced through `aria-keyshortcuts`. */
+  kbd?: string;
+  /** Hide the shortcut in a narrow pane, where the label alone has to fit. */
+  kbdHideNarrow?: boolean;
+  /** Danger only: the solid red button that confirms a destructive dialog. */
+  filled?: boolean;
+  /** Quiet only: shown as pressed or current (an open panel, the view you're on). Set `aria-pressed` or `aria-current` yourself. */
+  selected?: boolean;
+  'data-tooltip'?: string;
+  ref?: Ref<HTMLButtonElement>;
+}
+
+/** An icon-only button has no visible label, so it must name itself; the name is its tooltip too. */
+type ButtonProps = (BaseProps & { iconOnly: true; 'aria-label': string }) | (BaseProps & { iconOnly?: false });
+
+/**
+ * Every button in the app. Variants and sizes follow AGENTS.md (Design system); `className` is for
+ * layout around it (`ml-auto`, `w-full`, `min-w-0`), not for changing its look.
+ */
+export function Button({ variant = 'secondary', size = 'md', icon, iconOnly = false, kbd, kbdHideNarrow = false, filled = false, selected = false, className = '', type = 'button', children, ...rest }: ButtonProps) {
+  const glyphs = kbd ? shortcutGlyphs(kbd) : null;
+  const label = rest['aria-label'];
+  const tooltip = rest['data-tooltip'] ?? (iconOnly && label ? `${label}${glyphs ? ` (${glyphs})` : ''}` : undefined);
+  return (
+    <button
+      type={type}
+      aria-keyshortcuts={kbd ? ariaShortcut(storedShortcut(kbd)) : undefined}
+      {...rest}
+      data-tooltip={tooltip}
+      className={`${buttonClass({ variant, size, iconOnly, filled, selected })} ${className}`}
+    >
+      {icon}
+      {/* For an icon-only button: decoration such as a status dot, not a label. */}
+      {children}
+      {!iconOnly && kbd && <Kbd keys={kbd} tone={variant === 'primary' ? 'on-accent' : 'default'} hideNarrow={kbdHideNarrow} aria-hidden />}
+    </button>
+  );
+}

@@ -6,8 +6,8 @@ import { ComposerChipRow } from '../composer/ComposerChips.tsx';
 
 /**
  * The chip row of a session running in this app (profile · model · effort · permission mode), in the
- * composer card's bottom-left corner, and its background tasks when there are any. The profile can't
- * change for a running session; its chip says which one it bills to.
+ * composer card's bottom-left corner. The profile can't change for a running session; its chip says
+ * which one it bills to. Background tasks show as a green pill above the message box (TranscriptView).
  */
 export function SessionControls({ host }: { host: SessionHostInfo }) {
   const connection = useEngineConnection();
@@ -33,12 +33,6 @@ export function SessionControls({ host }: { host: SessionHostInfo }) {
       }}
       effort={supportsEffort ? { value: host.effort ?? '', onChange: (effort) => void client?.call('session.setEffort', { sessionId: host.sessionId, effort: effort || null }) } : null}
       mode={{ value: host.permissionMode, onChange: (mode) => void client?.call('session.setPermissionMode', { sessionId: host.sessionId, mode }) }}
-    >
-      {active && host.backgroundTasks.length > 0 && (
-        <span className="ml-1.5 shrink-0 truncate text-[11.5px] text-ok" data-tooltip={host.backgroundTasks.map((t) => t.description).join('\n')} data-status-background>
-          {host.backgroundTasks.length === 1 ? '1 background task' : `${host.backgroundTasks.length} background tasks`}
-        </span>
-      )}
-    </ComposerChipRow>
+    />
   );
 }

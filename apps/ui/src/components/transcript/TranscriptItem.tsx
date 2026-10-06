@@ -1,4 +1,4 @@
-import { Bot, ClipboardList } from 'lucide-react';
+import { Bot, ChevronRight, ClipboardList } from 'lucide-react';
 import { memo, useId, useState, type ReactNode } from 'react';
 import { useOpenIn } from '../OpenInButton.tsx';
 import { DiffView } from './DiffView.tsx';
@@ -12,21 +12,34 @@ import { parseTodos, TodoList } from './TodoList.tsx';
 import { editHunks, toolSummary } from './toolSummary.ts';
 
 /**
- * A row that shows or hides the details under it. `after` sits next to the toggle rather than
- * inside it, because a button can't hold another control (screen readers and keyboards lose it).
+ * A quiet timeline row (26px) that shows or hides the details under it: a status mark, then the
+ * label and detail, then a chevron. `after` sits next to the toggle rather than inside it, because
+ * a button can't hold another control (screen readers and keyboards lose it).
  */
-function Disclosure({ open, onToggle, controls, after, children }: { open: boolean; onToggle: () => void; controls: string; after?: ReactNode; children: ReactNode }) {
+function Disclosure({ open, onToggle, controls, mark, after, children }: { open: boolean; onToggle: () => void; controls: string; mark: ReactNode; after?: ReactNode; children: ReactNode }) {
   return (
-    <div className="flex w-full min-w-0 items-center gap-2">
-      <button type="button" onClick={onToggle} aria-expanded={open} aria-controls={open ? controls : undefined} className="flex min-w-0 flex-1 items-center gap-2 text-left">
-        <span className={`inline-block w-3 shrink-0 text-[9px] text-faint transition-transform ${open ? 'rotate-90' : ''}`} aria-hidden>
-          ▶
-        </span>
+    <div className="group/row flex h-6.5 w-full min-w-0 items-center gap-2">
+      <button type="button" onClick={onToggle} aria-expanded={open} aria-controls={open ? controls : undefined} className="flex h-full min-w-0 flex-1 items-center gap-2 text-left">
+        <span className="flex w-4 shrink-0 justify-center">{mark}</span>
         {children}
+        <ChevronRight size={13} className={`shrink-0 text-faint opacity-0 transition group-hover/row:opacity-100 ${open ? 'rotate-90 opacity-100' : ''}`} aria-hidden />
       </button>
       {after}
     </div>
   );
+}
+
+/** Details under a timeline row: lined up with the label, no card around them. */
+const below = 'ml-6 mt-1 pb-1';
+
+/** The small status mark at the start of a timeline row. */
+function Dot({ state }: { state: 'ok' | 'error' | 'pending' }) {
+  const label = state === 'pending' ? 'No result yet' : state === 'error' ? 'Failed' : 'Succeeded';
+  return <span className={`size-1.5 shrink-0 rounded-full ${state === 'ok' ? 'bg-ok' : state === 'error' ? 'bg-error' : 'bg-faint'}`} data-tooltip={label} role="img" aria-label={label} />;
+}
+
+function Spinner() {
+  return <span className="size-3 shrink-0 animate-spin rounded-full border-[1.5px] border-accent-ink/25 border-t-accent-ink" data-tooltip="Running" role="img" aria-label="Running" />;
 }
 
 /** Says who wrote a message, for screen readers; it also lets VoiceOver jump between messages by heading. */
@@ -45,15 +58,7 @@ function fileTarget(item: ToolItem): { path: string; line?: number } | null {
   return typeof input.offset === 'number' && input.offset > 0 ? { path, line: input.offset } : { path };
 }
 
-function ResultDot({ item }: { item: ToolItem }) {
-  const state = item.result === null ? 'pending' : item.result.isError ? 'error' : 'ok';
-  return (
-    <span
-      className={`size-1.5 shrink-0 rounded-full ${state === 'ok' ? 'bg-ok' : state === 'error' ? 'bg-error' : 'bg-faint'}`}
-      data-tooltip={state === 'pending' ? 'No result yet' : state === 'error' ? 'Failed' : 'Succeeded'} role="img" aria-label={state === 'pending' ? 'No result yet' : state === 'error' ? 'Failed' : 'Succeeded'}
-    />
-  );
-}
+const resultState = (item: ToolItem) => (item.result === null ? 'pending' : item.result.isError ? 'error' : 'ok');
 
 function ToolCard({ item, cwd, sessionId }: { item: ToolItem; cwd: string | null; sessionId: string }) {
   const [open, setOpen] = useState(false);
@@ -66,11 +71,13 @@ function ToolCard({ item, cwd, sessionId }: { item: ToolItem; cwd: string | null
   const detailsId = useId();
 
   return (
-    <div className="rounded-md border border-border bg-card/60 px-3 py-1.5" data-tool={item.name}>
+    <div data-tool={item.name}>
       <Disclosure
         open={open}
         onToggle={() => setOpen((o) => !o)}
         controls={detailsId}
+        // A running agent spins; everything else shows how it went.
+        mark={isAgent && item.result === null ? <Spinner /> : <Dot state={resultState(item)} />}
         after={
           target && (
             <button
@@ -78,32 +85,37 @@ function ToolCard({ item, cwd, sessionId }: { item: ToolItem; cwd: string | null
               data-tooltip={`Open ${target.path} in your editor`}
               aria-label={`Open ${target.path} in your editor`}
               onClick={() => void openIn(target.path, target.line ? { line: target.line } : {}).catch(() => {})}
-              className="shrink-0 rounded px-1 text-[11px] text-muted hover:bg-border/60 hover:text-accent-ink"
+              className="shrink-0 rounded px-1 text-meta text-muted opacity-0 group-hover/row:opacity-100 hover:bg-border/60 hover:text-accent-ink focus-visible:opacity-100"
             >
               Open ↗
             </button>
           )
         }
       >
-        {isAgent ? <Bot size={13} className="shrink-0 text-accent-ink" aria-hidden /> : <ResultDot item={item} />}
-        <span className="shrink-0 text-[12px] font-medium">{label}</span>
-        <span className="min-w-0 flex-1 truncate font-mono text-[12px] text-muted">{detail}</span>
-        {isAgent && item.result === null && <span className="size-3 shrink-0 animate-spin rounded-full border-[1.5px] border-accent-ink/25 border-t-accent-ink" data-tooltip="Running" role="img" aria-label="Running" />}
+        {isAgent && <Bot size={13} className="shrink-0 text-muted" aria-hidden />}
+        <span className="shrink-0 text-ui font-medium">{label}</span>
+        <span className="min-w-0 flex-1 truncate font-mono text-meta text-muted">{detail}</span>
       </Disclosure>
 
       {/* File changes show their diff without expanding, like the CLI. */}
-      {hunks && !failed && <DiffView hunks={hunks} truncated={item.inputTruncated} />}
+      {hunks && !failed && (
+        <div className="ml-6">
+          <DiffView hunks={hunks} truncated={item.inputTruncated} />
+        </div>
+      )}
 
       {/* Images a tool returned (e.g. reading a screenshot) are shown right away. */}
-      <ToolImages item={item} sessionId={sessionId} />
+      <div className="ml-6">
+        <ToolImages item={item} sessionId={sessionId} />
+      </div>
 
       {open && (
-        <div id={detailsId} className="mt-2 pb-1">
+        <div id={detailsId} className={below}>
           <ToolDetails item={item} cwd={cwd} sessionId={sessionId} />
         </div>
       )}
       {!open && failed && item.result && (
-        <p className="mt-1 line-clamp-2 font-mono text-[11.5px] text-error">
+        <p className="mt-0.5 ml-6 line-clamp-2 font-mono text-meta text-error">
           <span className="sr-only">Failed: </span>
           {item.result.text}
         </p>
@@ -116,10 +128,10 @@ function PlanCard({ item }: { item: ToolItem }) {
   const plan = (item.input as { plan?: unknown }).plan;
   const verdict = item.result === null ? null : item.result.isError ? 'Not approved' : 'Approved';
   return (
-    <div className="rounded-lg border border-accent-ink/30 bg-card px-4 py-3" data-plan>
-      <p className="mb-1 flex items-center gap-2 text-[12px] font-medium text-muted">
+    <div className="rounded-xl border border-accent-ink/30 bg-card px-4 py-3 text-body" data-plan>
+      <p className="mb-1 flex items-center gap-2 text-ui font-medium text-muted">
         <ClipboardList size={14} className="text-accent-ink" aria-hidden /> Plan
-        {verdict && <span className={`rounded px-1.5 text-[11px] ${verdict === 'Approved' ? 'bg-ok/15 text-ok' : 'bg-border text-muted'}`}>{verdict}</span>}
+        {verdict && <span className={`rounded px-1.5 text-meta ${verdict === 'Approved' ? 'bg-ok/15 text-ok' : 'bg-border text-muted'}`}>{verdict}</span>}
       </p>
       <Markdown text={typeof plan === 'string' ? plan : ''} />
     </div>
@@ -131,19 +143,42 @@ function AgentReport({ title, text, failed }: { title: string; text: string; fai
   const [open, setOpen] = useState(false);
   const reportId = useId();
   return (
-    <div className="rounded-md border border-border bg-card/60 px-3 py-1.5" data-agent-report>
-      <Disclosure open={open} onToggle={() => setOpen((o) => !o)} controls={reportId}>
-        <Bot size={13} className="shrink-0 text-accent-ink" aria-hidden />
-        <span className={`min-w-0 flex-1 truncate text-[12px] ${failed ? 'text-error' : 'text-muted'}`}>
+    <div data-agent-report>
+      <Disclosure open={open} onToggle={() => setOpen((o) => !o)} controls={reportId} mark={<Dot state={failed ? 'error' : 'ok'} />}>
+        <Bot size={13} className="shrink-0 text-muted" aria-hidden />
+        <span className={`min-w-0 flex-1 truncate text-ui ${failed ? 'text-error' : 'text-muted'}`}>
           {title}
           {failed && <span className="sr-only"> (did not complete)</span>}
         </span>
       </Disclosure>
       {open && (
-        <div id={reportId} className="mt-2 pb-1">
+        <div id={reportId} className={`${below} text-body`}>
           <Markdown text={text} />
         </div>
       )}
+    </div>
+  );
+}
+
+/** Claude's task list as a timeline row ("Tasks · 2 of 4 done") with the list under it. */
+function TodoRow({ item, className }: { item: ToolItem; className: string }) {
+  const todos = parseTodos(item.input);
+  const done = todos.filter((t) => t.status === 'completed').length;
+  const working = todos.some((t) => t.status === 'in_progress');
+  return (
+    <div className={className} data-tool="TodoWrite">
+      <div className="flex h-6.5 min-w-0 items-center gap-2">
+        <span className="flex w-4 shrink-0 justify-center" aria-hidden>
+          <span className={`size-1.5 rounded-full ${done === todos.length && todos.length > 0 ? 'bg-ok' : working ? 'bg-accent-ink' : 'bg-faint'}`} />
+        </span>
+        <span className="shrink-0 text-ui font-medium">Tasks</span>
+        <span className="min-w-0 truncate font-mono text-meta text-muted">
+          {done} of {todos.length} done
+        </span>
+      </div>
+      <div className="ml-6 pb-1">
+        <TodoList todos={todos} />
+      </div>
     </div>
   );
 }
@@ -152,12 +187,12 @@ function Thinking({ text }: { text: string }) {
   const [open, setOpen] = useState(false);
   const thoughtsId = useId();
   return (
-    <div className="text-[12px] text-muted">
-      <Disclosure open={open} onToggle={() => setOpen((o) => !o)} controls={thoughtsId}>
+    <div className="text-ui text-muted">
+      <Disclosure open={open} onToggle={() => setOpen((o) => !o)} controls={thoughtsId} mark={<span className="size-1.5 rounded-full bg-faint/70" aria-hidden />}>
         <span className="italic">Thinking</span>
       </Disclosure>
       {open && (
-        <p id={thoughtsId} className="mt-1 ml-5 whitespace-pre-wrap text-muted italic select-text">
+        <p id={thoughtsId} className={`${below} whitespace-pre-wrap text-muted italic select-text`}>
           {text}
         </p>
       )}
@@ -185,27 +220,30 @@ export const TranscriptItem = memo(function TranscriptItem({
   switch (item.kind) {
     case 'user':
       return (
-        <div className="group/message relative rounded-lg border border-border bg-card px-3.5 py-2.5">
-          <Speaker name={item.subagent ? 'Prompt to the subagent' : 'You'} />
-          {!item.subagent && <MessageToolbar itemKey={item.key} kind="user" text={item.text} />}
-          {/* Your prompts render as Markdown too, so code and code blocks are styled. */}
-          {item.text && (
-            <div className="text-[13.5px] leading-relaxed [&_p]:whitespace-pre-wrap [&_p:first-child]:mt-0 [&_p:last-child]:mb-0">
-              <Markdown text={item.text} />
-            </div>
-          )}
-          {item.images.length > 0 && (
-            <div className={`flex flex-wrap gap-2 ${item.text ? 'mt-2' : ''}`}>
-              {item.images.map((image) => (
-                <TranscriptImage key={image.imageId} sessionId={sessionId} image={image} maxHeight={200} />
-              ))}
-            </div>
-          )}
+        // Your prompt sits on the right as a card, so the conversation reads like a chat.
+        <div className="flex justify-end">
+          <div className="group/message relative max-w-[80%] min-w-0 rounded-xl border border-border bg-card px-3.5 py-2.5">
+            <Speaker name={item.subagent ? 'Prompt to the subagent' : 'You'} />
+            {!item.subagent && <MessageToolbar itemKey={item.key} kind="user" text={item.text} />}
+            {/* Your prompts render as Markdown too, so code and code blocks are styled. */}
+            {item.text && (
+              <div className="text-body [&_p]:whitespace-pre-wrap [&_p:first-child]:mt-0 [&_p:last-child]:mb-0">
+                <Markdown text={item.text} />
+              </div>
+            )}
+            {item.images.length > 0 && (
+              <div className={`flex flex-wrap justify-end gap-2 ${item.text ? 'mt-2' : ''}`}>
+                {item.images.map((image) => (
+                  <TranscriptImage key={image.imageId} sessionId={sessionId} image={image} maxHeight={200} />
+                ))}
+              </div>
+            )}
+          </div>
         </div>
       );
     case 'command':
       return (
-        <div className="flex items-center gap-2 font-mono text-[12px]">
+        <div className="flex items-center justify-end gap-2 font-mono text-ui">
           <Speaker name="You ran a command" />
           <span className="rounded bg-accent/15 px-1.5 py-0.5 text-accent-ink">{item.name}</span>
           {item.args && <span className="truncate text-muted">{item.args}</span>}
@@ -213,7 +251,7 @@ export const TranscriptItem = memo(function TranscriptItem({
       );
     case 'text':
       return (
-        <div className={`group/message relative ${indent}`}>
+        <div className={`group/message relative text-body ${indent}`}>
           <Speaker name={item.subagent ? 'Subagent' : 'Claude'} />
           {!item.subagent && <MessageToolbar itemKey={item.key} kind="text" text={item.text} />}
           <Markdown text={item.text} />
@@ -222,13 +260,7 @@ export const TranscriptItem = memo(function TranscriptItem({
     case 'thinking':
       return <Thinking text={item.text} />;
     case 'tool':
-      if (item.name === 'TodoWrite') {
-        return (
-          <div className={`rounded-md border border-border bg-card/60 px-3 py-2 ${indent}`} data-tool="TodoWrite">
-            <TodoList todos={parseTodos(item.input)} />
-          </div>
-        );
-      }
+      if (item.name === 'TodoWrite') return <TodoRow item={item} className={indent} />;
       if (item.name === 'ExitPlanMode') return <PlanCard item={item} />;
       return (
         <div className={indent}>
@@ -238,6 +270,6 @@ export const TranscriptItem = memo(function TranscriptItem({
     case 'agent-report':
       return <AgentReport title={item.title} text={item.text} failed={item.status !== 'completed'} />;
     case 'notice':
-      return <p className="text-center text-[11px] whitespace-pre-wrap text-muted">{item.text}</p>;
+      return <p className="text-center text-meta whitespace-pre-wrap text-muted">{item.text}</p>;
   }
 });

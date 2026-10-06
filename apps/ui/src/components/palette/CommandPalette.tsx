@@ -13,6 +13,7 @@ import {
   Search,
   Settings,
   SquarePen,
+  House,
   SquareTerminal,
   StopCircle,
   Sun,
@@ -36,7 +37,7 @@ import { useClaudeUpdate } from '../../state/claudeUpdateStore.ts';
 import { ACTION_ICON, formatShortcut, useProjectActionList } from '../actions/useActions.ts';
 import { useOpenIn } from '../OpenInButton.tsx';
 import { ProjectIcon } from '../ProjectIcon.tsx';
-import { useModalFocus } from '../ui/useModalFocus.ts';
+import { Dialog } from '../ui/Dialog.tsx';
 
 interface Item {
   id: string;
@@ -70,10 +71,8 @@ export function CommandPalette() {
   const [query, setQuery] = useState('');
   const [active, setActive] = useState(0);
   const listRef = useRef<HTMLDivElement>(null);
-  const dialogRef = useRef<HTMLDivElement>(null);
   const listId = useId();
   const optionId = (index: number) => `${listId}-${index}`;
-  useModalFocus(dialogRef);
 
   const current = view === 'session' && selectedId ? selectedId : null;
   const summary = current ? sessions.get(current) : undefined;
@@ -86,6 +85,7 @@ export function CommandPalette() {
   const items = useMemo<Item[]>(() => {
     const setView = useSessions.getState().setView;
     const commands: Item[] = [
+      { id: 'home', group: 'Commands', label: 'Home', hint: '⌘⇧H', keywords: 'start overview dashboard', icon: icon(House), run: () => useSessions.getState().goHome() },
       { id: 'new', group: 'Commands', label: 'New session', hint: '⌘N', icon: icon(SquarePen), run: () => useSessions.getState().openNewSession() },
       { id: 'search', group: 'Commands', label: 'Search conversations', keywords: 'find text', hint: '⌘⇧F', icon: icon(Search), run: () => useOverlay.getState().show('search') },
       { id: 'settings', group: 'Commands', label: 'Settings', keywords: 'preferences', hint: '⌘,', icon: icon(Settings), run: () => useSessions.getState().openSettings() },
@@ -192,67 +192,64 @@ export function CommandPalette() {
 
   const typed = query.trim();
   return (
-    <div className="no-drag fixed inset-0 z-[60] flex items-start justify-center bg-scrim pt-[14vh]" onMouseDown={(e) => e.target === e.currentTarget && close()}>
-      <div ref={dialogRef} role="dialog" aria-modal="true" aria-label="Command palette" className="flex max-h-[60vh] w-[560px] max-w-[92vw] flex-col overflow-hidden rounded-xl border overlay" data-palette>
-        {/* A combobox: focus stays in the field while ↑ ↓ move the highlighted result. */}
-        <input
-          autoFocus
-          role="combobox"
-          aria-expanded={results.length > 0}
-          aria-controls={listId}
-          aria-autocomplete="list"
-          aria-activedescendant={results[active] ? optionId(active) : undefined}
-          aria-label="Find a command, project action or session"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === 'Escape') close();
-            else if (e.key === 'ArrowDown') (e.preventDefault(), setActive((i) => Math.min(results.length - 1, i + 1)));
-            else if (e.key === 'ArrowUp') (e.preventDefault(), setActive((i) => Math.max(0, i - 1)));
-            else if (e.key === 'Enter') (e.preventDefault(), choose(results[active], e.altKey));
-          }}
-          placeholder="Type a command, an action or a session (⌥↩ opens it beside)"
-          spellCheck={false}
-          className="h-12 shrink-0 border-b border-border bg-transparent px-4 text-[14px] text-text outline-none placeholder:text-faint"
-        />
-        {results.length === 0 && (
-          <div className="grid gap-1 px-4 py-6 text-center text-[12px]">
-            <p className="text-text">No commands or sessions match “{typed}”.</p>
-            <p className="text-muted">Try fewer letters, or search inside conversations with ⌘⇧F.</p>
-          </div>
-        )}
-        <div ref={listRef} id={listId} role="listbox" aria-label="Results" className={`min-h-0 flex-1 overflow-y-auto ${results.length ? 'py-1' : ''}`}>
-          {results.map((item, index) => (
-            <div key={item.id} role="none">
-              {(index === 0 || results[index - 1]!.group !== item.group) && (
-                <p aria-hidden className="px-4 pt-2 pb-1 text-[11px] tracking-wide text-muted uppercase">
-                  {item.group}
-                </p>
-              )}
-              <div
-                id={optionId(index)}
-                role="option"
-                aria-selected={index === active}
-                data-active={index === active}
-                data-palette-item={item.id}
-                onMouseMove={() => setActive(index)}
-                onClick={(e) => choose(item, e.altKey)}
-                className={`flex h-8 w-full cursor-default items-center gap-2.5 px-4 text-left text-[13px] ${index === active ? 'bg-accent/15 text-text' : 'text-text/85'}`}
-              >
-                <span aria-hidden className="flex w-4 shrink-0 justify-center text-muted">
-                  {item.icon}
-                </span>
-                <span className="min-w-0 flex-1 truncate">{item.label}</span>
-                {item.group === 'Sessions' && item.keywords && <span className="max-w-[35%] shrink-0 truncate text-[11.5px] text-muted">{item.keywords}</span>}
-                {item.hint && <span className="shrink-0 text-[11px] text-faint">{item.hint}</span>}
-              </div>
-            </div>
-          ))}
+    <Dialog bare flush placement="top" title="Command palette" onClose={close} data-palette>
+      {/* A combobox: focus stays in the field while ↑ ↓ move the highlighted result. */}
+      <input
+        autoFocus
+        role="combobox"
+        aria-expanded={results.length > 0}
+        aria-controls={listId}
+        aria-autocomplete="list"
+        aria-activedescendant={results[active] ? optionId(active) : undefined}
+        aria-label="Find a command, project action or session"
+        value={query}
+        onChange={(e) => setQuery(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === 'ArrowDown') (e.preventDefault(), setActive((i) => Math.min(results.length - 1, i + 1)));
+          else if (e.key === 'ArrowUp') (e.preventDefault(), setActive((i) => Math.max(0, i - 1)));
+          else if (e.key === 'Enter') (e.preventDefault(), choose(results[active], e.altKey));
+        }}
+        placeholder="Type a command, an action or a session (⌥↩ opens it beside)"
+        spellCheck={false}
+        className="h-12 shrink-0 border-b border-edge bg-transparent px-4 text-[14px] text-text outline-none placeholder:text-faint"
+      />
+      {results.length === 0 && (
+        <div className="grid gap-1 px-4 py-6 text-center text-[12px]">
+          <p className="text-text">No commands or sessions match “{typed}”.</p>
+          <p className="text-muted">Try fewer letters, or search inside conversations with ⌘⇧F.</p>
         </div>
-        <p className="sr-only" aria-live="polite">
-          {typed ? (results.length === 0 ? 'No results' : `${results.length} ${results.length === 1 ? 'result' : 'results'}`) : ''}
-        </p>
+      )}
+      <div ref={listRef} id={listId} role="listbox" aria-label="Results" className={`min-h-0 flex-1 overflow-y-auto ${results.length ? 'py-1' : ''}`}>
+        {results.map((item, index) => (
+          <div key={item.id} role="none">
+            {(index === 0 || results[index - 1]!.group !== item.group) && (
+              <p aria-hidden className="px-4 pt-2 pb-1 text-[11px] tracking-wide text-muted uppercase">
+                {item.group}
+              </p>
+            )}
+            <div
+              id={optionId(index)}
+              role="option"
+              aria-selected={index === active}
+              data-active={index === active}
+              data-palette-item={item.id}
+              onMouseMove={() => setActive(index)}
+              onClick={(e) => choose(item, e.altKey)}
+              className={`flex h-8 w-full cursor-default items-center gap-2.5 px-4 text-left text-[13px] ${index === active ? 'bg-accent/15 text-text' : 'text-text/85'}`}
+            >
+              <span aria-hidden className="flex w-4 shrink-0 justify-center text-muted">
+                {item.icon}
+              </span>
+              <span className="min-w-0 flex-1 truncate">{item.label}</span>
+              {item.group === 'Sessions' && item.keywords && <span className="max-w-[35%] shrink-0 truncate text-[11.5px] text-muted">{item.keywords}</span>}
+              {item.hint && <span className="shrink-0 text-[11px] text-faint">{item.hint}</span>}
+            </div>
+          </div>
+        ))}
       </div>
-    </div>
+      <p className="sr-only" aria-live="polite">
+        {typed ? (results.length === 0 ? 'No results' : `${results.length} ${results.length === 1 ? 'result' : 'results'}`) : ''}
+      </p>
+    </Dialog>
   );
 }

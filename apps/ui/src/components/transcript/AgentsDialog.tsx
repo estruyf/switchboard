@@ -1,6 +1,6 @@
-import { Bot, ChevronRight, CircleAlert, X } from 'lucide-react';
-import { useEffect, useId, useMemo, useRef, useState } from 'react';
-import { useModalFocus } from '../ui/useModalFocus.ts';
+import { Bot, ChevronRight, CircleAlert } from 'lucide-react';
+import { useId, useMemo, useState } from 'react';
+import { Dialog } from '../ui/Dialog.tsx';
 import { formatDuration, useTicker } from './ActivityGroup.tsx';
 import type { DisplayItem } from './displayItems.ts';
 import { agentRuns, type AgentRun } from './agentRuns.ts';
@@ -73,35 +73,22 @@ export function useAgentRuns(items: readonly DisplayItem[], sessionOpen: boolean
  * and what it's doing, as a modal: Tab stays inside, and Esc closes it.
  */
 export function AgentsDialog({ agents, running, sessionId, cwd, onClose }: { agents: AgentRun[]; running: number; sessionId: string; cwd: string | null; onClose(): void }) {
-  const ref = useRef<HTMLDivElement>(null);
-  const titleId = useId();
   const now = useTicker(running > 0);
-  useModalFocus(ref);
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [onClose]);
   return (
-    <div className="no-drag fixed inset-0 z-[60] flex items-start justify-center bg-scrim pt-[10vh]" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
-      <div ref={ref} role="dialog" aria-modal="true" aria-labelledby={titleId} tabIndex={-1} className="flex max-h-[76vh] w-[720px] max-w-[92vw] flex-col overflow-hidden rounded-xl border overlay outline-none" data-agents>
-        <div className="flex h-11 shrink-0 items-center gap-2 border-b border-border px-4">
-          <Bot size={15} className="text-accent-ink" />
-          <h2 id={titleId} className="text-[13px] font-semibold">Agents</h2>
-          <span className="flex-1 text-[11.5px] text-muted">
-            {running} running{agents.length > running ? ` · ${agents.length - running} finished` : ''}
-          </span>
-          <button type="button" data-tooltip="Close (Esc)" aria-label="Close" onClick={onClose} className="flex size-6 items-center justify-center rounded text-muted hover:bg-border/60 hover:text-text">
-            <X size={13} />
-          </button>
-        </div>
-        <div className="min-h-0 flex-1 overflow-y-auto">
-          {agents.length === 0 && <p className="p-4 text-[12px] text-muted">No agents in this session.</p>}
-          {agents.map((run, i) => (
-            <AgentRow key={run.item.key} run={run} sessionId={sessionId} cwd={cwd} now={now || Date.now()} initiallyOpen={i === 0 && run.running} />
-          ))}
-        </div>
-      </div>
-    </div>
+    <Dialog
+      width="lg"
+      placement="top"
+      flush
+      icon={<Bot size={15} className="text-accent-ink" aria-hidden />}
+      title="Agents"
+      subtitle={`${running} running${agents.length > running ? ` · ${agents.length - running} finished` : ''}`}
+      onClose={onClose}
+      data-agents
+    >
+      {agents.length === 0 && <p className="p-4 text-ui text-muted">No agents in this session.</p>}
+      {agents.map((run, i) => (
+        <AgentRow key={run.item.key} run={run} sessionId={sessionId} cwd={cwd} now={now || Date.now()} initiallyOpen={i === 0 && run.running} />
+      ))}
+    </Dialog>
   );
 }

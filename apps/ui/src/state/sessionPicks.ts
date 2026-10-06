@@ -42,3 +42,13 @@ export function stepPick(picks: Picks, direction: 1 | -1, current: string | null
 
 /** The picked ids the list still shows (archiving, deleting or a filter can take rows away). */
 export const visiblePicks = (picks: Picks, order: readonly string[]): string[] => order.filter((id) => picks.ids.has(id));
+
+/** ⌘A or a header's "Select all": adds every row of a group to the picks, or takes them all away. */
+export function pickGroup(picks: Picks, group: readonly string[], on = true): Picks {
+  const ids = new Set(picks.ids);
+  for (const id of group) {
+    if (on) ids.add(id);
+    else ids.delete(id);
+  }
+  return on ? { ids, anchor: group[0] ?? null, end: group.at(-1) ?? null } : { ...picks, ids };
+}

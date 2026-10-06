@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { isActiveHost, useHosts } from '../state/hostsStore.ts';
 import { useTerminals } from '../state/terminalsStore.ts';
 import { ConfirmDialog } from './ConfirmDialog.tsx';
+import { Kbd } from './ui/Kbd.tsx';
 
 const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
 
@@ -49,7 +50,7 @@ export function QuitPrompt() {
         <>
           {impact && <p>{impact}</p>}
           <p className={impact ? 'mt-2' : undefined}>
-            Press <kbd className="rounded border border-border px-1 font-sans text-[11.5px]">⌘Q</kbd> again to quit.
+            Press <Kbd keys="⌘Q" /> again to quit.
           </p>
         </>
       }

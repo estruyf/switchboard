@@ -28,6 +28,8 @@ interface SessionsState {
   view: MainView;
   /** The Settings page shown when Settings opens; kept while the app runs, so ⌘, returns to it. */
   settingsSection: SettingsSection;
+  /** What Settings opened over: it stays on screen behind the Settings sheet, and closing Settings returns to it. */
+  settingsFrom: Exclude<MainView, 'settings'>;
   /** Bumped each time New session is asked for (⌘N, the sidebar, the palette), so the view focuses its prompt even when already open. */
   newSessionRequest: number;
   filter: string;
@@ -42,11 +44,16 @@ interface SessionsState {
   /** Closes one pane (default: the right one); the other takes the full width. */
   closePane(pane?: Pane): void;
   /** Closes the session on screen (both panes) and lands on New session. Nothing stops: a running session keeps running. */
+  /** Closes the open session(s) and shows Home. A working session keeps running. */
   closeSession(): void;
+  /** Shows Home: what needs you, what is working, and your projects. */
+  goHome(): void;
   focusPane(pane: Pane): void;
   setView(view: MainView): void;
   /** Opens Settings, on a given page or the last one shown. */
   openSettings(section?: SettingsSection): void;
+  /** Closes Settings and returns to the view it opened over. */
+  closeSettings(): void;
   /** Opens the New session view and asks it to focus the prompt. */
   openNewSession(): void;
   setFilter(filter: string): void;
@@ -66,6 +73,7 @@ export const useSessions = create<SessionsState>()((set) => ({
   activePane: 'main',
   view: 'session',
   settingsSection: 'general',
+  settingsFrom: 'session',
   newSessionRequest: 0,
   filter: '',
 
@@ -110,10 +118,13 @@ export const useSessions = create<SessionsState>()((set) => ({
       if (!s.splitId) return {};
       return panes({ mainId: pane === 'main' ? s.splitId : s.mainId, splitId: null, activePane: 'main' });
     }),
-  closeSession: () => set((s) => ({ ...panes({ mainId: null, splitId: null, activePane: 'main' }), view: 'new', newSessionRequest: s.newSessionRequest + 1 })),
+  closeSession: () => set({ ...panes({ mainId: null, splitId: null, activePane: 'main' }), view: 'session' }),
+  goHome: () => set({ ...panes({ mainId: null, splitId: null, activePane: 'main' }), view: 'session' }),
   focusPane: (pane) => set((s) => (s.activePane === pane || (pane === 'split' && !s.splitId) ? {} : panes({ ...s, activePane: pane }))),
   setView: (view) => set({ view }),
-  openSettings: (section) => set((s) => ({ view: 'settings', settingsSection: section ?? s.settingsSection })),
+  openSettings: (section) =>
+    set((s) => ({ view: 'settings', settingsSection: section ?? s.settingsSection, settingsFrom: s.view === 'settings' ? s.settingsFrom : s.view })),
+  closeSettings: () => set((s) => (s.view === 'settings' ? { view: s.settingsFrom } : {})),
   openNewSession: () => set((s) => ({ view: 'new', newSessionRequest: s.newSessionRequest + 1 })),
   setFilter: (filter) => set({ filter }),
 }));

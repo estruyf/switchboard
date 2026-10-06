@@ -8,7 +8,8 @@ import { usePreferences } from '../../state/preferencesStore.ts';
 import { useProjects } from '../../state/projectsStore.ts';
 import { useSessions } from '../../state/sessionsStore.ts';
 import { ProjectIcon } from '../ProjectIcon.tsx';
-import { useModalFocus } from '../ui/useModalFocus.ts';
+import { Kbd } from '../ui/Kbd.tsx';
+import { Dialog } from '../ui/Dialog.tsx';
 
 const MARK = /\u0002([\s\S]*?)\u0003/g;
 const HITS_PER_SESSION = 4;
@@ -53,10 +54,8 @@ export function SearchDialog() {
   /** The query the shown hits answer, so "no matches" waits for the engine instead of flashing while you type. */
   const [answered, setAnswered] = useState('');
   const listRef = useRef<HTMLDivElement>(null);
-  const dialogRef = useRef<HTMLDivElement>(null);
   const listId = useId();
   const optionId = (index: number) => `${listId}-${index}`;
-  useModalFocus(dialogRef);
 
   useEffect(() => {
     if (!client) return;
@@ -119,96 +118,91 @@ export function SearchDialog() {
       : `${flat.length} ${flat.length === 1 ? 'match' : 'matches'} in ${sessionCount} ${sessionCount === 1 ? 'session' : 'sessions'}`;
 
   return (
-    <div className="no-drag fixed inset-0 z-[60] flex items-start justify-center bg-scrim pt-[12vh]" onMouseDown={(e) => e.target === e.currentTarget && close()}>
-      <div ref={dialogRef} role="dialog" aria-modal="true" aria-label="Search conversations" className="flex max-h-[70vh] w-[680px] max-w-[92vw] flex-col overflow-hidden rounded-xl border overlay" data-search>
-        <label className="flex h-12 shrink-0 items-center gap-2.5 border-b border-border px-4">
-          <Search size={16} className="shrink-0 text-faint" aria-hidden />
-          {/* A combobox: focus stays in the field while ↑ ↓ move the highlighted match. */}
-          <input
-            autoFocus
-            role="combobox"
-            aria-expanded={flat.length > 0}
-            aria-controls={listId}
-            aria-autocomplete="list"
-            aria-activedescendant={flat[active] ? optionId(active) : undefined}
-            aria-label="Search all conversations"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Escape') close();
-              else if (e.key === 'ArrowDown') (e.preventDefault(), setActive((i) => Math.min(flat.length - 1, i + 1)));
-              else if (e.key === 'ArrowUp') (e.preventDefault(), setActive((i) => Math.max(0, i - 1)));
-              else if (e.key === 'Enter' && flat[active]) open(flat[active]!);
-            }}
-            placeholder="Search all conversations"
-            spellCheck={false}
-            className="min-w-0 flex-1 bg-transparent text-[14px] text-text outline-none placeholder:text-faint"
-          />
-          <kbd aria-hidden className="shrink-0 rounded border border-border px-1.5 text-[11px] text-muted">
-            esc
-          </kbd>
-        </label>
+    <Dialog bare flush placement="top" title="Search conversations" onClose={close} data-search>
+      <label className="flex h-12 shrink-0 items-center gap-2.5 border-b border-edge px-4">
+        <Search size={16} className="shrink-0 text-faint" aria-hidden />
+        {/* A combobox: focus stays in the field while ↑ ↓ move the highlighted match. */}
+        <input
+          autoFocus
+          role="combobox"
+          aria-expanded={flat.length > 0}
+          aria-controls={listId}
+          aria-autocomplete="list"
+          aria-activedescendant={flat[active] ? optionId(active) : undefined}
+          aria-label="Search all conversations"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'ArrowDown') (e.preventDefault(), setActive((i) => Math.min(flat.length - 1, i + 1)));
+            else if (e.key === 'ArrowUp') (e.preventDefault(), setActive((i) => Math.max(0, i - 1)));
+            else if (e.key === 'Enter' && flat[active]) open(flat[active]!);
+          }}
+          placeholder="Search all conversations"
+          spellCheck={false}
+          className="min-w-0 flex-1 bg-transparent text-[14px] text-text outline-none placeholder:text-faint"
+        />
+        <Kbd keys="Esc" aria-hidden />
+      </label>
 
-        {typed === '' ? (
-          <p className="px-4 py-6 text-center text-[12px] text-muted">Search your prompts and Claude's replies in every session. Pick a match to jump to that message.</p>
-        ) : groups.length === 0 && !pending ? (
-          <div className="grid gap-1 px-4 py-6 text-center text-[12px]">
-            <p className="text-text">{stillIndexing ? `Nothing for “${typed}” yet.` : `No conversations mention “${typed}”.`}</p>
-            <p className="text-muted">{stillIndexing ? 'Still indexing; matches appear as sessions are read.' : 'Try another word, or fewer words.'}</p>
-          </div>
-        ) : null}
-        <div ref={listRef} id={listId} role="listbox" aria-label="Matches" className={`min-h-0 flex-1 overflow-y-auto ${groups.length && typed ? 'py-1' : ''}`}>
-          {typed !== '' &&
-            groups.map((group) => {
-              const summary = sessions.get(group.sessionId);
-              const root = summary?.projectRoot ?? '';
-              const project = projects.get(root);
-              const headingId = `${listId}-${group.sessionId}`;
-              return (
-                <div key={group.sessionId} role="group" aria-labelledby={headingId} className="py-1" data-search-group>
-                  <div id={headingId} className="flex items-center gap-2 px-4 pt-1.5 pb-1 text-[11.5px] text-muted">
-                    {root && <ProjectIcon project={project} root={root} size={14} />}
-                    <span className="min-w-0 truncate font-medium text-text/85">{summary?.title ?? 'Session'}</span>
-                    <span className="shrink-0">· {project?.name ?? root.split('/').pop()}</span>
-                    {summary && <span className="shrink-0">· {shortAge(summary.updatedAt)}</span>}
-                    {group.more > 0 && <span className="ml-auto shrink-0">+{group.more} more</span>}
-                  </div>
-                  {group.hits.map((hit) => {
-                    const index = flat.indexOf(hit);
-                    return (
-                      <div
-                        key={hit.messageUuid}
-                        id={optionId(index)}
-                        role="option"
-                        aria-selected={index === active}
-                        data-active={index === active}
-                        data-search-hit
-                        onMouseMove={() => setActive(index)}
-                        onClick={() => open(hit)}
-                        className={`flex w-full cursor-default items-start gap-2.5 px-4 py-1.5 text-left ${index === active ? 'bg-accent/15' : ''}`}
-                      >
-                        <span className={`mt-px w-11 shrink-0 text-[11px] font-medium tracking-wide uppercase ${hit.role === 'user' ? 'text-accent-ink' : 'text-muted'}`}>
-                          {hit.role === 'user' ? 'You' : 'Claude'}
-                          <span className="sr-only">:</span>
-                        </span>
-                        <Snippet text={hit.snippet} />
-                      </div>
-                    );
-                  })}
-                </div>
-              );
-            })}
+      {typed === '' ? (
+        <p className="px-4 py-6 text-center text-[12px] text-muted">Search your prompts and Claude's replies in every session. Pick a match to jump to that message.</p>
+      ) : groups.length === 0 && !pending ? (
+        <div className="grid gap-1 px-4 py-6 text-center text-[12px]">
+          <p className="text-text">{stillIndexing ? `Nothing for “${typed}” yet.` : `No conversations mention “${typed}”.`}</p>
+          <p className="text-muted">{stillIndexing ? 'Still indexing; matches appear as sessions are read.' : 'Try another word, or fewer words.'}</p>
         </div>
-
-        {stillIndexing && typed !== '' && (
-          <p className="shrink-0 border-t border-border px-4 py-1.5 text-[11px] text-muted">
-            {indexing.total === 0 ? 'Preparing the search index…' : `Indexing ${indexing.indexed} of ${indexing.total} sessions; results will fill in.`}
-          </p>
-        )}
-        <p className="sr-only" aria-live="polite">
-          {announcement}
-        </p>
+      ) : null}
+      <div ref={listRef} id={listId} role="listbox" aria-label="Matches" className={`min-h-0 flex-1 overflow-y-auto ${groups.length && typed ? 'py-1' : ''}`}>
+        {typed !== '' &&
+          groups.map((group) => {
+            const summary = sessions.get(group.sessionId);
+            const root = summary?.projectRoot ?? '';
+            const project = projects.get(root);
+            const headingId = `${listId}-${group.sessionId}`;
+            return (
+              <div key={group.sessionId} role="group" aria-labelledby={headingId} className="py-1" data-search-group>
+                <div id={headingId} className="flex items-center gap-2 px-4 pt-1.5 pb-1 text-[11.5px] text-muted">
+                  {root && <ProjectIcon project={project} root={root} size={14} />}
+                  <span className="min-w-0 truncate font-medium text-text/85">{summary?.title ?? 'Session'}</span>
+                  <span className="shrink-0">· {project?.name ?? root.split('/').pop()}</span>
+                  {summary && <span className="shrink-0">· {shortAge(summary.updatedAt)}</span>}
+                  {group.more > 0 && <span className="ml-auto shrink-0">+{group.more} more</span>}
+                </div>
+                {group.hits.map((hit) => {
+                  const index = flat.indexOf(hit);
+                  return (
+                    <div
+                      key={hit.messageUuid}
+                      id={optionId(index)}
+                      role="option"
+                      aria-selected={index === active}
+                      data-active={index === active}
+                      data-search-hit
+                      onMouseMove={() => setActive(index)}
+                      onClick={() => open(hit)}
+                      className={`flex w-full cursor-default items-start gap-2.5 px-4 py-1.5 text-left ${index === active ? 'bg-accent/15' : ''}`}
+                    >
+                      <span className={`mt-px w-11 shrink-0 text-[11px] font-medium tracking-wide uppercase ${hit.role === 'user' ? 'text-accent-ink' : 'text-muted'}`}>
+                        {hit.role === 'user' ? 'You' : 'Claude'}
+                        <span className="sr-only">:</span>
+                      </span>
+                      <Snippet text={hit.snippet} />
+                    </div>
+                  );
+                })}
+              </div>
+            );
+          })}
       </div>
-    </div>
+
+      {stillIndexing && typed !== '' && (
+        <p className="shrink-0 border-t border-edge px-4 py-1.5 text-meta text-muted">
+          {indexing.total === 0 ? 'Preparing the search index…' : `Indexing ${indexing.indexed} of ${indexing.total} sessions; results will fill in.`}
+        </p>
+      )}
+      <p className="sr-only" aria-live="polite">
+        {announcement}
+      </p>
+    </Dialog>
   );
 }

@@ -1,5 +1,6 @@
 import { ChevronDown, ChevronUp, X } from 'lucide-react';
 import { useEffect, useRef } from 'react';
+import { Button } from '../ui/Button.tsx';
 
 /**
  * Find in the conversation (⌘F): Enter or ⌘G goes to the next match, ⇧Enter or ⇧⌘G to the
@@ -29,7 +30,6 @@ export function FindBar({
   }, [focusNonce]);
 
   const status = !query.trim() ? '' : count === 0 ? 'No results' : `${current + 1} of ${count}`;
-  const button = 'flex size-6 items-center justify-center rounded text-muted enabled:hover:bg-border/60 enabled:hover:text-text disabled:opacity-40';
   return (
     <div
       role="search"
@@ -61,15 +61,9 @@ export function FindBar({
       <span className="min-w-14 text-right text-[11px] text-faint tabular-nums" role="status" aria-live="polite" data-find-count>
         {status}
       </span>
-      <button type="button" className={button} disabled={count === 0} onClick={() => onStep(-1)} data-tooltip="Previous (⇧Enter)" aria-label="Previous match">
-        <ChevronUp size={14} />
-      </button>
-      <button type="button" className={button} disabled={count === 0} onClick={() => onStep(1)} data-tooltip="Next (Enter)" aria-label="Next match">
-        <ChevronDown size={14} />
-      </button>
-      <button type="button" className={button} onClick={onClose} data-tooltip="Close (Esc)" aria-label="Close find">
-        <X size={13} />
-      </button>
+      <Button variant="quiet" size="sm" iconOnly icon={<ChevronUp size={14} />} disabled={count === 0} onClick={() => onStep(-1)} data-tooltip="Previous (⇧Enter)" aria-label="Previous match" />
+      <Button variant="quiet" size="sm" iconOnly icon={<ChevronDown size={14} />} disabled={count === 0} onClick={() => onStep(1)} data-tooltip="Next (Enter)" aria-label="Next match" />
+      <Button variant="quiet" size="sm" iconOnly icon={<X size={13} />} onClick={onClose} data-tooltip="Close (Esc)" aria-label="Close find" />
     </div>
   );
 }

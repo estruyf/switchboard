@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useId, useRef, useState, type KeyboardEvent } from 'react';
-import { ChevronDown, Copy, ExternalLink } from 'lucide-react';
+import { useCallback, useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
+import { ChevronDown, Code, Copy, ExternalLink, Folder, Globe, SquareTerminal } from 'lucide-react';
 import type { EditorInfo } from '@switchboard/protocol/client';
 import { useEngineConnection } from '../engine/useEngine.ts';
 import { useHosts } from '../state/hostsStore.ts';
+import type { MenuEntry } from './Menu.tsx';
 import { Popover } from './ui/Popover.tsx';
 
 /** Opens a path in the user's editor, terminal or Finder. Used by the header button, ⌘O and file links. */
@@ -51,8 +52,79 @@ function useGithubPage(path: string | null) {
 }
 
 const MENU_WIDTH = 208;
-const item = 'flex w-full items-center justify-between px-3 py-1 text-left text-[12px] hover:bg-accent/15 focus-visible:bg-accent/15';
-const heading = 'px-3 pt-1.5 pb-0.5 text-[10px] tracking-wide text-faint uppercase';
+const item = 'flex w-full items-center justify-between px-3 py-1 text-left text-ui hover:bg-accent/15 focus-visible:bg-accent/15';
+const heading = 'px-3 pt-1.5 pb-0.5 text-meta tracking-wide text-faint uppercase';
+
+const KIND_ICON: Record<EditorInfo['kind'], ReactNode> = {
+  editor: <Code size={13} />,
+  terminal: <SquareTerminal size={13} />,
+  finder: <Folder size={13} />,
+};
+
+/**
+ * The "Open in" part of the session header's ⋯ menu: every editor, terminal and Finder (the default
+ * one first, with ⌘O), copying the path, and the folder's GitHub page. `status` is a screen-reader
+ * message to render next to the menu; `error` says why the last open failed.
+ */
+export function useOpenInEntries(path: string | null): { entries: MenuEntry[]; error: string | null; status: ReactNode } {
+  const editors = useHosts((s) => s.editors);
+  const defaultId = useHosts((s) => s.defaultEditorId);
+  const openIn = useOpenIn();
+  const github = useGithubPage(path);
+  const [error, setError] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+  const current = editors.find((e) => e.id === defaultId) ?? editors[0];
+  const status = (
+    <>
+      {copied && (
+        <span role="status" className="sr-only">
+          Path copied
+        </span>
+      )}
+      {error && (
+        <span role="alert" className="sr-only">
+          {error}
+        </span>
+      )}
+    </>
+  );
+  if (!path || !current) return { entries: [], error, status };
+  const run = (editorId?: string) => {
+    setError(null);
+    openIn(path, editorId ? { editorId } : {}).catch((e: unknown) => setError(`Couldn't open the folder: ${e instanceof Error ? e.message : String(e)}`));
+  };
+  // The default app first, as the one ⌘O opens; then the others in the usual group order.
+  const others = GROUPS.flatMap((group) => editors.filter((e) => e.kind === group.kind && e.id !== current.id));
+  const entries: MenuEntry[] = [
+    { heading: 'Open in' },
+    { label: current.name, icon: KIND_ICON[current.kind], hint: '⌘O', onSelect: () => run(), data: { 'data-open-in': true, 'data-open-in-editor': current.id, 'data-tooltip': `Open ${path} in ${current.name}` } },
+    ...others.map((editor): MenuEntry => ({ label: editor.name, icon: KIND_ICON[editor.kind], onSelect: () => run(editor.id), data: { 'data-open-in-editor': editor.id } })),
+    {
+      label: 'Copy path',
+      icon: <Copy size={12} />,
+      onSelect: () =>
+        void navigator.clipboard.writeText(path).then(
+          () => {
+            setCopied(true);
+            setTimeout(() => setCopied(false), 1_500);
+          },
+          () => setError("Couldn't copy the path"),
+        ),
+      data: { 'data-copy-path': true },
+    },
+  ];
+  if (github) {
+    entries.push({
+      label: 'GitHub',
+      icon: <Globe size={13} />,
+      hint: github.repo,
+      // The main process opens http(s) links from window.open in the browser.
+      onSelect: () => void window.open(github.url, '_blank'),
+      data: { 'data-open-github': github.url, 'data-tooltip': github.url },
+    });
+  }
+  return { entries, error, status };
+}
 
 /** The menu's items, in order. */
 const menuItems = (menu: HTMLElement | null): HTMLElement[] => (menu ? Array.from(menu.querySelectorAll<HTMLElement>('[role="menuitem"]')) : []);
@@ -124,7 +196,7 @@ export function OpenInButton({ path, shortcut = true }: { path: string | null; /
       <button
         type="button"
         onClick={() => run()}
-        className={`flex h-7 items-center gap-1.5 rounded-l-md border border-border px-2.5 text-[12px] hover:bg-border/50 @max-[860px]:rounded-md @max-[860px]:px-1.5 ${error ? 'text-error' : 'text-text'}`}
+        className={`flex h-7 items-center gap-1.5 rounded-l-md border border-border px-2.5 text-ui hover:bg-border/50 @max-[860px]:rounded-md @max-[860px]:px-1.5 ${error ? 'text-error' : 'text-text'}`}
         // A failed open keeps its message on the button that failed, where hovering finds it.
         data-tooltip={error ?? `Open ${path} in ${current.name}${shortcut ? ' (⌘O)' : ''}`}
         aria-label={`Open in ${current.name}`}
@@ -173,7 +245,7 @@ export function OpenInButton({ path, shortcut = true }: { path: string | null; /
                 {items.map((editor) => (
                   <button key={editor.id} type="button" role="menuitem" onClick={() => run(editor.id)} className={item}>
                     {editor.name}
-                    {editor.id === defaultId && <span className="text-[11px] text-muted">default</span>}
+                    {editor.id === defaultId && <span className="text-meta text-muted">default</span>}
                   </button>
                 ))}
               </div>
@@ -221,7 +293,7 @@ export function OpenInButton({ path, shortcut = true }: { path: string | null; /
                 data-open-github={github.url}
               >
                 GitHub
-                <span className="min-w-0 truncate pl-2 text-[11px] text-muted">{github.repo}</span>
+                <span className="min-w-0 truncate pl-2 text-meta text-muted">{github.repo}</span>
               </button>
             </div>
           )}

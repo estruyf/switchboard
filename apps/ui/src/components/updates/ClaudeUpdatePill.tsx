@@ -2,6 +2,7 @@ import { ArrowDownCircle, CheckCircle2, LoaderCircle, X } from 'lucide-react';
 import { claudeUpdateNotice } from '../../lib/claudeUpdate.ts';
 import { useClaudeUpdate } from '../../state/claudeUpdateStore.ts';
 import { useSessions } from '../../state/sessionsStore.ts';
+import { Button } from '../ui/Button.tsx';
 
 const TONE = {
   accent: 'border-accent-ink/40 bg-accent/15 text-text hover:bg-accent/25',
@@ -35,16 +36,17 @@ export function ClaudeUpdatePill() {
         <span className="truncate">{notice.label}</span>
       </button>
       {notice.dismissible && (
-        <button
-          type="button"
+        <Button
+          variant="quiet"
+          size="sm"
+          iconOnly
+          icon={<X size={12} aria-hidden />}
           onClick={() => useClaudeUpdate.getState().dismiss()}
           data-claude-update-dismiss
           data-tooltip="Dismiss"
           aria-label="Dismiss Claude Code update"
-          className="flex size-6 shrink-0 items-center justify-center rounded-md text-muted hover:bg-border/60 hover:text-text"
-        >
-          <X size={12} aria-hidden />
-        </button>
+          className="shrink-0"
+        />
       )}
     </div>
   );

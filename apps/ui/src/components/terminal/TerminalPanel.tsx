@@ -1,16 +1,16 @@
 import { Plus, Sparkles, Square, SquareTerminal, X } from 'lucide-react';
-import { useId, useMemo, useState, type KeyboardEvent, type PointerEvent } from 'react';
+import { useEffect, useId, useMemo, type KeyboardEvent, type PointerEvent } from 'react';
 import type { TerminalInfo, TerminalKind } from '@switchboard/protocol/client';
 import { useEngineConnection } from '../../engine/useEngine.ts';
-import { useTerminals } from '../../state/terminalsStore.ts';
+import { openTerminal, useTerminals } from '../../state/terminalsStore.ts';
+import { Button } from '../ui/Button.tsx';
+import { Notice } from '../ui/Notice.tsx';
 import { XTerm } from './XTerm.tsx';
 
-interface Blocked {
-  code: string;
-  message: string;
-}
-
-/** Terminals for one session: login shells in its folder and the Claude Code TUI (labelled "Claude Code" in the UI). Toggle with ⌘J. */
+/**
+ * Terminals for one session: login shells in its folder, project actions, and the Claude Code TUI
+ * (opened from the ⋯ menu). Toggle with ⌘J; opening it on a session without terminals starts a shell.
+ */
 export function TerminalPanel({ sessionId, cwd }: { sessionId: string; cwd: string | null }) {
   const connection = useEngineConnection();
   const client = connection.status === 'connected' ? connection.client : null;
@@ -20,8 +20,12 @@ export function TerminalPanel({ sessionId, cwd }: { sessionId: string; cwd: stri
   const activeId = useTerminals((s) => s.active.get(sessionId));
   const setActive = useTerminals((s) => s.setActive);
   const togglePanel = useTerminals((s) => s.togglePanel);
-  const [blocked, setBlocked] = useState<Blocked | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const loaded = useTerminals((s) => s.loaded);
+  const shellWanted = useTerminals((s) => s.shellWanted);
+  const notice = useTerminals((s) => s.notices.get(sessionId) ?? null);
+  const setNotice = useTerminals((s) => s.setNotice);
+  const setError = (message: string) => setNotice(sessionId, { code: null, message });
+  const blocked = notice?.code === 'SESSION_RUNNING_HERE' || notice?.code === 'SESSION_BUSY_ELSEWHERE' ? notice : null;
   const idPrefix = useId();
   const tabId = (t: TerminalInfo) => `${idPrefix}-tab-${t.id}`;
   const panelId = (t: TerminalInfo) => `${idPrefix}-panel-${t.id}`;
@@ -30,19 +34,15 @@ export function TerminalPanel({ sessionId, cwd }: { sessionId: string; cwd: stri
   const active = terminals.find((t) => t.id === activeId) ?? terminals.at(-1);
 
   const open = async (kind: TerminalKind, extra: { fork?: boolean } = {}) => {
-    if (!client || !cwd) return;
-    setError(null);
-    setBlocked(null);
-    try {
-      const info = await client.call('terminal.open', { sessionId, cwd, kind, cols: 100, rows: 20, fork: extra.fork ?? false });
-      setActive(sessionId, info.id);
-    } catch (e) {
-      const code = (e as { code?: string }).code ?? '';
-      const message = e instanceof Error ? e.message : String(e);
-      if (code === 'SESSION_RUNNING_HERE' || code === 'SESSION_BUSY_ELSEWHERE') setBlocked({ code, message });
-      else setError(`Couldn't open the terminal: ${message}`);
-    }
+    if (client && cwd) await openTerminal(client, sessionId, cwd, kind, extra.fork ?? false);
   };
+
+  // Opening the panel (Terminal button, ⌘J) on a session without terminals starts a shell right away.
+  useEffect(() => {
+    if (!shellWanted || !loaded || !client) return;
+    useTerminals.getState().setShellWanted(false);
+    if (terminals.length === 0 && cwd) void openTerminal(client, sessionId, cwd, 'shell');
+  }, [shellWanted, loaded, client, terminals.length, cwd, sessionId]);
 
   const stopAndOpen = async () => {
     if (!client) return;
@@ -54,6 +54,12 @@ export function TerminalPanel({ sessionId, cwd }: { sessionId: string; cwd: stri
 
   const close = (terminal: TerminalInfo) => void client?.call('terminal.close', { id: terminal.id });
 
+  /** Closing the last tab hides the panel too; the next ⌘J starts a fresh shell. */
+  const closeTab = (terminal: TerminalInfo) => {
+    close(terminal);
+    if (terminals.length === 1) togglePanel(false);
+  };
+
   const stop = (terminal: TerminalInfo) => void client?.call('terminal.stop', { id: terminal.id }).catch((e: Error) => setError(`Couldn't stop it: ${e.message}`));
 
   /** An action runs again in its own tab (the engine checks it is still approved); shells and the TUI open a fresh tab. */
@@ -63,7 +69,7 @@ export function TerminalPanel({ sessionId, cwd }: { sessionId: string; cwd: stri
       return open(terminal.kind);
     }
     if (!client) return;
-    setError(null);
+    setNotice(sessionId, null);
     try {
       await client.call('terminal.restart', { id: terminal.id });
     } catch (e) {
@@ -108,7 +114,7 @@ export function TerminalPanel({ sessionId, cwd }: { sessionId: string; cwd: stri
   };
 
   return (
-    <section aria-label="Terminal" className="flex shrink-0 flex-col border-t border-border bg-sidebar" style={{ height }} data-terminal-panel>
+    <section aria-label="Terminal" className="theme-dark flex shrink-0 flex-col border-t border-border bg-bg text-text" style={{ height }} data-terminal-panel>
       <div
         role="separator"
         aria-orientation="horizontal"
@@ -155,7 +161,7 @@ export function TerminalPanel({ sessionId, cwd }: { sessionId: string; cwd: stri
                     {/* Always there on the selected tab (so the keyboard reaches it), on hover for the others. */}
                     <button
                       type="button"
-                      onClick={() => close(t)}
+                      onClick={() => closeTab(t)}
                       tabIndex={selected ? 0 : -1}
                       className={`rounded p-0.5 text-muted group-hover:opacity-100 hover:text-text focus-visible:opacity-100 ${selected ? '' : 'opacity-0'}`}
                       aria-label={`Close ${t.title}`}
@@ -168,64 +174,46 @@ export function TerminalPanel({ sessionId, cwd }: { sessionId: string; cwd: stri
               })}
             </div>
           )}
-          <button type="button" data-new-terminal onClick={() => void open('shell')} disabled={!cwd} data-tooltip="New terminal tab" aria-label="New terminal tab" className="ml-1 rounded-md p-1 text-muted hover:bg-border/50 hover:text-text disabled:opacity-40">
-            <Plus size={13} />
-          </button>
-          <button
-            type="button"
-            data-open-claude-tui
-            onClick={() => void open('claude')}
-            disabled={!cwd}
-            data-tooltip="Open this session in Claude Code's terminal interface (mods, status line and every CLI feature)"
-            className="flex items-center gap-1 rounded-md px-1.5 py-1 text-[12px] text-muted hover:bg-border/50 hover:text-text disabled:opacity-40"
-          >
-            <Sparkles size={12} /> Claude Code
-          </button>
+          <Button variant="quiet" size="sm" iconOnly icon={<Plus size={13} />} data-new-terminal onClick={() => void open('shell')} disabled={!cwd} aria-label="New terminal tab" className="ml-1" />
         </div>
-        <button type="button" onClick={() => togglePanel(false)} data-tooltip="Hide terminal (⌘J)" aria-label="Hide terminal" aria-keyshortcuts="Meta+J" className="rounded-md p-1 text-muted hover:bg-border/50 hover:text-text">
-          <X size={13} />
-        </button>
+        <Button variant="quiet" size="sm" iconOnly icon={<X size={13} />} kbd="⌘J" onClick={() => togglePanel(false)} aria-label="Hide terminal" />
       </div>
 
-      {(blocked || error) && (
-        <div role="alert" className="mx-2 mb-1 flex flex-wrap items-center gap-2 rounded-md border border-warn/40 bg-warn/10 px-2.5 py-1.5 text-[12px]">
-          <span className="min-w-0 flex-1">{blocked?.message ?? error}</span>
-          {blocked?.code === 'SESSION_RUNNING_HERE' && (
-            <button type="button" onClick={() => void stopAndOpen()} className="rounded-md border border-border bg-card px-2 py-0.5">
-              Stop it here and open
-            </button>
-          )}
-          {blocked && (
-            <button type="button" onClick={() => void open('claude', { fork: true })} className="rounded-md border border-border bg-card px-2 py-0.5">
-              Open a fork
-            </button>
-          )}
-          <button type="button" onClick={() => (setBlocked(null), setError(null))} className="text-muted hover:text-text" aria-label="Dismiss" data-tooltip="Dismiss">
-            <X size={12} />
-          </button>
-        </div>
+      {notice && (
+        <Notice
+          tone="warn"
+          role="alert"
+          className="mx-2 mb-1"
+          data-terminal-notice
+          onDismiss={() => setNotice(sessionId, null)}
+          actions={
+            <>
+              {blocked?.code === 'SESSION_RUNNING_HERE' && (
+                <Button size="sm" onClick={() => void stopAndOpen()}>
+                  Stop it here and open
+                </Button>
+              )}
+              {blocked && (
+                <Button size="sm" onClick={() => void open('claude', { fork: true })}>
+                  Open a fork
+                </Button>
+              )}
+            </>
+          }
+        >
+          {notice.message}
+        </Notice>
       )}
 
       <div className="relative min-h-0 flex-1">
         {terminals.length === 0 ? (
-          <div className="flex h-full flex-col items-center justify-center gap-2 text-[12px] text-muted">
-            <div className="flex items-center gap-2">
-              <button type="button" onClick={() => void open('shell')} disabled={!cwd} className="rounded-md border border-border bg-card px-2.5 py-1 text-text hover:bg-border/50 disabled:opacity-50">
-                Open a terminal here
-              </button>
-              or
-              <button
-                type="button"
-                onClick={() => void open('claude')}
-                disabled={!cwd}
-                data-tooltip="Claude Code's own terminal interface, on this session"
-                className="rounded-md border border-border bg-card px-2.5 py-1 text-text hover:bg-border/50 disabled:opacity-50"
-              >
-                Open in Claude Code
-              </button>
-            </div>
-            {/* Say why both are greyed out. */}
-            {!cwd && <p>This session has no folder to open a terminal in.</p>}
+          // Opening the panel starts a shell, so this shows only for a session switched to with the panel open, or without a folder.
+          <div className="flex h-full items-center justify-center text-ui text-muted">
+            {cwd ? (
+              <Button onClick={() => void open('shell')}>New terminal</Button>
+            ) : (
+              <p>This session has no folder to open a terminal in.</p>
+            )}
           </div>
         ) : (
           terminals.map((t) => (

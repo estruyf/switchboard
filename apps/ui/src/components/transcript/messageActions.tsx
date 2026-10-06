@@ -1,5 +1,6 @@
 import { GitFork, Pencil, Undo2 } from 'lucide-react';
 import { createContext, useContext, type ReactNode } from 'react';
+import { Button } from '../ui/Button.tsx';
 
 /** What you can do with a message in the transcript; provided by the session view. */
 export interface MessageActions {
@@ -23,9 +24,7 @@ export const messageUuid = (key: string) => key.split(':')[0]!;
 
 function Action({ title, onClick, children }: { title: string; onClick(): void; children: ReactNode }) {
   return (
-    <button type="button" data-tooltip={title} aria-label={title} onClick={onClick} className="flex size-6 items-center justify-center rounded text-muted hover:bg-border/60 hover:text-text">
-      {children}
-    </button>
+    <Button variant="quiet" size="sm" iconOnly icon={children} aria-label={title} onClick={onClick} />
   );
 }
 

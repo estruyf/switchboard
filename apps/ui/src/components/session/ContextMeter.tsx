@@ -1,6 +1,9 @@
 import { useEffect, useId, useRef, useState } from 'react';
 import type { ContextUsage, TranscriptMessage } from '@switchboard/protocol/client';
 import { useEngineConnection } from '../../engine/useEngine.ts';
+import { Button } from '../ui/Button.tsx';
+import { Meter } from '../ui/Meter.tsx';
+import { formatPercent, valueTone } from '../ui/meter.ts';
 
 /** 46k, 1.2M. */
 export const compactTokens = (n: number) => (n >= 1_000_000 ? `${(n / 1_000_000).toFixed(n >= 10_000_000 ? 0 : 1)}M` : n >= 1_000 ? `${Math.round(n / 1_000)}k` : String(n));
@@ -19,18 +22,6 @@ export function lastTurnTokens(messages: readonly TranscriptMessage[]): number |
 const PALETTE = ['#74c0fc', '#d0bfff', '#ffd43b', '#51cf66', '#ff922b', '#66d9ef', '#ed217c', '#a8b2c4'];
 /** Claude Code may name its colours after its terminal theme; fall back to a palette then. */
 const colorFor = (color: string, index: number) => (typeof CSS !== 'undefined' && CSS.supports('color', color) ? color : PALETTE[index % PALETTE.length]!);
-
-function Ring({ percent }: { percent: number }) {
-  const r = 5.5;
-  const c = 2 * Math.PI * r;
-  const tone = percent >= 90 ? 'var(--sb-error)' : percent >= 75 ? 'var(--sb-warn)' : 'var(--sb-accent-ink)';
-  return (
-    <svg width="14" height="14" viewBox="0 0 14 14" className="shrink-0 -rotate-90" aria-hidden>
-      <circle cx="7" cy="7" r={r} fill="none" stroke="var(--sb-border)" strokeWidth="2" />
-      <circle cx="7" cy="7" r={r} fill="none" stroke={tone} strokeWidth="2" strokeLinecap="round" strokeDasharray={`${(Math.min(100, percent) / 100) * c} ${c}`} />
-    </svg>
-  );
-}
 
 /**
  * How full the context window is, like Claude Code's /context: a ring, "Context 42%" and used/total
@@ -57,11 +48,25 @@ export function ContextMeter({
   const ref = useRef<HTMLDivElement>(null);
   const popupId = useId();
 
+  // Running here (it can be compacted) but no usage report yet, e.g. resumed and not sent to: ask
+  // Claude Code once, so the ring shows right away instead of only an estimate.
+  const running = onCompact !== undefined;
   useEffect(() => {
-    if (!open || !client || !live) return;
+    if (!client || !running || live) return;
+    let cancelled = false;
+    client.call('session.context', { sessionId }).then(
+      (usage) => !cancelled && setBreakdown(usage),
+      () => {},
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, [client, running, sessionId, live]);
+  useEffect(() => {
+    if (!open || !client || !running) return;
     setError(null);
     client.call('session.context', { sessionId }).then(setBreakdown, (e: Error) => setError(e.message));
-  }, [open, client, sessionId, live]);
+  }, [open, client, sessionId, running]);
   useEffect(() => {
     if (!open) return;
     const onDown = (e: MouseEvent) => !ref.current?.contains(e.target as Node) && setOpen(false);
@@ -74,20 +79,9 @@ export function ContextMeter({
     };
   }, [open]);
 
-  if (!live) {
-    const tokens = lastTurnTokens(messages);
-    if (tokens === null) return null;
-    return (
-      <span
-        className="flex shrink-0 items-center gap-1 whitespace-nowrap tabular-nums"
-        data-tooltip="Tokens in Claude’s context window (what it keeps in mind for this conversation) at the end of the last turn"
-        data-context-meter
-      >
-        Context <span className="text-faint">≈{compactTokens(tokens)}</span>
-        <span className="sr-only"> tokens</span>
-      </span>
-    );
-  }
+  const known = live ?? (breakdown ? { tokens: breakdown.totalTokens, max: breakdown.maxTokens, percent: breakdown.percentage } : null);
+  const estimate = known ? null : lastTurnTokens(messages);
+  if (!known && estimate === null) return null;
 
   const used = breakdown?.categories.filter((c) => c.kind === 'used' && c.tokens > 0) ?? [];
   return (
@@ -99,24 +93,44 @@ export function ContextMeter({
         aria-haspopup="dialog"
         aria-controls={open ? popupId : undefined}
         // The ring and a bare percentage mean little on their own: say what they measure.
-        aria-label={`Context window ${Math.round(live.percent)}% full, ${compactTokens(live.tokens)} of ${compactTokens(live.max)} tokens: show what fills it`}
-        data-tooltip={`How full Claude’s context window is (what it keeps in mind for this conversation). Click for what fills it${onCompact ? ', and to compact it' : ''}.`}
-        className={`flex h-6 shrink-0 items-center gap-1.5 rounded-md px-1.5 whitespace-nowrap tabular-nums hover:bg-border/50 hover:text-text ${live.percent >= 75 ? 'text-warn' : ''}`}
+        aria-label={
+          known
+            ? `Context window ${Math.round(known.percent)}% full, ${compactTokens(known.tokens)} of ${compactTokens(known.max)} tokens: show what fills it`
+            : `Context window: about ${compactTokens(estimate ?? 0)} tokens at the end of the last turn`
+        }
+        data-tooltip={`How full Claude’s context window is (what it keeps in mind for this conversation). Click for ${known ? 'what fills it' : 'more'}${onCompact ? ', and to compact it' : ''}.`}
+        className="flex h-6 shrink-0 items-center gap-1.5 rounded-md px-1.5 whitespace-nowrap tabular-nums hover:bg-border/50 hover:text-text"
       >
-        <Ring percent={live.percent} />
-        Context {Math.round(live.percent)}%
-        <span className="text-faint @max-[860px]:hidden">
-          {compactTokens(live.tokens)} / {compactTokens(live.max)}
-        </span>
+        {known ? (
+          <>
+            {/* Decoration: the button's label says how full it is. */}
+            <Meter kind="ring" percent={known.percent} />
+            Context <span className={valueTone(known.percent)}>{formatPercent(known.percent)}</span>
+            <span className="text-faint @max-[860px]:hidden">
+              {compactTokens(known.tokens)} / {compactTokens(known.max)}
+            </span>
+          </>
+        ) : (
+          <>
+            {/* An empty ring: the size of the window isn't known until the session runs here. */}
+            <span className="size-3 shrink-0 rounded-full border-[1.5px] border-selected" aria-hidden />
+            Context <span className="text-faint">≈{compactTokens(estimate ?? 0)}</span>
+          </>
+        )}
       </button>
       {open && (
-        <div id={popupId} role="dialog" aria-label="Context window" className="absolute right-0 bottom-full z-30 mb-1.5 w-72 rounded-lg border overlay p-3 text-[12px] text-text" data-context-breakdown>
+        <div id={popupId} role="dialog" aria-label="Context window" className="absolute right-0 bottom-full z-30 mb-1.5 w-72 rounded-lg border overlay p-3 text-ui text-text" data-context-breakdown>
           <p className="font-semibold">Context window</p>
-          <p className="mt-0.5 text-[11.5px] text-muted">
-            {compactTokens(live.tokens)} of {compactTokens(live.max)} tokens ({Math.round(live.percent)}%){breakdown ? ` · ${breakdown.model}` : ''}
+          <p className="mt-0.5 text-meta text-muted">
+            {known
+              ? `${compactTokens(known.tokens)} of ${compactTokens(known.max)} tokens (${Math.round(known.percent)}%)${breakdown ? ` · ${breakdown.model}` : ''}`
+              : `About ${compactTokens(estimate ?? 0)} tokens at the end of the last turn`}
           </p>
-          {error && <p className="mt-2 text-error">{error}</p>}
-          {!breakdown && !error && <p className="mt-2 text-muted">Loading…</p>}
+          {!running && (
+            <p className="mt-2 text-muted">Send a message to pick this session up in Switchboard. Then you can see what fills the context and compact it.</p>
+          )}
+          {running && error && <p className="mt-2 text-error">{error}</p>}
+          {running && !breakdown && !error && <p className="mt-2 text-muted">Loading…</p>}
           {breakdown && (
             <>
               {/* One bar, each category its own colour, like /context. The list below says the same in words. */}
@@ -143,18 +157,18 @@ export function ContextMeter({
             </>
           )}
           {onCompact && (
-            <button
-              type="button"
+            <Button
+              variant="primary"
               onClick={() => {
                 setOpen(false);
                 onCompact();
               }}
               data-compact
-              className="mt-3 w-full rounded-md bg-accent px-2 py-1.5 text-[12px] font-medium text-on-accent hover:bg-accent/85"
+              className="mt-3 w-full"
               data-tooltip="Sends /compact: Claude summarises the conversation so far to free up context"
             >
               Compact now
-            </button>
+            </Button>
           )}
         </div>
       )}

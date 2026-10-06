@@ -54,6 +54,8 @@ export function Popover({ x, y, width, above = false, onClose, closeOnEscape = t
       {...rest}
       style={{ left: position.left, top: position.top, width }}
       className={`no-drag fixed z-50 max-h-[70vh] overflow-y-auto rounded-lg border overlay py-1 ${className}`}
+      // Lets a dialog see that a menu or dropdown is open, so Escape closes that first.
+      data-popover
     >
       {children}
     </div>
