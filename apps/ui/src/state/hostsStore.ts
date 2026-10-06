@@ -95,7 +95,9 @@ export function hostAsLive(host: SessionHostInfo): LiveSession | null {
     name: null,
     origin: 'app',
     startedAt: host.startedAt,
-    updatedAt: Date.now(),
+    // Not `Date.now()`: every working session would tie at "now" and the sidebar would keep the
+    // older one on top. Later activity comes from the transcript's own updatedAt.
+    updatedAt: host.startedAt,
     profileId: host.profileId,
   };
 }

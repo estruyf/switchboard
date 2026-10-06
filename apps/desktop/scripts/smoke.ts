@@ -42,6 +42,8 @@ console.log(`${String(result.changesPanel).startsWith('ok') ? '✓' : '✗'} cha
 if (!String(result.changesPanel).startsWith('ok')) process.exitCode = 1;
 console.log(`${String(result.branchResult).startsWith('ok') ? '✓' : '✗'} branch button: ${result.branchResult}`);
 if (!String(result.branchResult).startsWith('ok')) process.exitCode = 1;
+console.log(`${String(result.openInResult).startsWith('ok') ? '✓' : '✗'} open in menu: ${result.openInResult}`);
+if (!String(result.openInResult).startsWith('ok')) process.exitCode = 1;
 console.log(`${String(result.searchResult).startsWith('ok') ? '✓' : '✗'} search: ${result.searchResult}`);
 if (!String(result.searchResult).startsWith('ok')) process.exitCode = 1;
 console.log(`${String(result.paletteResult).startsWith('ok') ? '✓' : '✗'} command palette: ${result.paletteResult}`);

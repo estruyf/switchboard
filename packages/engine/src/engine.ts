@@ -21,7 +21,7 @@ import {
 import { LiveRegistry } from './claude/liveRegistry.ts';
 import { createProjectResolver } from './claude/projectResolver.ts';
 import { sdkSessionSource, type SessionSource } from './claude/sessionSource.ts';
-import { findCheckout } from './git/remotes.ts';
+import { findCheckout, githubPage } from './git/remotes.ts';
 import { checkoutRoot, fileDiff, listBranches, listChanges, removeWorktree, revert, stage, switchBranch, worktreeStatus } from './git/gitChanges.ts';
 import { SearchIndex } from './sessions/searchIndex.ts';
 import { installedPlugins } from './host/capabilities.ts';
@@ -775,6 +775,7 @@ export function createEngine(options: EngineOptions): Engine {
         throw new RpcError('GIT_FAILED', (error as Error).message);
       }
     },
+    'git.github': async ({ cwd }) => (resolver.resolve(cwd).gitDir ? githubPage(cwd) : null),
     'git.stage': async ({ cwd, paths, staged }) => {
       try {
         await stage(cwd, paths, staged);

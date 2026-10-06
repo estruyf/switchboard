@@ -2,6 +2,18 @@
 
 All notable changes to Switchboard are listed here. Each release is also on the [releases page](https://github.com/estruyf/switchboard/releases), with the `.dmg` to download.
 
+## [Unreleased]
+
+### Sessions
+
+- The **Open in** menu in a session's header has a **GitHub** entry when the project is on GitHub. It opens the branch you're on when it's pushed, and the repository otherwise.
+
+### Fixes
+
+- The permission mode picker under a session shows the same coloured dot as New session.
+- A session you just started goes to the top of the sidebar, even while another session is working.
+- The **Open in** menu is no longer hidden behind the conversation.
+
 ## [0.0.4] - 2026-10-06
 
 ### Updates

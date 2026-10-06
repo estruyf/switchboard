@@ -3,7 +3,7 @@ import { ContextMeter } from './ContextMeter.tsx';
 import { Select } from '../ui/Select.tsx';
 import { useEngineConnection } from '../../engine/useEngine.ts';
 import { findModelOption } from '../../lib/models.ts';
-import { MODE_CHOICES, MODE_LABEL } from '../../lib/modes.ts';
+import { MODE_CHOICES, MODE_DOT, MODE_LABEL } from '../../lib/modes.ts';
 import { useHosts } from '../../state/hostsStore.ts';
 
 const STATE_LABEL: Record<SessionHostInfo['state'], string> = {
@@ -58,7 +58,11 @@ export function StatusBar({ host }: { host: SessionHostInfo }) {
         disabled={!active || !client}
         value={host.permissionMode}
         onChange={(mode) => void client?.call('session.setPermissionMode', { sessionId: host.sessionId, mode })}
-        options={[...new Set([...MODE_CHOICES, host.permissionMode])].map((mode) => ({ value: mode, label: MODE_LABEL[mode] }))}
+        options={[...new Set([...MODE_CHOICES, host.permissionMode])].map((mode) => ({
+          value: mode,
+          label: MODE_LABEL[mode],
+          icon: <span className={`size-2 rounded-full ${MODE_DOT[mode] ?? 'bg-faint'}`} />,
+        }))}
         dataAttrs={{ 'data-permission-mode-select': true }}
       />
       {supportsEffort && (

@@ -124,6 +124,14 @@ describe('toRows', () => {
     expect(rows).toHaveLength(1);
     expect(rows[0]).toMatchObject({ id: 'mine', projectRoot: '/p/a', live: { status: 'needs-you', origin: 'app' }, inApp: true });
   });
+
+  it('puts a session started in this app above one already working', () => {
+    const summary = { id: 'busy', title: 'busy', firstPrompt: null, customTitle: null, cwd: '/p/a', projectRoot: '/p/a', gitBranch: null, worktree: null, origin: 'cli', createdAt: null, updatedAt: NOW - HOUR, fileSize: null, tag: null, pinned: false, settledAt: null, viewedAt: null, unread: false, inApp: true, profileId: 'default' } as const;
+    const busy: SessionHostInfo = { sessionId: 'busy', cwd: '/p/a', state: 'running', model: null, permissionMode: 'default', effort: null, costUsd: 0, contextPercent: null, contextTokens: null, contextMax: null, error: null, startedAt: NOW - 2 * HOUR, queued: 0, profileId: 'default' };
+    const fresh: SessionHostInfo = { ...busy, sessionId: 'fresh', state: 'starting', startedAt: NOW };
+    const rows = toRows(new Map([['busy', summary]]), new Map(), new Map([['busy', busy], ['fresh', fresh]]));
+    expect(ids(buildSessionList(rows, { search: '', project: null, now: NOW }).active)).toEqual(['fresh', 'busy']);
+  });
 });
 
 describe('panes', () => {

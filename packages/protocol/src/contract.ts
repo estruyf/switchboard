@@ -330,6 +330,8 @@ export const contract = {
      * discarded. Refused (SESSION_BUSY) while Claude is working in a session in this checkout.
      */
     'git.switch': { params: z.object({ cwd: AbsolutePath, branch: z.string().min(1).max(250) }), result: z.object({ current: z.string().nullable() }) },
+    /** The checkout's page on github.com (at the branch when it is pushed); null when no remote is on GitHub. */
+    'git.github': { params: z.object({ cwd: AbsolutePath }), result: z.object({ repo: z.string(), url: z.string() }).nullable() },
     'git.stage': { params: z.object({ cwd: AbsolutePath, paths: z.array(z.string().max(4096)).max(5000), staged: z.boolean() }), result: z.object({}) },
     /** Puts files back to HEAD. New files go to the Trash. */
     'git.revert': { params: z.object({ cwd: AbsolutePath, paths: z.array(z.string().max(4096)).min(1).max(5000) }), result: z.object({}) },

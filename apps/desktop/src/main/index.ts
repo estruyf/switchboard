@@ -595,6 +595,7 @@ let transcriptAtBottom: number | null = null;
 let activity: { groups: number; steps: number; label: string } | null = null;
 let changesPanel: string = 'not run';
 let branchResult: string = 'not run';
+let openInResult: string = 'not run';
 let searchResult = 'not run';
 let paletteResult = 'not run';
 let toolsResult = 'not run';
@@ -1116,6 +1117,33 @@ async function runBranchStep(win: BrowserWindow): Promise<string> {
   }
 }
 
+/**
+ * Read-only: the header's "Open in" menu opens on top of the transcript (nothing paints over it), offers
+ * GitHub with the link git's remotes give when the checkout is on GitHub, and Escape closes it. Opens
+ * nothing.
+ */
+async function runOpenInStep(win: BrowserWindow): Promise<string> {
+  const js = (code: string) => win.webContents.executeJavaScript(code);
+  const toggle = "document.querySelector('[data-current-session] [data-open-in-menu]')";
+  if (!(await waitInPage(win, toggle, 3_000))) return 'no Open in button';
+  await js(`${toggle}.click()`);
+  if (!(await waitInPage(win, "document.querySelector('[data-menu=\"open-in\"] [role=\"menuitem\"]')", 2_000))) return 'menu did not open';
+  // The middle of the menu's last item must hit the menu itself, not the transcript under the header.
+  const onTop = (await js(
+    "(() => { const menu = document.querySelector('[data-menu=\"open-in\"]'); const r = [...menu.querySelectorAll('[role=\"menuitem\"]')].at(-1).getBoundingClientRect(); return menu.contains(document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2)); })()",
+  )) as boolean;
+  const github = (await js("document.querySelector('[data-menu=\"open-in\"] [data-open-github]')?.dataset.openGithub ?? null")) as string | null;
+  // Let a frame with the menu paint before capturing.
+  await new Promise((resolve) => setTimeout(resolve, 200));
+  await shot(win, 'open-in-menu.png');
+  win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Escape' });
+  win.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Escape' });
+  if (!onTop) return 'menu is covered by the page below it';
+  if (github !== null && !/^https:\/\/github\.com\/[^/]+\/[^/]+(\/tree\/.+)?$/.test(github)) return `odd GitHub link "${github}"`;
+  if (!(await waitInPage(win, "!document.querySelector('[data-menu=\"open-in\"]')", 2_000))) return 'Escape did not close the menu';
+  return `ok: on top of the transcript, ${github ? `GitHub → ${github}` : 'no GitHub remote'}, Escape closed it`;
+}
+
 /** ⌘⇧F, type a word, open the first hit: the session opens with that message highlighted. */
 async function runSearchStep(win: BrowserWindow): Promise<string> {
   const js = (code: string) => win.webContents.executeJavaScript(code);
@@ -1543,6 +1571,7 @@ async function runSmokeStep(win: BrowserWindow | null): Promise<void> {
     activity = await runActivityStep(win);
     changesPanel = await runChangesStep(win);
     branchResult = await runBranchStep(win).catch((error: Error) => `failed: ${error.message}`);
+    openInResult = await runOpenInStep(win).catch((error: Error) => `failed: ${error.message}`);
     searchResult = await runSearchStep(win).catch((error: Error) => `failed: ${error.message}`);
     paletteResult = await runPaletteStep(win).catch((error: Error) => `failed: ${error.message}`);
     toolsResult = await runToolsStep(win).catch((error: Error) => `failed: ${error.message}`);
@@ -1595,6 +1624,7 @@ async function runSmokeStep(win: BrowserWindow | null): Promise<void> {
         activity,
         changesPanel,
         branchResult,
+        openInResult,
         searchResult,
         paletteResult,
         toolsResult,
