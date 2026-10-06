@@ -177,4 +177,18 @@ export const migrations: readonly string[] = [
     GROUP BY project_root
   ON CONFLICT (root) DO UPDATE SET added_at = COALESCE(project_settings.added_at, excluded.added_at);
   `,
+
+  // v9: Claude profiles, one login per config folder, and the profile a project uses. User choices: keep them.
+  // config_dir is NULL for the built-in profile (Claude Code's own folder); the engine adds that row itself.
+  `
+  CREATE TABLE claude_profiles (
+    id         TEXT PRIMARY KEY,
+    name       TEXT NOT NULL,
+    color      TEXT NOT NULL,
+    config_dir TEXT UNIQUE,
+    sort       INTEGER NOT NULL DEFAULT 0,
+    created_at INTEGER NOT NULL
+  );
+  ALTER TABLE project_settings ADD COLUMN profile_id TEXT;
+  `,
 ];

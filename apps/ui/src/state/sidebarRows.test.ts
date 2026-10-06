@@ -20,6 +20,7 @@ const row = (id: string, overrides: Partial<SessionRowData> = {}): SessionRowDat
   unread: false,
   inApp: false,
   error: false,
+  profileId: 'default',
   ...overrides,
 });
 
@@ -34,6 +35,7 @@ const live = (status: LiveSession['status']): LiveSession => ({
   origin: 'cli',
   startedAt: null,
   updatedAt: null,
+  profileId: 'default',
 });
 
 const old = NOW - RECENT_MS - HOUR;
@@ -109,14 +111,14 @@ describe('toRows', () => {
   });
 
   it('does not let an idle process move a session up', () => {
-    const summary = { id: 's', title: 's', firstPrompt: null, customTitle: null, cwd: '/p/a', projectRoot: '/p/a', gitBranch: null, worktree: null, origin: 'cli', createdAt: null, updatedAt: 1_000, fileSize: null, tag: null, pinned: false, settledAt: null, viewedAt: null, unread: false, inApp: false } as const;
+    const summary = { id: 's', title: 's', firstPrompt: null, customTitle: null, cwd: '/p/a', projectRoot: '/p/a', gitBranch: null, worktree: null, origin: 'cli', createdAt: null, updatedAt: 1_000, fileSize: null, tag: null, pinned: false, settledAt: null, viewedAt: null, unread: false, inApp: false, profileId: 'default' } as const;
     const sessions = new Map([['s', summary]]);
     expect(toRows(sessions, new Map([['s', { ...live('idle'), sessionId: 's', updatedAt: 9_000 }]]))[0]!.updatedAt).toBe(1_000);
     expect(toRows(sessions, new Map([['s', { ...live('running'), sessionId: 's', updatedAt: 9_000 }]]))[0]!.updatedAt).toBe(9_000);
   });
 
   it('prefers the state of sessions running in this app and flags failed runs', () => {
-    const host: SessionHostInfo = { sessionId: 'mine', cwd: '/p/a/.claude/worktrees/wt', state: 'needs-you', model: null, permissionMode: 'default', effort: null, costUsd: 0, contextPercent: null, contextTokens: null, contextMax: null, error: null, startedAt: 5, queued: 0 };
+    const host: SessionHostInfo = { sessionId: 'mine', cwd: '/p/a/.claude/worktrees/wt', state: 'needs-you', model: null, permissionMode: 'default', effort: null, costUsd: 0, contextPercent: null, contextTokens: null, contextMax: null, error: null, startedAt: 5, queued: 0, profileId: 'default' };
     const closed: SessionHostInfo = { ...host, sessionId: 'old', state: 'closed' };
     const rows = toRows(new Map(), new Map(), new Map([['mine', host], ['old', closed]]));
     expect(rows).toHaveLength(1);

@@ -21,6 +21,7 @@ The path of a feature is usually: add the request or event to `packages/protocol
 - Read transcripts through the SDK (`listSessions`, `getSessionMessages`, `forkSession`, …) in `packages/engine/src/claude/sessionSource.ts`. Parse Claude Code's on-disk formats only where the SDK has no answer (the live registry in `~/.claude/sessions`, `agent-*.meta.json`, `installed_plugins.json`), and degrade quietly when a format changes.
 - Short-lived helper processes (command lists, Tools, usage) never get a prompt and use `persistSession: false`. Register their ids as ephemeral so they don't show up as sessions.
 - The SDK can throw asynchronously after interrupts: every session is wrapped so one failing session can't take the engine down.
+- **Claude profiles** (`packages/engine/src/profiles/`): each is a config folder with its own login. Anything that starts Claude Code gets the profile's environment (`envFor` in `engine.ts`); never set `CLAUDE_CONFIG_DIR` for the built-in profile. The SDK's transcript readers only read `process.env.CLAUDE_CONFIG_DIR`, so they go through `ConfigDirLane`; don't call them around it.
 
 ## Commands
 
@@ -48,6 +49,7 @@ Run `npm run check` after every change, and `npm run smoke` after UI or engine c
   - `accent` is the yellow fill (buttons, tints such as `bg-accent/15`);
   - `accent-ink` is the readable accent for text, icons, dots, spinners and borders (dark mustard in light mode);
   - `on-accent` is text on a yellow fill. Never put `text-white` on `bg-accent`.
+  - `profile-<colour>` (yellow, blue, green, purple, red, orange, gray) tells Claude profiles apart; use it through `PROFILE_DOT` / `PROFILE_TEXT` in `components/profiles/ProfileBadge.tsx`.
 - **Both light and dark mode** must work; the Settings smoke step switches between them.
 - **Narrow panes:** the session view is an `@container`; use `@max-[860px]:` variants to compact headers and bars (two sessions side by side).
 - **Dialogs** use `role="dialog"` / `role="alertdialog"` and close on Escape. Escape in the message box stops Claude, except while a dialog, menu or popover is open; keep new overlays inside those roles.

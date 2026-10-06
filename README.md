@@ -112,11 +112,12 @@ Open Settings with ⌘, or the gear at the bottom of the sidebar.
 - **Theme:** Match System, Light or Dark. The colours come from the [Demo Time theme](https://github.com/estruyf/vscode-demo-time-theme).
 - **Sidebar:** *Large icons* (easy to spot each project), *Standard*, or *Compact* (one line per session). *Show sessions from other apps* also lists sessions from the terminal, Claude desktop and your editor (off by default), and notifies you when a terminal session is waiting.
 - **Conversation:** *Summarised* (the default) shows each run of tool calls as one line, like Claude Code: what Claude is doing right now, or what it did, with how long it took. Click it to see the steps, and a step to see its details. *Every step* shows each tool call as its own card.
+- **Claude profiles:** use more than one Claude account, for example a personal plan and a work one. Each profile is a Claude Code config folder with its own login, settings, plugins and sessions (`~/.claude` is the first). Add one, sign in there once in a terminal with the command Settings shows (`CLAUDE_CONFIG_DIR=~/.claude-work claude`, then `/login`), and pick the default. Link a project to a profile from its menu or the Projects view; New session shows the profile a folder uses and lets you pick another for one session. With more than one profile, sessions show which account they use, and the usage band shows that account's limits.
 - **Quitting:** turn off the "Ask before quitting" prompt.
 
 ## Your data
 
-Switchboard reads the session files Claude Code already keeps in `~/.claude` and runs your own `claude` to do the work, so your sessions stay in one place whether you use the terminal or the app. It doesn't send anything anywhere else. Deleting a session moves its files to the Trash.
+Switchboard reads the session files Claude Code already keeps in `~/.claude` (and in the folders of any other Claude profiles you add) and runs your own `claude` to do the work, so your sessions stay in one place whether you use the terminal or the app. It doesn't send anything anywhere else, and never handles your Claude login: you sign in with Claude Code itself. Deleting a session moves its files to the Trash.
 
 ## Documentation
 

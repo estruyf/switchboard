@@ -13,6 +13,7 @@ import { buildSessionList, inScope, isActive, rowStatus } from '../../state/side
 import { ConfirmDialog } from '../ConfirmDialog.tsx';
 import { Menu, type MenuEntry } from '../Menu.tsx';
 import { useOpenIn } from '../OpenInButton.tsx';
+import { ProfileBadge } from '../profiles/ProfileBadge.tsx';
 import { ProjectIcon } from '../ProjectIcon.tsx';
 import { ProjectFilter, useProjectIconEntries } from './ProjectMenu.tsx';
 import { StatusIcon } from './StatusIcon.tsx';
@@ -75,6 +76,7 @@ const SessionRow = memo(function SessionRow({
       <button {...common} className={`flex h-8 w-full items-center gap-2 rounded-md px-2.5 text-left text-[11px] ${surface}`}>
         <ProjectIcon project={project} root={data.projectRoot} size={16} />
         <span className={`min-w-0 flex-1 truncate text-[13px] ${titleTone}`}>{data.title}</span>
+        <ProfileBadge profileId={data.profileId} dotOnly />
         {pin}
         {status ? <StatusIcon status={status} /> : age}
       </button>
@@ -86,6 +88,7 @@ const SessionRow = memo(function SessionRow({
       <span className="flex min-w-0 items-center gap-1.5 text-[11px] text-muted">
         {style === 'standard' && <ProjectIcon project={project} root={data.projectRoot} size={13} />}
         <span className="min-w-0 flex-1 truncate">{projectName}</span>
+        <ProfileBadge profileId={data.profileId} className="max-w-24" />
         {pin}
         {age}
       </span>

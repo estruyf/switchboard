@@ -37,6 +37,8 @@ export interface HostConfig {
   /** For new sessions the id we assign; for resume/fork the id being resumed until init reports the real one. */
   sessionId: string;
   cwd: string;
+  /** The Claude profile (login); `env` already points at its config folder. */
+  profileId: string;
   mode: 'new' | 'resume' | 'fork';
   model: string | null;
   permissionMode: PermissionMode;
@@ -134,6 +136,7 @@ export class SessionHost {
       error: null,
       startedAt: Date.now(),
       queued: 0,
+      profileId: config.profileId,
     };
     this.initialized = new Promise((resolve, reject) => {
       this.initResolve = resolve;

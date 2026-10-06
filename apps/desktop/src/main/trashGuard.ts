@@ -13,6 +13,12 @@ export function isTrashableSessionPath(path: string, claudeConfigDir: string): b
   return resolve(path) === path && path.startsWith(projects) && SESSION_ID.test(basename(path));
 }
 
+/** A Claude Code config folder named by the engine: an absolute, normalised path with a projects folder. */
+export function isConfigDir(dir: unknown): dir is string {
+  if (typeof dir !== 'string' || resolve(dir) !== dir || dir === sep) return false;
+  return statSync(join(dir, 'projects'), { throwIfNoEntry: false })?.isDirectory() ?? false;
+}
+
 /**
  * A file a "revert" may move to the Trash: a regular file inside a git checkout
  * (one with a `.git` entry at its root), never the root itself or anything in `.git`.

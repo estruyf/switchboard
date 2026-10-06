@@ -13,6 +13,7 @@ interface Row {
   added_at: number | null;
   sort: number | null;
   defaults_json: string | null;
+  profile_id: string | null;
 }
 
 /** Sessions per folder, from the session index. */
@@ -54,8 +55,8 @@ export class ProjectRegistry {
     private readonly iconDir: string,
   ) {
     this.statements = {
-      all: db.prepare('SELECT root, icon_json, added_at, sort, defaults_json FROM project_settings'),
-      get: db.prepare('SELECT root, icon_json, added_at, sort, defaults_json FROM project_settings WHERE root = ?'),
+      all: db.prepare('SELECT root, icon_json, added_at, sort, defaults_json, profile_id FROM project_settings'),
+      get: db.prepare('SELECT root, icon_json, added_at, sort, defaults_json, profile_id FROM project_settings WHERE root = ?'),
       upsertIcon: db.prepare(
         'INSERT INTO project_settings (root, icon_json) VALUES (?, ?) ON CONFLICT (root) DO UPDATE SET icon_json = excluded.icon_json',
       ),
@@ -187,6 +188,7 @@ export class ProjectRegistry {
       exists: existsSync(root),
       order: added ? order : null,
       defaults: added ? readDefaults(row.defaults_json) : NO_DEFAULTS,
+      profileId: row?.profile_id ?? null,
       sessionCount: activity?.count ?? 0,
       lastActivity: activity?.lastActivity ?? null,
     };

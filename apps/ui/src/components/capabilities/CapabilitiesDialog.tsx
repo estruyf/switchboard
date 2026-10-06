@@ -2,6 +2,7 @@ import { RefreshCw, RotateCw, X } from 'lucide-react';
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import type { Capabilities, McpServerInfo } from '@switchboard/protocol/client';
 import { useEngineConnection } from '../../engine/useEngine.ts';
+import { ProfileBadge } from '../profiles/ProfileBadge.tsx';
 
 type Tab = 'mcp' | 'commands' | 'agents' | 'plugins';
 
@@ -30,7 +31,7 @@ function Row({ title, meta, children, detail }: { title: ReactNode; meta?: React
  * What Claude can use in this session: MCP servers (turn on or off and reconnect when the
  * session runs here), skills and commands, agents and plugins.
  */
-export function CapabilitiesDialog({ sessionId, cwd, onClose }: { sessionId: string; cwd: string; onClose(): void }) {
+export function CapabilitiesDialog({ sessionId, cwd, profileId, onClose }: { sessionId: string; cwd: string; profileId: string | null; onClose(): void }) {
   const connection = useEngineConnection();
   const client = connection.status === 'connected' ? connection.client : null;
   const [caps, setCaps] = useState<Capabilities | null>(null);
@@ -95,6 +96,8 @@ export function CapabilitiesDialog({ sessionId, cwd, onClose }: { sessionId: str
       <div role="dialog" aria-label="Tools" className="flex max-h-[76vh] w-[640px] max-w-[92vw] flex-col overflow-hidden rounded-xl border border-border bg-card shadow-2xl" data-capabilities>
         <div className="flex h-11 shrink-0 items-center gap-3 border-b border-border px-4">
           <h2 className="text-[13px] font-semibold">Tools</h2>
+          {/* Plugins, MCP servers and skills differ per Claude profile. */}
+          <ProfileBadge profileId={profileId} className="text-[11.5px]" />
           <span className="min-w-0 flex-1 truncate text-[11.5px] text-faint">
             {caps === null ? 'Asking Claude Code…' : caps.live ? 'Live from this session' : 'For this folder (start the session here to change MCP servers)'}
           </span>

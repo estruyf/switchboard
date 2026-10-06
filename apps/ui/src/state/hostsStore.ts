@@ -96,6 +96,7 @@ export function hostAsLive(host: SessionHostInfo): LiveSession | null {
     origin: 'app',
     startedAt: host.startedAt,
     updatedAt: Date.now(),
+    profileId: host.profileId,
   };
 }
 

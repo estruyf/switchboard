@@ -49,6 +49,8 @@ export const SessionHostInfo = z.object({
   startedAt: z.number(),
   /** User messages accepted but not answered yet (sent while Claude was busy). */
   queued: z.number(),
+  /** The Claude profile (login) this process runs with. */
+  profileId: z.string(),
 });
 export type SessionHostInfo = z.infer<typeof SessionHostInfo>;
 

@@ -14,3 +14,5 @@ export type * from './terminal.ts';
 export type * from './actions.ts';
 export { ACTION_ICONS, type ActionIcon } from './actionIcons.ts';
 export type * from './usage.ts';
+export type * from './profiles.ts';
+export { BUILTIN_PROFILE_ID, PROFILE_COLORS } from './profileConstants.ts';

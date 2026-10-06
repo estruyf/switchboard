@@ -17,6 +17,7 @@ import { useSessions } from './state/sessionsStore.ts';
 import { useOverlay } from './state/overlayStore.ts';
 import { usePreferencesSync } from './state/preferencesStore.ts';
 import { addedProjects } from './state/projectList.ts';
+import { useProfilesSync } from './state/profilesStore.ts';
 import { useProjects, useProjectsSync } from './state/projectsStore.ts';
 import { useTerminals, useTerminalsSync } from './state/terminalsStore.ts';
 import { useHostsSync } from './state/useHostsSync.ts';
@@ -124,6 +125,7 @@ export function App() {
   useSessionsSync();
   useHostsSync();
   useProjectsSync();
+  useProfilesSync();
   useTerminalsSync();
   useUsageSync();
   usePreferencesSync();

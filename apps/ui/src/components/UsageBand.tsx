@@ -2,33 +2,58 @@ import { useEffect, useState } from 'react';
 import { create } from 'zustand';
 import type { UsageLimit, UsageSnapshot } from '@switchboard/protocol/client';
 import { useEngineConnection } from '../engine/useEngine.ts';
+import { useProfiles } from '../state/profilesStore.ts';
+import { ProfileBadge } from './profiles/ProfileBadge.tsx';
 import { countdown, limitLabel, visibleLimits } from './usageFormat.ts';
 
 interface UsageState {
-  usage: UsageSnapshot | null;
-  set(usage: UsageSnapshot | null): void;
+  /** Plan usage per Claude profile (each login has its own limits). */
+  usage: Map<string, UsageSnapshot | null>;
+  /** Profiles a band has shown; refreshed when the window comes back into focus. */
+  wanted: Set<string>;
+  set(profileId: string, usage: UsageSnapshot | null): void;
 }
 
-export const useUsage = create<UsageState>()((set) => ({ usage: null, set: (usage) => set({ usage }) }));
+export const useUsage = create<UsageState>()((set) => ({
+  usage: new Map(),
+  wanted: new Set(),
+  set: (profileId, usage) => set((s) => ({ usage: new Map(s.usage).set(profileId, usage), wanted: s.wanted.has(profileId) ? s.wanted : new Set(s.wanted).add(profileId) })),
+}));
 
-/** Loads plan usage once per connection, follows updates, and refreshes when the window comes back into focus. */
+/** Follows usage updates, and refreshes the profiles on screen when the window comes back into focus. */
 export function useUsageSync(): void {
   const connection = useEngineConnection();
   const client = connection.status === 'connected' ? connection.client : null;
   useEffect(() => {
     if (!client) return;
-    const load = (refresh: boolean) => void client.call('usage.get', { refresh }).then(({ usage }) => useUsage.getState().set(usage)).catch(() => {});
-    const off = client.on('usage.changed', ({ usage }) => useUsage.getState().set(usage));
-    // Fetching starts a short-lived Claude Code process; let the window finish starting first.
-    const initial = setTimeout(() => load(false), 2_000);
-    const onFocus = () => load(false);
+    const off = client.on('usage.changed', ({ profileId, usage }) => useUsage.getState().set(profileId, usage));
+    const onFocus = () => {
+      for (const profileId of useUsage.getState().wanted) {
+        void client.call('usage.get', { refresh: false, profileId }).then(({ usage }) => useUsage.getState().set(profileId, usage)).catch(() => {});
+      }
+    };
     window.addEventListener('focus', onFocus);
     return () => {
       off();
-      clearTimeout(initial);
       window.removeEventListener('focus', onFocus);
     };
   }, [client]);
+}
+
+/** Loads a profile's usage the first time a band shows it. */
+function useUsageFor(profileId: string): UsageSnapshot | null {
+  const connection = useEngineConnection();
+  const client = connection.status === 'connected' ? connection.client : null;
+  useEffect(() => {
+    if (!client || useUsage.getState().usage.has(profileId)) return;
+    // Fetching starts a short-lived Claude Code process; let the window finish starting first.
+    const timer = setTimeout(
+      () => void client.call('usage.get', { refresh: false, profileId }).then(({ usage }) => useUsage.getState().set(profileId, usage)).catch(() => {}),
+      performance.now() < 10_000 ? 2_000 : 0,
+    );
+    return () => clearTimeout(timer);
+  }, [client, profileId]);
+  return useUsage((s) => s.usage.get(profileId) ?? null);
 }
 
 const TONE: Record<string, string> = { warning: 'var(--sb-warn)', critical: 'var(--sb-error)' };
@@ -48,9 +73,14 @@ function Ring({ percent, severity }: { percent: number; severity: string }) {
 const money = (minorUnits: number, currency: string | null) =>
   new Intl.NumberFormat(undefined, { style: 'currency', currency: currency ?? 'USD', maximumFractionDigits: 2 }).format(minorUnits / 100);
 
-/** Plan usage above the composer, like the claude-stats mod: one pill per window with a ring and a reset countdown. */
-export function UsageBand() {
-  const usage = useUsage((s) => s.usage);
+/**
+ * Plan usage above the composer, like the claude-stats mod: one pill per window with a ring and a
+ * reset countdown. Shows the limits of the given Claude profile (the default one when omitted).
+ */
+export function UsageBand({ profileId }: { profileId?: string | null }) {
+  const defaultId = useProfiles((s) => s.defaultId);
+  const id = profileId ?? defaultId;
+  const usage = useUsageFor(id);
   const [now, setNow] = useState(Date.now());
   useEffect(() => {
     const timer = setInterval(() => setNow(Date.now()), 30_000);
@@ -62,7 +92,8 @@ export function UsageBand() {
   if (limits.length === 0) return null;
 
   return (
-    <div className="flex flex-wrap items-center gap-1.5" data-usage-band>
+    <div className="flex flex-wrap items-center gap-1.5" data-usage-band data-usage-profile={id}>
+      <ProfileBadge profileId={id} className="mr-0.5 text-[12px]" />
       {limits.map((limit) => (
         <div
           key={`${limit.kind}:${limit.scope ?? ''}`}
