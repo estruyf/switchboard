@@ -1,4 +1,4 @@
-import { Cpu, GitBranch, Link2 } from 'lucide-react';
+import { Cpu, GitBranch, Link2, PencilLine } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import type { ImageAttachment, ProjectInspection, SlashCommand } from '@switchboard/protocol/client';
 import { useEngineConnection } from '../../engine/useEngine.ts';
@@ -19,11 +19,15 @@ import { inScope } from '../../state/sidebarRows.ts';
 import { Composer } from '../composer/Composer.tsx';
 import { PROFILE_DOT } from '../profiles/ProfileBadge.tsx';
 import { Checkbox } from '../ui/Checkbox.tsx';
+import { OpenInButton } from '../OpenInButton.tsx';
 import { UsageBand } from '../UsageBand.tsx';
 import { linkNoticeText } from './linkNotice.ts';
 import { globalPatch, INITIAL_CHOICES, readGlobals, sameDefaults, startingChoices, toProjectDefaults, type Choices, type GlobalChoices } from './choices.ts';
 
 const DEFAULTS_KEY = 'newSession.defaults';
+
+/** The prompt typed here and not sent yet: it is still in the box after visiting a session or Settings. */
+let unsentPrompt = '';
 
 function Segmented<T extends string>({ label, value, options, onChange, disabled, mono }: { label: string; value: T; options: Array<{ value: T; label: string; title?: string }>; onChange(v: T): void; disabled?: boolean; mono?: boolean }) {
   return (
@@ -86,7 +90,10 @@ export function NewSessionView() {
   const [worktreeName, setWorktreeName] = useState('');
   const [nameTouched, setNameTouched] = useState(false);
   const [commands, setCommands] = useState<SlashCommand[]>([]);
-  const [draftPrompt, setDraftPrompt] = useState('');
+  const [draftPrompt, setDraftPrompt] = useState(unsentPrompt);
+  /** The prompt was left here earlier: say so, with a way to clear it. */
+  const [restored, setRestored] = useState(() => unsentPrompt.trim() !== '');
+  const [initialText] = useState(unsentPrompt);
   const [addAsProject, setAddAsProject] = useState(true);
   const [savedNote, setSavedNote] = useState<string | null>(null);
   /** A profile chosen for this session only (null: the project's, else the default). */
@@ -174,6 +181,7 @@ export function NewSessionView() {
     // Starting needs a folder the link chose; a link without one waits for the user like any other.
     setPendingStart(link.autostart && link.prompt && (link.cwd || link.repo) ? link.prompt : null);
     if (link.prompt) {
+      setRestored(false);
       setPreset({ text: link.prompt, seq: ++presets.current });
       setDraftPrompt(link.prompt);
       setLinkPrompt(link.prompt.length);
@@ -205,15 +213,19 @@ export function NewSessionView() {
       cancelled = true;
     };
   }, [client, lookingFor]);
-  // Clearing the prompt ends the notice: whatever is typed next is the user's own.
+  // Clearing the prompt ends the notices: whatever is typed next is the user's own.
   useEffect(() => {
-    if (linkPrompt !== null && !draftPrompt) setLinkPrompt(null);
+    unsentPrompt = draftPrompt;
+    if (draftPrompt) return;
+    if (linkPrompt !== null) setLinkPrompt(null);
+    setRestored(false);
   }, [draftPrompt, linkPrompt]);
-  const clearLinkPrompt = () => {
+  const clearPrompt = () => {
     setPendingStart(null);
     setPreset({ text: '', seq: ++presets.current });
     setDraftPrompt('');
     setLinkPrompt(null);
+    setRestored(false);
   };
 
   // A new folder starts from its project's defaults (again when they arrive or change, until the user changes something).
@@ -313,6 +325,8 @@ export function NewSessionView() {
       checkoutBranch,
       profileId,
     });
+    // The view goes away before the composer empties itself, so forget the prompt here.
+    unsentPrompt = '';
     if (!isProject && addAsProject && !fromLink && inspection?.exists) {
       await client.call('projects.add', { path: cwd }).then(reloadProjects, () => {});
     }
@@ -409,15 +423,20 @@ export function NewSessionView() {
   return (
     <div className="flex h-full min-h-0 flex-col" data-drop-zone>
       {/* No title bar: the eyebrow names the view. The strip keeps the window draggable. */}
-      <div className="drag h-13 shrink-0" />
+      <div className="drag flex h-13 shrink-0 items-center justify-end px-4">
+        {/* To look around the whole project before (or instead of) asking Claude. */}
+        {cwd && inspection?.path === cwd && inspection.exists && <OpenInButton path={cwd} shortcut={false} />}
+      </div>
 
       <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
         <div className="mx-auto my-auto grid w-full max-w-3xl grid-cols-[minmax(0,1fr)] gap-5 px-6 pt-2 pb-12" data-new-session-view>
           <FolderPicker value={cwd} folders={folders} home={home} branches={folderBranches} onChange={changeFolder} onChooseOther={() => void chooseFolder()} openRequest={pickerRequest} />
 
           <div>
-            <div onInput={(e) => setDraftPrompt((e.target as HTMLTextAreaElement).value ?? '')} className="relative z-10">
+            <div className="relative z-10">
               <Composer
+                initialText={initialText}
+                onTextChange={setDraftPrompt}
                 cwd={cwd}
                 commands={commands}
                 placeholder="What should Claude work on?"
@@ -527,7 +546,16 @@ export function NewSessionView() {
             <div className="-mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 px-4 text-[11.5px] text-muted" data-link-notice role="status">
               <Link2 size={13} className="shrink-0 text-accent-ink" aria-hidden />
               <span className="min-w-0">{pendingStart !== null ? 'Starting a session with the prompt from an external link…' : linkNoticeText(linkPrompt)}</span>
-              <button type="button" onClick={clearLinkPrompt} className="text-link hover:underline" data-clear-link-prompt>
+              <button type="button" onClick={clearPrompt} className="text-link hover:underline" data-clear-link-prompt>
+                Clear
+              </button>
+            </div>
+          )}
+          {linkPrompt === null && restored && (
+            <div className="-mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 px-4 text-[11.5px] text-muted" data-draft-notice role="status">
+              <PencilLine size={13} className="shrink-0 text-accent-ink" aria-hidden />
+              <span className="min-w-0">Your unsent prompt from before.</span>
+              <button type="button" onClick={clearPrompt} className="text-link hover:underline" data-clear-draft>
                 Clear
               </button>
             </div>

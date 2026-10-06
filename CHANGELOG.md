@@ -2,6 +2,13 @@
 
 All notable changes to Switchboard are listed here. Each release is also on the [releases page](https://github.com/estruyf/switchboard/releases), with the `.dmg` to download.
 
+## [Unreleased]
+
+### New session
+
+- A prompt you start typing in **New session** is still there when you come back from a session or Settings. A **Clear** link under the message box empties it.
+- **Open in** (VS Code, another editor, a terminal, Finder or GitHub) is at the top of **New session** too, to look around the project before you start.
+
 ## [0.0.5] - 2026-10-06
 
 ### Sessions

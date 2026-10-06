@@ -78,7 +78,7 @@ function onMenuKeyDown(event: KeyboardEvent<HTMLDivElement>, close: () => void) 
 }
 
 /** Split button: open the folder in the default editor, or pick another app (or GitHub) from the menu. */
-export function OpenInButton({ path }: { path: string | null }) {
+export function OpenInButton({ path, shortcut = true }: { path: string | null; /** ⌘O opens it here (the session view). */ shortcut?: boolean }) {
   const editors = useHosts((s) => s.editors);
   const defaultId = useHosts((s) => s.defaultEditorId);
   const openIn = useOpenIn();
@@ -121,7 +121,7 @@ export function OpenInButton({ path }: { path: string | null }) {
         onClick={() => run()}
         className={`rounded-l-md border border-border px-2.5 py-1 text-[12px] hover:bg-border/50 ${error ? 'text-error' : 'text-text'}`}
         // A failed open keeps its message on the button that failed, where hovering finds it.
-        data-tooltip={error ?? `Open ${path} in ${current.name} (⌘O)`}
+        data-tooltip={error ?? `Open ${path} in ${current.name}${shortcut ? ' (⌘O)' : ''}`}
         aria-label={`Open in ${current.name}`}
       >
         {/* In a narrow pane (container query on the session view) only the app name stays. */}

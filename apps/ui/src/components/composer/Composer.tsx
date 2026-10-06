@@ -39,6 +39,8 @@ export interface ComposerProps {
   large?: boolean;
   /** Say next to the attach button that images can be pasted or dropped (an empty session). */
   dropHint?: boolean;
+  /** Called with the prompt's text whenever it changes (typing, completions, presets, sending). */
+  onTextChange?(text: string): void;
   onSubmit(text: string, attachments: ImageAttachment[]): Promise<void> | void;
   onInterrupt?(): void;
   onCycleMode?(): void;
@@ -80,6 +82,9 @@ export function Composer(props: ComposerProps) {
       }
     });
   }, [presetSeq]);
+
+  const onTextChange = props.onTextChange;
+  useEffect(() => onTextChange?.(text), [text, onTextChange]);
 
   // Grow with the content up to a limit, then scroll.
   useLayoutEffect(() => {
