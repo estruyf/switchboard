@@ -15,6 +15,7 @@ export type * from './actions.ts';
 export { ACTION_ICONS, type ActionIcon } from './actionIcons.ts';
 export type * from './usage.ts';
 export type * from './profiles.ts';
+export type * from './claudeUpdate.ts';
 export type * from './backup.ts';
 export { BACKUP_SECTIONS, SETTINGS_FILE_FORMAT, settingsFileName, type BackupSection } from './backupConstants.ts';
 export { BUILTIN_PROFILE_ID, PROFILE_COLORS } from './profileConstants.ts';

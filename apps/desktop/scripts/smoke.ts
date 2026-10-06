@@ -40,6 +40,8 @@ console.log(`${result.activity?.steps ? '✓' : '✗'} tool calls summarised: ${
 if (!result.activity?.steps) process.exitCode = 1;
 console.log(`${String(result.changesPanel).startsWith('ok') ? '✓' : '✗'} changes panel: ${result.changesPanel}`);
 if (!String(result.changesPanel).startsWith('ok')) process.exitCode = 1;
+console.log(`${String(result.branchResult).startsWith('ok') ? '✓' : '✗'} branch button: ${result.branchResult}`);
+if (!String(result.branchResult).startsWith('ok')) process.exitCode = 1;
 console.log(`${String(result.searchResult).startsWith('ok') ? '✓' : '✗'} search: ${result.searchResult}`);
 if (!String(result.searchResult).startsWith('ok')) process.exitCode = 1;
 console.log(`${String(result.paletteResult).startsWith('ok') ? '✓' : '✗'} command palette: ${result.paletteResult}`);

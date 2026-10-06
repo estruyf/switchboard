@@ -22,7 +22,7 @@ import { LiveRegistry } from './claude/liveRegistry.ts';
 import { createProjectResolver } from './claude/projectResolver.ts';
 import { sdkSessionSource, type SessionSource } from './claude/sessionSource.ts';
 import { findCheckout } from './git/remotes.ts';
-import { fileDiff, listBranches, listChanges, removeWorktree, revert, stage, switchBranch, worktreeStatus } from './git/gitChanges.ts';
+import { checkoutRoot, fileDiff, listBranches, listChanges, removeWorktree, revert, stage, switchBranch, worktreeStatus } from './git/gitChanges.ts';
 import { SearchIndex } from './sessions/searchIndex.ts';
 import { installedPlugins } from './host/capabilities.ts';
 import { ActionStore, expandCommand, shellQuote, suggestActions } from './actions/actionStore.ts';
@@ -36,6 +36,7 @@ import { ProfileStore, type ProfileRuntime } from './profiles/profileStore.ts';
 import { MultiProfileSource } from './profiles/profileSources.ts';
 import { openCacheDatabase } from './db/database.ts';
 import { findClaude } from './system/claudeBinary.ts';
+import { ClaudeUpdater, type ClaudeUpdaterOptions } from './system/claudeUpdater.ts';
 import { normaliseMessage } from './claude/transcript.ts';
 import { SessionIndex } from './sessions/sessionIndex.ts';
 import { exportSettings, planImport, readSettingsFile, writeBackup, writeSettingsFile, type SettingsStores } from './settings/settingsTransfer.ts';
@@ -73,6 +74,11 @@ export interface EngineOptions {
   trash?: (paths: string[], scope: TrashScope) => Promise<void>;
   /** Pseudo-terminal factory. Defaults to node-pty. */
   spawnPty?: () => Promise<SpawnPty>;
+  /**
+   * The Claude Code update check. `automatic: false` skips the checks after launch (tests);
+   * `allowUpdate: false` refuses to run an update command (the smoke test).
+   */
+  claudeUpdates?: Pick<ClaudeUpdaterOptions, 'registryUrl' | 'allowUpdate' | 'run'> & { automatic?: boolean };
 }
 
 export type TrashScope = { configDir: string } | { repoRoot: string };
@@ -262,7 +268,21 @@ export function createEngine(options: EngineOptions): Engine {
 
   if (cache.recovered) log('warn', 'Cache database was unreadable and has been rebuilt');
 
-  const claude = shell.forLookup().then((env) => findClaude(env, options.claudeBinary));
+  // Found again by the Claude Code updater (after an update, and on each check), so new sessions use the version installed now.
+  let claude = shell.forLookup().then((env) => findClaude(env, options.claudeBinary));
+  const findClaudeAgain = () => (claude = shell.forLookup().then((env) => findClaude(env, options.claudeBinary)));
+  const claudeUpdater = new ClaudeUpdater({
+    store: appState,
+    findClaude: findClaudeAgain,
+    override: options.claudeBinary !== undefined,
+    claudeConfigDir,
+    env: () => shell.forLookup(),
+    ready: Promise.all([shell.ready, claude]),
+    onChange: (state) => broadcast('claudeUpdate.changed', state),
+    log,
+    ...options.claudeUpdates,
+  });
+  if (options.claudeUpdates?.automatic !== false) claudeUpdater.start();
   const files = new FileIndex();
 
   const sdk = options.sdk ?? (() => import('@anthropic-ai/claude-agent-sdk'));
@@ -368,7 +388,6 @@ export function createEngine(options: EngineOptions): Engine {
       const from = action.scope === 'shared' ? `${projectRoot}/.switchboard.json` : 'a settings file';
       throw new RpcError('UNTRUSTED', `"${action.name}" comes from ${from} and has not been approved yet`);
     }
-
     return action;
   };
 
@@ -735,6 +754,27 @@ export function createEngine(options: EngineOptions): Engine {
         throw new RpcError('GIT_FAILED', (error as Error).message);
       }
     },
+    'git.switch': async ({ cwd, branch }) => {
+      if (!resolver.resolve(cwd).gitDir) throw new RpcError('NOT_A_REPO', 'Not a git repository');
+      // Changing the files under a running turn would confuse Claude, wherever that session runs.
+      const root = await checkoutRoot(cwd);
+      scanLive();
+      const busy = [
+        ...hosts.list().hosts.filter((h) => h.state === 'starting' || h.state === 'running' || h.state === 'needs-you').map((h) => h.cwd),
+        ...liveList().filter((l) => l.status !== 'idle').flatMap((l) => (l.cwd ? [l.cwd] : [])),
+      ];
+      for (const other of new Set(busy)) {
+        if (existsSync(other) && (await checkoutRoot(other)) === root) {
+          throw new RpcError('SESSION_BUSY', 'Claude is working in this folder. Wait for it to finish, or stop it first.');
+        }
+      }
+      try {
+        await switchBranch(cwd, branch);
+        return { current: (await listBranches(cwd)).current };
+      } catch (error) {
+        throw new RpcError('GIT_FAILED', (error as Error).message);
+      }
+    },
     'git.stage': async ({ cwd, paths, staged }) => {
       try {
         await stage(cwd, paths, staged);
@@ -834,6 +874,16 @@ export function createEngine(options: EngineOptions): Engine {
       terminals.stop(id);
       return {};
     },
+    'claudeUpdate.get': () => claudeUpdater.state,
+    'claudeUpdate.check': () => {
+      void claudeUpdater.check();
+      return {};
+    },
+    'claudeUpdate.update': () => {
+      // A refusal (busy, can't run it) throws here and answers the request; the update reports through claudeUpdate.changed.
+      claudeUpdater.update().catch((error: Error) => log('error', `Claude Code update failed: ${error.message}`));
+      return {};
+    },
     'settings.export': ({ path, sections, preferences, appVersion }) => {
       writeSettingsFile(path, exportSettings(settingsStores, { sections, preferences, appVersion }));
       log('info', `Exported settings (${sections.join(', ')}) to ${path}`);
@@ -852,6 +902,14 @@ export function createEngine(options: EngineOptions): Engine {
       broadcast('settings.imported', {});
       log('info', `Imported settings from ${path} (${mode}); backup at ${backupPath}`);
       return { preview: plan.preview, backupPath, preferences: result.preferences };
+    },
+    'claudeUpdate.dismiss': () => {
+      claudeUpdater.dismiss();
+      return {};
+    },
+    'claudeUpdate.setEnabled': ({ enabled }) => {
+      claudeUpdater.setEnabled(enabled);
+      return {};
     },
     'terminal.restart': async ({ id }) => {
       // An action is looked up again: it may have been edited, deleted or lost its approval since.
@@ -891,6 +949,7 @@ export function createEngine(options: EngineOptions): Engine {
       servers.clear();
       hosts.closeAll();
       for (const monitor of usageMonitors.values()) monitor.stop();
+      claudeUpdater.close();
       terminals.closeAll();
       clearTimeout(searchTimer);
       sessions.stop();

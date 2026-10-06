@@ -25,6 +25,7 @@ import { useProjects, useProjectsSync } from './state/projectsStore.ts';
 import { useSidebarSync } from './state/sidebarStore.ts';
 import { useTerminals, useTerminalsSync } from './state/terminalsStore.ts';
 import { useUpdatesSync } from './state/updatesStore.ts';
+import { useClaudeUpdateSync } from './state/claudeUpdateStore.ts';
 import { useHostsSync } from './state/useHostsSync.ts';
 import { useSessionsSync } from './state/useSessionsSync.ts';
 
@@ -133,6 +134,7 @@ export function App() {
   useProfilesSync();
   useTerminalsSync();
   useUpdatesSync();
+  useClaudeUpdateSync();
   useSidebarSync();
   useUsageSync();
   usePreferencesSync();

@@ -6,6 +6,7 @@ import { useEngineConnection } from '../../engine/useEngine.ts';
 import { guessHome, shortAge, tildify } from '../../lib/format.ts';
 import { nextMode } from '../../lib/modes.ts';
 import { hostAsLive, isActiveHost, useHosts } from '../../state/hostsStore.ts';
+import { useCheckoutBranches } from '../../state/checkoutBranchesStore.ts';
 import { useOverlay } from '../../state/overlayStore.ts';
 import { usePreferences } from '../../state/preferencesStore.ts';
 import { useProjects } from '../../state/projectsStore.ts';
@@ -17,6 +18,8 @@ import { Composer } from '../composer/Composer.tsx';
 import { CapabilitiesDialog } from '../capabilities/CapabilitiesDialog.tsx';
 import { ChangesPanel } from '../changes/ChangesPanel.tsx';
 import { ContextMeter } from '../session/ContextMeter.tsx';
+import { BranchMenu } from '../worktree/BranchMenu.tsx';
+import { inWorktree } from '../worktree/branchMenu.ts';
 import { WorktreeMenu } from '../worktree/WorktreeMenu.tsx';
 import { ConfirmDialog } from '../ConfirmDialog.tsx';
 import { ActionsBar } from '../actions/ActionsBar.tsx';
@@ -174,7 +177,9 @@ export function TranscriptView({ sessionId, pane = null, active = true }: { sess
   const toolsOpen = useOverlay((s) => s.open === 'tools') && active;
   const toggleChanges = useOverlay((s) => s.toggleChanges);
   const [changesBase, setChangesBase] = useState<ChangesBase>('uncommitted');
-  const { changes, isRepo, refresh: refreshChanges } = useGitChanges(cwd, changesBase, `${items.length}:${live?.status ?? ''}`);
+  // A branch switch (here or in another pane on the same checkout) changes what the panel shows.
+  const branchSwitches = useCheckoutBranches((s) => s.switches);
+  const { changes, isRepo, refresh: refreshChanges } = useGitChanges(cwd, changesBase, `${items.length}:${live?.status ?? ''}:${branchSwitches}`);
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (active && event.metaKey && event.shiftKey && !event.altKey && event.key.toLowerCase() === 'd') {
@@ -317,7 +322,10 @@ export function TranscriptView({ sessionId, pane = null, active = true }: { sess
     if (result.sessionId !== sessionId) select(result.sessionId);
   };
 
-  const branch = summary?.worktree?.branch ?? realBranch(summary?.gitBranch ?? null);
+  const isWorktree = Boolean(summary?.worktree || (cwd && inWorktree(cwd)));
+  // On this checkout the branch button shows the live branch; the transcript's is out of date once you switch.
+  const branchButton = Boolean(cwd && isRepo && !isWorktree);
+  const branch = branchButton ? null : (summary?.worktree?.branch ?? realBranch(summary?.gitBranch ?? null));
   const origin = summary ? ORIGIN_LABEL[summary.origin] : activeHost ? ORIGIN_LABEL.app : registryLive ? ORIGIN_LABEL[registryLive.origin] : '';
   const meta = [
     cwd && tildify(cwd, home),
@@ -348,13 +356,14 @@ export function TranscriptView({ sessionId, pane = null, active = true }: { sess
           </span>
         )}
         <AgentsButton items={items} sessionId={sessionId} cwd={cwd} sessionOpen={live !== null} />
-        {cwd && (summary?.worktree || /[\\/]\.claude[\\/]worktrees[\\/]/.test(cwd)) && (
+        {cwd && isWorktree && (
           <WorktreeMenu
             sessionId={sessionId}
             cwd={cwd}
             onCommit={() => void send('Commit the current changes with a clear, conventional commit message.', [], openElsewhere).catch((e: Error) => setActionError(e.message))}
           />
         )}
+        {cwd && branchButton && <BranchMenu sessionId={sessionId} cwd={cwd} root={projectRoot ?? cwd} busy={working} onSwitched={refreshChanges} />}
         <ActionsBar sessionId={sessionId} projectRoot={projectRoot} cwd={cwd} />
         {cwd && isRepo && (
           <button

@@ -117,6 +117,8 @@ export type SlashCommand = z.infer<typeof SlashCommand>;
 
 export const ModelOption = z.object({
   value: z.string(),
+  /** The full model id an alias resolves to (`opus` → `claude-opus-…`), so a running session's model can be matched to its row. */
+  resolvedModel: z.string().optional(),
   displayName: z.string(),
   description: z.string(),
   supportsEffort: z.boolean(),

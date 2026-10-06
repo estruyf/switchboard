@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -30,6 +31,12 @@ ipcMain.on(IpcChannel.getAppInfo, (event) => {
 
 // The smoke test runs against a throwaway profile so it never touches real app data.
 if (smokeOutDir) app.setPath('userData', mkdtempSync(join(tmpdir(), 'switchboard-smoke-')));
+// The engine inherits these: the Claude Code check reads a mock registry that offers a newer version, and an
+// update is refused even if one were clicked, so the user's real `claude` is never touched.
+if (smokeOutDir) {
+  process.env.SWITCHBOARD_CLAUDE_REGISTRY ??= `data:application/json,${encodeURIComponent(JSON.stringify({ latest: '999.0.0', stable: '999.0.0' }))}`;
+  process.env.SWITCHBOARD_NO_CLAUDE_UPDATE = '1';
+}
 
 if (!app.requestSingleInstanceLock()) app.quit();
 
@@ -587,6 +594,7 @@ let settingsResult = 'not run';
 let transcriptAtBottom: number | null = null;
 let activity: { groups: number; steps: number; label: string } | null = null;
 let changesPanel: string = 'not run';
+let branchResult: string = 'not run';
 let searchResult = 'not run';
 let paletteResult = 'not run';
 let toolsResult = 'not run';
@@ -786,8 +794,8 @@ async function runProjectsStep(win: BrowserWindow): Promise<string> {
   win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Escape' });
   if (!(await waitInPage(win, `!document.querySelector('[data-add-project-dialog]') && ${row()} && !document.querySelector('[data-sidebar-onboarding]')`, 3_000))) return 'the project did not appear in the list';
 
-  await js(`${row('[data-project-toggle]')}.click()`);
-  if (!(await waitInPage(win, `${row('[data-default-effort]')}`, 3_000))) return 'the defaults editor did not open';
+  // Closing the dialog opens the project just added, so its profile and defaults can be set.
+  if (!(await waitInPage(win, `${row('[data-default-effort]')}`, 3_000))) return 'the new project did not open in the Projects view';
   // Themed dropdown: open with a click, ↓ moves, Escape closes and focus returns.
   const modelSelect = `${rowSelector} [data-default-model]`;
   await js(`document.querySelector(${JSON.stringify(modelSelect)}).click()`);
@@ -824,7 +832,7 @@ async function runProjectsStep(win: BrowserWindow): Promise<string> {
   await click('[data-confirm]');
   if (!(await waitInPage(win, "document.querySelector('[data-no-projects]')", 3_000))) return 'the project was not removed';
   await click('[data-open-projects]');
-  return `ok: ${known} folders offered; added one, dropdown keyboard and Escape, its defaults reached New session, saved a change back, removed it`;
+  return `ok: ${known} folders offered; added one and it opened, dropdown keyboard and Escape, its defaults reached New session, saved a change back, removed it`;
 }
 
 /**
@@ -925,10 +933,40 @@ async function runAboutStep(win: BrowserWindow): Promise<string> {
     }
     mockCheck = `, mock feed: ${updater.state.status === 'available' ? `v${updater.state.availableVersion} offered, pill shown` : 'up to date'}`;
   }
+  const claudeCheck = await checkClaudeUpdates(win);
+  if (!claudeCheck.startsWith('ok')) return `Claude Code: ${claudeCheck}`;
   await new Promise((resolve) => setTimeout(resolve, 300));
   await shot(win, 'about.png');
   await js("document.querySelector('[data-close-settings]').click()");
-  return `ok: ${navVersion}${off ? `, updates off ("${updater.state.disabledReason}")` : `, updates ${updater.state.status}`}${mockCheck}`;
+  return `ok: ${navVersion}${off ? `, updates off ("${updater.state.disabledReason}")` : `, updates ${updater.state.status}`}${mockCheck}; ${claudeCheck.slice(4)}`;
+}
+
+/**
+ * Settings → About's Claude Code section, checked against the mock registry (which offers v999.0.0): the installed
+ * version and the update or the command to run show, the sidebar notice appears and Dismiss hides it. Update is
+ * never clicked, and the engine refuses it in smoke runs anyway (SWITCHBOARD_NO_CLAUDE_UPDATE).
+ */
+async function checkClaudeUpdates(win: BrowserWindow): Promise<string> {
+  const js = (code: string) => win.webContents.executeJavaScript(code);
+  if (!(await waitInPage(win, "document.querySelector('[data-claude-updates]')", 5_000))) return 'no Claude Code section in About';
+  if (!(await js("Boolean(document.querySelector('[data-claude-update-auto]'))"))) return 'no automatic-check toggle';
+  await js("document.querySelector('[data-claude-update-check]')?.click()");
+  const statusOf = "document.querySelector('[data-claude-updates]')?.dataset.claudeUpdateStatus";
+  if (!(await waitInPage(win, `['available', 'up-to-date', 'error', 'missing'].includes(${statusOf})`, 20_000))) return `the check did not finish (${await js(statusOf)})`;
+  const status = (await js(statusOf)) as string;
+  if (status === 'missing') return 'ok: no claude installed';
+  if (status !== 'available') return `expected the mock v999.0.0 to be on offer, got ${status}: ${await js("document.querySelector('[data-claude-update-text]')?.innerText")}`;
+  const installed = (await js("document.querySelector('[data-claude-installed-version]')?.dataset.claudeInstalledVersion ?? ''")) as string;
+  const how = (await js("document.querySelector('[data-claude-update-run]') ? 'update button' : document.querySelector('[data-claude-update-command]') ? 'command to copy' : null")) as string | null;
+  if (!how) return 'v999.0.0 is on offer but there is neither an Update button nor a command to copy';
+  const quiet = (await js("document.querySelector('[data-claude-updates]')?.dataset.claudeUpdateQuiet === 'true'")) as boolean;
+  if (quiet) return `ok: v${installed} installed, v999.0.0 offered (${how}), no notice (Claude Code's auto-updater is off)`;
+  // The app's own update pill takes the footer first; only look for the notice when there is none.
+  if (await js("document.querySelector('[data-update-pill]')")) return `ok: v${installed} installed, v999.0.0 offered (${how}), notice behind the app update pill`;
+  if (!(await waitInPage(win, "document.querySelector('[data-claude-update-pill=\"available\"]')", 3_000))) return 'no sidebar notice for v999.0.0';
+  await js("document.querySelector('[data-claude-update-dismiss]').click()");
+  if (!(await waitInPage(win, "!document.querySelector('[data-claude-update-pill]')", 3_000))) return 'Dismiss did not hide the notice';
+  return `ok: v${installed} installed, v999.0.0 offered (${how}), notice shown and dismissed`;
 }
 
 /**
@@ -1016,6 +1054,66 @@ async function runChangesStep(win: BrowserWindow): Promise<string> {
   const messageActions = (await js("document.querySelectorAll('[data-message-actions]').length")) as number;
   if (!wasOpen) await js("document.querySelector('[data-toggle-changes]').click()");
   return `ok: ${files} changed files${files ? ', first diff shown' : ''}; ${messageActions} messages with fork/rewind actions`;
+}
+
+/**
+ * Read-only: the header's branch button on a session in its project's checkout shows the branch git
+ * has checked out, and its menu lists the local branches; Escape closes it. While Claude works in the
+ * session (often the one running this test) it is disabled and says why; then the step tries the next
+ * sessions in the sidebar for the menu. Never switches branches (these are the user's own projects).
+ */
+async function runBranchStep(win: BrowserWindow): Promise<string> {
+  const js = (code: string) => win.webContents.executeJavaScript(code);
+  const button = "document.querySelector('[data-current-session] [data-branch-menu]')";
+  const notes: string[] = [];
+  try {
+    for (let i = 0; i < 8; i++) {
+      if (i > 0) {
+        const id = (await js(`(() => { const row = document.querySelectorAll('[data-session-id]')[${i}]; row?.click(); return row?.dataset.sessionId ?? null; })()`)) as string | null;
+        if (!id) break;
+        await waitInPage(win, `document.querySelector('[data-current-session="${id}"]')`, 3_000);
+      }
+      if (!(await waitInPage(win, "document.querySelector('[data-current-session] :is([data-branch-menu], [data-worktree-menu])')", i === 0 ? 5_000 : 1_500))) {
+        if (i === 0 && (await js("!!document.querySelector('[data-current-session] [data-toggle-changes]')"))) return 'no branch button on a git checkout';
+        continue;
+      }
+      if (!(await js(`!!${button}`))) continue;
+      const { branch, cwd, busyTip } = (await js(
+        `(() => { const b = ${button}; return { branch: b.dataset.branch, cwd: b.dataset.cwd, busyTip: b.getAttribute('aria-disabled') === 'true' ? b.dataset.tooltip : null }; })()`,
+      )) as { branch: string; cwd: string; busyTip: string | null };
+      const git = (args: string[]) => execFileSync('git', args, { cwd, encoding: 'utf8', env: { ...process.env, GIT_OPTIONAL_LOCKS: '0' } }).trim();
+      let current = '';
+      try {
+        current = git(['symbolic-ref', '--quiet', '--short', 'HEAD']);
+      } catch {
+        // Detached HEAD.
+      }
+      if (branch !== current) return `button shows "${branch}", git has "${current || 'detached'}"`;
+      if (busyTip !== null) {
+        if (!busyTip.startsWith('Wait for Claude')) return `disabled without saying why ("${busyTip}")`;
+        notes.push('disabled while Claude works');
+        continue;
+      }
+      const local = git(['for-each-ref', '--format=%(refname:short)', 'refs/heads']).split('\n').filter(Boolean);
+      await js(`${button}.click()`);
+      if (!(await waitInPage(win, "document.querySelector('[data-menu=\"branch\"] [data-branch-option]')", 3_000))) return 'menu did not open';
+      const options = (await js("[...document.querySelectorAll('[data-menu=\"branch\"] [data-branch-option]')].map((o) => o.dataset.branchOption)")) as string[];
+      const checked = (await js("document.querySelector('[data-menu=\"branch\"] [aria-checked=\"true\"]')?.dataset.branchOption ?? null")) as string | null;
+      await shot(win, 'branch-menu.png');
+      const missing = local.filter((b) => !options.includes(b));
+      if (missing.length) return `menu misses ${missing.slice(0, 3).join(', ')}`;
+      if (current && (options[0] !== current || checked !== current)) return `current branch is not first and ticked (${options[0]}, ${checked})`;
+      win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Escape' });
+      win.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Escape' });
+      if (!(await waitInPage(win, "!document.querySelector('[data-menu=\"branch\"]')", 2_000))) return 'Escape did not close the menu';
+      return `ok: on ${current || 'detached'}, ${options.length} branches listed, Escape closed the menu${notes.length ? `; ${notes.join(', ')} elsewhere` : ''}`;
+    }
+    return notes.length ? `ok: ${notes.join(', ')}; no idle session on a checkout to open the menu in` : 'ok: skipped (no session on a git checkout)';
+  } finally {
+    // Back to the session the other steps work with.
+    await js(`document.querySelector('[data-session-id="${smokeSessionId}"]')?.click()`);
+    await waitInPage(win, `document.querySelector('[data-current-session="${smokeSessionId}"] [data-transcript-item]')`, 5_000);
+  }
 }
 
 /** ⌘⇧F, type a word, open the first hit: the session opens with that message highlighted. */
@@ -1444,6 +1542,7 @@ async function runSmokeStep(win: BrowserWindow | null): Promise<void> {
     writeFileSync(join(smokeOutDir, 'transcript.png'), (await win.webContents.capturePage()).toPNG());
     activity = await runActivityStep(win);
     changesPanel = await runChangesStep(win);
+    branchResult = await runBranchStep(win).catch((error: Error) => `failed: ${error.message}`);
     searchResult = await runSearchStep(win).catch((error: Error) => `failed: ${error.message}`);
     paletteResult = await runPaletteStep(win).catch((error: Error) => `failed: ${error.message}`);
     toolsResult = await runToolsStep(win).catch((error: Error) => `failed: ${error.message}`);
@@ -1495,6 +1594,7 @@ async function runSmokeStep(win: BrowserWindow | null): Promise<void> {
         transcriptAtBottom,
         activity,
         changesPanel,
+        branchResult,
         searchResult,
         paletteResult,
         toolsResult,

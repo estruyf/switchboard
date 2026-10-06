@@ -163,8 +163,9 @@ export function Select<T extends string>({ value, options, onChange, disabled, l
                 className={`flex items-center gap-2 px-3 py-1 text-[12px] ${option.disabled ? 'opacity-40' : ''} ${i === active ? 'bg-accent/15 text-text' : 'text-text'}`}
               >
                 {option.icon && <span className="flex w-4 shrink-0 justify-center text-muted">{option.icon}</span>}
-                <span className="min-w-0 flex-1 truncate">{option.label}</span>
-                {option.hint && <span className="shrink-0 text-[11px] text-faint">{option.hint}</span>}
+                {/* With a hint, the label keeps its width and the hint truncates instead. */}
+                <span className={option.hint ? 'max-w-full shrink-0 truncate' : 'min-w-0 flex-1 truncate'}>{option.label}</span>
+                {option.hint && <span className="min-w-0 flex-1 truncate text-right text-[11px] text-faint">{option.hint}</span>}
                 <Check size={12} className={`shrink-0 text-accent-ink ${option.value === value ? '' : 'invisible'}`} />
               </div>
             ))}

@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { MessageChannel, type MessagePort } from 'node:worker_threads';
@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { createRpcClient, messagePortTransport, type Contract, type DomLikePort, type LogEntry, type TranscriptUpdate } from '@switchboard/protocol';
 import type { SessionSource } from './claude/sessionSource.ts';
 import { createEngine } from './engine.ts';
+import { git } from './git/gitChanges.ts';
 
 const SESSION_ID = '33333333-3333-4333-8333-333333333333';
 const fakeSource: SessionSource = {
@@ -369,4 +370,48 @@ describe('Claude profiles', () => {
     expect((await client.call('projects.list', {})).projects.find((p) => p.root === project)).toMatchObject({ profileId: null });
     expect(existsSync(join(work, '.claude.json'))).toBe(true);
   }, 30_000);
+
+  it('switches the branch of a checkout, keeps uncommitted work and refuses while Claude works there', async () => {
+    const { client, dataDir } = connect();
+    const repo = realpathSync(mkdtempSync(join(tmpdir(), 'switchboard-switch-')));
+    cleanups.push(() => rmSync(repo, { recursive: true, force: true }));
+    const run = (...args: string[]) => git(repo, args);
+    await run('init', '-q', '-b', 'main');
+    await run('config', 'user.email', 'test@example.com');
+    await run('config', 'user.name', 'Test');
+    writeFileSync(join(repo, 'a.txt'), 'one\n');
+    await run('add', '.');
+    await run('commit', '-qm', 'initial');
+    await run('branch', 'feature');
+    await run('switch', '-qc', 'other');
+    writeFileSync(join(repo, 'a.txt'), 'committed on other\n');
+    await run('commit', '-qam', 'other');
+    await run('switch', '-q', 'main');
+
+    // Another branch, with an uncommitted new file coming along.
+    writeFileSync(join(repo, 'scratch.txt'), 'mine\n');
+    await expect(client.call('git.switch', { cwd: repo, branch: 'feature' })).resolves.toEqual({ current: 'feature' });
+    expect(readFileSync(join(repo, 'scratch.txt'), 'utf8')).toBe('mine\n');
+    // The branch already checked out: nothing to do.
+    await expect(client.call('git.switch', { cwd: repo, branch: 'feature' })).resolves.toEqual({ current: 'feature' });
+
+    // A change git would overwrite: refused, and the working tree is unchanged.
+    writeFileSync(join(repo, 'a.txt'), 'uncommitted\n');
+    await expect(client.call('git.switch', { cwd: repo, branch: 'other' })).rejects.toMatchObject({ code: 'GIT_FAILED' });
+    expect(readFileSync(join(repo, 'a.txt'), 'utf8')).toBe('uncommitted\n');
+    expect((await client.call('git.branches', { cwd: repo })).current).toBe('feature');
+    await expect(client.call('git.switch', { cwd: repo, branch: '--orphan' })).rejects.toMatchObject({ code: 'GIT_FAILED' });
+
+    // A Claude Code session working in this checkout (a subfolder counts): refused until it is idle.
+    writeFileSync(join(repo, 'a.txt'), 'one\n');
+    mkdirSync(join(repo, 'src'));
+    const registry = join(dataDir, 'claude', 'sessions');
+    mkdirSync(registry, { recursive: true });
+    const entry = (status: string) => JSON.stringify({ pid: process.pid, sessionId: '66666666-6666-4666-8666-666666666666', cwd: join(repo, 'src'), status, entrypoint: 'cli' });
+    writeFileSync(join(registry, `${process.pid}.json`), entry('busy'));
+    await expect(client.call('git.switch', { cwd: repo, branch: 'main' })).rejects.toMatchObject({ code: 'SESSION_BUSY' });
+    expect((await client.call('git.branches', { cwd: repo })).current).toBe('feature');
+    writeFileSync(join(registry, `${process.pid}.json`), entry('idle'));
+    await expect(client.call('git.switch', { cwd: repo, branch: 'main' })).resolves.toEqual({ current: 'main' });
+  });
 });

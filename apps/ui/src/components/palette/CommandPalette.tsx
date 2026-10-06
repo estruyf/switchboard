@@ -1,7 +1,8 @@
 import {
   Activity,
-  Blocks,
+  ArrowDownCircle,
   Download,
+  Blocks,
   FileDiff,
   FolderCog,
   FolderPlus,
@@ -31,6 +32,7 @@ import { useProjects } from '../../state/projectsStore.ts';
 import { toRows, useSessions } from '../../state/sessionsStore.ts';
 import { inScope } from '../../state/sidebarRows.ts';
 import { useTerminals } from '../../state/terminalsStore.ts';
+import { useClaudeUpdate } from '../../state/claudeUpdateStore.ts';
 import { ACTION_ICON, formatShortcut, useProjectActionList } from '../actions/useActions.ts';
 import { useOpenIn } from '../OpenInButton.tsx';
 import { ProjectIcon } from '../ProjectIcon.tsx';
@@ -84,6 +86,17 @@ export function CommandPalette() {
       { id: 'settings', group: 'Commands', label: 'Settings', keywords: 'preferences', hint: '⌘,', icon: icon(Settings), run: () => useSessions.getState().openSettings() },
       { id: 'projects', group: 'Commands', label: 'Manage projects', keywords: 'folders defaults', icon: icon(FolderCog), run: () => setView('projects') },
       { id: 'add-project', group: 'Commands', label: 'Add project…', keywords: 'folder', icon: icon(FolderPlus), run: () => useProjects.getState().showAdd(true) },
+      {
+        id: 'claude-update',
+        group: 'Commands',
+        label: 'Check for Claude Code updates…',
+        keywords: 'upgrade version cli',
+        icon: icon(ArrowDownCircle),
+        run: () => {
+          useSessions.getState().openSettings('about');
+          useClaudeUpdate.getState().check();
+        },
+      },
       { id: 'export-settings', group: 'Commands', label: 'Export settings…', keywords: 'backup save move mac projects actions preferences', icon: icon(Upload), run: () => useBackup.getState().show('export') },
       { id: 'import-settings', group: 'Commands', label: 'Import settings…', keywords: 'backup restore move mac projects actions preferences', icon: icon(Download), run: () => useBackup.getState().show('import') },
       { id: 'diagnostics', group: 'Commands', label: 'Engine diagnostics', keywords: 'settings log version', icon: icon(Activity), run: () => useSessions.getState().openSettings('diagnostics') },

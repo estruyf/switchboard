@@ -8,6 +8,7 @@ import { useUpdates } from '../../state/updatesStore.ts';
 import { Radio, RadioGroup } from '../ui/Radio.tsx';
 import { Toggle } from '../ui/Toggle.tsx';
 import { useInstallUpdate } from './useInstallUpdate.tsx';
+import { ClaudeCodeUpdates } from './ClaudeCodeUpdates.tsx';
 
 const CHANNELS: Array<{ value: UpdateChannel; label: string; detail: string }> = [
   { value: 'stable', label: 'Stable', detail: 'Published releases.' },
@@ -146,6 +147,8 @@ export function AboutSettings() {
           </RadioGroup>
         </div>
       </div>
+
+      <ClaudeCodeUpdates now={now} />
       {dialog}
     </div>
   );

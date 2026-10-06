@@ -41,6 +41,8 @@ mac:
   entitlementsInherit: build/entitlements.mac.plist
 dmg:
   title: Switchboard
+# Names the helper apps "Switchboard Helper" instead of "Electron Helper" in macOS prompts (runs before signing).
+afterPack: scripts/afterPack.mjs
 # switchboard:// links (docs/deep-links.md): declared in Info.plist so macOS opens them with the app.
 protocols:
   - name: Switchboard link

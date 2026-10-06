@@ -33,6 +33,7 @@ import { ActionRunResult, ActionSuggestion, ListedAction, ProjectAction } from '
 import { ChangesBase, GitChanges, WorktreeStatus } from './git.ts';
 import { Capabilities } from './capabilities.ts';
 import { ProfileColor, ProfilesSnapshot } from './profiles.ts';
+import { ClaudeUpdateState } from './claudeUpdate.ts';
 import { BackupSectionSchema, FolderMapping, ImportMode, ImportPreview } from './backup.ts';
 
 export const ClaudeInstall = z.object({
@@ -87,7 +88,6 @@ const ProfileName = z.string().trim().min(1).max(60);
 const SettingsFilePath = AbsolutePath.regex(/\.json$/i, 'Settings files end in .json');
 /** The app's preferences, which main keeps: the renderer passes them in and applies what comes back. */
 const PreferencesRecord = z.record(z.string(), z.unknown());
-
 
 /** Every request the UI can make and every event the engine can push. */
 export const contract = {
@@ -324,6 +324,12 @@ export const contract = {
     },
     /** Local branches of the repository at `cwd`, and the one checked out (null when detached or not a repo). */
     'git.branches': { params: z.object({ cwd: AbsolutePath }), result: z.object({ current: z.string().nullable(), branches: z.array(z.string()) }) },
+    /**
+     * Checks out a local branch in the checkout at `cwd` with `git switch`: uncommitted changes that
+     * don't conflict come along, and git refuses (GIT_FAILED) when they do. Nothing is stashed or
+     * discarded. Refused (SESSION_BUSY) while Claude is working in a session in this checkout.
+     */
+    'git.switch': { params: z.object({ cwd: AbsolutePath, branch: z.string().min(1).max(250) }), result: z.object({ current: z.string().nullable() }) },
     'git.stage': { params: z.object({ cwd: AbsolutePath, paths: z.array(z.string().max(4096)).max(5000), staged: z.boolean() }), result: z.object({}) },
     /** Puts files back to HEAD. New files go to the Trash. */
     'git.revert': { params: z.object({ cwd: AbsolutePath, paths: z.array(z.string().max(4096)).min(1).max(5000) }), result: z.object({}) },
@@ -401,6 +407,20 @@ export const contract = {
       }),
       result: z.object({ preview: ImportPreview, backupPath: z.string().nullable(), preferences: PreferencesRecord.nullable() }),
     },
+
+    // --- Claude Code updates -----------------------------------------------------------------
+    'claudeUpdate.get': { params: z.object({}), result: ClaudeUpdateState },
+    /** Compares the installed Claude Code with the newest on its channel now. The result arrives through `claudeUpdate.changed`. */
+    'claudeUpdate.check': { params: z.object({}), result: z.object({}) },
+    /**
+     * Runs the update command for the install method, streaming its output through `claudeUpdate.changed`, then finds
+     * `claude` again so new sessions use the new version. Refused (UNSUPPORTED) when Switchboard can't run it, BUSY while running.
+     */
+    'claudeUpdate.update': { params: z.object({}), result: z.object({}) },
+    /** Hides the notice until a newer version than the one on offer, and clears "Updated to". */
+    'claudeUpdate.dismiss': { params: z.object({}), result: z.object({}) },
+    /** Turns automatic checks on or off (remembered). */
+    'claudeUpdate.setEnabled': { params: z.object({ enabled: z.boolean() }), result: z.object({}) },
   },
   events: {
     'engine.log': LogEntry,
@@ -419,6 +439,7 @@ export const contract = {
     'profiles.changed': ProfilesSnapshot,
     /** Full list whenever terminals start, exit or close. */
     'terminals.changed': z.object({ terminals: z.array(TerminalInfo) }),
+    'claudeUpdate.changed': ClaudeUpdateState,
     /** Settings were imported: reload projects and actions. */
     'settings.imported': z.object({}),
   },

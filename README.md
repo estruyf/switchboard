@@ -42,6 +42,7 @@ It uses the Claude Code you already have installed, with your login, settings, c
 
 **Review and finish the work**
 - A **Changes** panel (⌘⇧D) with the session's git diff: what's uncommitted, or the whole branch compared with `main`. Stage, unstage or revert files, and open any diff inline. Reverted new files go to the Trash.
+- The **branch** a session's folder has checked out shows in its header, read live from git (so it's right after you or Claude switch in a terminal). Click it to switch to another local branch. Switching uses `git switch`: uncommitted changes that don't conflict come along, and when they would be overwritten git refuses and you stay where you are. Nothing is ever stashed or thrown away. It waits while Claude is working in this folder, and asks first when other sessions work in the same folder.
 - **Finish a worktree** from its **Worktree** menu:
   - Commit with Claude.
   - Merge into the base branch, or push and open a pull request.
@@ -83,6 +84,14 @@ If macOS blocks the app the first time you open it, see [Building, signing and n
 Switchboard checks for a new release shortly after it opens and every few hours. When there is one, a pill at the bottom of the sidebar says *Update available*: click it to download the update (the page icon next to it shows what's new), then *Restart to update*. If sessions are running, Switchboard asks before it restarts. You can also choose **Switchboard → Check for Updates…** at any time.
 
 In **Settings → About** you can turn automatic checks off and pick a channel: *Stable* (published releases, the default) or *Nightly* (pre-release builds, when there are any). Nothing downloads until you click. Builds you make yourself with `npm run dist` update like a release; development builds don't update.
+
+#### Claude Code
+
+Switchboard also checks whether the Claude Code it runs is up to date: shortly after it opens, every few hours, and when you choose **Check for Updates** under Claude Code in **Settings → About** (or *Check for Claude Code updates…* in the command palette). It compares your version with the newest on the channel you follow: the `autoUpdatesChannel` in your Claude Code settings (*latest* or *stable*), or, for Homebrew, the cask you installed (`claude-code` is stable, `claude-code@latest` is latest).
+
+When a newer version is out, the bottom of the sidebar says so. Click it to update, or dismiss it until the next version. Switchboard runs the update for how you installed Claude Code (`claude update` for the native installer, `brew upgrade --cask …` for Homebrew, `npm install -g …` for npm) and shows its output in Settings → About. New sessions use the new version straight away; sessions already running keep theirs until they restart. If Switchboard can't tell how Claude Code was installed, it shows the command to run in a terminal instead, with a copy button.
+
+To stop the checks, turn off *Check for Claude Code updates automatically* in Settings → About. If you turned off Claude Code's own updater (`DISABLE_AUTOUPDATER`), Settings still shows a newer version, but the sidebar doesn't.
 
 ## Getting started
 
@@ -127,7 +136,7 @@ Open Settings with ⌘, or the gear at the bottom of the sidebar. While it is op
 - **Claude profiles:** use more than one Claude account, for example a personal plan and a work one. Each profile is a Claude Code config folder with its own login, settings, plugins and sessions (`~/.claude` is the first). Add one, sign in there once in a terminal with the command Settings shows (`CLAUDE_CONFIG_DIR=~/.claude-work claude`, then `/login`), and pick the default. *How to set up another profile* under the list walks through it step by step. Link a project to a profile from its menu or the Projects view; New session shows the profile a folder uses and lets you pick another for one session. With more than one profile, sessions show which account they use, and the usage band shows that account's limits.
 - **Backup:** export your settings to a file and import them again. See [Back up and move your settings](#back-up-and-move-your-settings).
 - **Diagnostics:** whether the engine is connected, which Claude Code it found, version numbers and the engine's recent log. Useful when something doesn't work.
-- **About:** the version you're running (and the commit it was built from, handy for bug reports), links to its release notes and the changelog, and the update controls: *Check for Updates*, automatic checks on or off, and the channel. The version also shows at the bottom of the Settings sidebar.
+- **About:** the version you're running (and the commit it was built from, handy for bug reports), links to its release notes and the changelog, and the update controls: *Check for Updates*, automatic checks on or off, and the channel. The version also shows at the bottom of the Settings sidebar. Below them, the Claude Code that Switchboard runs: its version, path and how it was installed, the newest version, and an *Update* button when there is one.
 
 ## Back up and move your settings
 

@@ -2,6 +2,7 @@ import type { Effort, PermissionMode, SessionHostInfo } from '@switchboard/proto
 import { ContextMeter } from './ContextMeter.tsx';
 import { Select } from '../ui/Select.tsx';
 import { useEngineConnection } from '../../engine/useEngine.ts';
+import { findModelOption } from '../../lib/models.ts';
 import { MODE_CHOICES, MODE_LABEL } from '../../lib/modes.ts';
 import { useHosts } from '../../state/hostsStore.ts';
 
@@ -30,9 +31,10 @@ export function StatusBar({ host }: { host: SessionHostInfo }) {
   const models = useHosts((s) => s.models);
   const client = connection.status === 'connected' ? connection.client : null;
   const active = host.state !== 'closed' && host.state !== 'error';
-  const modelKnown = models.some((m) => m.value === host.model);
+  // Claude Code reports full ids (`claude-opus-5-5`); show them as the alias row they resolve to.
+  const modelOption = findModelOption(models, host.model);
   // Effort only applies to models that support it (unknown models get the benefit of the doubt).
-  const supportsEffort = models.find((m) => m.value === host.model)?.supportsEffort ?? true;
+  const supportsEffort = modelOption?.supportsEffort ?? true;
 
   return (
     <div className="flex h-7 min-w-0 items-center gap-2 px-1 text-[11px] text-faint">
@@ -44,9 +46,9 @@ export function StatusBar({ host }: { host: SessionHostInfo }) {
         label="Model"
         className={select}
         disabled={!active || !client}
-        value={modelKnown ? (host.model ?? '') : ''}
+        value={modelOption?.value ?? ''}
         onChange={(model) => void client?.call('session.setModel', { sessionId: host.sessionId, model: model || null })}
-        options={[...(modelKnown ? [] : [{ value: '', label: host.model ?? 'Default model' }]), ...models.map((m) => ({ value: m.value, label: m.displayName }))]}
+        options={[...(modelOption ? [] : [{ value: '', label: host.model ?? 'Default model' }]), ...models.map((m) => ({ value: m.value, label: m.displayName }))]}
         dataAttrs={{ 'data-session-model-select': true }}
       />
       <Select

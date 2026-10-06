@@ -1,22 +1,28 @@
 import { Check, FolderOpen, X } from 'lucide-react';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { guessHome, shortAge, tildify } from '../../lib/format.ts';
 import { knownFolders } from '../../state/projectList.ts';
 import { useProjects } from '../../state/projectsStore.ts';
 import { ProjectIcon } from '../ProjectIcon.tsx';
-import { useProjectActions } from '../sidebar/ProjectMenu.tsx';
+import { manage, useProjectActions } from '../sidebar/ProjectMenu.tsx';
 
 /**
  * Add project: folders Claude Code has sessions for, most recent first and filterable by typing,
- * or any folder through the system dialog. Stays open so several can be added in one go.
+ * or any folder through the system dialog. Stays open so several can be added in one go; on closing,
+ * the Projects view opens on the last one added so its profile and defaults can be set.
  */
-export function AddProjectDialog({ onClose }: { onClose(): void }) {
+export function AddProjectDialog({ onClose: close }: { onClose(): void }) {
   const projects = useProjects((s) => s.projects);
   const actions = useProjectActions();
   const [query, setQuery] = useState('');
   const [active, setActive] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const listRef = useRef<HTMLDivElement>(null);
+  const lastAdded = useRef<string | null>(null);
+  const onClose = useCallback(() => {
+    close();
+    if (lastAdded.current) manage(lastAdded.current);
+  }, [close]);
   const home = useMemo(() => guessHome(projects.keys()), [projects]);
   const folders = useMemo(() => knownFolders(projects, query, home), [projects, query, home]);
   // The extra row at the end: the system folder dialog.
@@ -36,11 +42,18 @@ export function AddProjectDialog({ onClose }: { onClose(): void }) {
     setError(null);
     try {
       if (index === folders.length) {
-        if (await actions.chooseAndAdd()) onClose();
+        const path = await actions.chooseAndAdd();
+        if (path) {
+          lastAdded.current = path;
+          onClose();
+        }
         return;
       }
       const folder = folders[index];
-      if (folder && !folder.added) await actions.add(folder.root);
+      if (folder && !folder.added) {
+        await actions.add(folder.root);
+        lastAdded.current = folder.root;
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     }

@@ -29,6 +29,8 @@ const trash = (paths: string[], scope: TrashScope) =>
 const engine = createEngine({
   dataDir,
   trash,
+  // The smoke test points the Claude Code check at a mock registry and must never run an update.
+  claudeUpdates: { allowUpdate: process.env.SWITCHBOARD_NO_CLAUDE_UPDATE !== '1' },
   onLog: (entry) => console.error(`[engine] ${entry.level}: ${entry.message}`),
 });
 
