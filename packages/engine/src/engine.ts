@@ -23,7 +23,7 @@ import { LiveRegistry } from './claude/liveRegistry.ts';
 import { createProjectResolver } from './claude/projectResolver.ts';
 import { sdkSessionSource, type SessionSource } from './claude/sessionSource.ts';
 import { findCheckout, githubPage } from './git/remotes.ts';
-import { checkoutRoot, fileDiff, listBranches, listChanges, removeWorktree, revert, stage, switchBranch, worktreeStatus } from './git/gitChanges.ts';
+import { checkoutRoot, fileDiff, listBranches, listChanges, removeWorktree, revert, stage, switchBranch, syncCommand, worktreeStatus } from './git/gitChanges.ts';
 import { SearchIndex } from './sessions/searchIndex.ts';
 import { installedPlugins } from './host/capabilities.ts';
 import { ActionStore, expandCommand, shellQuote, suggestActions } from './actions/actionStore.ts';
@@ -387,6 +387,21 @@ export function createEngine(options: EngineOptions): Engine {
     (await terminals.open({ sessionId, cwd, kind: 'action', command, title: name, cols: 100, rows: 20, fork: false, env: profileEnv(sessionProfile(sessionId)) })).id;
   /** Terminals started by `actions.run`, so Restart can look the action up again. */
   const actionRuns = new Map<string, { sessionId: string; projectRoot: string; cwd: string; id: string }>();
+
+  /** Refuses (SESSION_BUSY) while Claude works in the checkout at `cwd`, wherever that session runs: changing the files under a running turn would confuse it. */
+  const assertCheckoutIdle = async (cwd: string) => {
+    const root = await checkoutRoot(cwd);
+    scanLive();
+    const busy = [
+      ...hosts.list().hosts.filter((h) => h.state === 'starting' || h.state === 'running' || h.state === 'needs-you').map((h) => h.cwd),
+      ...liveList().filter((l) => l.status !== 'idle').flatMap((l) => (l.cwd ? [l.cwd] : [])),
+    ];
+    for (const other of new Set(busy)) {
+      if (existsSync(other) && (await checkoutRoot(other)) === root) {
+        throw new RpcError('SESSION_BUSY', 'Claude is working in this folder. Wait for it to finish, or stop it first.');
+      }
+    }
+  };
 
   /** Finds a project action and refuses an unapproved one. */
   const findAction = (projectRoot: string, id: string) => {
@@ -774,18 +789,7 @@ export function createEngine(options: EngineOptions): Engine {
     },
     'git.switch': async ({ cwd, branch }) => {
       if (!resolver.resolve(cwd).gitDir) throw new RpcError('NOT_A_REPO', 'Not a git repository');
-      // Changing the files under a running turn would confuse Claude, wherever that session runs.
-      const root = await checkoutRoot(cwd);
-      scanLive();
-      const busy = [
-        ...hosts.list().hosts.filter((h) => h.state === 'starting' || h.state === 'running' || h.state === 'needs-you').map((h) => h.cwd),
-        ...liveList().filter((l) => l.status !== 'idle').flatMap((l) => (l.cwd ? [l.cwd] : [])),
-      ];
-      for (const other of new Set(busy)) {
-        if (existsSync(other) && (await checkoutRoot(other)) === root) {
-          throw new RpcError('SESSION_BUSY', 'Claude is working in this folder. Wait for it to finish, or stop it first.');
-        }
-      }
+      await assertCheckoutIdle(cwd);
       try {
         await switchBranch(cwd, branch);
         return { current: (await listBranches(cwd)).current };
@@ -811,6 +815,17 @@ export function createEngine(options: EngineOptions): Engine {
       }
       return {};
     },
+    'git.sync': async ({ sessionId, cwd, action }) => {
+      if (!resolver.resolve(cwd).gitDir) throw new RpcError('NOT_A_REPO', 'Not a git repository');
+      const status = await worktreeStatus(cwd).catch((error: Error) => {
+        throw new RpcError('GIT_FAILED', error.message);
+      });
+      const sync = syncCommand(status, action, shellQuote);
+      if ('code' in sync) throw new RpcError(sync.code, sync.message);
+      if (action === 'pull') await assertCheckoutIdle(cwd);
+      const title = action === 'pull' ? 'Pull' : action === 'push' ? 'Push' : 'Pull request';
+      return { terminalId: await runShellAction(sessionId, status.path, title, sync.command) };
+    },
     'worktree.status': async ({ cwd }) => {
       try {
         return await worktreeStatus(cwd);
@@ -831,10 +846,6 @@ export function createEngine(options: EngineOptions): Engine {
         }
         if (status.mainCheckout.dirty) throw new RpcError('MAIN_DIRTY', 'The main checkout has uncommitted changes. Commit or stash them there first.');
         return { terminalId: await runShellAction(sessionId, status.root, `Merge ${status.branch}`, `git merge --no-edit ${branch}`) };
-      }
-      if (action === 'pr') {
-        if (!status.hasRemote) throw new RpcError('NO_REMOTE', 'This repository has no remote to push to.');
-        return { terminalId: await runShellAction(sessionId, status.path, 'Pull request', `git push -u origin ${branch} && gh pr create --fill --web`) };
       }
       if (status.uncommitted > 0) throw new RpcError('UNCOMMITTED', 'The worktree has uncommitted changes. Commit or revert them first.');
       await hosts.release(sessionId);

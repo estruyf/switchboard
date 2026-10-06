@@ -30,7 +30,7 @@ import {
 import { TerminalInfo, TerminalKind } from './terminal.ts';
 import { UsageSnapshot } from './usage.ts';
 import { ActionRunResult, ActionSuggestion, ListedAction, ProjectAction } from './actions.ts';
-import { ChangesBase, GitChanges, WorktreeStatus } from './git.ts';
+import { ChangesBase, GitChanges, GitSyncAction, WorktreeStatus } from './git.ts';
 import { Capabilities } from './capabilities.ts';
 import { ProfileColor, ProfilesSnapshot } from './profiles.ts';
 import { ClaudeUpdateState } from './claudeUpdate.ts';
@@ -336,15 +336,23 @@ export const contract = {
     /** Puts files back to HEAD. New files go to the Trash. */
     'git.revert': { params: z.object({ cwd: AbsolutePath, paths: z.array(z.string().max(4096)).min(1).max(5000) }), result: z.object({}) },
 
-    /** Where a session's worktree stands: ahead/behind its base, uncommitted, pushed. */
+    /**
+     * Pulls, pushes, or pushes and opens a pull request (`gh pr create --fill --web`) for the branch
+     * checked out at `cwd`, in a terminal tab of the session so you can see the result. A branch
+     * without an upstream is pushed with `-u`. Pull is refused (SESSION_BUSY) while Claude is working
+     * in this checkout, and a pull request from the base branch is refused (WRONG_BRANCH).
+     */
+    'git.sync': { params: z.object({ sessionId: SessionId, cwd: AbsolutePath, action: GitSyncAction }), result: z.object({ terminalId: z.string() }) },
+
+    /** Where a session's checkout stands: ahead/behind its base and its upstream, uncommitted, pushed. */
     'worktree.status': { params: z.object({ cwd: AbsolutePath }), result: WorktreeStatus },
     /**
      * Finishes a worktree. `merge` merges its branch into the main checkout (which must be on the
-     * base branch and clean) and `pr` pushes and opens a pull request with gh, both in a terminal tab.
+     * base branch and clean), in a terminal tab. Pull requests go through `git.sync`.
      * `remove` stops the session here and removes the worktree (refused with uncommitted changes).
      */
     'worktree.finish': {
-      params: z.object({ sessionId: SessionId, cwd: AbsolutePath, action: z.enum(['merge', 'pr', 'remove']), deleteBranch: z.boolean().default(false) }),
+      params: z.object({ sessionId: SessionId, cwd: AbsolutePath, action: z.enum(['merge', 'remove']), deleteBranch: z.boolean().default(false) }),
       result: z.object({ terminalId: z.string().nullable() }),
     },
 

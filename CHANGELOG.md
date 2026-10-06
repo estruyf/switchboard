@@ -10,6 +10,10 @@ All notable changes to Switchboard are listed here. Each release is also on the 
 - **Select several sessions** with ⌘-click (or ⇧-click and ⇧↑ ↓ for a range), then archive, settle or move them back all at once from the right-click menu or the bar under the list. Escape clears the selection.
 - Sending a message to a settled or archived session moves it back to the main list right away, instead of waiting until Claude finishes.
 
+### Session header
+
+- A **git button** next to **Open in**: commit (Claude writes the message), push, create a pull request or pull, without leaving the session. Its face shows the next step for the branch, such as **Pull** when it's behind its upstream, and the menu says why a step isn't available. Commit and pull request moved here from the **Worktree** menu, which now merges or removes.
+
 ### New session
 
 - A prompt you start typing in **New session** is still there when you come back from a session or Settings. A **Clear** link under the message box empties it.

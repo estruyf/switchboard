@@ -9,7 +9,8 @@ export interface MenuItem {
   disabled?: boolean;
   onSelect(): void;
 }
-export type MenuEntry = MenuItem | 'separator' | { heading: string };
+/** `note`: a sentence under the items, such as why some are unavailable. */
+export type MenuEntry = MenuItem | 'separator' | { heading: string } | { note: string; tone?: 'warn' };
 
 /** The enabled items of a menu, in order. */
 function menuItems(menu: HTMLElement | null): HTMLElement[] {
@@ -61,6 +62,10 @@ export function Menu({ x, y, entries, onClose, width = 220, above = false, label
         ) : 'heading' in entry ? (
           <p key={i} role="presentation" className="px-3 pt-1.5 pb-0.5 text-[11px] tracking-wide text-muted uppercase">
             {entry.heading}
+          </p>
+        ) : 'note' in entry ? (
+          <p key={i} role="presentation" className={`px-3 pt-1 pb-1.5 text-[12px] ${entry.tone === 'warn' ? 'text-warn' : 'text-muted'}`} data-menu-note>
+            {entry.note}
           </p>
         ) : (
           <button

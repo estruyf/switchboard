@@ -45,10 +45,8 @@ It uses the Claude Code you already have installed, with your login, settings, c
 **Review and finish the work**
 - A **Changes** panel (⌘⇧D) with the session's git diff: what's uncommitted, or the whole branch compared with `main`. Stage, unstage or revert files, and open any diff inline. Reverted new files go to the Trash.
 - The **branch** a session's folder has checked out shows in its header, read live from git (so it's right after you or Claude switch in a terminal). Click it to switch to another local branch. Switching uses `git switch`: uncommitted changes that don't conflict come along, and when they would be overwritten git refuses and you stay where you are. Nothing is ever stashed or thrown away. It waits while Claude is working in this folder, and asks first when other sessions work in the same folder.
-- **Finish a worktree** from its **Worktree** menu:
-  - Commit with Claude.
-  - Merge into the base branch, or push and open a pull request.
-  - Remove the worktree, optionally with its branch. Switchboard warns you before you lose commits that aren't merged or pushed.
+- A **git button** in the session header offers the next step for the branch: **Pull** when it's behind its upstream, **Commit** when there are changes (Claude writes the commit), **Push**, or **Create PR**. Its menu has all four, and says why one isn't available. Pull, push and pull requests run in a terminal tab so you see git's output; pull requests open GitHub's page with the GitHub CLI (`gh`). Pull waits while Claude is working in the folder.
+- **Finish a worktree** from its **Worktree** menu: merge into the base branch, or remove the worktree, optionally with its branch. Switchboard warns you before you lose commits that aren't merged or pushed.
 
 **Everything in one place**
 - A **command palette** (⌘K) for every command, your project actions, and jumping to any session by typing a few letters.

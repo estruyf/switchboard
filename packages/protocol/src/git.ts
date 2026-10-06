@@ -42,8 +42,16 @@ export const WorktreeStatus = z.object({
   upstream: z.string().nullable(),
   /** Commits not pushed to the upstream; null without one. */
   unpushed: z.number().nullable(),
+  /** Commits on the upstream that this checkout doesn't have yet (as of the last fetch); null without one. */
+  behindUpstream: z.number().nullable(),
   hasRemote: z.boolean(),
+  /** The remote a branch without an upstream is pushed to: origin when there is one, else the first. */
+  pushRemote: z.string().nullable(),
   /** The main checkout, where a merge would happen. */
   mainCheckout: z.object({ branch: z.string().nullable(), dirty: z.boolean() }),
 });
 export type WorktreeStatus = z.infer<typeof WorktreeStatus>;
+
+/** `pull` and `push` sync the branch with its upstream; `pr` pushes and opens a pull request with gh. */
+export const GitSyncAction = z.enum(['pull', 'push', 'pr']);
+export type GitSyncAction = z.infer<typeof GitSyncAction>;

@@ -598,6 +598,7 @@ let activity: { groups: number; steps: number; label: string } | null = null;
 let changesPanel: string = 'not run';
 let branchResult: string = 'not run';
 let openInResult: string = 'not run';
+let gitResult: string = 'not run';
 let searchResult = 'not run';
 let findResult = 'not run';
 let paletteResult = 'not run';
@@ -1178,6 +1179,31 @@ async function runOpenInStep(win: BrowserWindow): Promise<string> {
   return `ok: on top of the transcript, ${github ? `GitHub → ${github}` : 'no GitHub remote'}, Escape closed it`;
 }
 
+/**
+ * Read-only: the header's git button shows a step, its menu lists Commit, Push, Create PR and Pull
+ * (each enabled or not as git's state says), and Escape closes it. Runs nothing.
+ */
+async function runGitStep(win: BrowserWindow): Promise<string> {
+  const js = (code: string) => win.webContents.executeJavaScript(code);
+  const button = "document.querySelector('[data-current-session] [data-git-button]')";
+  if (!(await waitInPage(win, button, 3_000))) {
+    return (await js("!!document.querySelector('[data-current-session] [data-toggle-changes]')")) ? 'no git button on a git checkout' : 'ok: skipped (session is not on a git checkout)';
+  }
+  const face = (await js(`${button}.dataset.gitButton`)) as string;
+  await js("document.querySelector('[data-current-session] [data-git-menu]').click()");
+  const menu = "document.querySelector('[role=\"menu\"][aria-label=\"Git\"]')";
+  if (!(await waitInPage(win, `${menu}?.querySelector('[role=\"menuitem\"]')`, 2_000))) return 'menu did not open';
+  const items = (await js(`[...${menu}.querySelectorAll('[role="menuitem"]')].map((i) => (i.disabled ? '-' : '+') + i.textContent.trim())`)) as string[];
+  await new Promise((resolve) => setTimeout(resolve, 200));
+  await shot(win, 'git-menu.png');
+  win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Escape' });
+  win.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Escape' });
+  const labels = items.map((i) => i.slice(1));
+  if (labels.join(',') !== 'Commit,Push,Create PR,Pull') return `unexpected items: ${labels.join(', ')}`;
+  if (!(await waitInPage(win, `!${menu}`, 2_000))) return 'Escape did not close the menu';
+  return `ok: shows ${face}, menu ${items.join(' ')}, Escape closed it`;
+}
+
 /** ⌘⇧F, type a word, open the first hit: the session opens with that message highlighted. */
 /**
  * Find in the session (⌘F), read-only: searches for a word from one of Claude's replies, checks the
@@ -1712,6 +1738,7 @@ async function runSmokeStep(win: BrowserWindow | null): Promise<void> {
     changesPanel = await runChangesStep(win);
     branchResult = await runBranchStep(win).catch((error: Error) => `failed: ${error.message}`);
     openInResult = await runOpenInStep(win).catch((error: Error) => `failed: ${error.message}`);
+    gitResult = await runGitStep(win).catch((error: Error) => `failed: ${error.message}`);
     findResult = await runFindStep(win).catch((error: Error) => `failed: ${error.message}`);
     searchResult = await runSearchStep(win).catch((error: Error) => `failed: ${error.message}`);
     paletteResult = await runPaletteStep(win).catch((error: Error) => `failed: ${error.message}`);
@@ -1768,6 +1795,7 @@ async function runSmokeStep(win: BrowserWindow | null): Promise<void> {
         changesPanel,
         branchResult,
         openInResult,
+        gitResult,
         searchResult,
         findResult,
         paletteResult,

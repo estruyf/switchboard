@@ -2,7 +2,7 @@ import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileS
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { baseBranch, fileDiff, git, insideRepo, listBranches, listChanges, removeWorktree, revert, stage, switchBranch, worktreeStatus } from './gitChanges.ts';
+import { baseBranch, fileDiff, git, insideRepo, listBranches, listChanges, removeWorktree, revert, stage, switchBranch, syncCommand, worktreeStatus } from './gitChanges.ts';
 
 let repo: string;
 const write = (path: string, text: string) => writeFileSync(join(repo, path), text);
@@ -102,7 +102,9 @@ describe('worktrees', () => {
       uncommitted: 1,
       upstream: null,
       unpushed: null,
+      behindUpstream: null,
       hasRemote: false,
+      pushRemote: null,
       mainCheckout: { branch: 'main', dirty: false },
     });
     expect((await worktreeStatus(repo)).isWorktree).toBe(false);
@@ -113,6 +115,44 @@ describe('worktrees', () => {
     await removeWorktree(await worktreeStatus(path), true);
     expect(existsSync(path)).toBe(false);
     expect((await run('branch', '--list', 'worktree-feature')).trim()).toBe('');
+  });
+});
+
+describe('sync', () => {
+  it('counts commits ahead of and behind the upstream, and builds pull, push and PR commands', async () => {
+    const remote = realpathSync(mkdtempSync(join(tmpdir(), 'switchboard-remote-')));
+    try {
+      await git(remote, ['init', '-q', '--bare', '-b', 'main']);
+      await run('remote', 'add', 'origin', remote);
+      await run('push', '-q', '-u', 'origin', 'main');
+      // Someone else pushes a commit; this checkout fetches it but hasn't merged it.
+      const other = join(remote, 'clone');
+      await git(remote, ['clone', '-q', remote, other]);
+      await git(other, ['-c', 'user.email=o@example.com', '-c', 'user.name=O', 'commit', '-q', '--allow-empty', '-m', 'theirs']);
+      await git(other, ['push', '-q']);
+      await run('fetch', '-q');
+      write('a.txt', 'mine\n');
+      await run('commit', '-qam', 'mine');
+
+      const status = await worktreeStatus(repo);
+      expect(status).toMatchObject({ upstream: 'origin/main', unpushed: 1, behindUpstream: 1, pushRemote: 'origin' });
+      const quote = (v: string) => `'${v}'`;
+      expect(syncCommand(status, 'pull', quote)).toEqual({ command: 'git pull' });
+      expect(syncCommand(status, 'push', quote)).toEqual({ command: 'git push' });
+      expect(syncCommand(status, 'pr', quote)).toMatchObject({ code: 'WRONG_BRANCH' });
+
+      await run('switch', '-q', '-c', 'feature');
+      const feature = await worktreeStatus(repo);
+      expect(feature).toMatchObject({ upstream: null, unpushed: null, behindUpstream: null });
+      expect(syncCommand(feature, 'pull', quote)).toMatchObject({ code: 'NO_UPSTREAM' });
+      expect(syncCommand(feature, 'pr', quote)).toEqual({ command: "git push -u 'origin' 'feature' && gh pr create --fill --web" });
+    } finally {
+      rmSync(remote, { recursive: true, force: true });
+    }
+  });
+
+  it('refuses without a remote', async () => {
+    expect(syncCommand(await worktreeStatus(repo), 'push', (v) => v)).toMatchObject({ code: 'NO_REMOTE' });
   });
 });
 

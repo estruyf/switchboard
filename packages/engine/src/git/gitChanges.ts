@@ -1,7 +1,7 @@
 import { execFile } from 'node:child_process';
 import { statSync } from 'node:fs';
 import { isAbsolute, join, relative, resolve, sep } from 'node:path';
-import type { ChangedFile, ChangesBase, GitChanges, WorktreeStatus } from '@switchboard/protocol';
+import type { ChangedFile, ChangesBase, GitChanges, GitSyncAction, WorktreeStatus } from '@switchboard/protocol';
 
 const MAX_DIFF_BYTES = 512 * 1024;
 
@@ -238,9 +238,28 @@ export async function worktreeStatus(cwd: string): Promise<WorktreeStatus> {
     uncommitted,
     upstream,
     unpushed: upstream ? await count(`${upstream}..HEAD`) : null,
+    behindUpstream: upstream ? await count(`HEAD..${upstream}`) : null,
     hasRemote: remotes.length > 0,
+    pushRemote: remotes.includes('origin') ? 'origin' : (remotes[0] ?? null),
     mainCheckout: { branch: mainBranch, dirty: mainDirty },
   };
+}
+
+/**
+ * The shell command for a pull, push or pull request on the checked-out branch, or why it can't run.
+ * A branch without an upstream is pushed with `-u` to `pushRemote`.
+ */
+export function syncCommand(status: WorktreeStatus, action: GitSyncAction, quote: (value: string) => string): { command: string } | { code: string; message: string } {
+  if (!status.branch) return { code: 'DETACHED', message: 'HEAD is detached; check out a branch first.' };
+  if (!status.hasRemote || !status.pushRemote) return { code: 'NO_REMOTE', message: 'This repository has no remote.' };
+  const push = status.upstream ? 'git push' : `git push -u ${quote(status.pushRemote)} ${quote(status.branch)}`;
+  if (action === 'pull') {
+    if (!status.upstream) return { code: 'NO_UPSTREAM', message: `${status.branch} has no upstream branch to pull from. Push it first.` };
+    return { command: 'git pull' };
+  }
+  if (action === 'push') return { command: push };
+  if (status.branch === status.baseBranch) return { code: 'WRONG_BRANCH', message: `${status.branch} is the base branch; open a pull request from another branch.` };
+  return { command: `${push} && gh pr create --fill --web` };
 }
 
 /** Removes a worktree (refuses with uncommitted changes) and optionally its branch. */

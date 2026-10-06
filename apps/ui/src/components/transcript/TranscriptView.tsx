@@ -25,6 +25,7 @@ import { WorktreeMenu } from '../worktree/WorktreeMenu.tsx';
 import { ConfirmDialog } from '../ConfirmDialog.tsx';
 import { ActionsBar } from '../actions/ActionsBar.tsx';
 import { OpenInButton } from '../OpenInButton.tsx';
+import { GitButton } from '../git/GitButton.tsx';
 import { ProjectIcon } from '../ProjectIcon.tsx';
 import { PermissionCard, permissionTitle } from '../session/PermissionCard.tsx';
 import { StatusBar } from '../session/StatusBar.tsx';
@@ -476,13 +477,7 @@ export function TranscriptView({ sessionId, pane = null, active = true }: { sess
           </span>
         )}
         <AgentsButton items={items} sessionId={sessionId} cwd={cwd} sessionOpen={live !== null} />
-        {cwd && isWorktree && (
-          <WorktreeMenu
-            sessionId={sessionId}
-            cwd={cwd}
-            onCommit={() => void send('Commit the current changes with a clear, conventional commit message.', [], openElsewhere).catch((e: Error) => setActionError(e.message))}
-          />
-        )}
+        {cwd && isWorktree && <WorktreeMenu sessionId={sessionId} cwd={cwd} />}
         {cwd && branchButton && <BranchMenu sessionId={sessionId} cwd={cwd} root={projectRoot ?? cwd} busy={working} onSwitched={refreshChanges} />}
         <ActionsBar sessionId={sessionId} projectRoot={projectRoot} cwd={cwd} />
         {cwd && isRepo && (
@@ -512,6 +507,15 @@ export function TranscriptView({ sessionId, pane = null, active = true }: { sess
           {terminalCount > 0 && <span className="absolute -top-1 -right-1 size-2 rounded-full bg-ok" aria-hidden />}
         </button>
         <OpenInButton path={cwd} />
+        {cwd && isRepo && (
+          <GitButton
+            sessionId={sessionId}
+            cwd={cwd}
+            busy={working}
+            activity={`${items.length}:${live?.status ?? ''}:${branchSwitches}`}
+            onCommit={() => void send('Commit the current changes with a clear, conventional commit message.', [], openElsewhere).catch((e: Error) => setActionError(e.message))}
+          />
+        )}
         {!pane && (
           <button
             type="button"
