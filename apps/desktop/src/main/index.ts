@@ -8,7 +8,7 @@ import type { AttentionEvent } from './attention.ts';
 import { Notifier } from './notifier.ts';
 import { PreferencesStore, windowBackground } from './preferences.ts';
 import { QuitGuard } from './quitGuard.ts';
-import { isTrashableRepoFile, isTrashableSessionPath } from './trashGuard.ts';
+import { isConfigDir, isTrashableRepoFile, isTrashableSessionPath } from './trashGuard.ts';
 
 const here = import.meta.dirname;
 const smokeOutDir = process.env.SWITCHBOARD_SMOKE_OUT;
@@ -59,9 +59,10 @@ function openSession(sessionId: string): void {
 }
 
 async function handleEngineRequest(message: unknown): Promise<unknown> {
-  const request = message as { type?: unknown; id?: unknown; paths?: unknown; repoRoot?: unknown } | null;
+  const request = message as { type?: unknown; id?: unknown; paths?: unknown; repoRoot?: unknown; configDir?: unknown } | null;
   if (request?.type !== 'trash' || typeof request.id !== 'number' || !Array.isArray(request.paths)) return undefined;
-  const configDir = process.env.CLAUDE_CONFIG_DIR || join(homedir(), '.claude');
+  // Each Claude profile has its own config folder; session files must be inside its projects folder.
+  const configDir = isConfigDir(request.configDir) ? request.configDir : process.env.CLAUDE_CONFIG_DIR || join(homedir(), '.claude');
   const paths = request.paths.filter((p): p is string => typeof p === 'string');
   // Session files, or (for a git revert) new files inside the repository being reverted.
   const repoRoot = typeof request.repoRoot === 'string' ? request.repoRoot : null;
@@ -309,7 +310,9 @@ async function runLiveSessionStep(win: BrowserWindow, cwd: string): Promise<stri
   if (!(await waitInPage(win, `document.querySelector('[data-folder-option=${JSON.stringify(JSON.stringify(cwd)).slice(1, -1)}]')`, 5_000))) return 'folder not offered';
   await shot('folder-picker.png');
   await win.webContents.executeJavaScript(`document.querySelector('[data-folder-option=${JSON.stringify(JSON.stringify(cwd)).slice(1, -1)}]').click()`);
-  if (!(await chooseOption(win, '[data-model-select]', 'haiku'))) return 'could not pick Haiku in the model dropdown';
+  await click('[data-model-select]');
+  if (!(await waitInPage(win, "document.querySelector('[data-menu=\"model\"] [data-choice=\"haiku\"]')", 3_000))) return 'Haiku not offered in the model menu';
+  await click('[data-menu="model"] [data-choice="haiku"]');
   // Attach a red square through the attach button's file input, like picking a file.
   await win.webContents.executeJavaScript(`(async () => {
     const canvas = document.createElement('canvas');
@@ -483,6 +486,9 @@ let toolsResult = 'not run';
 let splitResult = 'not run';
 let settleResult = 'not run';
 let controlsResult = 'not run';
+let projectsResult = 'not run';
+let profilesResult = 'not run';
+let newSessionResult = 'not run';
 let rendering: Record<string, number> = {};
 
 /** Adds a project action through the editor, runs it from the header and checks it opened a terminal tab. */
@@ -615,6 +621,122 @@ async function runSettingsStep(win: BrowserWindow): Promise<string> {
   return 'ok';
 }
 
+/**
+ * Projects are added by hand: the throwaway profile starts with none, the Add project dialog offers the
+ * folders Claude Code has sessions for, and a project's defaults reach the New session view. Only the
+ * throwaway profile's own project list changes (nothing on disk); the project is removed again at the end.
+ */
+async function runProjectsStep(win: BrowserWindow): Promise<string> {
+  const js = (code: string) => win.webContents.executeJavaScript(code);
+  const click = (selector: string) => js(`document.querySelector(${JSON.stringify(selector)}).click()`);
+  if (!(await waitInPage(win, "document.querySelector('[data-sidebar-onboarding]')", 3_000))) return 'a new profile did not offer to add a project';
+  await click('[data-open-projects]');
+  if (!(await waitInPage(win, "document.querySelector('[data-project-manager] [data-no-projects]')", 3_000))) return 'the Projects view did not open empty';
+  await click('[data-manager-add]');
+  if (!(await waitInPage(win, "document.querySelector('[data-add-project-dialog] [data-known-project]')", 5_000))) return 'no folders with sessions offered';
+  const known = (await js("document.querySelectorAll('[data-known-project]').length")) as number;
+  const root = (await js("document.querySelector('[data-known-project][data-added=\"false\"]')?.dataset.knownProject ?? null")) as string | null;
+  if (!root) return 'every offered folder was already a project';
+  const rowSelector = `[data-project-row=${JSON.stringify(root)}]`;
+  const row = (selector = '') => `document.querySelector(${JSON.stringify(selector ? `${rowSelector} ${selector}` : rowSelector)})`;
+  await new Promise((resolve) => setTimeout(resolve, 300));
+  await shot(win, 'add-project.png');
+  await click(`[data-known-project=${JSON.stringify(root)}]`);
+  if (!(await waitInPage(win, "document.querySelector('[data-known-project][data-added=\"true\"]')", 3_000))) return 'the folder was not marked as added';
+  win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Escape' });
+  if (!(await waitInPage(win, `!document.querySelector('[data-add-project-dialog]') && ${row()} && !document.querySelector('[data-sidebar-onboarding]')`, 3_000))) return 'the project did not appear in the list';
+
+  await js(`${row('[data-project-toggle]')}.click()`);
+  if (!(await waitInPage(win, `${row('[data-default-effort]')}`, 3_000))) return 'the defaults editor did not open';
+  // Themed dropdown: open with a click, ↓ moves, Escape closes and focus returns.
+  const modelSelect = `${rowSelector} [data-default-model]`;
+  await js(`document.querySelector(${JSON.stringify(modelSelect)}).click()`);
+  if (!(await waitInPage(win, `document.querySelectorAll('[data-select-list] [role=option]').length > 1 && document.querySelector(${JSON.stringify(modelSelect)}).getAttribute('aria-expanded') === 'true'`, 3_000))) return 'the model dropdown did not open';
+  const before = (await js("document.querySelector('[data-select-list]').getAttribute('aria-activedescendant')")) as string;
+  win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Down' });
+  await new Promise((resolve) => setTimeout(resolve, 100));
+  const after = (await js("document.querySelector('[data-select-list]').getAttribute('aria-activedescendant')")) as string;
+  await shot(win, 'select.png');
+  win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Escape' });
+  if (!(await waitInPage(win, `!document.querySelector('[data-select-list]') && document.activeElement?.matches(${JSON.stringify(modelSelect)})`, 2_000))) return 'Escape did not close the dropdown';
+  if (before === after) return '↓ did not move in the dropdown';
+  if (!(await waitInPage(win, `${row('[data-default-model]')}.dataset.value === ''`, 1_000))) return 'Escape changed the model default';
+  if (!(await chooseOption(win, `${rowSelector} [data-default-effort]`, 'high'))) return 'could not pick an effort default';
+  if (!(await waitInPage(win, `${row('[data-defaults-summary]')}.innerText.includes('high effort')`, 3_000))) return 'the effort default was not saved';
+  await new Promise((resolve) => setTimeout(resolve, 300));
+  await shot(win, 'projects.png');
+
+  // A new session in the project starts from its defaults; a change there can be saved back.
+  await click('[data-new-session]');
+  const pickedEffort = "document.querySelector('[data-effort-dial] [aria-checked=\"true\"]')?.dataset.effort";
+  if (!(await waitInPage(win, `document.querySelector('[data-folder-select]')?.dataset.value === ${JSON.stringify(root)} && ${pickedEffort} === 'high'`, 5_000))) {
+    return `New session did not start from the project's defaults (${String(await js(`document.querySelector('[data-folder-select]')?.dataset.value + ' ' + ${pickedEffort}`))})`;
+  }
+  await click('[data-effort="low"]');
+  if (!(await waitInPage(win, "document.querySelector('[data-save-project-defaults]')", 3_000))) return 'no Save as project default after a change';
+  await click('[data-save-project-defaults]');
+  if (!(await waitInPage(win, "!document.querySelector('[data-save-project-defaults]')", 3_000))) return 'Save as project default did not save';
+
+  await click('[data-open-projects]');
+  if (!(await waitInPage(win, `${row('[data-defaults-summary]')}?.innerText.includes('low effort')`, 3_000))) return 'the saved default did not reach the Projects view';
+  await js(`${row('[data-remove-project]')}.click()`);
+  if (!(await waitInPage(win, "document.querySelector('[data-confirm]')", 3_000))) return 'no confirmation before removing';
+  await click('[data-confirm]');
+  if (!(await waitInPage(win, "document.querySelector('[data-no-projects]')", 3_000))) return 'the project was not removed';
+  await click('[data-open-projects]');
+  return `ok: ${known} folders offered; added one, dropdown keyboard and Escape, its defaults reached New session, saved a change back, removed it`;
+}
+
+/**
+ * Claude profiles: with one, nothing about profiles shows outside Settings. Adding a second (a config
+ * folder inside the throwaway app profile, never a real one) marks sessions with their profile and
+ * offers a choice in New session; it becomes the default, then is removed again.
+ */
+async function runProfilesStep(win: BrowserWindow): Promise<string> {
+  const js = (code: string) => win.webContents.executeJavaScript(code);
+  const click = (selector: string) => js(`document.querySelector(${JSON.stringify(selector)}).click()`);
+  const folder = join(app.getPath('userData'), 'smoke-claude-work');
+  if (await js("!!document.querySelector('[data-profile-badge]')")) return 'profile badges shown with a single profile';
+  await click('[data-open-settings]');
+  if (!(await waitInPage(win, "document.querySelectorAll('[data-profiles] [data-profile]').length === 1", 3_000))) return 'Settings did not list the built-in profile';
+  await click('[data-add-profile]');
+  if (!(await waitInPage(win, "document.querySelector('[data-new-profile-folder]')", 3_000))) return 'the add profile form did not open';
+  await setFieldValue(win, '[data-new-profile-name]', 'Smoke work');
+  await setFieldValue(win, '[data-new-profile-folder]', folder);
+  await click('[data-add-profile-submit]');
+  if (!(await waitInPage(win, "document.querySelectorAll('[data-profiles] [data-profile]').length === 2", 5_000))) {
+    return `the profile was not added (${String(await js("document.querySelector('[data-add-profile-form]')?.innerText ?? ''"))})`;
+  }
+  const id = (await js("document.querySelectorAll('[data-profiles] [data-profile]')[1].dataset.profile")) as string;
+  const card = `[data-profile=${JSON.stringify(id)}]`;
+  if (!(await js(`document.querySelector(${JSON.stringify(card)}).innerText.includes(${JSON.stringify(folder)})`))) return 'the sign-in command does not name the folder';
+  await new Promise((resolve) => setTimeout(resolve, 300));
+  await shot(win, 'profiles.png');
+  if (!(await waitInPage(win, "document.querySelector('[data-session-id] [data-profile-badge]')", 3_000))) return 'sessions do not show their profile with two profiles';
+
+  await click(`[data-profile-default=${JSON.stringify(id)}]`);
+  await click('[data-new-session]');
+  if (!(await waitInPage(win, `document.querySelector('[data-profile-select]')?.dataset.value === ${JSON.stringify(id)}`, 5_000))) {
+    return 'New session did not offer the profiles with the new default chosen';
+  }
+  await click('[data-profile-select]');
+  if (!(await waitInPage(win, "document.querySelectorAll('[data-menu=\"profile\"] [role=menuitemradio]').length === 2", 3_000))) return 'the profile menu did not list both profiles';
+  win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Escape' });
+
+  await click('[data-open-settings]');
+  if (!(await waitInPage(win, `document.querySelector(${JSON.stringify(`${card} [data-remove-profile]`)})`, 3_000))) return 'no way to remove the profile';
+  await click(`${card} [data-remove-profile]`);
+  if (!(await waitInPage(win, "document.querySelector('[data-confirm]')", 3_000))) return 'no confirmation before removing';
+  await click('[data-confirm]');
+  if (!(await waitInPage(win, "document.querySelectorAll('[data-profiles] [data-profile]').length === 1 && !document.querySelector('[data-session-id] [data-profile-badge]')", 5_000))) {
+    return 'the profile was not removed';
+  }
+  const builtinDefault = await js("document.querySelector('[data-profile-default=\"default\"]').getAttribute('aria-checked') === 'true'");
+  await click('[data-open-settings]');
+  if (!builtinDefault) return 'the built-in profile did not become the default again';
+  return 'ok: added a second profile, sessions and New session showed it, made it the default, removed it';
+}
+
 /** Tool calls are summarised by default: open the last finished group and count its steps. */
 async function runActivityStep(win: BrowserWindow): Promise<{ groups: number; steps: number; label: string } | null> {
   const js = (code: string) => win.webContents.executeJavaScript(code);
@@ -678,6 +800,54 @@ async function runSearchStep(win: BrowserWindow): Promise<string> {
   await js(`document.querySelector('[data-session-id="${smokeSessionId}"]').click()`);
   await waitInPage(win, "document.querySelector('[data-transcript-item]')", 5_000);
   return `ok: ${groups} sessions matched (${indexing}); opened and highlighted the first`;
+}
+
+/**
+ * The new session view, read-only: project header, model menu (Escape closes it), effort dial with
+ * reset, permission menu and the route tray. Nothing is submitted; the session under test is reopened after.
+ */
+async function runNewSessionStep(win: BrowserWindow): Promise<string> {
+  const js = (code: string) => win.webContents.executeJavaScript(code);
+  const click = (selector: string) => js(`document.querySelector(${JSON.stringify(selector)}).click()`);
+  const escape = () => {
+    win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Escape' });
+    win.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Escape' });
+  };
+  const newSession = () => win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'N', modifiers: ['meta'] });
+  const promptFocused = "document.activeElement?.matches('[data-composer]')";
+  newSession();
+  if (!(await waitInPage(win, "document.querySelector('[data-project-header]') && document.querySelector('[data-route-tray]')", 3_000))) return 'the new session view did not open';
+  // Projects are added by hand: the throwaway profile has none yet, so there may be no folder to preselect.
+  if (!(await waitInPage(win, "document.querySelector('[data-folder-select]').dataset.value || document.querySelector('[data-sidebar-onboarding]')", 5_000))) return 'no folder chosen by default';
+  // Without a folder the prompt is disabled, so there is nothing to focus.
+  const hasFolder = (await js("!!document.querySelector('[data-folder-select]').dataset.value")) as boolean;
+  if (hasFolder && !(await waitInPage(win, promptFocused, 3_000))) return '⌘N did not focus the prompt';
+  await click('[data-model-select]');
+  if (!(await waitInPage(win, "document.activeElement?.closest('[data-menu=\"model\"]')", 2_000))) return 'the model menu did not open with focus';
+  escape();
+  if (!(await waitInPage(win, "!document.querySelector('[data-menu=\"model\"]') && document.activeElement?.matches('[data-model-select]')", 2_000))) return 'Escape did not close the model menu';
+  const effortBefore = (await js("document.querySelector('[data-effort-dial] [aria-checked=\"true\"]')?.dataset.effort ?? ''")) as string;
+  // Clicking the picked bar again clears it, so pick one that isn't picked yet.
+  const pick = effortBefore === 'high' ? 'max' : 'high';
+  await click(`[data-effort="${pick}"]`);
+  if (!(await waitInPage(win, `document.querySelector('[data-effort="${pick}"]').getAttribute('aria-checked') === 'true' && document.querySelector('[data-effort-reset]')`, 2_000))) return 'picking an effort did not stick';
+  await click('[data-mode-select]');
+  if (!(await waitInPage(win, "document.querySelectorAll('[data-menu=\"mode\"] [role=menuitemradio]').length >= 4", 2_000))) return 'the permission menu did not open';
+  await new Promise((resolve) => setTimeout(resolve, 200));
+  await shot(win, 'new-session-view.png');
+  escape();
+  await click('[data-effort-reset]');
+  if (!(await waitInPage(win, "!document.querySelector('[data-effort-dial] [aria-checked=\"true\"]') && !document.querySelector('[data-effort-reset]')", 2_000))) return 'Default did not clear the effort';
+  // Put back the effort the profile had, so the remembered defaults are as they were.
+  if (effortBefore) await click(`[data-effort="${effortBefore}"]`);
+  // ⌘N while already on New session puts the cursor back in the prompt.
+  await js("document.querySelector('[data-model-select]').focus()");
+  newSession();
+  if (hasFolder && !(await waitInPage(win, promptFocused, 2_000))) return '⌘N on an open New session did not focus the prompt';
+  const hint = (await js("document.querySelector('[data-route-hint]').innerText.replace(/\\s+/g, ' ')")) as string;
+  await js(`document.querySelector('[data-session-id="${smokeSessionId}"]')?.click()`);
+  await waitInPage(win, "document.querySelector('[data-transcript-item]')", 5_000);
+  return `ok: ${hint}`;
 }
 
 /** ⌘K, type "tog chan", Enter: the Changes panel toggles; again to put it back. */
@@ -748,8 +918,8 @@ async function runSplitStep(win: BrowserWindow): Promise<string> {
 
 /**
  * The app's own controls: drag the sidebar edge (clamped at both ends, double-click resets), a themed
- * dropdown that opens, moves with the keyboard and closes on Escape, a themed tooltip on hover, and
- * the pointer cursor on buttons. Only the throwaway profile's state changes, and it is put back.
+ * tooltip on hover, and the pointer cursor on buttons. Only the throwaway profile's state changes, and
+ * it is put back. The themed dropdown is checked in the projects step, on a throwaway project's defaults.
  */
 async function runControlsStep(win: BrowserWindow): Promise<string> {
   const js = (code: string) => win.webContents.executeJavaScript(code);
@@ -795,31 +965,8 @@ async function runControlsStep(win: BrowserWindow): Promise<string> {
   win.webContents.sendInputEvent({ type: 'mouseMove', x: tip.x + 400, y: tip.y + 300 });
   if (!tooltip) return 'no themed tooltip on the New session button';
 
-  // Dropdown: open with a click, ↓ moves, Escape closes and focus returns; then pick an option and put it back.
-  await js("document.querySelector('[data-new-session]').click()");
-  if (!(await waitInPage(win, "document.querySelector('[data-model-select]')", 3_000))) return 'new session view did not open';
-  const original = (await js("document.querySelector('[data-model-select]').dataset.value")) as string;
-  await js("document.querySelector('[data-model-select]').click()");
-  if (!(await waitInPage(win, "document.querySelectorAll('[data-select-list] [role=option]').length > 1 && document.querySelector('[data-model-select]').getAttribute('aria-expanded') === 'true'", 3_000))) return 'model dropdown did not open';
-  const before = (await js("document.querySelector('[data-select-list]').getAttribute('aria-activedescendant')")) as string;
-  win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Down' });
-  await pause(100);
-  const after = (await js("document.querySelector('[data-select-list]').getAttribute('aria-activedescendant')")) as string;
-  await shot(win, 'select.png');
-  win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Escape' });
-  if (!(await waitInPage(win, "!document.querySelector('[data-select-list]') && document.activeElement?.matches('[data-model-select]')", 2_000))) return 'Escape did not close the dropdown';
-  if (before === after) return '↓ did not move in the dropdown';
-  await js("document.querySelector('[data-model-select]').click()");
-  await waitInPage(win, "document.querySelector('[data-select-list]')", 2_000);
-  const next = (await js(`[...document.querySelectorAll('[data-select-list] [role=option]')].map((o) => o.dataset.optionValue).find((v) => v !== ${JSON.stringify(original)}) ?? null`)) as string | null;
-  win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Escape' });
-  await waitInPage(win, "!document.querySelector('[data-select-list]')", 2_000);
-  if (next !== null) {
-    if (!(await chooseOption(win, '[data-model-select]', next))) return 'could not pick a model';
-    if (!(await chooseOption(win, '[data-model-select]', original))) return 'could not put the model back';
-  }
   if (smokeSessionId) await js(`document.querySelector('[data-session-id="${smokeSessionId}"]')?.click()`);
-  return `ok: sidebar ${start} → ${widest} → ${narrowest} → ${reset}px, pointer cursors, themed tooltip, dropdown keyboard and Escape`;
+  return `ok: sidebar ${start} → ${widest} → ${narrowest} → ${reset}px, pointer cursors, themed tooltip`;
 }
 
 /**
@@ -936,6 +1083,7 @@ async function runSmokeStep(win: BrowserWindow | null): Promise<void> {
     splitResult = await runSplitStep(win).catch((error: Error) => `failed: ${error.message}`);
     settleResult = await runSettleStep(win).catch((error: Error) => `failed: ${error.message}`);
     controlsResult = await runControlsStep(win).catch((error: Error) => `failed: ${error.message}`);
+    newSessionResult = await runNewSessionStep(win).catch((error: Error) => `failed: ${error.message}`);
     usageBand = (await waitInPage(win, "document.querySelector('[data-usage-band]')", 15_000))
       ? await win.webContents.executeJavaScript("document.querySelector('[data-usage-band]').innerText.replace(/\\s+/g, ' ')")
       : null;
@@ -944,6 +1092,8 @@ async function runSmokeStep(win: BrowserWindow | null): Promise<void> {
     settingsResult = await runSettingsStep(win).catch((error: Error) => `failed: ${error.message}`);
     terminalOpened = await runTerminalStep(win);
     actionRan = await runActionStep(win);
+    projectsResult = await runProjectsStep(win).catch((error: Error) => `failed: ${error.message}`);
+    profilesResult = await runProfilesStep(win).catch((error: Error) => `failed: ${error.message}`);
     // Diagnostics renders a sample through Shiki, which loads in its own chunks on first use.
     await win.webContents.executeJavaScript("[...document.querySelectorAll('footer button')].find((b) => b.getAttribute('aria-label') === 'Diagnostics')?.click()");
     highlighted = await waitInPage(win, "document.querySelector('[data-rendering-check] .shiki span[style*=\"--shiki\"]')", 5_000);
@@ -978,11 +1128,14 @@ async function runSmokeStep(win: BrowserWindow | null): Promise<void> {
         splitResult,
         settleResult,
         controlsResult,
+        newSessionResult,
         liveSession,
         terminalOpened,
         quitGuarded,
         settingsResult,
         actionRan,
+        projectsResult,
+        profilesResult,
         highlighted,
         usageBand,
         rendering,

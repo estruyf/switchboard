@@ -1,6 +1,6 @@
 import { readdirSync, readFileSync, watch, type FSWatcher } from 'node:fs';
 import { join } from 'node:path';
-import type { LiveSession, LiveStatus } from '@switchboard/protocol';
+import { BUILTIN_PROFILE_ID, type LiveSession, type LiveStatus } from '@switchboard/protocol';
 import { coalesce } from '../util/coalesce.ts';
 import { originFromEntrypoint } from './origin.ts';
 
@@ -29,7 +29,7 @@ const str = (v: unknown): string | null => (typeof v === 'string' && v ? v : nul
 const num = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) ? v : null);
 
 /** Parses one `~/.claude/sessions/<pid>.json` file. Returns null for anything unusable. */
-export function parseRegistryEntry(json: unknown, resolveRoot: (cwd: string) => string | null): LiveSession | null {
+export function parseRegistryEntry(json: unknown, resolveRoot: (cwd: string) => string | null, profileId = BUILTIN_PROFILE_ID): LiveSession | null {
   if (!json || typeof json !== 'object') return null;
   const r = json as Record<string, unknown>;
   const pid = num(r.pid);
@@ -48,11 +48,14 @@ export function parseRegistryEntry(json: unknown, resolveRoot: (cwd: string) => 
     origin: originFromEntrypoint(str(r.entrypoint)),
     startedAt: num(r.startedAt),
     updatedAt: num(r.statusUpdatedAt) ?? num(r.updatedAt),
+    profileId,
   };
 }
 
 export interface LiveRegistryOptions {
   dir: string;
+  /** The profile whose config folder `dir` is in. */
+  profileId?: string;
   resolveRoot: (cwd: string) => string | null;
   onChange: (live: LiveSession[]) => void;
   /** Liveness re-check interval; registry files of crashed processes are never removed. */
@@ -100,7 +103,7 @@ export class LiveRegistry {
     }
     for (const file of files) {
       try {
-        const entry = parseRegistryEntry(JSON.parse(readFileSync(join(this.options.dir, file), 'utf8')), this.options.resolveRoot);
+        const entry = parseRegistryEntry(JSON.parse(readFileSync(join(this.options.dir, file), 'utf8')), this.options.resolveRoot, this.options.profileId);
         if (entry && alive(entry.pid) && !this.options.ignore?.(entry.sessionId)) next.push(entry);
       } catch {
         // Half-written or foreign file; the next scan will see the complete version.

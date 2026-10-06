@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react';
 import type { ColorScheme, SidebarStyle, ToolActivity } from '@switchboard/protocol/bridge';
 import { usePreferences } from '../state/preferencesStore.ts';
+import { ProfilesSettings } from './profiles/ProfilesSettings.tsx';
 import { Choice } from './ui/Choice.tsx';
 import { RadioGroup } from './ui/Radio.tsx';
 import { Toggle } from './ui/Toggle.tsx';
@@ -185,6 +186,13 @@ export function SettingsView() {
                 </Choice>
               ))}
             </RadioGroup>
+          </Section>
+
+          <Section
+            title="Claude profiles"
+            description="Use more than one Claude account, for example a personal plan and a work one. Each profile is a Claude Code config folder with its own login. Link a project to a profile from its menu or the Projects view; other projects use the default."
+          >
+            <ProfilesSettings />
           </Section>
 
           <Section title="Quitting">

@@ -1,0 +1,30 @@
+import { z } from 'zod';
+import { PROFILE_COLORS } from './profileConstants.ts';
+
+export { BUILTIN_PROFILE_ID, PROFILE_COLORS } from './profileConstants.ts';
+
+export const ProfileColor = z.enum(PROFILE_COLORS);
+export type ProfileColor = z.infer<typeof ProfileColor>;
+
+/**
+ * A Claude Code login. Claude Code keeps a separate login, settings, plugins and sessions per
+ * config folder (CLAUDE_CONFIG_DIR), so each profile is its own account.
+ */
+export const ClaudeProfile = z.object({
+  id: z.string(),
+  name: z.string(),
+  color: ProfileColor,
+  /** The config folder this profile reads and runs Claude Code with. */
+  configDir: z.string(),
+  /** The built-in profile uses Claude Code's own config folder and can't be removed or moved. */
+  builtin: z.boolean(),
+  /** Projects without a profile of their own use the default. */
+  isDefault: z.boolean(),
+  exists: z.boolean(),
+  /** The claude.ai account Claude Code last signed in with here (null: not signed in yet, or an API key). */
+  account: z.object({ email: z.string().nullable(), organization: z.string().nullable() }).nullable(),
+});
+export type ClaudeProfile = z.infer<typeof ClaudeProfile>;
+
+export const ProfilesSnapshot = z.object({ profiles: z.array(ClaudeProfile), defaultId: z.string() });
+export type ProfilesSnapshot = z.infer<typeof ProfilesSnapshot>;

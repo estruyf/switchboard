@@ -38,9 +38,11 @@ function processEnv(): Record<string, string> {
 export function resolveShellEnv(timeoutMs = 5000): Promise<ShellEnv> {
   const shell = process.env.SHELL || '/bin/zsh';
   const started = performance.now();
+  // Read now: the engine points process.env.CLAUDE_CONFIG_DIR at a profile's folder while it reads transcripts.
+  const base = processEnv();
   const fallback = (): ShellEnv => ({
     shell,
-    env: processEnv(),
+    env: base,
     resolved: false,
     durationMs: Math.round(performance.now() - started),
   });
@@ -55,7 +57,7 @@ export function resolveShellEnv(timeoutMs = 5000): Promise<ShellEnv> {
         timeout: timeoutMs,
         maxBuffer: 4 * 1024 * 1024,
         // Keep oh-my-zsh & co. from prompting or auto-updating in a non-interactive read.
-        env: { ...process.env, DISABLE_AUTO_UPDATE: 'true', ZSH_DISABLE_COMPFIX: 'true' },
+        env: { ...base, DISABLE_AUTO_UPDATE: 'true', ZSH_DISABLE_COMPFIX: 'true' },
       },
       (error, stdout) => {
         const env = parseEnvOutput(stdout ?? '');

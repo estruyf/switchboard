@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { MessageChannel, type MessagePort } from 'node:worker_threads';
@@ -96,6 +96,21 @@ describe('engine over a MessagePort', () => {
     expect(snapshot.live).toEqual([]);
   });
 
+  it('lists your projects and offers folders that only have sessions', async () => {
+    const { client, dataDir } = connect();
+    await new Promise((resolve) => client.on('sessions.changed', resolve));
+    expect((await client.call('projects.list', {})).projects).toMatchObject([{ root: '/work/parser', added: false, sessionCount: 1, order: null }]);
+    await client.call('projects.add', { path: dataDir });
+    await client.call('projects.setDefaults', { root: dataDir, defaults: { model: 'haiku', effort: null, permissionMode: 'plan', workspace: null, baseRef: null, branch: null } });
+    expect((await client.call('projects.list', {})).projects).toMatchObject([
+      { root: dataDir, added: true, order: 0, defaults: { model: 'haiku', permissionMode: 'plan' } },
+      { root: '/work/parser', added: false },
+    ]);
+    await expect(client.call('projects.setDefaults', { root: '/work/parser', defaults: {} })).rejects.toMatchObject({ code: 'NOT_FOUND' });
+    await client.call('projects.remove', { root: dataDir });
+    expect((await client.call('projects.list', {})).projects.map((p) => p.root)).toEqual(['/work/parser']);
+  });
+
   it('streams a watched transcript to the caller', async () => {
     const { client } = connect();
     const update = new Promise<TranscriptUpdate>((resolve) => client.on('transcript.updated', resolve));
@@ -172,4 +187,118 @@ describe('engine over a MessagePort', () => {
     await client.call('actions.trust', { projectRoot: project, id: 'shared' });
     await expect(client.call('actions.run', { sessionId: SESSION_ID, projectRoot: project, cwd: project, id: 'shared' })).resolves.toMatchObject({ kind: 'terminal' });
   });
+});
+
+describe('Claude profiles', () => {
+  /** A minimal Claude Code transcript, read back through the real SDK. */
+  const transcript = (configDir: string, sessionId: string, cwd: string, prompt: string) => {
+    const dir = join(configDir, 'projects', cwd.replace(/[^A-Za-z0-9]/g, '-'));
+    mkdirSync(dir, { recursive: true });
+    const at = new Date(Date.now() - 60_000).toISOString();
+    const common = { sessionId, cwd, timestamp: at, entrypoint: 'cli', version: '2.1.0', isSidechain: false, userType: 'external' };
+    writeFileSync(
+      join(dir, `${sessionId}.jsonl`),
+      [
+        { ...common, type: 'user', uuid: `${sessionId.slice(0, 8)}-u`, parentUuid: null, message: { role: 'user', content: prompt } },
+        { ...common, type: 'assistant', uuid: `${sessionId.slice(0, 8)}-a`, parentUuid: `${sessionId.slice(0, 8)}-u`, message: { role: 'assistant', model: 'm', content: [{ type: 'text', text: 'On it.' }] } },
+      ]
+        .map((line) => JSON.stringify(line))
+        .join('\n') + '\n',
+    );
+  };
+  const until = async (check: () => Promise<boolean>, timeoutMs = 8_000) => {
+    const deadline = Date.now() + timeoutMs;
+    while (!(await check())) {
+      if (Date.now() > deadline) throw new Error('timed out');
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+  };
+
+  it('lists, searches and runs sessions from two config folders, each with its own login', async () => {
+    const previous = process.env.CLAUDE_CONFIG_DIR;
+    const dataDir = mkdtempSync(join(tmpdir(), 'switchboard-engine-'));
+    const personal = join(dataDir, 'claude');
+    const work = join(dataDir, 'claude-work');
+    const project = mkdtempSync(join(tmpdir(), 'switchboard-project-'));
+    const PERSONAL_ID = '44444444-4444-4444-8444-444444444444';
+    const WORK_ID = '55555555-5555-4555-8555-555555555555';
+    transcript(personal, PERSONAL_ID, '/work/blog', 'Write the personal blog post');
+    transcript(work, WORK_ID, project, 'Fix the quarterly report');
+    writeFileSync(join(work, '.claude.json'), JSON.stringify({ oauthAccount: { emailAddress: 'me@work.example', organizationName: 'Work Inc' } }));
+    // A stand-in for Claude Code that records the environment each helper process gets.
+    const envs: Array<Record<string, string | undefined>> = [];
+    const sdk = async () =>
+      ({
+        query: ({ options }: { options: { env?: Record<string, string | undefined> } }) => {
+          envs.push(options.env ?? {});
+          return { supportedCommands: async () => [], close() {}, [Symbol.asyncIterator]: () => ({ next: () => new Promise(() => {}) }) };
+        },
+        startup: async () => ({ query: () => undefined, close() {} }),
+      }) as never;
+    const engine = createEngine({
+      dataDir,
+      claudeConfigDir: personal,
+      shellEnv: Promise.resolve({ shell: '/bin/zsh', env: { PATH: '' }, resolved: false, durationMs: 0 }),
+      claudeBinary: '/nonexistent/claude',
+      sdk,
+    });
+    const { port1, port2 } = new MessageChannel();
+    const detach = engine.attach(messagePortTransport(asDomPort(port1)));
+    const client = createRpcClient<Contract>(messagePortTransport(asDomPort(port2)));
+    cleanups.push(() => {
+      client.dispose();
+      detach();
+      engine.close();
+      port1.close();
+      port2.close();
+      rmSync(dataDir, { recursive: true, force: true });
+      rmSync(project, { recursive: true, force: true });
+      if (previous === undefined) delete process.env.CLAUDE_CONFIG_DIR;
+      else process.env.CLAUDE_CONFIG_DIR = previous;
+    });
+    const profileOf = async (id: string) => (await client.call('sessions.list', {})).sessions.find((s) => s.id === id)?.profileId;
+
+    // One profile to start with: Claude Code's own folder.
+    await until(async () => (await profileOf(PERSONAL_ID)) === 'default');
+    expect((await client.call('profiles.list', {})).profiles).toMatchObject([{ id: 'default', builtin: true, isDefault: true, configDir: personal }]);
+    expect(await profileOf(WORK_ID)).toBeUndefined();
+
+    const { id: workId } = await client.call('profiles.add', { name: 'Work', color: 'blue', configDir: work });
+    await expect(client.call('profiles.add', { name: 'Again', color: 'red', configDir: work })).rejects.toMatchObject({ code: 'DUPLICATE' });
+    await until(async () => (await profileOf(WORK_ID)) === workId);
+    expect(await profileOf(PERSONAL_ID)).toBe('default');
+    expect((await client.call('profiles.list', {})).profiles.find((p) => p.id === workId)).toMatchObject({
+      name: 'Work',
+      builtin: false,
+      isDefault: false,
+      account: { email: 'me@work.example', organization: 'Work Inc' },
+    });
+
+    // Transcripts and search read each session from its own folder.
+    const { messages } = await client.call('transcript.get', { sessionId: WORK_ID });
+    expect(messages[0]?.blocks[0]).toEqual({ type: 'text', text: 'Fix the quarterly report' });
+    await until(async () => (await client.call('search.query', { query: 'quarterly', limit: 10 })).hits.some((h) => h.sessionId === WORK_ID), 10_000);
+
+    // New processes in a project get the profile it is linked to, else the default.
+    await client.call('session.commands', { cwd: '/tmp' });
+    expect(envs.at(-1)?.CLAUDE_CONFIG_DIR).toBe(personal);
+    await client.call('projects.add', { path: project });
+    await client.call('projects.setProfile', { root: project, profileId: workId });
+    expect((await client.call('projects.list', {})).projects.find((p) => p.root === project)).toMatchObject({ profileId: workId });
+    await client.call('session.commands', { cwd: project });
+    expect(envs.at(-1)?.CLAUDE_CONFIG_DIR).toBe(work);
+    await client.call('profiles.setDefault', { id: workId });
+    expect((await client.call('profiles.list', {})).defaultId).toBe(workId);
+    await client.call('session.commands', { cwd: '/var' });
+    expect(envs.at(-1)?.CLAUDE_CONFIG_DIR).toBe(work);
+
+    // Removing the profile forgets its sessions and links; the folder stays.
+    await expect(client.call('profiles.remove', { id: 'default' })).rejects.toMatchObject({ code: 'BUILTIN' });
+    await client.call('profiles.remove', { id: workId });
+    await until(async () => (await profileOf(WORK_ID)) === undefined);
+    const after = await client.call('profiles.list', {});
+    expect(after).toMatchObject({ defaultId: 'default', profiles: [{ id: 'default' }] });
+    expect((await client.call('projects.list', {})).projects.find((p) => p.root === project)).toMatchObject({ profileId: null });
+    expect(existsSync(join(work, '.claude.json'))).toBe(true);
+  }, 30_000);
 });

@@ -2,7 +2,9 @@ import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
+import { DatabaseSync } from 'node:sqlite';
 import { openCacheDatabase } from '../db/database.ts';
+import { migrations } from '../db/migrations.ts';
 import { detectIconPath, MAX_ICON_BYTES } from './projectIcons.ts';
 import { ProjectRegistry } from './projectRegistry.ts';
 
@@ -50,10 +52,10 @@ describe('ProjectRegistry', () => {
     const plain = tempDir();
     registry.add(plain);
 
-    const byRoot = () => Object.fromEntries(registry.list([withIcon]).map((p) => [p.root, p]));
-    expect(byRoot()[withIcon]).toMatchObject({ iconSource: 'detected', added: false, icon: { kind: 'image' } });
+    const byRoot = () => Object.fromEntries(registry.list(new Map([[withIcon, { count: 2, lastActivity: 5 }]])).map((p) => [p.root, p]));
+    expect(byRoot()[withIcon]).toMatchObject({ iconSource: 'detected', added: false, order: null, sessionCount: 2, lastActivity: 5, icon: { kind: 'image' } });
     expect(byRoot()[withIcon]!.icon).toMatchObject({ dataUrl: expect.stringMatching(/^data:image\/svg\+xml;base64,/) });
-    expect(byRoot()[plain]).toMatchObject({ icon: null, iconSource: null, added: true, exists: true });
+    expect(byRoot()[plain]).toMatchObject({ icon: null, iconSource: null, added: true, exists: true, order: 0, sessionCount: 0, lastActivity: null });
 
     registry.setIcon(plain, { kind: 'emoji', value: '🚲' });
     expect(byRoot()[plain]).toMatchObject({ icon: { kind: 'emoji', value: '🚲' }, iconSource: 'custom' });
@@ -69,7 +71,97 @@ describe('ProjectRegistry', () => {
 
     registry.remove(plain);
     expect(byRoot()[plain]).toBeUndefined();
+    // A folder with sessions stays listed for the Add project picker, just not as a project.
+    registry.add(withIcon);
+    registry.remove(withIcon);
+    expect(byRoot()[withIcon]).toMatchObject({ added: false });
     expect(() => registry.add(join(plain, 'nope'))).toThrow(/Not a folder/);
+    cache.close();
+  });
+});
+
+describe('project list', () => {
+  it('keeps your order, appends new projects and lists other session folders by activity', () => {
+    const data = tempDir();
+    const cache = openCacheDatabase(join(data, 'cache.sqlite'));
+    const registry = new ProjectRegistry(cache.db, join(data, 'icons'));
+    const [a, b, c, other, older] = [tempDir(), tempDir(), tempDir(), tempDir(), tempDir()];
+    registry.add(a);
+    registry.add(b);
+    registry.add(c);
+    const activity = new Map([
+      [older, { count: 1, lastActivity: 10 }],
+      [other, { count: 3, lastActivity: 20 }],
+      [b, { count: 1, lastActivity: 30 }],
+    ]);
+    const roots = () => registry.list(activity).map((p) => [p.root, p.added, p.order]);
+    expect(roots()).toEqual([[a, true, 0], [b, true, 1], [c, true, 2], [other, false, null], [older, false, null]]);
+
+    registry.reorder([c, a]);
+    expect(registry.addedRoots()).toEqual([c, a, b]);
+    // Adding again keeps the place; removing and adding puts it at the end.
+    registry.add(c);
+    expect(registry.addedRoots()).toEqual([c, a, b]);
+    registry.remove(c);
+    registry.add(c);
+    expect(registry.addedRoots()).toEqual([a, b, c]);
+    cache.close();
+  });
+
+  it('stores defaults for new sessions, and only for projects', () => {
+    const data = tempDir();
+    const cache = openCacheDatabase(join(data, 'cache.sqlite'));
+    const registry = new ProjectRegistry(cache.db, join(data, 'icons'));
+    const root = tempDir();
+    const unset = { model: null, effort: null, permissionMode: null, workspace: null, baseRef: null, branch: null };
+    expect(() => registry.setDefaults(root, unset)).toThrow(/Add this folder/);
+    registry.add(root);
+    const project = () => registry.list(new Map()).find((p) => p.root === root)!;
+    expect(project().defaults).toEqual(unset);
+    registry.setDefaults(root, { ...unset, model: 'opus', effort: 'high', workspace: 'worktree', baseRef: 'head' });
+    expect(project().defaults).toEqual({ ...unset, model: 'opus', effort: 'high', workspace: 'worktree', baseRef: 'head' });
+
+    // A value an older or newer build wrote that no longer validates falls back to unset.
+    cache.db.prepare('UPDATE project_settings SET defaults_json = ? WHERE root = ?').run(JSON.stringify({ model: 'sonnet', effort: 'turbo' }), root);
+    expect(project().defaults).toEqual({ ...unset, model: 'sonnet' });
+    registry.setDefaults(root, unset);
+    expect(project().defaults).toEqual(unset);
+    cache.close();
+  });
+});
+
+describe('migration to hand-added projects', () => {
+  /** A database at schema v7 (before projects were added by hand), filled by `seed`. */
+  const atV7 = (path: string, seed: (db: DatabaseSync) => void) => {
+    const db = new DatabaseSync(path);
+    migrations.slice(0, 7).forEach((sql) => db.exec(sql));
+    db.exec('PRAGMA user_version = 7');
+    seed(db);
+    db.close();
+  };
+  const session = (db: DatabaseSync, id: string, root: string, at: number) =>
+    db.prepare('INSERT INTO sessions (id, project_root, updated_at, summary_json) VALUES (?, ?, ?, ?)').run(id, root, at, '{}');
+
+  it('keeps the folders upgrading users worked with in Switchboard, and the ones they added', () => {
+    const path = join(tempDir(), 'cache.sqlite');
+    atV7(path, (db) => {
+      session(db, 'own', '/work/app', 100);
+      session(db, 'own-2', '/work/app', 300);
+      session(db, 'continued', '/work/lib', 200);
+      session(db, 'terminal-only', '/tmp/scratch', 400);
+      db.prepare('INSERT INTO owned_sessions (id, created_at) VALUES (?, 1), (?, 1)').run('own', 'own-2');
+      db.prepare('INSERT INTO continued_sessions (id, created_at) VALUES (?, 1)').run('continued');
+      db.prepare('INSERT INTO project_settings (root, icon_json, added_at) VALUES (?, ?, ?), (?, ?, NULL)').run('/work/added', null, 50, '/work/icon-only', '{"kind":"none"}');
+    });
+    const cache = openCacheDatabase(path);
+    const registry = new ProjectRegistry(cache.db, join(tempDir(), 'icons'));
+    expect(registry.addedRoots().sort()).toEqual(['/work/added', '/work/app', '/work/lib']);
+    cache.close();
+  });
+
+  it('starts a new install with no projects', () => {
+    const cache = openCacheDatabase(join(tempDir(), 'cache.sqlite'));
+    expect(new ProjectRegistry(cache.db, join(tempDir(), 'icons')).addedRoots()).toEqual([]);
     cache.close();
   });
 });

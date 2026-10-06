@@ -2,7 +2,7 @@ import { create } from 'zustand';
 import type { LiveSession, SessionHostInfo, SessionsChanged, SessionsSnapshot, SessionSummary } from '@switchboard/protocol/client';
 import { hostAsLive, isActiveHost } from './hostsStore.ts';
 
-export type MainView = 'session' | 'new' | 'diagnostics' | 'settings';
+export type MainView = 'session' | 'new' | 'diagnostics' | 'settings' | 'projects';
 export type Pane = 'main' | 'split';
 
 const other = (pane: Pane): Pane => (pane === 'main' ? 'split' : 'main');
@@ -24,6 +24,8 @@ interface SessionsState {
   splitId: string | null;
   activePane: Pane;
   view: MainView;
+  /** Bumped each time New session is asked for (⌘N, the sidebar, the palette), so the view focuses its prompt even when already open. */
+  newSessionRequest: number;
   filter: string;
 
   applySnapshot(snapshot: SessionsSnapshot): void;
@@ -37,6 +39,8 @@ interface SessionsState {
   closePane(pane?: Pane): void;
   focusPane(pane: Pane): void;
   setView(view: MainView): void;
+  /** Opens the New session view and asks it to focus the prompt. */
+  openNewSession(): void;
   setFilter(filter: string): void;
 }
 
@@ -53,6 +57,7 @@ export const useSessions = create<SessionsState>()((set) => ({
   splitId: null,
   activePane: 'main',
   view: 'session',
+  newSessionRequest: 0,
   filter: '',
 
   applySnapshot: (snapshot) =>
@@ -98,6 +103,7 @@ export const useSessions = create<SessionsState>()((set) => ({
     }),
   focusPane: (pane) => set((s) => (s.activePane === pane || (pane === 'split' && !s.splitId) ? {} : panes({ ...s, activePane: pane }))),
   setView: (view) => set({ view }),
+  openNewSession: () => set((s) => ({ view: 'new', newSessionRequest: s.newSessionRequest + 1 })),
   setFilter: (filter) => set({ filter }),
 }));
 
@@ -118,6 +124,8 @@ export interface SessionRowData {
   inApp: boolean;
   /** The last run in this app failed. */
   error: boolean;
+  /** The Claude profile the session belongs to. */
+  profileId: string;
 }
 
 export function toRows(
@@ -148,6 +156,7 @@ export function toRows(
       unread: s.unread,
       inApp: s.inApp || l?.origin === 'app',
       error: hosts.get(s.id)?.state === 'error',
+      profileId: s.profileId,
     });
   }
   // Running sessions that have not written a transcript yet still deserve a row.
@@ -176,6 +185,7 @@ export function toRows(
       unread: false,
       inApp: l.origin === 'app',
       error: false,
+      profileId: l.profileId,
     });
   }
   return rows;

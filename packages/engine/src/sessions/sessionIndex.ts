@@ -1,7 +1,7 @@
 import { existsSync, readdirSync, statSync, watch, type FSWatcher } from 'node:fs';
 import { join } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
-import type { LogLevel, SessionsChanged, SessionSummary } from '@switchboard/protocol';
+import { BUILTIN_PROFILE_ID, type LogLevel, type SessionsChanged, type SessionSummary } from '@switchboard/protocol';
 import { originFromEntrypoint, readEntrypoint, readLastActivity } from '../claude/origin.ts';
 import type { ProjectResolver } from '../claude/projectResolver.ts';
 import type { RawSessionInfo, SessionSource } from '../claude/sessionSource.ts';
@@ -30,13 +30,20 @@ interface Entry {
 interface TranscriptFile {
   path: string;
   mtime: number;
+  profileId: string;
+}
+
+/** One profile's `projects` folder. */
+export interface ProjectsRoot {
+  profileId: string;
+  dir: string;
 }
 
 export interface SessionIndexOptions {
   db: DatabaseSync;
   source: SessionSource;
-  /** `~/.claude/projects` */
-  projectsDir: string;
+  /** Every profile's `projects` folder (`~/.claude/projects` and the like); read again by `rootsChanged`. */
+  projectsDirs: () => ProjectsRoot[];
   resolver: ProjectResolver;
   onChange: (change: SessionsChanged) => void;
   /** A transcript file was written (its summary may or may not have changed). */
@@ -73,7 +80,8 @@ export class SessionIndex {
   private readonly flags = new Map<string, Flags>();
   private complete = false;
   private refreshing: Promise<void> | undefined;
-  private watcher: FSWatcher | undefined;
+  private readonly watchers = new Map<string, FSWatcher>();
+  private started = false;
   private timer: ReturnType<typeof setInterval> | undefined;
   private readonly perFile = new Map<string, ReturnType<typeof coalesce>>();
   private readonly statements;
@@ -105,8 +113,11 @@ export class SessionIndex {
   private loadCache(): void {
     for (const row of this.statements.all.all() as Array<Record<string, unknown>>) {
       try {
+        const summary = JSON.parse(String(row.summary_json)) as RawSummary;
+        // Summaries cached before profiles existed came from the built-in profile.
+        summary.profileId ??= BUILTIN_PROFILE_ID;
         this.entries.set(String(row.id), {
-          summary: JSON.parse(String(row.summary_json)) as RawSummary,
+          summary,
           path: (row.jsonl_path as string | null) ?? null,
           mtime: (row.jsonl_mtime as number | null) ?? null,
           entrypoint: (row.entrypoint as string | null) ?? null,
@@ -175,22 +186,47 @@ export class SessionIndex {
   }
 
   start(): void {
+    this.started = true;
     void this.refresh();
-    try {
-      this.watcher = watch(this.options.projectsDir, { recursive: true }, (_event, filename) => {
-        const match = filename ? SESSION_FILE.exec(filename.toString()) : null;
-        if (match) this.fileChanged(match[2]!, join(this.options.projectsDir, filename!.toString()));
-      });
-      this.watcher.on('error', (error) => this.options.log('warn', `Watching ${this.options.projectsDir} failed: ${error.message}`));
-    } catch (error) {
-      this.options.log('warn', `Cannot watch ${this.options.projectsDir}: ${(error as Error).message}`);
-    }
+    this.watch();
     this.timer = setInterval(() => void this.refresh(), this.options.refreshIntervalMs ?? 120_000);
     this.timer.unref?.();
   }
 
+  /** Profiles were added or removed: watch their folders and rescan (sessions of removed ones drop out). */
+  rootsChanged(): Promise<void> {
+    if (this.started) this.watch();
+    // A scan already running read the old folders: scan again after it.
+    return (this.refreshing ?? Promise.resolve()).then(() => this.refresh());
+  }
+
+  /** Watches every profile's projects folder, and stops watching folders no longer listed. */
+  private watch(): void {
+    const roots = this.options.projectsDirs();
+    for (const [dir, watcher] of this.watchers) {
+      if (!roots.some((r) => r.dir === dir)) {
+        watcher.close();
+        this.watchers.delete(dir);
+      }
+    }
+    for (const { dir, profileId } of roots) {
+      if (this.watchers.has(dir)) continue;
+      try {
+        const watcher = watch(dir, { recursive: true }, (_event, filename) => {
+          const match = filename ? SESSION_FILE.exec(filename.toString()) : null;
+          if (match) this.fileChanged(match[2]!, join(dir, filename!.toString()), profileId);
+        });
+        watcher.on('error', (error) => this.options.log('warn', `Watching ${dir} failed: ${error.message}`));
+        this.watchers.set(dir, watcher);
+      } catch (error) {
+        this.options.log('warn', `Cannot watch ${dir}: ${(error as Error).message}`);
+      }
+    }
+  }
+
   stop(): void {
-    this.watcher?.close();
+    for (const watcher of this.watchers.values()) watcher.close();
+    this.watchers.clear();
     if (this.timer) clearInterval(this.timer);
     for (const c of this.perFile.values()) c.stop();
     this.perFile.clear();
@@ -231,28 +267,30 @@ export class SessionIndex {
     }
   }
 
-  /** Maps session id → transcript file for every top-level transcript under projects/. */
+  /** Maps session id → transcript file for every top-level transcript under each profile's projects/. */
   private scanFiles(): Map<string, TranscriptFile> {
     const files = new Map<string, TranscriptFile>();
-    let projectDirs: string[];
-    try {
-      projectDirs = readdirSync(this.options.projectsDir);
-    } catch {
-      return files;
-    }
-    for (const dir of projectDirs) {
-      let names: string[];
+    for (const { dir: root, profileId } of this.options.projectsDirs()) {
+      let projectDirs: string[];
       try {
-        names = readdirSync(join(this.options.projectsDir, dir));
+        projectDirs = readdirSync(root);
       } catch {
         continue;
       }
-      for (const name of names) {
-        const match = SESSION_FILE.exec(`${dir}/${name}`);
-        if (!match) continue;
-        const path = join(this.options.projectsDir, dir, name);
-        const stat = statSync(path, { throwIfNoEntry: false });
-        if (stat?.isFile()) files.set(match[2]!, { path, mtime: Math.round(stat.mtimeMs) });
+      for (const dir of projectDirs) {
+        let names: string[];
+        try {
+          names = readdirSync(join(root, dir));
+        } catch {
+          continue;
+        }
+        for (const name of names) {
+          const match = SESSION_FILE.exec(`${dir}/${name}`);
+          if (!match) continue;
+          const path = join(root, dir, name);
+          const stat = statSync(path, { throwIfNoEntry: false });
+          if (stat?.isFile()) files.set(match[2]!, { path, mtime: Math.round(stat.mtimeMs), profileId });
+        }
       }
     }
     return files;
@@ -283,6 +321,7 @@ export class SessionIndex {
       updatedAt,
       fileSize: info.fileSize ?? null,
       tag: info.tag ?? null,
+      profileId: info.profileId ?? file?.profileId ?? previous?.summary.profileId ?? BUILTIN_PROFILE_ID,
     };
     return { summary, path: file?.path ?? previous?.path ?? null, mtime: file?.mtime ?? previous?.mtime ?? null, entrypoint };
   }
@@ -308,16 +347,16 @@ export class SessionIndex {
     this.options.onChange({ upserted: upserted.map((e) => this.decorate(e.summary)), removed, complete: this.complete });
   }
 
-  private fileChanged(sessionId: string, path: string): void {
+  private fileChanged(sessionId: string, path: string, profileId: string): void {
     let runner = this.perFile.get(sessionId);
     if (!runner) {
-      runner = coalesce(() => this.updateOne(sessionId, path), 200);
+      runner = coalesce(() => this.updateOne(sessionId, path, profileId), 200);
       this.perFile.set(sessionId, runner);
     }
     runner.trigger();
   }
 
-  private async updateOne(sessionId: string, path: string): Promise<void> {
+  private async updateOne(sessionId: string, path: string, profileId: string): Promise<void> {
     try {
       if (!existsSync(path)) {
         if (this.entries.has(sessionId)) this.apply([], [sessionId]);
@@ -329,7 +368,7 @@ export class SessionIndex {
       if (info) {
         const stat = statSync(path, { throwIfNoEntry: false });
         const previous = this.entries.get(sessionId);
-        const entry = this.build(info, { path, mtime: Math.round(stat?.mtimeMs ?? Date.now()) }, previous);
+        const entry = this.build(info, { path, mtime: Math.round(stat?.mtimeMs ?? Date.now()), profileId }, previous);
         if (!previous || JSON.stringify(previous.summary) !== JSON.stringify(entry.summary)) this.apply([entry], []);
       }
       this.options.onTranscriptChanged(sessionId);

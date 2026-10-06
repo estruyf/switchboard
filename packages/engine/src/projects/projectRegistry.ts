@@ -2,14 +2,49 @@ import { createHash } from 'node:crypto';
 import { copyFileSync, existsSync, mkdirSync, statSync } from 'node:fs';
 import { basename, extname, join } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
-import { RpcError, type ProjectIcon, type ProjectIconChoice, type ProjectInfo } from '@switchboard/protocol';
+import { ProjectDefaults, RpcError, type ProjectIcon, type ProjectIconChoice, type ProjectInfo } from '@switchboard/protocol';
 import { detectIconPath, iconDataUrl, MAX_ICON_BYTES } from './projectIcons.ts';
 
 type StoredIcon = { kind: 'emoji'; value: string } | { kind: 'file'; path: string } | { kind: 'none' };
 
+interface Row {
+  root: string;
+  icon_json: string | null;
+  added_at: number | null;
+  sort: number | null;
+  defaults_json: string | null;
+  profile_id: string | null;
+}
+
+/** Sessions per folder, from the session index. */
+export interface FolderActivity {
+  count: number;
+  lastActivity: number;
+}
+
+const NO_DEFAULTS: ProjectDefaults = ProjectDefaults.parse({});
+
+/** Reads stored defaults leniently: a field that no longer validates falls back to unset. */
+function readDefaults(json: string | null): ProjectDefaults {
+  if (!json) return NO_DEFAULTS;
+  try {
+    const raw = JSON.parse(json) as Record<string, unknown>;
+    const shape = ProjectDefaults.shape;
+    const out = { ...NO_DEFAULTS } as Record<string, unknown>;
+    for (const key of Object.keys(shape) as Array<keyof typeof shape>) {
+      const parsed = shape[key].safeParse(raw[key]);
+      if (parsed.success) out[key] = parsed.data;
+    }
+    return out as ProjectDefaults;
+  } catch {
+    return NO_DEFAULTS;
+  }
+}
+
 /**
- * Projects the user sees: every folder with sessions plus folders added by
- * hand, each with an icon (custom, detected, or none → the UI draws a letter).
+ * The user's projects: folders added by hand, in their order, each with an icon (custom, detected,
+ * or none → the UI draws a letter) and defaults for new sessions. Folders that only have Claude Code
+ * sessions are described too (`added: false`), for the Add project picker and sidebar icons.
  */
 export class ProjectRegistry {
   private readonly detected = new Map<string, { at: number; path: string | null }>();
@@ -20,25 +55,48 @@ export class ProjectRegistry {
     private readonly iconDir: string,
   ) {
     this.statements = {
-      all: db.prepare('SELECT root, icon_json, added_at FROM project_settings'),
-      get: db.prepare('SELECT icon_json, added_at FROM project_settings WHERE root = ?'),
+      all: db.prepare('SELECT root, icon_json, added_at, sort, defaults_json, profile_id FROM project_settings'),
+      get: db.prepare('SELECT root, icon_json, added_at, sort, defaults_json, profile_id FROM project_settings WHERE root = ?'),
       upsertIcon: db.prepare(
         'INSERT INTO project_settings (root, icon_json) VALUES (?, ?) ON CONFLICT (root) DO UPDATE SET icon_json = excluded.icon_json',
       ),
-      add: db.prepare('INSERT INTO project_settings (root, added_at) VALUES (?, ?) ON CONFLICT (root) DO UPDATE SET added_at = excluded.added_at'),
-      unadd: db.prepare('UPDATE project_settings SET added_at = NULL WHERE root = ?'),
+      // New projects go to the end of the list; adding one again keeps its place.
+      add: db.prepare(`
+        INSERT INTO project_settings (root, added_at, sort) VALUES (?, ?, (SELECT COALESCE(MAX(sort), -1) + 1 FROM project_settings WHERE added_at IS NOT NULL))
+        ON CONFLICT (root) DO UPDATE SET
+          added_at = COALESCE(project_settings.added_at, excluded.added_at),
+          sort = CASE WHEN project_settings.added_at IS NULL THEN excluded.sort ELSE project_settings.sort END`),
+      unadd: db.prepare('UPDATE project_settings SET added_at = NULL, sort = NULL WHERE root = ?'),
+      setSort: db.prepare('UPDATE project_settings SET sort = ? WHERE root = ?'),
+      upsertDefaults: db.prepare(
+        'INSERT INTO project_settings (root, defaults_json) VALUES (?, ?) ON CONFLICT (root) DO UPDATE SET defaults_json = excluded.defaults_json',
+      ),
     };
   }
 
-  /** Folders added by hand (they show up even without sessions). */
+  /** Folders added by hand, in the user's order. */
   addedRoots(): string[] {
-    return (this.statements.all.all() as Array<{ root: string; added_at: number | null }>).filter((r) => r.added_at !== null).map((r) => r.root);
+    return this.addedRows().map((r) => r.root);
   }
 
-  list(sessionRoots: Iterable<string>): ProjectInfo[] {
-    const added = new Set(this.addedRoots());
-    const roots = new Set([...sessionRoots, ...added]);
-    return [...roots].filter((r) => r.startsWith('/')).map((root) => this.describe(root, added.has(root)));
+  private addedRows(): Row[] {
+    return (this.statements.all.all() as unknown as Row[])
+      .filter((r) => r.added_at !== null)
+      .sort((a, b) => (a.sort ?? Infinity) - (b.sort ?? Infinity) || (a.added_at ?? 0) - (b.added_at ?? 0) || a.root.localeCompare(b.root));
+  }
+
+  /** Added projects in order, then every other folder with sessions, most recently active first. */
+  list(activity: Map<string, FolderActivity>): ProjectInfo[] {
+    const added = this.addedRows();
+    const addedSet = new Set(added.map((r) => r.root));
+    const others = [...activity.entries()]
+      .filter(([root]) => root.startsWith('/') && !addedSet.has(root))
+      .sort((a, b) => b[1].lastActivity - a[1].lastActivity)
+      .map(([root]) => root);
+    return [
+      ...added.map((row, index) => this.describe(row.root, row, index, activity.get(row.root))),
+      ...others.map((root) => this.describe(root, this.row(root), null, activity.get(root))),
+    ];
   }
 
   add(path: string): void {
@@ -46,8 +104,31 @@ export class ProjectRegistry {
     this.statements.add.run(path, Date.now());
   }
 
+  /** Takes a project off the list. Its icon and defaults are kept in case it is added again. */
   remove(root: string): void {
     this.statements.unadd.run(root);
+  }
+
+  /** Orders projects as given; added projects missing from `roots` keep their relative order after them. */
+  reorder(roots: string[]): void {
+    const current = this.addedRoots();
+    const known = new Set(current);
+    const first = [...new Set(roots)].filter((r) => known.has(r));
+    const rest = current.filter((r) => !first.includes(r));
+    this.db.exec('BEGIN');
+    try {
+      [...first, ...rest].forEach((root, index) => this.statements.setSort.run(index, root));
+      this.db.exec('COMMIT');
+    } catch (error) {
+      this.db.exec('ROLLBACK');
+      throw error;
+    }
+  }
+
+  setDefaults(root: string, defaults: ProjectDefaults): void {
+    if (this.row(root)?.added_at == null) throw new RpcError('NOT_FOUND', 'Add this folder as a project first');
+    const empty = Object.values(defaults).every((v) => v === null);
+    this.statements.upsertDefaults.run(root, empty ? null : JSON.stringify(defaults));
   }
 
   setIcon(root: string, choice: ProjectIconChoice): void {
@@ -78,8 +159,11 @@ export class ProjectRegistry {
     this.statements.upsertIcon.run(root, stored ? JSON.stringify(stored) : null);
   }
 
-  private describe(root: string, added: boolean): ProjectInfo {
-    const row = this.statements.get.get(root) as { icon_json: string | null } | undefined;
+  private row(root: string): Row | undefined {
+    return this.statements.get.get(root) as unknown as Row | undefined;
+  }
+
+  private describe(root: string, row: Row | undefined, order: number | null, activity: FolderActivity | undefined): ProjectInfo {
     const stored = row?.icon_json ? (JSON.parse(row.icon_json) as StoredIcon) : null;
     let icon: ProjectIcon | null = null;
     let iconSource: ProjectInfo['iconSource'] = null;
@@ -94,7 +178,20 @@ export class ProjectRegistry {
       icon = path ? iconDataUrl(path) : null;
       iconSource = icon ? 'detected' : null;
     }
-    return { root, name: basename(root) || root, icon, iconSource, added, exists: existsSync(root) };
+    const added = row?.added_at != null;
+    return {
+      root,
+      name: basename(root) || root,
+      icon,
+      iconSource,
+      added,
+      exists: existsSync(root),
+      order: added ? order : null,
+      defaults: added ? readDefaults(row.defaults_json) : NO_DEFAULTS,
+      profileId: row?.profile_id ?? null,
+      sessionCount: activity?.count ?? 0,
+      lastActivity: activity?.lastActivity ?? null,
+    };
   }
 
   /** Detection is a handful of stat calls; cache it briefly so listing stays instant. */

@@ -2,7 +2,7 @@
  * Entry point of the engine utilityProcess. Main forks this once and hands it
  * one MessagePort per window; everything the UI needs goes over those ports.
  */
-import { createEngine } from '@switchboard/engine';
+import { createEngine, type TrashScope } from '@switchboard/engine';
 import { mainPortTransport } from '../shared/mainPortTransport.ts';
 
 function argValue(name: string): string | undefined {
@@ -19,11 +19,11 @@ if (!dataDir) {
 /** Moving files to the Trash needs Electron's shell, which lives in the main process. */
 let nextTrashId = 1;
 const pendingTrash = new Map<number, { resolve: () => void; reject: (error: Error) => void }>();
-const trash = (paths: string[], scope?: { repoRoot: string }) =>
+const trash = (paths: string[], scope: TrashScope) =>
   new Promise<void>((resolve, reject) => {
     const id = nextTrashId++;
     pendingTrash.set(id, { resolve, reject });
-    process.parentPort.postMessage({ type: 'trash', id, paths, ...(scope ? { repoRoot: scope.repoRoot } : {}) });
+    process.parentPort.postMessage({ type: 'trash', id, paths, ...scope });
   });
 
 const engine = createEngine({

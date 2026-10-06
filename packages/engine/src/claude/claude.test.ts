@@ -226,7 +226,7 @@ describe('live registry', () => {
       { pid: 42, sessionId: 's1', cwd: '/repo/app', status: 'busy', name: 'Fix tests', entrypoint: 'cli', startedAt: 1, statusUpdatedAt: 2 },
       () => '/repo',
     );
-    expect(entry).toEqual({ sessionId: 's1', pid: 42, cwd: '/repo/app', projectRoot: '/repo', status: 'running', rawStatus: 'busy', name: 'Fix tests', origin: 'cli', startedAt: 1, updatedAt: 2 });
+    expect(entry).toEqual({ sessionId: 's1', pid: 42, cwd: '/repo/app', projectRoot: '/repo', status: 'running', rawStatus: 'busy', name: 'Fix tests', origin: 'cli', startedAt: 1, updatedAt: 2, profileId: 'default' });
     expect(parseRegistryEntry({ sessionId: 's1' }, () => null)).toBeNull();
     expect(parseRegistryEntry('nope', () => null)).toBeNull();
   });

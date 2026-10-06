@@ -103,10 +103,12 @@ export class TerminalManager {
     /** For `action`: the command line to run in the login shell. */
     command?: string;
     title?: string;
+    /** Added to the login-shell environment, e.g. the session's CLAUDE_CONFIG_DIR. */
+    env?: Record<string, string>;
   }): Promise<TerminalInfo> {
     if (!existsSync(params.cwd)) throw new Error(`Folder not found: ${params.cwd}`);
     const baseEnv = await this.options.env();
-    const env: Record<string, string> = { ...baseEnv, TERM: 'xterm-256color', COLORTERM: 'truecolor', TERM_PROGRAM: 'Switchboard' };
+    const env: Record<string, string> = { ...baseEnv, ...params.env, TERM: 'xterm-256color', COLORTERM: 'truecolor', TERM_PROGRAM: 'Switchboard' };
     for (const key of STRIP_ENV) delete env[key];
 
     let file: string;

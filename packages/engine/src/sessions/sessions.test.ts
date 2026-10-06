@@ -50,7 +50,7 @@ function setup(infos: RawSessionInfo[], db = openCacheDatabase(join(tempDir(), '
     baseline: 1500,
     db: db.db,
     source: fake.source,
-    projectsDir,
+    projectsDirs: () => [{ profileId: 'default', dir: projectsDir }],
     resolver: createProjectResolver('/nonexistent-home'),
     log: () => {},
     onChange: (c) => changes.push(c),

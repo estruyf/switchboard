@@ -1,10 +1,14 @@
 import { useState } from 'react';
-import { Check, FolderOpen, FolderPlus, Image, Layers, RotateCcw, Smile, Type, X } from 'lucide-react';
+import { Check, FolderCog, FolderOpen, FolderPlus, Image, Layers, RotateCcw, Smile, Type, X } from 'lucide-react';
 import type { ProjectIconChoice } from '@switchboard/protocol/client';
 import { useEngineConnection } from '../../engine/useEngine.ts';
+import { useProfiles } from '../../state/profilesStore.ts';
+import { addedProjects } from '../../state/projectList.ts';
 import { useProjects } from '../../state/projectsStore.ts';
+import { useSessions } from '../../state/sessionsStore.ts';
 import { Menu, type MenuEntry } from '../Menu.tsx';
 import { useOpenIn } from '../OpenInButton.tsx';
+import { ProfileDot } from '../profiles/ProfileBadge.tsx';
 import { ProjectIcon } from '../ProjectIcon.tsx';
 
 const SUGGESTED = ['🚀', '🧪', '📦', '🛠️', '🌐', '📱', '🎨', '📝', '🤖', '⚡️', '🔥', '🧩', '📊', '🎬', '🚲', '☁️'];
@@ -25,12 +29,24 @@ export function useProjectActions() {
       const path = await window.switchboard?.pickImage(root);
       if (path) await setIcon(root, { kind: 'file', path });
     },
-    add: async () => {
+    add: async (path: string) => {
+      if (!client) throw new Error('Not connected to the engine');
+      await client.call('projects.add', { path });
+      reload();
+    },
+    /** The system folder dialog, then adds what was picked. Resolves to the folder, or null when cancelled. */
+    chooseAndAdd: async () => {
       const path = await window.switchboard?.pickFolder();
       if (!path || !client) return null;
       await client.call('projects.add', { path });
       reload();
       return path;
+    },
+    /** Links a project to a Claude profile (null: the default). */
+    setProfile: async (root: string, profileId: string | null) => {
+      if (!client) return;
+      await client.call('projects.setProfile', { root, profileId });
+      reload();
     },
     remove: async (root: string) => {
       if (!client) return;
@@ -81,16 +97,42 @@ function EmojiPicker({ x, y, root, onClose }: { x: number; y: number; root: stri
   );
 }
 
+/** Opens the Projects view, scrolled to one project when given. */
+export function manage(root: string | null = null): void {
+  useProjects.getState().setManageFocus(root);
+  useSessions.getState().setView('projects');
+}
+
 /** Menu entries to change a project's icon or remove it; renders the emoji picker when chosen. */
 export function useProjectIconEntries() {
   const actions = useProjectActions();
   const projects = useProjects((s) => s.projects);
+  const profiles = useProfiles((s) => s.profiles);
+  const defaultProfile = profiles.find((p) => p.isDefault);
   const openIn = useOpenIn();
   const [emojiFor, setEmojiFor] = useState<{ root: string; x: number; y: number } | null>(null);
 
   const entries = (root: string, at: { x: number; y: number }): MenuEntry[] => {
     const project = projects.get(root);
+    const linked = project?.profileId ?? null;
+    // Which account new sessions here use; only worth asking once there is more than one.
+    const profileEntries: MenuEntry[] =
+      profiles.length > 1 && root.startsWith('/')
+        ? [
+            { heading: 'Claude profile' },
+            {
+              label: `Default${defaultProfile ? ` (${defaultProfile.name})` : ''}`,
+              hint: linked === null ? '✓' : undefined,
+              onSelect: () => void actions.setProfile(root, null),
+            },
+            ...profiles.map(
+              (p): MenuEntry => ({ label: p.name, icon: <ProfileDot color={p.color} />, hint: linked === p.id ? '✓' : undefined, onSelect: () => void actions.setProfile(root, p.id) }),
+            ),
+            'separator',
+          ]
+        : [];
     return [
+      ...profileEntries,
       { heading: 'Project icon' },
       { label: 'Choose image…', icon: <Image size={13} />, onSelect: () => void actions.chooseImage(root) },
       { label: 'Use emoji…', icon: <Smile size={13} />, onSelect: () => setEmojiFor({ root, ...at }) },
@@ -103,7 +145,14 @@ export function useProjectIconEntries() {
       },
       'separator',
       { label: 'Open folder in editor', icon: <FolderOpen size={13} />, disabled: !project?.exists, onSelect: () => void openIn(root).catch(() => {}) },
-      ...(project?.added ? [{ label: 'Remove from list', icon: <X size={13} />, danger: true, onSelect: () => void actions.remove(root) } satisfies MenuEntry] : []),
+      ...(project?.added
+        ? ([
+            { label: 'Project settings…', icon: <FolderCog size={13} />, onSelect: () => manage(root) },
+            { label: 'Remove from Switchboard', icon: <X size={13} />, danger: true, onSelect: () => void actions.remove(root) },
+          ] satisfies MenuEntry[])
+        : root.startsWith('/')
+          ? [{ label: 'Add to projects', icon: <FolderPlus size={13} />, disabled: !project?.exists, onSelect: () => void actions.add(root) } satisfies MenuEntry]
+          : []),
     ];
   };
 
@@ -111,17 +160,17 @@ export function useProjectIconEntries() {
   return { entries, picker };
 }
 
-/** "All projects ▾": filter the list to one project, and manage project icons. */
+/** "All projects ▾": filter the list to one of your projects, add one, or manage them. */
 export function ProjectFilter({ counts }: { counts: Map<string, { total: number; active: number }> }) {
   const projects = useProjects((s) => s.projects);
   const filter = useProjects((s) => s.filter);
   const setFilter = useProjects((s) => s.setFilter);
-  const actions = useProjectActions();
   const icons = useProjectIconEntries();
   const [open, setOpen] = useState<{ x: number; y: number } | null>(null);
   const [submenu, setSubmenu] = useState<{ root: string; x: number; y: number } | null>(null);
 
-  const sorted = [...projects.values()].sort((a, b) => (counts.get(b.root)?.active ?? 0) - (counts.get(a.root)?.active ?? 0) || a.name.localeCompare(b.name));
+  const showAdd = useProjects((s) => s.showAdd);
+  const sorted = addedProjects(projects);
   const current = filter ? projects.get(filter) : undefined;
 
   return (
@@ -141,8 +190,9 @@ export function ProjectFilter({ counts }: { counts: Map<string, { total: number;
       </button>
       <button
         type="button"
-        data-tooltip="Add a project folder" aria-label="Add a project folder"
-        onClick={() => void actions.add().then((root) => root && setFilter(root))}
+        data-tooltip="Add a project" aria-label="Add a project"
+        data-add-project
+        onClick={() => showAdd(true)}
         className="no-drag flex size-7 items-center justify-center rounded-md text-muted hover:bg-border/50 hover:text-text"
       >
         <FolderPlus size={15} />
@@ -168,6 +218,10 @@ export function ProjectFilter({ counts }: { counts: Map<string, { total: number;
               count={counts.get(project.root)?.total ?? 0}
             />
           ))}
+          {sorted.length === 0 && <p className="px-3 py-1.5 text-[12px] text-faint">No projects yet.</p>}
+          <div className="my-1 border-t border-border" />
+          <FilterRow selected={false} onSelect={() => (setOpen(null), showAdd(true))} icon={<FolderPlus size={14} />} label="Add project…" />
+          <FilterRow selected={false} onSelect={() => (setOpen(null), manage())} icon={<FolderCog size={14} />} label="Manage projects…" />
         </div>
       )}
       {submenu && <Menu x={submenu.x} y={submenu.y} entries={icons.entries(submenu.root, submenu)} onClose={() => setSubmenu(null)} />}

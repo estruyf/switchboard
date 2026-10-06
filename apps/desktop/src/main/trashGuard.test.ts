@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { isTrashableRepoFile, isTrashableSessionPath } from './trashGuard.ts';
+import { isConfigDir, isTrashableRepoFile, isTrashableSessionPath } from './trashGuard.ts';
 
 const config = '/Users/me/.claude';
 const id = '11111111-2222-4333-8444-555555555555';
@@ -20,6 +20,22 @@ describe('isTrashableSessionPath', () => {
     expect(isTrashableSessionPath(`${config}/projects/../../${id}.jsonl`, config)).toBe(false);
     expect(isTrashableSessionPath(`${config}/projects/x/notes.jsonl`, config)).toBe(false);
     expect(isTrashableSessionPath(`relative/${id}.jsonl`, config)).toBe(false);
+  });
+});
+
+describe('isConfigDir', () => {
+  it('accepts a profile folder with a projects folder, nothing vaguer', () => {
+    const dir = realpathSync(mkdtempSync(join(tmpdir(), 'trash-config-')));
+    try {
+      expect(isConfigDir(dir)).toBe(false);
+      mkdirSync(join(dir, 'projects'));
+      expect(isConfigDir(dir)).toBe(true);
+      expect(isConfigDir(`${dir}/../${dir.split('/').pop()}`)).toBe(false);
+      expect(isConfigDir('/')).toBe(false);
+      expect(isConfigDir(42)).toBe(false);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
 

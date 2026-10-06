@@ -1,0 +1,79 @@
+import { describe, expect, it } from 'vitest';
+import type { ProjectDefaults, ProjectInfo } from '@switchboard/protocol/client';
+import { addedProjects, knownFolders, moveRoot } from '../../state/projectList.ts';
+import { globalPatch, INITIAL_CHOICES, readGlobals, sameDefaults, startingChoices, toProjectDefaults } from './choices.ts';
+
+const unset: ProjectDefaults = { model: null, effort: null, permissionMode: null, workspace: null, baseRef: null, branch: null };
+
+describe('new session choices', () => {
+  it('start from the project defaults and fall back to the global ones', () => {
+    const globals = { ...INITIAL_CHOICES, model: 'sonnet', effort: 'low' as const };
+    expect(startingChoices(globals, null)).toEqual({ ...globals, branch: '' });
+    expect(startingChoices(globals, { ...unset, workspace: 'worktree', effort: 'high', branch: 'develop' })).toEqual({
+      ...globals,
+      workspace: 'worktree',
+      effort: 'high',
+      branch: 'develop',
+    });
+  });
+
+  it('only remember changes globally for fields the project leaves unset', () => {
+    const project = { ...unset, model: 'opus' };
+    expect(globalPatch({ model: 'haiku', effort: 'max', branch: 'x' }, project)).toEqual({ effort: 'max' });
+    expect(globalPatch({ model: 'haiku' }, null)).toEqual({ model: 'haiku' });
+  });
+
+  it('save as project defaults, dropping the branch for worktrees', () => {
+    const choices = { ...INITIAL_CHOICES, model: '', effort: 'high' as const, branch: 'develop' };
+    expect(toProjectDefaults(choices)).toEqual({ model: null, effort: 'high', permissionMode: 'default', workspace: 'current', baseRef: 'fresh', branch: 'develop' });
+    expect(toProjectDefaults({ ...choices, workspace: 'worktree' }).branch).toBeNull();
+    expect(sameDefaults(toProjectDefaults(choices), toProjectDefaults(choices))).toBe(true);
+    expect(sameDefaults(unset, toProjectDefaults(choices))).toBe(false);
+  });
+
+  it('read stored globals leniently', () => {
+    expect(readGlobals(null)).toEqual({ globals: INITIAL_CHOICES, cwd: null });
+    expect(readGlobals({ cwd: '/a', model: 'opus', workspace: 'sideways', effort: 3 })).toEqual({ globals: { ...INITIAL_CHOICES, model: 'opus' }, cwd: '/a' });
+  });
+});
+
+const project = (root: string, extra: Partial<ProjectInfo>): ProjectInfo => ({
+  root,
+  name: root.split('/').pop()!,
+  icon: null,
+  iconSource: null,
+  added: false,
+  exists: true,
+  order: null,
+  defaults: unset,
+  profileId: null,
+  sessionCount: 0,
+  lastActivity: null,
+  ...extra,
+});
+
+describe('project lists', () => {
+  const map = new Map(
+    [
+      project('/w/zeta', { added: true, order: 1, sessionCount: 2, lastActivity: 10 }),
+      project('/w/alpha', { added: true, order: 0 }),
+      project('/w/scratch', { sessionCount: 5, lastActivity: 30 }),
+      project('/w/old', { sessionCount: 1, lastActivity: 5 }),
+    ].map((p) => [p.root, p]),
+  );
+
+  it('lists added projects in your order', () => {
+    expect(addedProjects(map).map((p) => p.root)).toEqual(['/w/alpha', '/w/zeta']);
+  });
+
+  it('offers folders with sessions, most recent first, filterable', () => {
+    expect(knownFolders(map, '', null).map((p) => p.root)).toEqual(['/w/scratch', '/w/zeta', '/w/old']);
+    expect(knownFolders(map, 'scr', null).map((p) => p.root)).toEqual(['/w/scratch']);
+  });
+
+  it('moves a project up or down', () => {
+    expect(moveRoot(['a', 'b', 'c'], 'c', -1)).toEqual(['a', 'c', 'b']);
+    expect(moveRoot(['a', 'b', 'c'], 'a', -1)).toEqual(['a', 'b', 'c']);
+    expect(moveRoot(['a', 'b', 'c'], 'x', 1)).toEqual(['a', 'b', 'c']);
+  });
+});

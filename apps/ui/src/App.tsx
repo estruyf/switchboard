@@ -6,6 +6,8 @@ import { useOpenIn } from './components/OpenInButton.tsx';
 import { QuitPrompt } from './components/QuitPrompt.tsx';
 import { CommandPalette } from './components/palette/CommandPalette.tsx';
 import { SearchDialog } from './components/search/SearchDialog.tsx';
+import { AddProjectDialog } from './components/projects/AddProjectDialog.tsx';
+import { ProjectManagerView } from './components/projects/ProjectManagerView.tsx';
 import { SettingsView } from './components/SettingsView.tsx';
 import { useUsageSync } from './components/UsageBand.tsx';
 import { Sidebar } from './components/sidebar/Sidebar.tsx';
@@ -15,7 +17,9 @@ import { isActiveHost, useHosts } from './state/hostsStore.ts';
 import { useSessions } from './state/sessionsStore.ts';
 import { useOverlay } from './state/overlayStore.ts';
 import { usePreferencesSync } from './state/preferencesStore.ts';
-import { useProjectsSync } from './state/projectsStore.ts';
+import { addedProjects } from './state/projectList.ts';
+import { useProfilesSync } from './state/profilesStore.ts';
+import { useProjects, useProjectsSync } from './state/projectsStore.ts';
 import { useSidebarSync } from './state/sidebarStore.ts';
 import { useTerminals, useTerminalsSync } from './state/terminalsStore.ts';
 import { useHostsSync } from './state/useHostsSync.ts';
@@ -58,7 +62,7 @@ function useShortcuts() {
         }
       } else if (key === 'n') {
         event.preventDefault();
-        useSessions.getState().setView('new');
+        useSessions.getState().openNewSession();
       } else if (key === 'o') {
         const { view, selectedId, sessions, live } = useSessions.getState();
         if (view !== 'session' || !selectedId) return;
@@ -78,14 +82,30 @@ function useShortcuts() {
 function EmptyState() {
   const count = useSessions((s) => s.sessions.size);
   const liveCount = useSessions((s) => s.live.size);
+  const noProjects = useProjects((s) => addedProjects(s.projects).length === 0);
+  const loaded = useProjects((s) => s.loaded);
   return (
     <div className="flex h-full flex-col">
       <div className="drag h-13 shrink-0" />
       <div className="flex flex-1 flex-col items-center justify-center gap-1 pb-16 text-center">
-        <p className="text-[14px] font-medium">Select a session</p>
-        <p className="text-[12px] text-muted">
-          {count} sessions on this Mac{liveCount > 0 ? `, ${liveCount} open right now` : ''}. Use ↑ ↓ in the sidebar to browse, or ⌘N to start a new one.
-        </p>
+        {loaded && noProjects ? (
+          <div className="grid max-w-sm justify-items-center gap-1.5" data-onboarding>
+            <p className="text-[14px] font-medium">Add your first project</p>
+            <p className="text-[12px] text-muted">
+              Projects are the folders you start Claude Code sessions in. Pick from the folders you have used Claude Code in, or choose any folder.
+            </p>
+            <button type="button" onClick={() => useProjects.getState().showAdd(true)} className="mt-2 h-7 rounded-md bg-accent px-3 text-[12px] font-medium text-on-accent" data-onboarding-add>
+              Add a project
+            </button>
+          </div>
+        ) : (
+          <>
+            <p className="text-[14px] font-medium">Select a session</p>
+            <p className="text-[12px] text-muted">
+              {count} sessions on this Mac{liveCount > 0 ? `, ${liveCount} open right now` : ''}. Use ↑ ↓ in the sidebar to browse, or ⌘N to start a new one.
+            </p>
+          </>
+        )}
       </div>
     </div>
   );
@@ -107,6 +127,7 @@ export function App() {
   useSessionsSync();
   useHostsSync();
   useProjectsSync();
+  useProfilesSync();
   useTerminalsSync();
   useSidebarSync();
   useUsageSync();
@@ -119,6 +140,7 @@ export function App() {
   const splitId = useSessions((s) => s.splitId);
   const activePane = useSessions((s) => s.activePane);
   const overlay = useOverlay((s) => s.open);
+  const adding = useProjects((s) => s.adding);
 
   return (
     <div className="flex h-full">
@@ -135,6 +157,8 @@ export function App() {
           </>
         ) : view === 'settings' ? (
           <SettingsView />
+        ) : view === 'projects' ? (
+          <ProjectManagerView />
         ) : view === 'new' ? (
           <NewSessionView />
         ) : mainId && splitId ? (
@@ -156,6 +180,7 @@ export function App() {
       <QuitPrompt />
       {overlay === 'search' && <SearchDialog />}
       {overlay === 'palette' && <CommandPalette />}
+      {adding && <AddProjectDialog onClose={() => useProjects.getState().showAdd(false)} />}
       <TooltipLayer />
     </div>
   );

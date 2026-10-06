@@ -135,7 +135,7 @@ app_state(key, value)                        -- UI prefs, default editor, last o
 
 ### MVP (v0.1)
 1. **Sidebar:** projects grouped by git root. Each session shows a status dot (running, needs you, idle, done), title, age, and origin badge. Unread markers, plus pin and archive.
-2. **New session** (⌘N): pick a folder (recent projects first), model, effort and permission mode, then choose **where to work**. Section 5.1 covers the options.
+2. **New session** (⌘N): pick one of your projects (or any folder), model, effort and permission mode, then choose **where to work**. Options start from the project's defaults. Section 5.1 covers the options, 5.4 projects.
 3. **Chat view:**
    - Streaming markdown and collapsible thinking.
    - Tool cards for Bash (output), Edit/Write (inline diff), Read/Grep/Glob (compact), and TodoWrite (live checklist).
@@ -164,7 +164,7 @@ The new-session dialog has a **Workspace** toggle that works the same way as Cla
 - The **sidebar shows the branch** for every session, with a worktree badge where one applies. Sessions are grouped under their main repo (`listSessions({dir})` already includes worktree sessions). The branch comes from git for the session's cwd, because the transcript's `gitBranch` field can be stale.
 - The option is **disabled with a hint** when the folder isn't a git repo.
 - When you **archive a worktree session**, the app asks whether to delete the worktree. It warns if there are uncommitted or unpushed changes.
-- The **default can be changed** in Settings (Current folder ↔ New worktree), and per project.
+- The **default** is the choice you last made, and can be set per project (✅ in the Projects view, see 5.4).
 
 ### 5.2 Project actions
 
@@ -212,6 +212,21 @@ Personal overrides shared, which overrides global. **Safety:** commands from a r
 - **File links everywhere:** file paths in tool cards, diffs and Claude's text are clickable. ⌘-click opens the file **at its line** in the default editor (`code -g file:line`, `cursor -g`, `zed file:line`, `idea --line`). The app falls back to `open -a <App>` when the editor's CLI isn't on PATH.
 - **Default editor** can be set globally and per project. Until you choose, the last one you used becomes the default.
 - **"Open PR"** appears when the transcript has a `pr-link` record (seen in the spike data), and opens the PR in the browser.
+
+
+### 5.4 Projects ✅ ([#13](https://github.com/estruyf/switchboard/issues/13))
+
+- **Added by hand.** The sidebar filter, the New session folder list and the palette only offer projects you added. *Add project* lists the folders Claude Code has sessions for (most recent first, filterable), or opens the folder dialog. A session started in another folder offers to add it. Upgrading keeps every folder with a session started or continued in Switchboard (migration v8); a new install starts empty, with a prompt to add a project.
+- **Defaults per project** (`project_settings.defaults_json`): model, effort, permission mode, workspace (current folder or worktree, and its base), and a branch to check out for current-folder sessions. Unset fields use the choices last made in the New session view. Changing a decided field there applies to that session only, until *Save as project default*.
+- **Projects view** (sidebar footer, palette, a project's menu): add, remove (from Switchboard only), reorder, defaults, actions, icon, and a warning when the folder is gone.
+- ✅ The Claude profile per project (#11, see 5.5). Later: Remote Control (#9), environment variables, additional directories.
+
+### 5.5 Claude profiles ✅ ([#11](https://github.com/estruyf/switchboard/issues/11))
+
+- **A profile is a Claude Code config folder** (one login, settings, plugins, sessions each). The built-in profile is Claude Code's own folder ($CLAUDE_CONFIG_DIR or `~/.claude`) and runs Claude Code with the environment unchanged; Claude Code keys its global config and keychain entry on whether CLAUDE_CONFIG_DIR is set, so setting it to `~/.claude` would act like another login. Profiles live in `claude_profiles` (migration v9), the default in `app_state`, a project's link in `project_settings.profile_id`.
+- **Processes** (sessions, pre-warm, command and Tools helpers, usage, terminals) get `CLAUDE_CONFIG_DIR` through `env`. Resume and fork use the profile the transcript lives in, whatever the project's link says now.
+- **Reading:** the SDK's transcript readers take the folder from `process.env.CLAUDE_CONFIG_DIR` only, so `ConfigDirLane` runs calls for one folder at a time. `MultiProfileSource` merges the profiles' sessions and routes each read to the folder it was found in; the index, search and live registry cover every folder, and every session records its `profileId`.
+- **UI:** Settings → Claude profiles (add with a folder, colour, default, sign-in command; the account comes from Claude Code's `.claude.json`). With more than one profile: a dot on sidebar rows, a tag in the session header and Tools, a profile picker in New session, per-project links, and the usage band for the session's profile. With one, nothing shows outside Settings.
 
 ### v0.2: power features
 - ✅ **Embedded terminal** per session (xterm.js on node-pty), plus a raw `claude` TUI tab for anything the GUI doesn't cover (including mods). Built ahead of schedule; project actions will reuse it.

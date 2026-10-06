@@ -34,6 +34,27 @@ export async function baseBranch(cwd: string): Promise<string | null> {
   return null;
 }
 
+/** Local branches, most recently committed first, and the one checked out (null when HEAD is detached). */
+export async function listBranches(cwd: string): Promise<{ current: string | null; branches: string[] }> {
+  const [refs, head] = await Promise.all([
+    git(cwd, ['for-each-ref', '--sort=-committerdate', '--format=%(refname:short)', 'refs/heads']),
+    git(cwd, ['symbolic-ref', '--quiet', '--short', 'HEAD'], { allowExitCodes: [1, 128] }),
+  ]);
+  return { current: head.trim() || null, branches: refs.split('\n').filter(Boolean) };
+}
+
+/**
+ * Checks out an existing local branch, or a remote one as a new tracking branch. Git keeps
+ * uncommitted changes that don't conflict and refuses otherwise; nothing is ever discarded.
+ */
+export async function switchBranch(cwd: string, branch: string): Promise<void> {
+  // Never let a branch name be read as an option.
+  if (branch.startsWith('-')) throw new GitError(`Not a branch name: ${branch}`);
+  const { current } = await listBranches(cwd);
+  if (current === branch) return;
+  await git(cwd, ['switch', branch]);
+}
+
 /** The commit `base` mode compares against: where this branch left the base branch. */
 async function mergeBase(cwd: string, base: string): Promise<string | null> {
   for (const ref of [`origin/${base}`, base]) {

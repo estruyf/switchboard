@@ -15,13 +15,14 @@ It uses the Claude Code you already have installed, with your login, settings, c
 **Keep track of every session**
 - One list of all your sessions, newest first, across every project. Sessions you haven't touched for a while move to **Settled**, out of the way. You can settle one yourself too, even while it works: it comes back when it needs you or has finished.
 - See at a glance which sessions are **working**, **waiting for you**, **finished** or **unread**.
-- Filter by project, filter by title, and pin the sessions you keep coming back to.
+- Filter by one of your projects, filter by title, and pin the sessions you keep coming back to.
 - **Search every conversation** (⌘⇧F): your prompts and Claude's replies across all sessions, with the matching words highlighted. Pick a result to jump straight to that message.
 - Give each project an icon. Switchboard picks one up from the repo when it can (a logo or favicon).
 - Sessions running in your terminal show up too, live.
 
 **Work with Claude**
-- Start a session in a folder (⌘N): pick a project by typing a few letters, then work on the current branch or in a **new worktree**, just like `claude --worktree`.
+- Start a session in a folder (⌘N): pick a project by typing a few letters, then work on the current branch (or check out another one first) or in a **new worktree**, just like `claude --worktree`.
+- **Projects** are the folders you choose to work in. Add them from the folders you've used Claude Code in, or any folder, then reorder or remove them in the **Projects** view (the folder icon at the bottom of the sidebar). Give a project its own defaults for new sessions: model, effort, permission mode, worktree or current folder, and a branch. The New session view starts from them; change something there for one session, or click *Save as project default*.
 - Chat as you would in the terminal. You get streaming replies, `/` commands (your own commands and skills included), `@` file mentions, and images you paste or attach.
 - Approve or deny permission requests, answer Claude's questions and review plans in the conversation.
 - Follow what Claude does without the noise: each run of tool calls is one line ("Reading src/app.ts…", then "Ran 3 commands and edited 2 files"), and a click shows every step, with diffs, command output, to-do lists and subagent runs.
@@ -79,7 +80,7 @@ If macOS blocks the app the first time you open it, see [Building, signing and n
 
 1. **Open Switchboard.** The sidebar lists the sessions you start or continue in Switchboard. To see your sessions from the terminal, Claude desktop and your editor too, turn on *Show sessions from other apps* in Settings.
 2. **Pick a session** to read it, or type below it to continue.
-3. **Start something new** with ⌘N: choose a folder, and whether to work in the current folder or a new worktree.
+3. **Start something new** with ⌘N: pick the project, write what Claude should work on, and choose where it runs: this checkout or a new worktree. Model, effort and permission mode sit right under the prompt.
 4. When a session needs you (a permission or a question), it's marked in the sidebar and you get a notification.
 
 ## Keyboard shortcuts
@@ -113,11 +114,12 @@ Open Settings with ⌘, or the gear at the bottom of the sidebar.
 - **Theme:** Match System, Light or Dark. The colours come from the [Demo Time theme](https://github.com/estruyf/vscode-demo-time-theme).
 - **Sidebar:** *Large icons* (easy to spot each project), *Standard*, or *Compact* (one line per session). *Show sessions from other apps* also lists sessions from the terminal, Claude desktop and your editor (off by default), and notifies you when a terminal session is waiting.
 - **Conversation:** *Summarised* (the default) shows each run of tool calls as one line, like Claude Code: what Claude is doing right now, or what it did, with how long it took. Click it to see the steps, and a step to see its details. *Every step* shows each tool call as its own card.
+- **Claude profiles:** use more than one Claude account, for example a personal plan and a work one. Each profile is a Claude Code config folder with its own login, settings, plugins and sessions (`~/.claude` is the first). Add one, sign in there once in a terminal with the command Settings shows (`CLAUDE_CONFIG_DIR=~/.claude-work claude`, then `/login`), and pick the default. Link a project to a profile from its menu or the Projects view; New session shows the profile a folder uses and lets you pick another for one session. With more than one profile, sessions show which account they use, and the usage band shows that account's limits.
 - **Quitting:** turn off the "Ask before quitting" prompt.
 
 ## Your data
 
-Switchboard reads the session files Claude Code already keeps in `~/.claude` and runs your own `claude` to do the work, so your sessions stay in one place whether you use the terminal or the app. It doesn't send anything anywhere else. Deleting a session moves its files to the Trash.
+Switchboard reads the session files Claude Code already keeps in `~/.claude` (and in the folders of any other Claude profiles you add) and runs your own `claude` to do the work, so your sessions stay in one place whether you use the terminal or the app. It doesn't send anything anywhere else, and never handles your Claude login: you sign in with Claude Code itself. Deleting a session moves its files to the Trash.
 
 ## Documentation
 
