@@ -5,6 +5,7 @@ import appIcon from '../../assets/app-icon.png';
 import { lastChecked, updateStatusText, versionLabel } from '../../lib/updates.ts';
 import { usePreferences } from '../../state/preferencesStore.ts';
 import { useUpdates } from '../../state/updatesStore.ts';
+import { Button } from '../ui/Button.tsx';
 import { Radio, RadioGroup } from '../ui/Radio.tsx';
 import { Toggle } from '../ui/Toggle.tsx';
 import { useInstallUpdate } from './useInstallUpdate.tsx';
@@ -16,7 +17,6 @@ const CHANNELS: Array<{ value: UpdateChannel; label: string; detail: string }> =
 ];
 
 const link = 'inline-flex items-center gap-1 text-[12px] text-link hover:underline';
-const button = 'h-7 rounded-md border border-border px-2.5 text-[12px] hover:bg-border/50 disabled:opacity-50 disabled:hover:bg-transparent';
 
 /** Re-renders every half minute, so "Last checked" stays true. */
 function useNow(): number {
@@ -92,23 +92,23 @@ export function AboutSettings() {
           </div>
           <div className="flex shrink-0 gap-2">
             {state?.status === 'available' && (
-              <button type="button" onClick={() => window.switchboard?.update('download')} className={button} data-update-download>
+              <Button onClick={() => window.switchboard?.update('download')} data-update-download>
                 Download
-              </button>
+              </Button>
             )}
             {(state?.status === 'downloaded' || (state?.status === 'error' && state.downloadedVersion)) && (
-              <button type="button" onClick={install} className="h-7 rounded-md bg-accent px-2.5 text-[12px] font-medium text-on-accent" data-update-install>
+              <Button variant="primary" onClick={install} data-update-install>
                 Restart to update
-              </button>
+              </Button>
             )}
             {state?.status === 'error' && state.canRetry && !state.downloadedVersion && (
-              <button type="button" onClick={() => window.switchboard?.update('retry')} className={button} data-update-retry>
+              <Button onClick={() => window.switchboard?.update('retry')} data-update-retry>
                 Retry
-              </button>
+              </Button>
             )}
-            <button type="button" disabled={off || busy} onClick={() => window.switchboard?.update('check')} className={button} data-check-updates>
+            <Button disabled={off || busy} onClick={() => window.switchboard?.update('check')} data-check-updates>
               Check for Updates
-            </button>
+            </Button>
           </div>
         </div>
 

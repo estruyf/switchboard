@@ -20,6 +20,9 @@ import { useOpenIn } from '../OpenInButton.tsx';
 import { PROFILE_DOT } from '../profiles/ProfileBadge.tsx';
 import { useMultipleProfiles, useProfile } from '../../state/profilesStore.ts';
 import { ProjectIcon } from '../ProjectIcon.tsx';
+import { Button } from '../ui/Button.tsx';
+import { Kbd } from '../ui/Kbd.tsx';
+import { CountBadge } from '../ui/Pill.tsx';
 import { updatePill } from '../../lib/updates.ts';
 import { useUpdates } from '../../state/updatesStore.ts';
 import { useClaudeUpdate } from '../../state/claudeUpdateStore.ts';
@@ -78,21 +81,20 @@ const rowHeight = (row: SidebarListRow, style: SidebarStyle) =>
 const RAIL_TONE: Partial<Record<Exclude<RowStatus, null>, string>> = { 'needs-you': 'bg-warn', running: 'bg-accent-ink', unread: 'bg-unread' };
 const AGE_TONE: Partial<Record<Exclude<RowStatus, null>, string>> = { 'needs-you': 'text-warn', running: 'text-accent-ink', unread: 'text-unread' };
 
+/** The selection sheet's actions: three to a row in the sidebar's width, so they keep less padding than a button usually has. */
+const pickButton = 'min-w-0 px-1.5!';
+
 /** A section header in the list. Needs you and Working take their status colour and a count, so they read at a glance. */
 function GroupHeader({ group, count, first, selectAll }: { group: SessionGroup; count: number; first: boolean; selectAll: ReactNode }) {
   const tone = group === 'needs-you' ? 'text-warn' : group === 'working' ? 'text-accent-ink' : 'text-faint';
-  const pill = group === 'needs-you' ? 'bg-warn/15' : group === 'working' ? 'bg-accent/20' : null;
+  const counted = group === 'needs-you' || group === 'working';
   return (
     <div className={`flex h-full items-end gap-1.5 px-2.5 ${first ? 'pb-1' : 'pb-1.5'} text-meta font-semibold tracking-wider uppercase ${tone}`} data-session-group={group}>
       <span role="heading" aria-level={2}>
         {GROUP_LABEL[group]}
-        {pill && <span className="sr-only">, {count}</span>}
+        {counted && <span className="sr-only">, {count}</span>}
       </span>
-      {pill && (
-        <span className={`rounded-full px-1.5 tabular-nums tracking-normal ${pill}`} aria-hidden>
-          {count}
-        </span>
-      )}
+      {counted && <CountBadge count={count} status={group} aria-hidden />}
       {selectAll}
     </div>
   );
@@ -575,26 +577,31 @@ export function Sidebar() {
             className="h-full min-w-0 flex-1 bg-transparent text-ui text-text outline-none placeholder:text-muted"
           />
         </label>
-        <button
-          type="button"
+        <Button
+          variant="quiet"
+          size="lg"
+          iconOnly
+          icon={<House size={15} aria-hidden />}
+          aria-label="Home"
+          kbd="⌘⇧H"
+          selected={atHome}
           data-go-home
           onClick={() => useSessions.getState().goHome()}
-          data-tooltip="Home (⌘⇧H)" aria-label="Home (⌘⇧H)"
           aria-current={atHome ? 'page' : undefined}
-          className={`no-drag flex size-8 shrink-0 items-center justify-center rounded-lg hover:bg-border/50 ${atHome ? 'bg-selected text-text' : 'text-muted hover:text-text'}`}
-        >
-          <House size={15} aria-hidden />
-        </button>
-        <button
-          type="button"
+          className="no-drag shrink-0 rounded-lg!"
+        />
+        {/* The sidebar's one primary action: a yellow fill, like every primary button. */}
+        <Button
+          variant="primary"
+          size="lg"
+          iconOnly
+          icon={<Plus size={17} strokeWidth={2.4} aria-hidden />}
+          aria-label="New session"
+          kbd="⌘N"
           data-new-session
           onClick={() => useSessions.getState().openNewSession()}
-          data-tooltip="New session (⌘N)" aria-label="New session (⌘N)"
-          // The sidebar's one primary action: a yellow fill, like every primary button.
-          className={`no-drag flex size-8 shrink-0 items-center justify-center rounded-lg bg-accent text-on-accent hover:bg-accent/85 ${view === 'new' ? 'ring-2 ring-accent/40 ring-offset-1 ring-offset-sidebar' : ''}`}
-        >
-          <Plus size={17} strokeWidth={2.4} aria-hidden />
-        </button>
+          className={`no-drag shrink-0 rounded-lg! ${view === 'new' ? 'ring-2 ring-accent/40 ring-offset-1 ring-offset-sidebar' : ''}`}
+        />
       </div>
 
       <ProjectFilter counts={counts} />
@@ -688,7 +695,7 @@ export function Sidebar() {
                         className="flex h-full min-w-0 flex-1 items-center gap-1.5 rounded-md px-2.5 text-meta font-semibold tracking-wider text-faint uppercase hover:text-text"
                       >
                         Archived
-                        <span className="rounded-full bg-border/60 px-1.5 tabular-nums tracking-normal">{row.count}</span>
+                        <CountBadge count={row.count} />
                         <ChevronRight size={13} className={`transition-transform ${row.open ? 'rotate-90' : ''}`} aria-hidden />
                       </button>
                       {selectAll('archived')}
@@ -708,38 +715,37 @@ export function Sidebar() {
               {picked.size}
             </span>
             <span className="min-w-0 flex-1 truncate text-ui font-semibold text-text">sessions selected</span>
-            <button type="button" onClick={() => setPicks(NO_PICKS)} data-clear-selection className="flex h-6 shrink-0 items-center gap-1.5 rounded-md px-1.5 text-ui text-muted hover:bg-border/50 hover:text-text">
-              Clear <kbd className="rounded border border-edge px-1 font-sans text-meta">Esc</kbd>
-            </button>
+            <Button variant="quiet" size="sm" kbd="Esc" onClick={() => setPicks(NO_PICKS)} data-clear-selection className="shrink-0">
+              Clear
+            </Button>
           </div>
           <div className="grid grid-cols-3 gap-1.5">
             {pickActive.length > 0 || pickArchived.length === 0 ? (
-              <button type="button" data-archive-selected disabled={pickActive.length === 0} onClick={actOnPicks(pickActive, ARCHIVE)} className="btn-secondary min-w-0 px-1.5">
-                <Archive size={13} className="shrink-0" aria-hidden /> <span className="truncate">Archive</span>
-              </button>
+              <Button icon={<Archive size={13} className="shrink-0" aria-hidden />} data-archive-selected disabled={pickActive.length === 0} onClick={actOnPicks(pickActive, ARCHIVE)} className={pickButton}>
+                <span className="truncate">Archive</span>
+              </Button>
             ) : (
-              <button type="button" data-unarchive-selected onClick={actOnPicks(pickArchived, { archived: false })} className="btn-secondary min-w-0 px-1.5">
-                <ArchiveRestore size={13} className="shrink-0" aria-hidden /> <span className="truncate">Unarchive</span>
-              </button>
+              <Button icon={<ArchiveRestore size={13} className="shrink-0" aria-hidden />} data-unarchive-selected onClick={actOnPicks(pickArchived, { archived: false })} className={pickButton}>
+                <span className="truncate">Unarchive</span>
+              </Button>
             )}
-            <button type="button" data-pin-selected disabled={pickTargets.length === 0} onClick={actOnPicks(pickTargets, { pinned: !allPinned })} className="btn-secondary min-w-0 px-1.5">
-              {allPinned ? <PinOff size={13} className="shrink-0" aria-hidden /> : <Pin size={13} className="shrink-0" aria-hidden />}
-              <span className="truncate">{allPinned ? 'Unpin' : 'Pin'}</span>
-            </button>
-            <button
-              type="button"
-              data-delete-selected
+            <Button
+              icon={allPinned ? <PinOff size={13} className="shrink-0" aria-hidden /> : <Pin size={13} className="shrink-0" aria-hidden />}
+              data-pin-selected
               disabled={pickTargets.length === 0}
-              onClick={() => setDeleting(pickTargets)}
-              className="btn-secondary min-w-0 border-error/50! px-1.5 text-error! hover:bg-error/10!"
+              onClick={actOnPicks(pickTargets, { pinned: !allPinned })}
+              className={pickButton}
             >
-              <Trash2 size={13} className="shrink-0" aria-hidden /> <span className="truncate">Delete…</span>
-            </button>
+              <span className="truncate">{allPinned ? 'Unpin' : 'Pin'}</span>
+            </Button>
+            <Button variant="danger" icon={<Trash2 size={13} className="shrink-0" aria-hidden />} data-delete-selected disabled={pickTargets.length === 0} onClick={() => setDeleting(pickTargets)} className={pickButton}>
+              <span className="truncate">Delete…</span>
+            </Button>
           </div>
           <p className="flex flex-wrap gap-x-3 gap-y-1 text-meta text-faint">
-            {[['⌘A', 'all in group'], ['⇧↑↓', 'extend'], ['⌘⌫', 'delete']].map(([key, what]) => (
+            {([['⌘A', 'all in group'], ['⇧↑↓', 'extend'], ['⌘⌫', 'delete']] as const).map(([key, what]) => (
               <span key={key} className="flex items-center gap-1">
-                <kbd className="rounded border border-edge px-1 font-sans">{key}</kbd> {what}
+                <Kbd keys={key} /> {what}
               </span>
             ))}
           </p>
@@ -764,24 +770,27 @@ export function Sidebar() {
             {!complete && loaded && ' · scanning…'}
           </span>
         )}
-        <button
-          type="button"
+        <Button
+          variant="quiet"
+          iconOnly
+          icon={<FolderCog size={15} aria-hidden />}
+          aria-label="Projects"
+          selected={view === 'projects'}
+          aria-current={view === 'projects' ? 'page' : undefined}
           data-open-projects
           onClick={() => setView(view === 'projects' ? 'session' : 'projects')}
-          data-tooltip="Projects" aria-label="Projects"
-          className={`flex size-7 items-center justify-center rounded-md hover:bg-border/60 hover:text-text ${view === 'projects' ? 'bg-border/60 text-text' : 'text-muted'}`}
-        >
-          <FolderCog size={15} aria-hidden />
-        </button>
-        <button
-          type="button"
+        />
+        <Button
+          variant="quiet"
+          iconOnly
+          icon={<Settings size={15} aria-hidden />}
+          aria-label="Settings"
+          kbd="⌘,"
+          selected={view === 'settings'}
+          aria-current={view === 'settings' ? 'page' : undefined}
           data-open-settings
           onClick={() => (view === 'settings' ? useSessions.getState().closeSettings() : useSessions.getState().openSettings())}
-          data-tooltip="Settings (⌘,)" aria-label="Settings (⌘,)"
-          className={`flex size-7 items-center justify-center rounded-md hover:bg-border/60 hover:text-text ${view === 'settings' ? 'bg-border/60 text-text' : 'text-muted'}`}
-        >
-          <Settings size={15} aria-hidden />
-        </button>
+        />
       </footer>
 
       {menu && <Menu x={menu.x} y={menu.y} entries={menu.entries} label={menu.label} onClose={() => setMenu(null)} />}

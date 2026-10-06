@@ -1,4 +1,5 @@
 import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
+import { Button } from './ui/Button.tsx';
 import { useModalFocus } from './ui/useModalFocus.ts';
 
 export interface ConfirmDialogProps {
@@ -55,20 +56,11 @@ export function ConfirmDialog(props: ConfirmDialogProps) {
           </p>
         )}
         <div className="mt-5 flex justify-end gap-2">
-          <button type="button" onClick={props.onClose} className="btn-secondary">
-            Cancel
-          </button>
+          <Button onClick={props.onClose}>Cancel</Button>
           {!props.blockedReason && (
-            <button
-              ref={confirmRef}
-              type="button"
-              data-confirm
-              disabled={busy}
-              onClick={() => void confirm()}
-              className={`h-7 rounded-md px-3 text-ui font-semibold disabled:opacity-50 ${props.danger ? 'bg-error text-white' : 'bg-accent text-on-accent'}`}
-            >
+            <Button ref={confirmRef} variant={props.danger ? 'danger' : 'primary'} filled={props.danger} data-confirm disabled={busy} onClick={() => void confirm()}>
               {busy ? 'Working…' : props.confirmLabel}
-            </button>
+            </Button>
           )}
         </div>
       </div>

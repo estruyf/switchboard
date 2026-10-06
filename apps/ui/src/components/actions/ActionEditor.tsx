@@ -4,6 +4,9 @@ import { ACTION_ICONS, type ActionIcon, type ActionSuggestion, type ListedAction
 import { useEngineConnection } from '../../engine/useEngine.ts';
 import { ConfirmDialog } from '../ConfirmDialog.tsx';
 import { useOpenIn } from '../OpenInButton.tsx';
+import { Button } from '../ui/Button.tsx';
+import { Kbd } from '../ui/Kbd.tsx';
+import { Pill } from '../ui/Pill.tsx';
 import { RadioGroup } from '../ui/Radio.tsx';
 import { Select } from '../ui/Select.tsx';
 import { Switch } from '../ui/Toggle.tsx';
@@ -27,7 +30,6 @@ import { ACTION_ICON, formatShortcut, RESERVED_SHORTCUTS, shortcutFromEvent } fr
 
 const field = 'h-7 w-full rounded-md border bg-bg px-2.5 text-ui text-text outline-none focus:border-accent-ink disabled:opacity-70';
 const fieldBorder = (invalid: boolean) => (invalid ? 'border-error' : 'border-edge');
-const kbd = 'rounded border border-edge px-1 font-sans text-meta text-muted';
 const fieldLabel = 'text-ui text-muted';
 /** How many icons the picker shows inline; the rest are behind its ⋯ button. */
 const INLINE_ICONS = 4;
@@ -88,7 +90,7 @@ function ShortcutInput({ value, onChange, labelId }: { value: string | null; onC
           data-action-shortcut
         >
           <span id={`${id}-value`} className="min-w-0 flex-1 truncate">
-            {recording ? <span className="text-accent-ink">Press keys, Esc cancels</span> : value ? <kbd className={`${kbd} text-text`}>{formatShortcut(value)}</kbd> : <span className="text-faint">None</span>}
+            {recording ? <span className="text-accent-ink">Press keys, Esc cancels</span> : value ? <Kbd keys={value} className="text-text" /> : <span className="text-faint">None</span>}
           </span>
           {!recording && (
             <span className="shrink-0 text-muted" aria-hidden>
@@ -97,9 +99,7 @@ function ShortcutInput({ value, onChange, labelId }: { value: string | null; onC
           )}
         </button>
         {value && !recording && (
-          <button type="button" onClick={() => onChange(null)} className="rounded p-0.5 text-muted hover:bg-border/50 hover:text-text" aria-label="Clear the shortcut" data-tooltip="Clear">
-            <X size={12} aria-hidden />
-          </button>
+          <Button variant="quiet" size="sm" iconOnly icon={<X size={12} aria-hidden />} onClick={() => onChange(null)} aria-label="Clear the shortcut" data-tooltip="Clear" />
         )}
       </div>
       {error && (
@@ -376,7 +376,7 @@ export function ActionEditor({
         <span className="min-w-0 flex-1 truncate">{a.name}</span>
         {a.scope === 'global' && <span className="shrink-0 rounded border border-edge px-1.5 text-meta font-normal text-muted">All projects</span>}
         {a.scope === 'shared' && <span className="shrink-0 rounded border border-edge px-1.5 text-meta font-normal text-muted">Shared</span>}
-        {a.shortcut && <kbd className={`${kbd} shrink-0`}>{formatShortcut(a.shortcut)}</kbd>}
+        {a.shortcut && <Kbd keys={a.shortcut} />}
       </Row>
     );
   };
@@ -403,9 +403,7 @@ export function ActionEditor({
           <span id={`${id}-project`} className="min-w-0 flex-1 truncate text-ui text-muted" data-tooltip={projectRoot}>
             {projectName(projectRoot)}
           </span>
-          <button type="button" onClick={onClose} className="self-center rounded p-1 text-muted hover:bg-border/50 hover:text-text" aria-label="Close" data-tooltip="Close (Esc)">
-            <X size={15} aria-hidden />
-          </button>
+          <Button variant="quiet" size="sm" iconOnly icon={<X size={15} aria-hidden />} kbd="Esc" onClick={onClose} aria-label="Close" className="self-center" />
         </header>
 
         <div className="flex min-h-0 flex-1">
@@ -483,9 +481,9 @@ export function ActionEditor({
                 <p className="mb-3 flex items-center gap-2 rounded-md bg-border/40 px-2.5 py-1.5 text-ui text-muted">
                   <span className="flex-1">Shared from .switchboard.json in the repo. Edit the file to change it.</span>
                   {sharedFile && (
-                    <button type="button" onClick={() => void openIn(sharedFile)} className="shrink-0 rounded px-1.5 py-0.5 text-text hover:bg-border/60">
+                    <Button size="sm" onClick={() => void openIn(sharedFile)} className="shrink-0">
                       Edit file
-                    </button>
+                    </Button>
                   )}
                 </p>
               )}
@@ -658,27 +656,24 @@ export function ActionEditor({
 
             <footer className="flex shrink-0 items-center gap-2.5 border-t border-edge px-6 py-3">
               {selected && !readOnly && (
-                <button type="button" onClick={() => setDeleting(selected)} className="-ml-2 h-7 rounded-md px-2 text-ui font-medium text-error hover:bg-error/10" data-delete-action>
+                <Button variant="danger" onClick={() => setDeleting(selected)} data-delete-action>
                   Delete
-                </button>
+                </Button>
               )}
               <span className="flex-1" />
               <span className="flex min-w-0 items-center gap-2.5 text-ui text-muted">
                 <span className="shrink-0">In the header as</span>
-                <span className="inline-flex h-7 min-w-0 items-center gap-1.5 rounded-full border border-edge px-3 text-ui text-text">
-                  <PreviewIcon size={13} className="shrink-0 text-muted" aria-hidden />
+                {/* The pill as it shows above the message box; the edge colour keeps its border visible on the dialog. */}
+                <Pill shrink icon={<PreviewIcon size={12} className="shrink-0" aria-hidden />} kbd={draft.shortcut ?? undefined} className="max-w-44 border-edge">
                   <span className="truncate">{draft.name.trim() || 'Action'}</span>
-                  {draft.shortcut && <kbd className={kbd}>{formatShortcut(draft.shortcut)}</kbd>}
-                </span>
+                </Pill>
               </span>
               <span className="mx-1 h-5 w-px shrink-0 bg-edge" aria-hidden />
-              <button type="button" onClick={onClose} className="btn-secondary">
-                {readOnly ? 'Close' : 'Cancel'}
-              </button>
+              <Button onClick={onClose}>{readOnly ? 'Close' : 'Cancel'}</Button>
               {!readOnly && (
-                <button type="submit" data-save-action aria-keyshortcuts="Meta+Enter" className="flex h-7 items-center gap-1.5 rounded-md bg-accent px-3 text-ui font-semibold text-on-accent">
-                  Save <kbd className="rounded border border-on-accent/30 px-1 font-sans text-meta font-medium">⌘↵</kbd>
-                </button>
+                <Button type="submit" variant="primary" kbd="⌘↵" data-save-action>
+                  Save
+                </Button>
               )}
             </footer>
           </form>

@@ -6,6 +6,7 @@ import { DEFAULT_EXPORT_SECTIONS, groupChanges, hasEffect, SECTION_INFO, summari
 import { guessHome, tildify } from '../../lib/format.ts';
 import { useBackup } from '../../state/backupStore.ts';
 import { usePreferences } from '../../state/preferencesStore.ts';
+import { Button } from '../ui/Button.tsx';
 import { Checkbox } from '../ui/Checkbox.tsx';
 import { Radio, RadioGroup } from '../ui/Radio.tsx';
 import { useModalFocus } from '../ui/useModalFocus.ts';
@@ -34,9 +35,7 @@ function Shell({ title, subtitle, onClose, footer, children, attr }: { title: st
               {subtitle}
             </p>
           </div>
-          <button type="button" onClick={onClose} className="text-muted hover:text-text" aria-label="Close" data-tooltip="Close (Esc)">
-            <X size={15} aria-hidden />
-          </button>
+          <Button variant="quiet" size="sm" iconOnly icon={<X size={15} aria-hidden />} kbd="Esc" onClick={onClose} aria-label="Close" />
         </header>
         <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">{children}</div>
         <footer className="flex items-center justify-end gap-2 border-t border-border px-5 py-3">{footer}</footer>
@@ -45,8 +44,6 @@ function Shell({ title, subtitle, onClose, footer, children, attr }: { title: st
   );
 }
 
-const buttonClass = 'btn-secondary';
-const primaryClass = 'h-7 rounded-md bg-accent px-3 text-[12px] font-medium text-on-accent disabled:opacity-50';
 
 function SectionChoices({ available, selected, onChange, attr }: { available: readonly BackupSection[]; selected: readonly BackupSection[]; onChange(next: BackupSection[]): void; attr: `data-${string}` }) {
   return (
@@ -102,9 +99,9 @@ export function ExportDialog({ onClose }: { onClose(): void }) {
             <span role="status" className="min-w-0 flex-1 truncate text-[12px] text-ok" data-export-saved={saved} data-tooltip={saved}>
               Saved to {saved}
             </span>
-            <button type="button" onClick={onClose} className={primaryClass}>
+            <Button variant="primary" onClick={onClose}>
               Done
-            </button>
+            </Button>
           </>
         ) : (
           <>
@@ -115,12 +112,10 @@ export function ExportDialog({ onClose }: { onClose(): void }) {
             ) : (
               sections.length === 0 && <span className="min-w-0 flex-1 text-[12px] text-muted">Choose at least one thing to include.</span>
             )}
-            <button type="button" onClick={onClose} className={buttonClass}>
-              Cancel
-            </button>
-            <button type="button" onClick={() => void save()} disabled={busy || sections.length === 0 || !client} className={primaryClass} data-export-settings>
+            <Button onClick={onClose}>Cancel</Button>
+            <Button variant="primary" onClick={() => void save()} disabled={busy || sections.length === 0 || !client} data-export-settings>
               {busy ? 'Exporting…' : 'Export…'}
-            </button>
+            </Button>
           </>
         )
       }
@@ -237,20 +232,18 @@ export function ImportDialog({ onClose }: { onClose(): void }) {
       attr="data-import-dialog"
       footer={
         backupPath ? (
-          <button type="button" onClick={onClose} className={primaryClass} data-import-done>
+          <Button variant="primary" onClick={onClose} data-import-done>
             Done
-          </button>
+          </Button>
         ) : (
           <>
             <span role={error ? 'alert' : 'status'} className={`min-w-0 flex-1 truncate text-[12px] ${error ? 'text-error' : 'text-muted'}`} data-tooltip={error ?? undefined} data-import-summary>
               {error ?? (preview ? summarizeChanges(preview.changes, preview.unchanged) : '')}
             </span>
-            <button type="button" onClick={onClose} className={buttonClass}>
-              Cancel
-            </button>
-            <button type="button" onClick={() => void apply()} disabled={busy || !effect || !client} className={primaryClass} data-import-settings>
+            <Button onClick={onClose}>Cancel</Button>
+            <Button variant="primary" onClick={() => void apply()} disabled={busy || !effect || !client} data-import-settings>
               {busy ? 'Importing…' : mode === 'replace' ? 'Replace' : 'Import'}
-            </button>
+            </Button>
           </>
         )
       }
@@ -300,9 +293,9 @@ export function ImportDialog({ onClose }: { onClose(): void }) {
                     {tildify(folder, home)}
                   </span>
                   <span className="text-warn">not found</span>
-                  <button type="button" onClick={() => void pointAt(folder)} className={`${buttonClass} flex items-center gap-1.5`} aria-label={`Choose a folder for ${tildify(folder, home)}`}>
-                    <FolderOpen size={12} aria-hidden /> Choose folder…
-                  </button>
+                  <Button icon={<FolderOpen size={12} aria-hidden />} onClick={() => void pointAt(folder)} aria-label={`Choose a folder for ${tildify(folder, home)}`}>
+                    Choose folder…
+                  </Button>
                 </div>
               ))}
               {relocate.map((m) => (
@@ -315,15 +308,15 @@ export function ImportDialog({ onClose }: { onClose(): void }) {
                   <span className="min-w-0 flex-1 truncate font-mono text-[11.5px] text-text" data-tooltip={m.to}>
                     {tildify(m.to, home)}
                   </span>
-                  <button
-                    type="button"
+                  <Button
+                    variant="quiet"
+                    size="sm"
+                    iconOnly
+                    icon={<Undo2 size={13} aria-hidden />}
                     onClick={() => setRelocate((list) => list.filter((x) => x.from !== m.from))}
-                    className="text-muted hover:text-text"
                     aria-label={`Undo the new folder for ${m.from}`}
                     data-tooltip="Undo"
-                  >
-                    <Undo2 size={13} aria-hidden />
-                  </button>
+                  />
                 </div>
               ))}
             </div>

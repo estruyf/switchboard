@@ -7,6 +7,7 @@ import { BackupSettings } from './backup/BackupSettings.tsx';
 import { EngineDiagnostics } from './EngineDiagnostics.tsx';
 import { ProfilesSettings } from './profiles/ProfilesSettings.tsx';
 import { AboutSettings, SettingsVersion } from './updates/AboutSettings.tsx';
+import { Button } from './ui/Button.tsx';
 import { Choice } from './ui/Choice.tsx';
 import { Radio, RadioGroup } from './ui/Radio.tsx';
 import { Toggle } from './ui/Toggle.tsx';
@@ -352,16 +353,7 @@ export function SettingsView() {
           {/* The top strip keeps the window draggable, like every other view's header. */}
           {/* Same padding as the session header, so the close button stays put when Settings opens over it. */}
           <div className="drag flex h-13 shrink-0 items-center justify-end px-6">
-            <button
-              type="button"
-              onClick={close}
-              data-close-settings
-              data-tooltip="Close (Esc)"
-              aria-label="Close settings"
-              className="no-drag flex size-7 items-center justify-center rounded-md text-muted hover:bg-border/50 hover:text-text"
-            >
-              <X size={15} aria-hidden />
-            </button>
+            <Button variant="quiet" iconOnly icon={<X size={15} aria-hidden />} kbd="Esc" onClick={close} data-close-settings data-tooltip="Close (Esc)" aria-label="Close settings" className="no-drag" />
           </div>
           <div className="min-h-0 flex-1 overflow-y-auto">
             <div className={`mx-auto min-w-0 px-8 ${section === 'diagnostics' ? 'max-w-3xl' : 'max-w-2xl'}`} data-settings-page={section}>

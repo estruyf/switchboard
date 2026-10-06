@@ -27,6 +27,8 @@ import { WorktreeMenu } from '../worktree/WorktreeMenu.tsx';
 import { ConfirmDialog } from '../ConfirmDialog.tsx';
 import { GitButton } from '../git/GitButton.tsx';
 import { ProjectIcon } from '../ProjectIcon.tsx';
+import { Button } from '../ui/Button.tsx';
+import { Pill } from '../ui/Pill.tsx';
 import { PermissionCard, permissionTitle } from '../session/PermissionCard.tsx';
 import { MoreMenu } from '../session/MoreMenu.tsx';
 import { SessionControls } from '../session/StatusBar.tsx';
@@ -47,8 +49,6 @@ const ORIGIN_LABEL = { cli: 'Terminal', desktop: 'Claude desktop', ide: 'IDE', s
 /** The status word in the header's meta line takes the colour of its dot. */
 const STATUS_TONE = { running: 'text-accent-ink', 'needs-you': 'text-warn', idle: 'text-ok' } as const;
 
-/** One icon-only segment of the header's Changes | Terminal control. */
-const segment = 'flex h-full shrink-0 items-center gap-1 rounded-md px-1.5';
 
 /** The dot between the parts of the header's meta line (a narrow pane shows only the status dot and the branch, no separators). */
 const Sep = () => (
@@ -541,33 +541,37 @@ export function TranscriptView({ sessionId, pane = null, active = true }: { sess
         {/* Changes | Terminal: the two side panels as one compact, icon-only segmented control. */}
         <div role="group" aria-label="Panels" className="no-drag flex h-7 shrink-0 items-center gap-0.5 rounded-lg bg-card p-0.5" data-panel-toggles>
           {cwd && isRepo && (
-            <button
-              type="button"
+            <Button
+              variant="quiet"
+              size="sm"
+              selected={changesOpen}
+              icon={<FileDiff size={14} aria-hidden />}
               data-toggle-changes
               onClick={() => toggleChanges()}
               data-tooltip={`${changesOpen ? 'Hide' : 'Show'} changed files (⌘⇧D)`}
               aria-label={`${changesOpen ? 'Hide' : 'Show'} changed files${changedCount ? `, ${changedCount} changed` : ''} (⌘⇧D)`}
               aria-keyshortcuts="Meta+Shift+D"
               aria-expanded={changesOpen && active}
-              className={`${segment} ${changesOpen ? 'bg-selected text-text' : 'text-muted hover:bg-border/50 hover:text-text'}`}
+              className="shrink-0"
             >
-              <FileDiff size={14} aria-hidden />
               {changedCount > 0 && <span className="text-meta tabular-nums">{changedCount}</span>}
-            </button>
+            </Button>
           )}
-          <button
-            type="button"
+          <Button
+            variant="quiet"
+            size="sm"
+            selected={panelOpen}
+            icon={<SquareTerminal size={14} aria-hidden />}
             data-toggle-terminal
             onClick={() => togglePanel()}
             data-tooltip={`${panelOpen ? 'Hide' : 'Show'} terminal (⌘J)${terminalCount ? ` · ${terminalCount} running` : ''}`}
             aria-label={`${panelOpen ? 'Hide' : 'Show'} terminal${terminalCount ? `, ${terminalCount} running` : ''} (⌘J)`}
             aria-keyshortcuts="Meta+J"
             aria-expanded={panelOpen && active}
-            className={`${segment} relative ${panelOpen ? 'bg-selected text-text' : 'text-muted hover:bg-border/50 hover:text-text'}`}
+            className="relative shrink-0"
           >
-            <SquareTerminal size={14} aria-hidden />
             {terminalCount > 0 && <span className="absolute top-1 right-1 size-1.5 rounded-full bg-ok" aria-hidden />}
-          </button>
+          </Button>
         </div>
         {cwd && isRepo && (
           <GitButton
@@ -595,29 +599,29 @@ export function TranscriptView({ sessionId, pane = null, active = true }: { sess
           onStop={activeHost ? () => void client?.call('session.close', { sessionId }) : null}
         />
         {!pane && (
-          <button
-            type="button"
+          <Button
+            variant="quiet"
+            iconOnly
+            icon={<X size={15} />}
             data-close-session
             onClick={() => useSessions.getState().closeSession()}
             data-tooltip="Close session and go Home (it keeps running)"
             aria-label="Close session"
-            className="no-drag flex size-7 shrink-0 items-center justify-center rounded-md text-muted hover:bg-border/50 hover:text-text"
-          >
-            <X size={15} />
-          </button>
+            className="no-drag shrink-0"
+          />
         )}
         {pane && (
-          <button
-            type="button"
+          <Button
+            variant="quiet"
+            iconOnly
+            icon={<X size={15} />}
             data-close-pane
             onClick={() => useSessions.getState().closePane(pane)}
             // Braces, because a plain JSX attribute string keeps both backslashes of `\\`.
             data-tooltip={'Close this pane (⌘\\ closes the other one)'}
             aria-label="Close this pane"
-            className="no-drag flex size-7 shrink-0 items-center justify-center rounded-md text-muted hover:bg-border/50 hover:text-text"
-          >
-            <X size={15} />
-          </button>
+            className="no-drag shrink-0"
+          />
         )}
       </header>
 
@@ -735,31 +739,32 @@ export function TranscriptView({ sessionId, pane = null, active = true }: { sess
                     <ActionPills actions={actionsMenu} />
                     <div className="ml-auto flex min-w-0 flex-wrap items-center justify-end gap-1.5">
                       {showTodos && (
-                        <button
-                          type="button"
+                        <Pill
+                          tone="muted"
+                          selected={todosOpen}
+                          icon={<ListTodo size={12} aria-hidden />}
                           onClick={() => setTodosOpen((o) => !o)}
                           aria-expanded={todosOpen}
                           aria-controls={todosOpen ? todosId : undefined}
                           data-tooltip={todosOpen ? 'Hide Claude’s task list' : 'Show Claude’s task list'}
-                          className={`flex h-6 shrink-0 items-center gap-1.5 rounded-full border border-border px-2.5 text-meta hover:bg-border/50 hover:text-text ${todosOpen ? 'bg-selected text-text' : 'text-muted'}`}
                           data-todo-strip
                         >
-                          <ListTodo size={12} aria-hidden />
                           <span className="tabular-nums">
                             Tasks {todos.filter((t) => t.status === 'completed').length} of {todos.length}
                           </span>
                           <ChevronDown size={11} className={`transition-transform ${todosOpen ? 'rotate-180' : ''}`} aria-hidden />
-                        </button>
+                        </Pill>
                       )}
                       {backgroundTasks.length > 0 && (
-                        <span
-                          className="flex h-6 min-w-0 items-center gap-1.5 rounded-full border border-ok/40 bg-ok/10 px-2.5 text-meta text-ok"
+                        <Pill
+                          tone="ok"
+                          shrink
+                          icon={<LoaderCircle size={11} className="shrink-0 animate-[spin_2s_linear_infinite]" aria-hidden />}
                           data-tooltip={backgroundTasks.map((t) => t.description).join('\n')}
                           data-status-background
                         >
-                          <LoaderCircle size={11} className="shrink-0 animate-[spin_2s_linear_infinite]" aria-hidden />
                           <span className="truncate">{backgroundTasks.length === 1 ? '1 background task' : `${backgroundTasks.length} background tasks`}</span>
-                        </span>
+                        </Pill>
                       )}
                     </div>
                   </div>
@@ -788,9 +793,9 @@ export function TranscriptView({ sessionId, pane = null, active = true }: { sess
               {actionError && (
                 <p className="flex items-start gap-2 rounded-lg border border-error/40 bg-error/5 px-3 py-2 text-ui text-error" role="alert">
                   <span className="min-w-0 flex-1">{actionError}</span>
-                  <button type="button" onClick={() => setActionError(null)} className="shrink-0 text-muted hover:text-text">
+                  <Button variant="quiet" size="sm" onClick={() => setActionError(null)} className="-my-0.5 shrink-0">
                     Dismiss
-                  </button>
+                  </Button>
                 </p>
               )}
               {actionsMenu.overlays}
@@ -825,17 +830,17 @@ export function TranscriptView({ sessionId, pane = null, active = true }: { sess
                 }
                 actions={
                   cwd && (
-                    <button
-                      type="button"
+                    <Button
+                      variant="quiet"
+                      size="sm"
+                      iconOnly
+                      icon={<Blocks size={15} aria-hidden />}
                       data-open-tools
                       onClick={() => useOverlay.getState().show('tools')}
                       data-tooltip="Tools: the MCP servers, skills, agents and plugins this session can use"
                       aria-label="Tools: MCP servers, skills, agents and plugins"
                       aria-haspopup="dialog"
-                      className="rounded-md p-1 text-muted hover:bg-border/50 hover:text-text"
-                    >
-                      <Blocks size={15} aria-hidden />
-                    </button>
+                    />
                   )
                 }
               />

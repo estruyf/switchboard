@@ -3,6 +3,8 @@ import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent } from 
 import { basename, tildify } from '../../lib/format.ts';
 import { useProjects } from '../../state/projectsStore.ts';
 import { ProjectIcon } from '../ProjectIcon.tsx';
+import { Button } from '../ui/Button.tsx';
+import { Kbd } from '../ui/Kbd.tsx';
 import { filterFolders, quickTiles, type TileTone } from './projectTiles.ts';
 
 const COLUMNS = 5;
@@ -143,7 +145,7 @@ export function FolderPicker({
       >
         <span className="flex items-center justify-between gap-2">
           <ProjectIcon project={projects.get(folder)} root={folder} size={24} />
-          {index < 9 && <kbd className="font-sans text-meta text-faint">⌘{index + 1}</kbd>}
+          {index < 9 && <Kbd keys={`⌘${index + 1}`} tone="plain" />}
         </span>
         <span className="block truncate text-ui font-semibold text-text">{nameOf(folder)}</span>
         <span className={`flex min-w-0 items-center gap-1.5 text-meta ${TONE_TEXT[status.tone]}`}>
@@ -209,17 +211,9 @@ export function FolderPicker({
             </button>
           </div>
           {options.length === 0 && <p className="px-1 text-meta text-muted">No project matches.</p>}
-          <button
-            ref={toggleRef}
-            type="button"
-            data-folder-select
-            data-value={value ?? ''}
-            aria-expanded
-            onClick={() => close(true)}
-            className="justify-self-end rounded-md px-1.5 text-meta text-muted hover:bg-border/50 hover:text-text"
-          >
+          <Button ref={toggleRef} variant="quiet" size="sm" data-folder-select data-value={value ?? ''} aria-expanded onClick={() => close(true)} className="justify-self-end">
             Show fewer
-          </button>
+          </Button>
         </div>
       ) : (
         <div role="group" aria-label="Recent projects" className="grid grid-cols-5 gap-2" onKeyDown={typeToSearch}>

@@ -1,6 +1,7 @@
 import { Link2Off, X } from 'lucide-react';
 import { useEffect } from 'react';
 import { useLinks } from '../state/linksStore.ts';
+import { Button } from './ui/Button.tsx';
 
 /** Why a `switchboard://` link did nothing. Nothing else changed; it goes away on its own. */
 export function LinkError() {
@@ -19,15 +20,7 @@ export function LinkError() {
           <p className="font-medium">Couldn't open that link</p>
           <p className="break-words text-muted">{error.message}</p>
         </div>
-        <button
-          type="button"
-          onClick={() => useLinks.getState().dismiss()}
-          aria-label="Dismiss"
-          data-tooltip="Dismiss"
-          className="-my-0.5 -mr-1.5 flex size-6 shrink-0 items-center justify-center rounded text-muted hover:bg-border/50 hover:text-text"
-        >
-          <X size={14} aria-hidden />
-        </button>
+        <Button variant="quiet" size="sm" iconOnly icon={<X size={14} aria-hidden />} onClick={() => useLinks.getState().dismiss()} aria-label="Dismiss" className="-my-0.5 -mr-1.5 shrink-0" />
       </div>
     </div>
   );

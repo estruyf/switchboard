@@ -3,8 +3,8 @@ import { create } from 'zustand';
 import type { UsageLimit, UsageSnapshot } from '@switchboard/protocol/client';
 import { useEngineConnection } from '../engine/useEngine.ts';
 import { useProfiles } from '../state/profilesStore.ts';
-import { levelOf, LEVEL_COLOR, LEVEL_FILL, LEVEL_TEXT } from '../lib/levels.ts';
 import { ProfileBadge, ProfileDot } from './profiles/ProfileBadge.tsx';
+import { Meter } from './ui/Meter.tsx';
 import { countdown, limitLabel, spokenLimit, visibleLimits } from './usageFormat.ts';
 
 interface UsageState {
@@ -57,18 +57,6 @@ function useUsageFor(profileId: string): UsageSnapshot | null {
   return useUsage((s) => s.usage.get(profileId) ?? null);
 }
 
-function Ring({ percent }: { percent: number }) {
-  const r = 6.5;
-  const circumference = 2 * Math.PI * r;
-  const filled = (Math.min(100, Math.max(0, percent)) / 100) * circumference;
-  return (
-    <svg width="16" height="16" viewBox="0 0 16 16" className="shrink-0 -rotate-90" aria-hidden>
-      <circle cx="8" cy="8" r={r} fill="none" stroke="var(--sb-border)" strokeWidth="2.5" />
-      <circle cx="8" cy="8" r={r} fill="none" stroke={LEVEL_COLOR[levelOf(percent)]} strokeWidth="2.5" strokeLinecap="round" strokeDasharray={`${filled} ${circumference}`} />
-    </svg>
-  );
-}
-
 const money = (minorUnits: number, currency: string | null) =>
   new Intl.NumberFormat(undefined, { style: 'currency', currency: currency ?? 'USD', maximumFractionDigits: 2 }).format(minorUnits / 100);
 
@@ -114,19 +102,11 @@ export function UsageBand({ profileId, compact = false, footer = false }: { prof
   if (footer) {
     return (
       <div role="group" aria-label="Plan usage" className="flex min-w-0 items-center gap-4 text-meta text-muted" data-usage-band data-usage-profile={id}>
-        {limits.map((limit) => {
-          const level = levelOf(limit.percent);
-          return (
-            <div key={`${limit.kind}:${limit.scope ?? ''}`} {...meter(limit)} className="flex items-center gap-1.5 whitespace-nowrap" data-tooltip={resetTitle(limit)}>
-              <span>{footerLabel(limit)}</span>
-              {/* 48x4 bar; the fill takes the level's colour (green, orange, red). */}
-              <span className="h-1 w-12 overflow-hidden rounded-full bg-border @max-[860px]:hidden" aria-hidden>
-                <span className={`block h-full rounded-full ${LEVEL_FILL[level]}`} style={{ width: `${Math.min(100, Math.max(2, limit.percent))}%` }} />
-              </span>
-              <span className={`tabular-nums ${LEVEL_TEXT[level]}`}>{Math.round(limit.percent)}%</span>
-            </div>
-          );
-        })}
+        {limits.map((limit) => (
+          <Meter key={`${limit.kind}:${limit.scope ?? ''}`} percent={limit.percent} label={spokenLimit(limit, now)} showValue hideTrackNarrow data-tooltip={resetTitle(limit)}>
+            <span>{footerLabel(limit)}</span>
+          </Meter>
+        ))}
         {extra?.enabled && extra.usedCredits !== null && extra.usedCredits > 0 && (
           <span className="whitespace-nowrap @max-[860px]:hidden" data-tooltip={extra.monthlyLimit !== null ? `Extra usage this month, of ${money(extra.monthlyLimit, extra.currency)}` : 'Extra usage this month'}>
             <span className="text-ok">{money(extra.usedCredits, extra.currency)}</span> extra
@@ -146,7 +126,7 @@ export function UsageBand({ profileId, compact = false, footer = false }: { prof
             className="flex items-center gap-1.5 px-2.5 whitespace-nowrap first:pl-0 last:pr-0"
             data-tooltip={resetTitle(limit)}
           >
-            <Ring percent={limit.percent} />
+            <Meter kind="ring" size="md" percent={limit.percent} />
             <span className="font-semibold text-muted tabular-nums">{Math.round(limit.percent)}%</span>
             <span className="text-muted">
               {limitLabel(limit)}
@@ -168,7 +148,7 @@ export function UsageBand({ profileId, compact = false, footer = false }: { prof
           className="flex h-7 items-center gap-1.5 rounded-full border border-border bg-card px-2.5 text-ui"
           data-tooltip={resetTitle(limit)}
         >
-          <Ring percent={limit.percent} />
+          <Meter kind="ring" size="md" percent={limit.percent} />
           <span className="font-semibold tabular-nums">{Math.round(limit.percent)}%</span>
           <span className="text-muted">
             {limitLabel(limit)}
@@ -214,30 +194,13 @@ export function ProfileUsageCard({ profileId, activity }: { profileId: string; a
         <p className="text-meta text-faint">{usage ? 'No plan limits reported.' : 'Loading usage…'}</p>
       ) : (
         <div className="grid gap-2" role="group" aria-label="Plan usage">
-          {limits.map((limit) => {
-            const level = levelOf(limit.percent);
-            return (
-              <div
-                key={`${limit.kind}:${limit.scope ?? ''}`}
-                role="meter"
-                aria-label={spokenLimit(limit, now)}
-                aria-valuenow={Math.round(Math.min(100, Math.max(0, limit.percent)))}
-                aria-valuemin={0}
-                aria-valuemax={100}
-                className="grid gap-1"
-              >
-                <div className="flex items-baseline gap-2 text-meta">
-                  <span className="text-muted">{footerLabel(limit)}</span>
-                  <span className="flex-1" />
-                  {limit.resetsAt && <span className="text-faint">resets in {countdown(limit.resetsAt, now)}</span>}
-                  <span className={`font-semibold tabular-nums ${LEVEL_TEXT[level] || 'text-text'}`}>{Math.round(limit.percent)}%</span>
-                </div>
-                <span className="h-1.5 overflow-hidden rounded-full bg-selected" aria-hidden>
-                  <span className={`block h-full rounded-full ${LEVEL_FILL[level]}`} style={{ width: `${Math.min(100, Math.max(2, limit.percent))}%` }} />
-                </span>
-              </div>
-            );
-          })}
+          {limits.map((limit) => (
+            <Meter key={`${limit.kind}:${limit.scope ?? ''}`} percent={limit.percent} size="md" label={spokenLimit(limit, now)} showValue>
+              <span className="text-muted">{footerLabel(limit)}</span>
+              <span className="flex-1" />
+              {limit.resetsAt && <span className="text-faint">resets in {countdown(limit.resetsAt, now)}</span>}
+            </Meter>
+          ))}
         </div>
       )}
       {extra?.enabled && extra.usedCredits !== null && extra.usedCredits > 0 && (

@@ -1,5 +1,6 @@
 import { Bot, ChevronRight, CircleAlert, X } from 'lucide-react';
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
+import { Button } from '../ui/Button.tsx';
 import { useModalFocus } from '../ui/useModalFocus.ts';
 import { formatDuration, useTicker } from './ActivityGroup.tsx';
 import type { DisplayItem } from './displayItems.ts';
@@ -91,9 +92,7 @@ export function AgentsDialog({ agents, running, sessionId, cwd, onClose }: { age
           <span className="flex-1 text-[11.5px] text-muted">
             {running} running{agents.length > running ? ` · ${agents.length - running} finished` : ''}
           </span>
-          <button type="button" data-tooltip="Close (Esc)" aria-label="Close" onClick={onClose} className="flex size-6 items-center justify-center rounded text-muted hover:bg-border/60 hover:text-text">
-            <X size={13} />
-          </button>
+          <Button variant="quiet" size="sm" iconOnly icon={<X size={13} />} kbd="Esc" aria-label="Close" onClick={onClose} />
         </div>
         <div className="min-h-0 flex-1 overflow-y-auto">
           {agents.length === 0 && <p className="p-4 text-[12px] text-muted">No agents in this session.</p>}

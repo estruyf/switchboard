@@ -3,6 +3,7 @@ import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent as Reac
 import type { Capabilities, McpServerInfo } from '@switchboard/protocol/client';
 import { useEngineConnection } from '../../engine/useEngine.ts';
 import { ProfileBadge } from '../profiles/ProfileBadge.tsx';
+import { Button } from '../ui/Button.tsx';
 import { Switch } from '../ui/Toggle.tsx';
 import { useModalFocus } from '../ui/useModalFocus.ts';
 
@@ -131,12 +132,8 @@ export function CapabilitiesDialog({ sessionId, cwd, profileId, onClose }: { ses
           <span id={`${ids}-subtitle`} className="min-w-0 flex-1 truncate text-[11.5px] text-muted" data-tooltip={subtitle}>
             {subtitle}
           </span>
-          <button type="button" data-tooltip="Ask Claude Code again" aria-label="Refresh" onClick={() => setVersion((v) => v + 1)} className="flex size-6 items-center justify-center rounded text-muted hover:bg-border/60 hover:text-text">
-            <RefreshCw size={12} />
-          </button>
-          <button type="button" data-tooltip="Close (Esc)" aria-label="Close" onClick={onClose} className="flex size-6 items-center justify-center rounded text-muted hover:bg-border/60 hover:text-text">
-            <X size={13} />
-          </button>
+          <Button variant="quiet" size="sm" iconOnly icon={<RefreshCw size={12} />} data-tooltip="Ask Claude Code again" aria-label="Refresh" onClick={() => setVersion((v) => v + 1)} />
+          <Button variant="quiet" size="sm" iconOnly icon={<X size={13} />} kbd="Esc" aria-label="Close" onClick={onClose} />
         </div>
 
         <div className="flex shrink-0 items-center gap-1 border-b border-border px-3 py-1.5">

@@ -20,6 +20,7 @@ All notable changes to Switchboard are listed here. Each release is also on the 
 - **The Changes panel can be resized** by dragging its edge (or with ← →), and the diff can fill the window.
 - With two sessions side by side, the one you're not working in fades back.
 - The terminal is always dark, also when the app uses the light theme.
+- Buttons, keyboard shortcuts and usage bars look the same on every screen. Send, Stop and the permission buttons are the same height, second choices such as "Approve, ask before edits" have a visible border, and the counts on Home take the colour of their group, as in the sidebar.
 
 ### Sidebar
 

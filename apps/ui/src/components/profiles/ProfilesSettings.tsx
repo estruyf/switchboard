@@ -5,11 +5,11 @@ import { useEngineConnection } from '../../engine/useEngine.ts';
 import { guessHome, tildify } from '../../lib/format.ts';
 import { useProfiles } from '../../state/profilesStore.ts';
 import { ConfirmDialog } from '../ConfirmDialog.tsx';
+import { Button } from '../ui/Button.tsx';
 import { Radio, RadioGroup } from '../ui/Radio.tsx';
 import { PROFILE_DOT } from './ProfileBadge.tsx';
 
 const field = 'h-7 min-w-0 rounded-md border border-border bg-bg px-2 text-[12px] text-text outline-none focus:border-accent-ink/60';
-const button = 'btn-secondary shrink-0';
 
 const slug = (name: string) =>
   name
@@ -118,16 +118,18 @@ function ProfileRow({ profile, home, onRemove }: { profile: ClaudeProfile; home:
           </Radio>
         </span>
         {!profile.builtin && (
-          <button
-            type="button"
+          <Button
+            variant="quiet"
+            size="sm"
+            iconOnly
+            icon={<X size={14} />}
             onClick={onRemove}
             data-tooltip="Remove from Switchboard (the folder and its login stay on disk)"
             aria-label={`Remove the ${profile.name} profile from Switchboard`}
-            className="rounded p-1 text-muted hover:text-error"
+            // Removing is the one thing this button does, so it warns on hover.
+            className="hover:text-error!"
             data-remove-profile
-          >
-            <X size={14} />
-          </button>
+          />
         )}
       </div>
       <p className="truncate text-[12px] text-muted" data-tooltip={profile.configDir}>
@@ -207,13 +209,9 @@ function AddProfileForm({ home, onDone }: { home: string | null; onDone(): void 
           spellCheck={false}
           data-new-profile-folder
         />
-        <button
-          type="button"
-          className={button}
-          onClick={() => void window.switchboard?.pickFolder(path || undefined).then((picked) => picked && setFolder(picked))}
-        >
-          <FolderOpen size={13} aria-hidden /> Choose…
-        </button>
+        <Button icon={<FolderOpen size={13} aria-hidden />} className="shrink-0" onClick={() => void window.switchboard?.pickFolder(path || undefined).then((picked) => picked && setFolder(picked))}>
+          Choose…
+        </Button>
       </div>
       <p className="text-[12px] text-muted">
         Claude Code keeps a separate login, settings, plugins and sessions in each folder. A new folder is created; sign in there afterwards. Use an existing one (for
@@ -230,12 +228,12 @@ function AddProfileForm({ home, onDone }: { home: string | null; onDone(): void 
             {problem}
           </p>
         )}
-        <button type="button" className={button} onClick={onDone}>
+        <Button className="shrink-0" onClick={onDone}>
           Cancel
-        </button>
-        <button type="submit" disabled={busy || !!problem} aria-describedby={problem ? 'add-profile-problem' : undefined} className="h-7 rounded-md bg-accent px-3 text-[12px] font-medium text-on-accent disabled:opacity-50" data-add-profile-submit>
+        </Button>
+        <Button type="submit" variant="primary" disabled={busy || !!problem} aria-describedby={problem ? 'add-profile-problem' : undefined} data-add-profile-submit>
           Add profile
-        </button>
+        </Button>
       </div>
     </form>
   );
@@ -316,9 +314,9 @@ export function ProfilesSettings() {
       {adding ? (
         <AddProfileForm home={home} onDone={() => setAdding(false)} />
       ) : (
-        <button type="button" className={`${button} w-fit`} onClick={() => setAdding(true)} data-add-profile>
-          <Plus size={13} aria-hidden /> Add profile
-        </button>
+        <Button icon={<Plus size={13} aria-hidden />} className="w-fit" onClick={() => setAdding(true)} data-add-profile>
+          Add profile
+        </Button>
       )}
       <SetupGuide />
       {removing && (

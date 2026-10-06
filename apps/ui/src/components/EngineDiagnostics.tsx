@@ -3,6 +3,7 @@ import type { LogLevel } from '@switchboard/protocol/client';
 import { useDiagnostics } from '../engine/useDiagnostics.ts';
 import { useEngineConnection } from '../engine/useEngine.ts';
 import { CodeBlock } from './transcript/CodeBlock.tsx';
+import { Button } from './ui/Button.tsx';
 
 const SAMPLE = `// Syntax highlighting loads on first use
 export function greet(name: string): string {
@@ -83,14 +84,9 @@ export function EngineDiagnostics() {
       <Card
         title="Engine"
         aside={
-          <button
-            type="button"
-            onClick={refreshPing}
-            disabled={connection.status !== 'connected'}
-            className="rounded px-2 py-0.5 text-[12px] text-muted hover:bg-border/60 disabled:opacity-40"
-          >
+          <Button variant="quiet" size="sm" onClick={refreshPing} disabled={connection.status !== 'connected'}>
             Ping again
-          </button>
+          </Button>
         }
       >
         <Row label="Status">{connectionRow}</Row>

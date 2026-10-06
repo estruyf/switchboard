@@ -8,6 +8,7 @@ import { usePreferences } from '../../state/preferencesStore.ts';
 import { useProjects } from '../../state/projectsStore.ts';
 import { useSessions } from '../../state/sessionsStore.ts';
 import { ProjectIcon } from '../ProjectIcon.tsx';
+import { Kbd } from '../ui/Kbd.tsx';
 import { useModalFocus } from '../ui/useModalFocus.ts';
 
 const MARK = /\u0002([\s\S]*?)\u0003/g;
@@ -144,9 +145,7 @@ export function SearchDialog() {
             spellCheck={false}
             className="min-w-0 flex-1 bg-transparent text-[14px] text-text outline-none placeholder:text-faint"
           />
-          <kbd aria-hidden className="shrink-0 rounded border border-border px-1.5 text-[11px] text-muted">
-            esc
-          </kbd>
+          <Kbd keys="Esc" aria-hidden />
         </label>
 
         {typed === '' ? (

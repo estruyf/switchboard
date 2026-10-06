@@ -3,6 +3,7 @@ import { useEffect, useId, useMemo, type KeyboardEvent, type PointerEvent } from
 import type { TerminalInfo, TerminalKind } from '@switchboard/protocol/client';
 import { useEngineConnection } from '../../engine/useEngine.ts';
 import { openTerminal, useTerminals } from '../../state/terminalsStore.ts';
+import { Button } from '../ui/Button.tsx';
 import { XTerm } from './XTerm.tsx';
 
 /**
@@ -172,31 +173,25 @@ export function TerminalPanel({ sessionId, cwd }: { sessionId: string; cwd: stri
               })}
             </div>
           )}
-          <button type="button" data-new-terminal onClick={() => void open('shell')} disabled={!cwd} data-tooltip="New terminal tab" aria-label="New terminal tab" className="ml-1 rounded-md p-1 text-muted hover:bg-border/50 hover:text-text disabled:opacity-40">
-            <Plus size={13} />
-          </button>
+          <Button variant="quiet" size="sm" iconOnly icon={<Plus size={13} />} data-new-terminal onClick={() => void open('shell')} disabled={!cwd} aria-label="New terminal tab" className="ml-1" />
         </div>
-        <button type="button" onClick={() => togglePanel(false)} data-tooltip="Hide terminal (⌘J)" aria-label="Hide terminal" aria-keyshortcuts="Meta+J" className="rounded-md p-1 text-muted hover:bg-border/50 hover:text-text">
-          <X size={13} />
-        </button>
+        <Button variant="quiet" size="sm" iconOnly icon={<X size={13} />} kbd="⌘J" onClick={() => togglePanel(false)} aria-label="Hide terminal" />
       </div>
 
       {notice && (
         <div role="alert" className="mx-2 mb-1 flex flex-wrap items-center gap-2 rounded-md border border-warn/40 bg-warn/10 px-2.5 py-1.5 text-[12px]" data-terminal-notice>
           <span className="min-w-0 flex-1">{notice.message}</span>
           {blocked?.code === 'SESSION_RUNNING_HERE' && (
-            <button type="button" onClick={() => void stopAndOpen()} className="rounded-md border border-border bg-card px-2 py-0.5">
+            <Button size="sm" onClick={() => void stopAndOpen()}>
               Stop it here and open
-            </button>
+            </Button>
           )}
           {blocked && (
-            <button type="button" onClick={() => void open('claude', { fork: true })} className="rounded-md border border-border bg-card px-2 py-0.5">
+            <Button size="sm" onClick={() => void open('claude', { fork: true })}>
               Open a fork
-            </button>
+            </Button>
           )}
-          <button type="button" onClick={() => setNotice(sessionId, null)} className="text-muted hover:text-text" aria-label="Dismiss" data-tooltip="Dismiss">
-            <X size={12} />
-          </button>
+          <Button variant="quiet" size="sm" iconOnly icon={<X size={12} />} onClick={() => setNotice(sessionId, null)} aria-label="Dismiss" />
         </div>
       )}
 
@@ -205,9 +200,7 @@ export function TerminalPanel({ sessionId, cwd }: { sessionId: string; cwd: stri
           // Opening the panel starts a shell, so this shows only for a session switched to with the panel open, or without a folder.
           <div className="flex h-full items-center justify-center text-ui text-muted">
             {cwd ? (
-              <button type="button" onClick={() => void open('shell')} className="rounded-md border border-border px-2.5 py-1 hover:bg-border/50 hover:text-text">
-                New terminal
-              </button>
+              <Button onClick={() => void open('shell')}>New terminal</Button>
             ) : (
               <p>This session has no folder to open a terminal in.</p>
             )}

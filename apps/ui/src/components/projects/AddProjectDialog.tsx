@@ -4,6 +4,7 @@ import { guessHome, shortAge, tildify } from '../../lib/format.ts';
 import { knownFolders } from '../../state/projectList.ts';
 import { useProjects } from '../../state/projectsStore.ts';
 import { ProjectIcon } from '../ProjectIcon.tsx';
+import { Button } from '../ui/Button.tsx';
 import { useModalFocus } from '../ui/useModalFocus.ts';
 import { manage, useProjectActions } from '../sidebar/ProjectMenu.tsx';
 
@@ -141,26 +142,26 @@ export function AddProjectDialog({ onClose: close }: { onClose(): void }) {
           ))}
         </div>
         <footer className="flex items-center gap-3 border-t border-border px-4 py-2.5">
-          <button
-            type="button"
+          <Button
+            icon={<FolderOpen size={13} aria-hidden />}
             data-active={active === folders.length}
             data-choose-folder
             onMouseMove={() => setActive(folders.length)}
             onClick={() => void choose(folders.length)}
-            className={`flex h-7 items-center gap-2 rounded-md border border-border px-2.5 text-[12px] text-text hover:bg-border/50 ${active === folders.length ? 'bg-accent/15' : ''}`}
+            // The keyboard highlight, like the folder rows above it.
+            className={active === folders.length ? 'bg-accent/15' : ''}
           >
-            <FolderOpen size={13} aria-hidden />
             Choose folder…
-          </button>
+          </Button>
           {error && (
             <span role="alert" className="min-w-0 flex-1 truncate text-[12px] text-error" data-tooltip={error}>
               Couldn't add the folder: {error}
             </span>
           )}
           <span className="flex-1" />
-          <button type="button" onClick={onClose} className="h-7 rounded-md bg-accent px-3 text-[12px] font-medium text-on-accent">
+          <Button variant="primary" onClick={onClose}>
             Done
-          </button>
+          </Button>
         </footer>
       </div>
     </div>

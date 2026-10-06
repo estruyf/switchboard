@@ -7,6 +7,7 @@ import { parseUnifiedDiff } from '../../lib/unifiedDiff.ts';
 import { useOverlay } from '../../state/overlayStore.ts';
 import { ConfirmDialog } from '../ConfirmDialog.tsx';
 import { useOpenIn } from '../OpenInButton.tsx';
+import { Button } from '../ui/Button.tsx';
 import { Checkbox } from '../ui/Checkbox.tsx';
 import { RadioGroup } from '../ui/Radio.tsx';
 import { CHANGES_DEFAULT_WIDTH, CHANGES_MAX_SHARE, CHANGES_MIN_WIDTH, changesWidthForKey, clampChangesWidth } from './changesWidth.ts';
@@ -259,34 +260,32 @@ export function ChangesPanel({
             {files.length} {files.length === 1 ? 'file' : 'files'}, {lineCounts(added, removed)}
           </span>
         </span>
-        <button
-          type="button"
+        <Button
+          variant="quiet"
+          size="sm"
+          iconOnly
+          icon={<WrapText size={13} />}
+          selected={wrap}
           onClick={toggleWrap}
           aria-pressed={wrap}
           data-tooltip={wrap ? 'Wrapping long lines (click to scroll sideways instead)' : 'Wrap long lines'}
           aria-label="Wrap long lines"
           data-diff-wrap-toggle
-          className={`flex size-6 items-center justify-center rounded hover:bg-border/60 hover:text-text ${wrap ? 'bg-accent/15 text-accent-ink' : 'text-muted'}`}
-        >
-          <WrapText size={13} />
-        </button>
-        <button
-          type="button"
+        />
+        <Button
+          variant="quiet"
+          size="sm"
+          iconOnly
+          icon={expanded ? <Minimize2 size={13} aria-hidden /> : <Maximize2 size={13} aria-hidden />}
+          selected={expanded}
           onClick={() => toggleExpanded()}
           aria-pressed={expanded}
           data-tooltip={expanded ? 'Back to a side panel' : 'Expand to the whole view'}
           aria-label={expanded ? 'Back to a side panel' : 'Expand changes to the whole view'}
           data-changes-expand
-          className={`flex size-6 items-center justify-center rounded hover:bg-border/60 hover:text-text ${expanded ? 'bg-accent/15 text-accent-ink' : 'text-muted'}`}
-        >
-          {expanded ? <Minimize2 size={13} aria-hidden /> : <Maximize2 size={13} aria-hidden />}
-        </button>
-        <button type="button" onClick={onRefresh} data-tooltip="Check git for changes again" aria-label="Refresh changes" className="flex size-6 items-center justify-center rounded text-muted hover:bg-border/60 hover:text-text">
-          <RefreshCw size={12} />
-        </button>
-        <button type="button" onClick={onClose} data-tooltip="Close changes (⌘⇧D)" aria-label="Close changes" aria-keyshortcuts="Meta+Shift+D" className="flex size-6 items-center justify-center rounded text-muted hover:bg-border/60 hover:text-text">
-          <X size={13} />
-        </button>
+        />
+        <Button variant="quiet" size="sm" iconOnly icon={<RefreshCw size={12} />} onClick={onRefresh} data-tooltip="Check git for changes again" aria-label="Refresh changes" />
+        <Button variant="quiet" size="sm" iconOnly icon={<X size={13} />} kbd="⌘⇧D" onClick={onClose} aria-label="Close changes" />
       </div>
 
       {(error ?? changes?.error) && (
@@ -347,14 +346,18 @@ export function ChangesPanel({
                   {/* Shown on hover, and while the row has keyboard focus so Tab can reach them. */}
                   <span className="hidden shrink-0 items-center group-focus-within:flex group-hover:flex">
                     {file.status !== 'deleted' && changes.root && (
-                      <button type="button" data-tooltip="Open in editor" aria-label={`Open ${name} in editor`} onClick={() => void openIn(`${changes.root}/${file.path}`).catch((e: Error) => setError(`Couldn't open ${name}: ${e.message}`))} className="flex size-6 items-center justify-center rounded text-muted hover:text-text">
-                        <ExternalLink size={12} />
-                      </button>
+                      <Button
+                        variant="quiet"
+                        size="sm"
+                        iconOnly
+                        icon={<ExternalLink size={12} />}
+                        data-tooltip="Open in editor"
+                        aria-label={`Open ${name} in editor`}
+                        onClick={() => void openIn(`${changes.root}/${file.path}`).catch((e: Error) => setError(`Couldn't open ${name}: ${e.message}`))}
+                      />
                     )}
                     {editable && (
-                      <button type="button" data-tooltip="Revert this file…" aria-label={`Revert ${name}`} onClick={() => setReverting([file.path])} className="flex size-6 items-center justify-center rounded text-muted hover:text-error">
-                        <Undo2 size={12} />
-                      </button>
+                      <Button variant="quiet" size="sm" iconOnly icon={<Undo2 size={12} />} data-tooltip="Revert this file…" aria-label={`Revert ${name}`} onClick={() => setReverting([file.path])} className="hover:text-error!" />
                     )}
                   </span>
                 </div>
@@ -367,17 +370,13 @@ export function ChangesPanel({
 
       {editable && files.length > 0 && client && (
         <div className="flex h-10 shrink-0 items-center gap-2 border-t border-border px-3 text-ui">
-          <button
-            type="button"
-            onClick={() => run(client.call('git.stage', { cwd, paths: files.map((f) => f.path), staged: !allStaged }), allStaged ? 'unstage the files' : 'stage the files')}
-            className="rounded-md border border-border px-2.5 py-0.5 text-muted hover:bg-border/50 hover:text-text"
-          >
+          <Button size="sm" onClick={() => run(client.call('git.stage', { cwd, paths: files.map((f) => f.path), staged: !allStaged }), allStaged ? 'unstage the files' : 'stage the files')}>
             {allStaged ? 'Unstage all' : 'Stage all'}
-          </button>
+          </Button>
           <span className="flex-1" />
-          <button type="button" onClick={() => setReverting(files.map((f) => f.path))} className="rounded-md px-2.5 py-0.5 text-error hover:bg-error/10">
+          <Button variant="danger" size="sm" onClick={() => setReverting(files.map((f) => f.path))}>
             Revert all…
-          </button>
+          </Button>
         </div>
       )}
 

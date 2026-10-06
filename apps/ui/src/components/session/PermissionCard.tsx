@@ -3,6 +3,7 @@ import { useEffect, useId, useRef, useState, type ReactNode, type RefObject } fr
 import type { PermissionDecision, PermissionRequest } from '@switchboard/protocol/client';
 import { useEngineConnection } from '../../engine/useEngine.ts';
 import { Markdown } from '../transcript/Markdown.tsx';
+import { Button } from '../ui/Button.tsx';
 import { CheckMark } from '../ui/Checkbox.tsx';
 import { RadioGroup } from '../ui/Radio.tsx';
 import { toolSummary } from '../transcript/toolSummary.ts';
@@ -29,10 +30,6 @@ function useRespond(request: PermissionRequest): { respond: Respond; busy: boole
   return { respond, busy, error };
 }
 
-const primary = 'inline-flex h-8 items-center gap-2 rounded-md bg-accent px-3 text-ui font-semibold text-on-accent disabled:opacity-40';
-const bordered = 'inline-flex h-8 max-w-80 items-center rounded-md border border-border px-3 text-ui font-medium text-text hover:bg-border/50 disabled:opacity-40';
-const quiet = 'inline-flex h-8 items-center gap-2 rounded-md px-2.5 text-ui text-muted hover:bg-border/50 hover:text-text disabled:opacity-40';
-const kbd = 'rounded border border-current/25 px-1 font-sans text-meta font-normal opacity-70';
 
 /** What the focused element is, for the shortcut rules in `permissionKeys.ts`. */
 function keyTarget(el: Element | null, card: HTMLElement): KeyTarget {
@@ -146,9 +143,9 @@ function FeedbackField({ value, onChange, onSubmit, busy }: { value: string; onC
 
 function DenyButton({ label, busy, onClick }: { label: string; busy: boolean; onClick(): void }) {
   return (
-    <button type="button" disabled={busy} onClick={onClick} aria-keyshortcuts="Escape" data-permission-deny className={`${quiet} ml-auto`}>
-      {label} <kbd className={kbd}>Esc</kbd>
-    </button>
+    <Button variant="quiet" size="lg" disabled={busy} onClick={onClick} kbd="Esc" data-permission-deny className="ml-auto">
+      {label}
+    </Button>
   );
 }
 
@@ -234,29 +231,20 @@ function ToolPermission({ request, cwd, titleId, cardRef }: CardProps & { cwd: s
         </pre>
       )}
       <div className="flex flex-wrap items-center gap-1.5">
-        <button
-          ref={allowRef}
-          type="button"
-          data-permission-allow
-          disabled={busy}
-          onClick={allow}
-          aria-keyshortcuts="Meta+Enter"
-          data-tooltip="Allow this once; Claude asks again next time"
-          className={primary}
-        >
-          Allow <kbd className={kbd}>⌘↵</kbd>
-        </button>
+        <Button ref={allowRef} variant="primary" size="lg" kbd="⌘↵" data-permission-allow disabled={busy} onClick={allow} data-tooltip="Allow this once; Claude asks again next time">
+          Allow
+        </Button>
         {request.alwaysLabel && (
-          <button
-            type="button"
+          <Button
+            size="lg"
             disabled={busy}
             data-permission-always
             data-tooltip={alwaysText(request.alwaysLabel)}
             onClick={() => void respond({ behavior: 'allow', always: true })}
-            className={bordered}
+            className="max-w-80"
           >
             <span className="truncate">{alwaysText(request.alwaysLabel)}</span>
-          </button>
+          </Button>
         )}
         <DenyButton label="Deny" busy={busy} onClick={deny} />
       </div>
@@ -410,9 +398,9 @@ function AskUserQuestion({ request, titleId, cardRef }: CardProps) {
         );
       })}
       <div className="flex flex-wrap items-center gap-1.5">
-        <button type="submit" disabled={busy || !complete} aria-keyshortcuts="Meta+Enter" className={primary}>
-          Answer <kbd className={kbd}>⌘↵</kbd>
-        </button>
+        <Button type="submit" variant="primary" size="lg" kbd="⌘↵" disabled={busy || !complete}>
+          Answer
+        </Button>
         {current && current.options.length > 0 && !busy && (
           <span className="text-meta text-muted">
             {`Press 1${current.options.length > 1 ? ` to ${Math.min(9, current.options.length)}` : ''} to pick, Enter for ${step < last ? 'the next question' : 'send'}`}
@@ -446,19 +434,12 @@ function PlanApproval({ request, titleId, cardRef }: CardProps) {
         <Markdown text={plan} />
       </div>
       <div className="flex flex-wrap items-center gap-1.5">
-        <button
-          type="button"
-          disabled={busy}
-          onClick={() => void approveWithEdits()}
-          aria-keyshortcuts="Meta+Enter"
-          data-tooltip="Start, and let Claude edit files without asking each time"
-          className={primary}
-        >
-          Approve and accept edits <kbd className={kbd}>⌘↵</kbd>
-        </button>
-        <button type="button" disabled={busy} onClick={() => void respond({ behavior: 'allow' })} data-tooltip="Start, and ask before each file edit" className={bordered}>
+        <Button variant="primary" size="lg" kbd="⌘↵" disabled={busy} onClick={() => void approveWithEdits()} data-tooltip="Start, and let Claude edit files without asking each time">
+          Approve and accept edits
+        </Button>
+        <Button size="lg" disabled={busy} onClick={() => void respond({ behavior: 'allow' })} data-tooltip="Start, and ask before each file edit">
           Approve, ask before edits
-        </button>
+        </Button>
         <DenyButton label="Keep planning" busy={busy} onClick={keepPlanning} />
       </div>
       <FeedbackField value={feedback} onChange={setFeedback} onSubmit={keepPlanning} busy={busy} />

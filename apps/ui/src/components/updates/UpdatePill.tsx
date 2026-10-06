@@ -2,6 +2,7 @@ import { ArrowDownCircle, FileText, LoaderCircle, RotateCw, X } from 'lucide-rea
 import { useRef, useState } from 'react';
 import { updatePill } from '../../lib/updates.ts';
 import { useUpdates } from '../../state/updatesStore.ts';
+import { Button } from '../ui/Button.tsx';
 import { Popover } from '../ui/Popover.tsx';
 import { useInstallUpdate } from './useInstallUpdate.tsx';
 
@@ -18,9 +19,12 @@ function NotesButton({ version, notes }: { version: string; notes: string }) {
   const anchor = useRef<HTMLButtonElement>(null);
   return (
     <>
-      <button
+      <Button
         ref={anchor}
-        type="button"
+        variant="quiet"
+        size="sm"
+        iconOnly
+        icon={<FileText size={13} aria-hidden />}
         data-update-notes-toggle
         onClick={(e) => {
           if (at) return setAt(null);
@@ -29,10 +33,8 @@ function NotesButton({ version, notes }: { version: string; notes: string }) {
         }}
         data-tooltip="What’s new"
         aria-label={`What’s new in v${version}`}
-        className="flex size-6 shrink-0 items-center justify-center rounded-md text-muted hover:bg-border/60 hover:text-text"
-      >
-        <FileText size={13} aria-hidden />
-      </button>
+        className="shrink-0"
+      />
       {at && (
         <Popover x={at.x} y={at.y} above width={340} anchor={anchor} onClose={() => setAt(null)} role="dialog" aria-label={`What’s new in v${version}`} data-update-notes>
           <div className="px-3 py-2">

@@ -3,9 +3,9 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { claudeUpdateStatusText, INSTALL_METHOD_LABEL, newer as isNewer } from '../../lib/claudeUpdate.ts';
 import { lastChecked } from '../../lib/updates.ts';
 import { useClaudeUpdate } from '../../state/claudeUpdateStore.ts';
+import { Button } from '../ui/Button.tsx';
 import { Toggle } from '../ui/Toggle.tsx';
 
-const button = 'h-7 rounded-md border border-border px-2.5 text-[12px] hover:bg-border/50 disabled:opacity-50 disabled:hover:bg-transparent';
 
 /** The command to run in a terminal, with a copy button. */
 function CommandToCopy({ command }: { command: string }) {
@@ -18,15 +18,16 @@ function CommandToCopy({ command }: { command: string }) {
   return (
     <div className="flex items-center gap-2 rounded-md border border-border bg-card py-1 pr-1 pl-2.5" data-claude-update-command>
       <code className="min-w-0 flex-1 truncate font-mono text-[12px]">{command}</code>
-      <button
-        type="button"
+      <Button
+        variant="quiet"
+        size="sm"
+        iconOnly
+        icon={copied ? <Check size={13} className="text-ok" aria-hidden /> : <Copy size={13} aria-hidden />}
         onClick={() => void navigator.clipboard.writeText(command).then(() => setCopied(true))}
         data-tooltip={copied ? 'Copied' : 'Copy'}
         aria-label={copied ? 'Copied' : 'Copy command'}
-        className="flex size-6 shrink-0 items-center justify-center rounded-md text-muted hover:bg-border/60 hover:text-text"
-      >
-        {copied ? <Check size={13} className="text-ok" aria-hidden /> : <Copy size={13} aria-hidden />}
-      </button>
+        className="shrink-0"
+      />
     </div>
   );
 }
@@ -76,13 +77,13 @@ export function ClaudeCodeUpdates({ now }: { now: number }) {
         </div>
         <div className="flex shrink-0 gap-2">
           {newer && state.canUpdate && (
-            <button type="button" disabled={busy} onClick={update} className="h-7 rounded-md bg-accent px-2.5 text-[12px] font-medium text-on-accent disabled:opacity-50" data-claude-update-run>
+            <Button variant="primary" disabled={busy} onClick={update} data-claude-update-run>
               {failed ? 'Try again' : `Update to v${state.latestVersion}`}
-            </button>
+            </Button>
           )}
-          <button type="button" disabled={busy || state.status === 'missing'} onClick={check} className={button} data-claude-update-check>
+          <Button disabled={busy || state.status === 'missing'} onClick={check} data-claude-update-check>
             Check for Updates
-          </button>
+          </Button>
         </div>
       </div>
 
@@ -115,9 +116,9 @@ export function ClaudeCodeUpdates({ now }: { now: number }) {
         </p>
       )}
       {state.status === 'updated' && (
-        <button type="button" onClick={dismiss} className={`${button} justify-self-start`}>
+        <Button onClick={dismiss} className="justify-self-start">
           Done
-        </button>
+        </Button>
       )}
 
       <Toggle

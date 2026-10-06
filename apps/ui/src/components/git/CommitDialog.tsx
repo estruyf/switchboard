@@ -1,4 +1,5 @@
 import { useEffect, useId, useRef, useState } from 'react';
+import { Button } from '../ui/Button.tsx';
 import { useModalFocus } from '../ui/useModalFocus.ts';
 
 /**
@@ -63,19 +64,10 @@ export function CommitDialog({ branch, files, onCommit, onClose }: { branch: str
           </p>
         )}
         <div className="mt-4 flex justify-end gap-2">
-          <button type="button" onClick={onClose} className="btn-secondary">
-            Cancel
-          </button>
-          <button
-            type="button"
-            data-confirm
-            disabled={busy || !message.trim()}
-            onClick={() => void commit()}
-            className="flex h-7 items-center gap-2 rounded-md bg-accent px-3 text-ui font-semibold text-on-accent disabled:opacity-50"
-          >
+          <Button onClick={onClose}>Cancel</Button>
+          <Button variant="primary" data-confirm disabled={busy || !message.trim()} onClick={() => void commit()} kbd={busy ? undefined : '⌘↵'}>
             {busy ? 'Committing…' : 'Commit'}
-            {!busy && <kbd className="font-sans text-[11px] font-normal opacity-60">⌘↵</kbd>}
-          </button>
+          </Button>
         </div>
       </div>
     </div>

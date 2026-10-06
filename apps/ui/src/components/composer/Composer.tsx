@@ -2,6 +2,7 @@ import { AtSign, ImageOff, ImagePlus } from 'lucide-react';
 import { useEffect, useId, useLayoutEffect, useRef, useState, type ClipboardEvent, type KeyboardEvent, type ReactNode } from 'react';
 import type { ImageAttachment, SlashCommand } from '@switchboard/protocol/client';
 import { useEngineConnection } from '../../engine/useEngine.ts';
+import { Button } from '../ui/Button.tsx';
 import { dropMessage, dropVerdict, MAX_ATTACHMENTS, mergeAttachments, planDrop, readImage } from './images.ts';
 import { insertMentions, mentionFor } from './mentions.ts';
 import { tokenAtCaret } from './tokens.ts';
@@ -396,43 +397,35 @@ export function Composer(props: ComposerProps) {
                 e.target.value = '';
               }}
             />
-            <button
-              type="button"
+            <Button
+              variant="quiet"
+              size="sm"
+              iconOnly
+              icon={<ImagePlus size={15} />}
               onClick={() => fileRef.current?.click()}
               disabled={disabled}
               data-tooltip="Attach images (or paste / drop them). Dropped files and folders become @ mentions."
               aria-label="Attach images"
-              className="rounded-md p-1 text-muted hover:bg-border/50 hover:text-text disabled:opacity-40"
               data-attach
-            >
-              <ImagePlus size={15} />
-            </button>
+            />
             {props.running && props.onInterrupt && (
-              <button
-                type="button"
-                onClick={props.onInterrupt}
-                data-tooltip="Stop Claude (Esc)"
-                aria-keyshortcuts="Escape"
-                data-composer-stop
-                className="flex items-center gap-1.5 rounded-md border border-border px-2 py-1 text-[12px] text-text hover:bg-border/50"
-              >
-                <span className="size-2 rounded-[2px] bg-current" aria-hidden />
+              <Button size="lg" icon={<span className="size-2 rounded-[2px] bg-current" aria-hidden />} kbd="Esc" kbdHideNarrow onClick={props.onInterrupt} data-tooltip="Stop Claude (Esc)" data-composer-stop>
                 Stop
-                <kbd className="rounded border border-border px-1 font-sans text-[10.5px] text-muted @max-[860px]:hidden">Esc</kbd>
-              </button>
+              </Button>
             )}
             {/* A disabled button gets no hover, so the reason it's unavailable sits on this wrapper. */}
             <span className="flex" data-tooltip={!sending ? (props.disabledReason ?? (!text.trim() && attachments.length === 0 ? 'Type a message first' : undefined)) : undefined}>
-              <button
-                type="button"
+              <Button
+                variant="primary"
+                size="lg"
+                kbd={props.submitHint && !sending ? props.submitHint : undefined}
                 data-composer-submit
                 onClick={() => void submit()}
                 disabled={disabled || sending || (!text.trim() && attachments.length === 0)}
-                className={`flex items-center gap-2 rounded-md bg-accent px-3 text-[12px] font-medium text-on-accent disabled:pointer-events-none disabled:opacity-40 ${props.submitHint ? 'h-7' : 'py-1'}`}
+                className="disabled:pointer-events-none"
               >
                 {sending ? 'Sending…' : (props.submitLabel ?? (props.running ? 'Queue' : 'Send'))}
-                {props.submitHint && !sending && <kbd className="font-sans text-[11px] font-normal opacity-60">{props.submitHint}</kbd>}
-              </button>
+              </Button>
             </span>
           </div>
         </div>

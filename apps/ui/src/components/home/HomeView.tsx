@@ -7,6 +7,8 @@ import { useProjects } from '../../state/projectsStore.ts';
 import { toRows, useSessions, type SessionRowData } from '../../state/sessionsStore.ts';
 import { inScope, waitingLabel } from '../../state/sidebarRows.ts';
 import { ProjectIcon } from '../ProjectIcon.tsx';
+import { Button } from '../ui/Button.tsx';
+import { CountBadge } from '../ui/Pill.tsx';
 import { activityByProject, latestBranches, recentFirst } from '../newSession/projectTiles.ts';
 import { WorkingDots } from '../transcript/ActivityGroup.tsx';
 import { homeSessions, homeSummary, profileActivity, profileActivityLine, projectMeta } from './homeModel.ts';
@@ -26,9 +28,9 @@ function Onboarding() {
     <div className="grid max-w-sm justify-items-center gap-1.5 text-center" data-onboarding>
       <h1 className="text-title font-semibold">Add your first project</h1>
       <p className="text-ui text-muted">Projects are the folders you start Claude Code sessions in. Pick from the folders you have used Claude Code in, or choose any folder.</p>
-      <button type="button" onClick={() => useProjects.getState().showAdd(true)} className="mt-2 h-8 rounded-md bg-accent px-3 text-ui font-semibold text-on-accent" data-onboarding-add>
+      <Button variant="primary" size="lg" onClick={() => useProjects.getState().showAdd(true)} className="mt-2" data-onboarding-add>
         Add a project
-      </button>
+      </Button>
     </div>
   );
 }
@@ -84,10 +86,10 @@ export function HomeView() {
     );
   }
 
-  const heading = (label: string, count: number, tone: string, id: string) => (
-    <h2 id={id} className={`flex items-center gap-2 text-meta font-semibold tracking-wide uppercase ${tone}`}>
+  const heading = (label: string, count: number, status: 'needs-you' | 'working', id: string) => (
+    <h2 id={id} className={`flex items-center gap-2 text-meta font-semibold tracking-wide uppercase ${status === 'needs-you' ? 'text-warn' : 'text-accent-ink'}`}>
       {label}
-      <span className="rounded-full bg-border/60 px-1.5 text-meta font-semibold tabular-nums">{count}</span>
+      <CountBadge count={count} status={status} />
     </h2>
   );
 
@@ -105,16 +107,15 @@ export function HomeView() {
                 {homeSummary(needs.length, working.length)}
               </p>
             </div>
-            <button type="button" onClick={newSession} className="flex h-8 shrink-0 items-center gap-2 rounded-md bg-accent px-3 text-ui font-semibold text-on-accent" data-empty-new-session>
+            <Button variant="primary" size="lg" kbd="⌘N" onClick={newSession} className="shrink-0" data-empty-new-session>
               New session
-              <kbd className="font-sans text-meta font-normal opacity-60">⌘N</kbd>
-            </button>
+            </Button>
           </header>
 
           {(needs.length > 0 || working.length > 0) && (
             <div className="grid grid-cols-2 items-start gap-4 @max-[640px]:grid-cols-1">
               <section aria-labelledby="home-needs" className="grid gap-2">
-                {heading('Needs you', needs.length, 'text-warn', 'home-needs')}
+                {heading('Needs you', needs.length, 'needs-you', 'home-needs')}
                 {needs.length === 0 && <p className="text-ui text-muted">Nothing is waiting for you.</p>}
                 {needs.map((row) => {
                   const ask = asks.get(row.id);
@@ -128,22 +129,16 @@ export function HomeView() {
                       <p className="truncate text-ui text-warn">{waitingLabel(ask?.toolName ?? null)}</p>
                       {ask?.title && <p className="truncate text-ui text-muted">{ask.title}</p>}
                       <div className="mt-1 flex justify-end">
-                        <button
-                          type="button"
-                          onClick={() => open(row.id)}
-                          aria-label={`Open ${row.title || 'Untitled session'}`}
-                          className="h-7 rounded-md border border-border px-3 text-ui text-text hover:bg-border/50"
-                          data-home-open
-                        >
+                        <Button onClick={() => open(row.id)} aria-label={`Open ${row.title || 'Untitled session'}`} data-home-open>
                           Open
-                        </button>
+                        </Button>
                       </div>
                     </article>
                   );
                 })}
               </section>
               <section aria-labelledby="home-working" className="grid gap-2">
-                {heading('Working', working.length, 'text-accent-ink', 'home-working')}
+                {heading('Working', working.length, 'working', 'home-working')}
                 {working.length === 0 && <p className="text-ui text-muted">Claude isn't working on anything.</p>}
                 {working.map((row) => (
                   <button

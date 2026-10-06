@@ -19,6 +19,7 @@ import { inScope, rowStatus } from '../../state/sidebarRows.ts';
 import { Composer } from '../composer/Composer.tsx';
 import { ComposerChipRow } from '../composer/ComposerChips.tsx';
 import { Checkbox } from '../ui/Checkbox.tsx';
+import { Kbd } from '../ui/Kbd.tsx';
 import { Switch } from '../ui/Toggle.tsx';
 import { ProjectIcon } from '../ProjectIcon.tsx';
 import { OpenInButton } from '../OpenInButton.tsx';
@@ -410,7 +411,7 @@ export function NewSessionView() {
             {/* The one hero heading in the app, a little larger than text-title. */}
             <h1 className="text-hero leading-tight font-semibold">Where do we start?</h1>
             <p className="mt-1 text-ui text-muted">
-              <kbd className="font-sans">⌘1</kbd> to <kbd className="font-sans">⌘9</kbd> picks a project, or start typing its name
+              <Kbd keys="⌘1" /> to <Kbd keys="⌘9" /> picks a project, or start typing its name
             </p>
           </div>
 

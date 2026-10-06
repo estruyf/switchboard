@@ -8,6 +8,7 @@ import type { ActionsMenu } from '../actions/useActionsMenu.tsx';
 import { Menu, useMenu, type MenuEntry } from '../Menu.tsx';
 import { useOpenInEntries } from '../OpenInButton.tsx';
 import { ProfileDot } from '../profiles/ProfileBadge.tsx';
+import { Button } from '../ui/Button.tsx';
 import type { DisplayItem } from '../transcript/displayItems.ts';
 import { AgentsDialog, useAgentRuns } from '../transcript/AgentsDialog.tsx';
 
@@ -106,9 +107,12 @@ export function MoreMenu({
         </span>
       )}
       {openIn.status}
-      <button
+      <Button
         ref={buttonRef}
-        type="button"
+        variant="quiet"
+        iconOnly
+        icon={<Ellipsis size={15} aria-hidden />}
+        selected={menu.at !== null}
         data-more-menu
         // The project actions used to have their own ▾ button; the hook stays for tests.
         data-actions-menu
@@ -121,11 +125,10 @@ export function MoreMenu({
         aria-label={label}
         aria-haspopup="menu"
         aria-expanded={menu.at !== null}
-        className={`relative flex size-7 items-center justify-center rounded-md hover:bg-border/50 hover:text-text ${menu.at ? 'bg-border/50 text-text' : error ? 'text-error' : 'text-muted'}`}
+        className={`relative ${!menu.at && error ? 'text-error!' : ''}`}
       >
-        <Ellipsis size={15} aria-hidden />
         {running > 0 && <span className="absolute top-0.5 right-0.5 size-1.5 animate-pulse rounded-full bg-accent-ink" aria-hidden />}
-      </button>
+      </Button>
       {menu.at && <Menu x={menu.at.x} y={menu.at.y} width={MENU_WIDTH} entries={entries} onClose={menu.close} label="More" />}
       {agentsOpen && <AgentsDialog agents={agents} running={running} sessionId={sessionId} cwd={cwd} onClose={closeAgents} />}
     </div>

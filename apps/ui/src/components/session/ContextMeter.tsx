@@ -1,7 +1,9 @@
 import { useEffect, useId, useRef, useState } from 'react';
 import type { ContextUsage, TranscriptMessage } from '@switchboard/protocol/client';
 import { useEngineConnection } from '../../engine/useEngine.ts';
-import { levelOf, LEVEL_COLOR, LEVEL_TEXT } from '../../lib/levels.ts';
+import { Button } from '../ui/Button.tsx';
+import { Meter } from '../ui/Meter.tsx';
+import { formatPercent, valueTone } from '../ui/meter.ts';
 
 /** 46k, 1.2M. */
 export const compactTokens = (n: number) => (n >= 1_000_000 ? `${(n / 1_000_000).toFixed(n >= 10_000_000 ? 0 : 1)}M` : n >= 1_000 ? `${Math.round(n / 1_000)}k` : String(n));
@@ -20,21 +22,6 @@ export function lastTurnTokens(messages: readonly TranscriptMessage[]): number |
 const PALETTE = ['#74c0fc', '#d0bfff', '#ffd43b', '#51cf66', '#ff922b', '#66d9ef', '#ed217c', '#a8b2c4'];
 /** Claude Code may name its colours after its terminal theme; fall back to a palette then. */
 const colorFor = (color: string, index: number) => (typeof CSS !== 'undefined' && CSS.supports('color', color) ? color : PALETTE[index % PALETTE.length]!);
-
-/** A 12px ring filled clockwise in the level's colour (green, orange, red), as a conic gradient with a hole. */
-function Ring({ percent }: { percent: number }) {
-  const filled = Math.min(100, Math.max(0, percent)) * 3.6;
-  return (
-    <span
-      className="size-3 shrink-0 rounded-full"
-      style={{
-        background: `conic-gradient(${LEVEL_COLOR[levelOf(percent)]} ${filled}deg, var(--sb-border) 0deg)`,
-        mask: 'radial-gradient(farthest-side, transparent 58%, #000 60%)',
-      }}
-      aria-hidden
-    />
-  );
-}
 
 /**
  * How full the context window is, like Claude Code's /context: a ring, "Context 42%" and used/total
@@ -116,8 +103,9 @@ export function ContextMeter({
       >
         {known ? (
           <>
-            <Ring percent={known.percent} />
-            Context <span className={LEVEL_TEXT[levelOf(known.percent)]}>{Math.round(known.percent)}%</span>
+            {/* Decoration: the button's label says how full it is. */}
+            <Meter kind="ring" percent={known.percent} />
+            Context <span className={valueTone(known.percent)}>{formatPercent(known.percent)}</span>
             <span className="text-faint @max-[860px]:hidden">
               {compactTokens(known.tokens)} / {compactTokens(known.max)}
             </span>
@@ -125,7 +113,7 @@ export function ContextMeter({
         ) : (
           <>
             {/* An empty ring: the size of the window isn't known until the session runs here. */}
-            <span className="size-3 shrink-0 rounded-full border-[1.5px] border-border" aria-hidden />
+            <span className="size-3 shrink-0 rounded-full border-[1.5px] border-selected" aria-hidden />
             Context <span className="text-faint">≈{compactTokens(estimate ?? 0)}</span>
           </>
         )}
@@ -169,18 +157,18 @@ export function ContextMeter({
             </>
           )}
           {onCompact && (
-            <button
-              type="button"
+            <Button
+              variant="primary"
               onClick={() => {
                 setOpen(false);
                 onCompact();
               }}
               data-compact
-              className="mt-3 w-full rounded-md bg-accent px-2 py-1.5 text-ui font-medium text-on-accent hover:bg-accent/85"
+              className="mt-3 w-full"
               data-tooltip="Sends /compact: Claude summarises the conversation so far to free up context"
             >
               Compact now
-            </button>
+            </Button>
           )}
         </div>
       )}
