@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { LiveSession, SessionHostInfo } from '@switchboard/protocol/client';
 import { toRows, useSessions, type SessionRowData } from './sessionsStore.ts';
-import { buildSessionList, inScope, isActive, RECENT_MS, rowStatus, startupSession } from './sidebarRows.ts';
+import { buildSessionList, inScope, isActive, isArchived, RECENT_MS, rowStatus, startupSession } from './sidebarRows.ts';
 
 const NOW = Date.UTC(2026, 9, 5, 12);
 const HOUR = 3_600_000;
@@ -17,6 +17,7 @@ const row = (id: string, overrides: Partial<SessionRowData> = {}): SessionRowDat
   summary: null,
   pinned: false,
   settledAt: null,
+  archivedAt: null,
   unread: false,
   inApp: false,
   error: false,
@@ -75,6 +76,16 @@ describe('isActive', () => {
     expect(isActive(row('a', { settledAt: NOW - HOUR, updatedAt: NOW, live: live('running') }), NOW)).toBe(false);
     expect(isActive(row('a', { settledAt: NOW - HOUR, updatedAt: NOW, live: live('idle') }), NOW)).toBe(true);
   });
+
+  it('hides archived sessions until there is new activity, unless they need you', () => {
+    expect(isArchived(row('a'))).toBe(false);
+    expect(isArchived(row('a', { archivedAt: NOW - HOUR / 2 }))).toBe(true);
+    expect(isArchived(row('a', { archivedAt: NOW - 2 * HOUR }))).toBe(false);
+    expect(isArchived(row('a', { archivedAt: NOW, pinned: true }))).toBe(true);
+    expect(isArchived(row('a', { archivedAt: NOW, live: live('needs-you') }))).toBe(false);
+    expect(isArchived(row('a', { archivedAt: NOW, error: true }))).toBe(false);
+    expect(isArchived(row('a', { archivedAt: NOW - HOUR, updatedAt: NOW, live: live('running') }))).toBe(true);
+  });
 });
 
 describe('buildSessionList', () => {
@@ -90,6 +101,14 @@ describe('buildSessionList', () => {
     const list = buildSessionList(rows, { search: '', project: null, now: NOW });
     expect(ids(list.active)).toEqual(['pinned-old', 'newest', 'recent']);
     expect(ids(list.settled)).toEqual(['old', 'older']);
+    expect(list.archived).toEqual([]);
+  });
+
+  it('keeps archived sessions out of the main list and Settled', () => {
+    const list = buildSessionList([...rows, row('gone', { updatedAt: old, archivedAt: NOW }), row('gone-recent', { archivedAt: NOW })], { search: '', project: null, now: NOW });
+    expect(ids(list.active)).toEqual(['pinned-old', 'newest', 'recent']);
+    expect(ids(list.settled)).toEqual(['old', 'older']);
+    expect(ids(list.archived)).toEqual(['gone-recent', 'gone']);
   });
 
   it('lists only Switchboard sessions in that scope', () => {
@@ -113,7 +132,7 @@ describe('toRows', () => {
   });
 
   it('does not let an idle process move a session up', () => {
-    const summary = { id: 's', title: 's', firstPrompt: null, customTitle: null, cwd: '/p/a', projectRoot: '/p/a', gitBranch: null, worktree: null, origin: 'cli', createdAt: null, updatedAt: 1_000, fileSize: null, tag: null, pinned: false, settledAt: null, viewedAt: null, unread: false, inApp: false, profileId: 'default' } as const;
+    const summary = { id: 's', title: 's', firstPrompt: null, customTitle: null, cwd: '/p/a', projectRoot: '/p/a', gitBranch: null, worktree: null, origin: 'cli', createdAt: null, updatedAt: 1_000, fileSize: null, tag: null, pinned: false, settledAt: null, archivedAt: null, viewedAt: null, unread: false, inApp: false, profileId: 'default' } as const;
     const sessions = new Map([['s', summary]]);
     expect(toRows(sessions, new Map([['s', { ...live('idle'), sessionId: 's', updatedAt: 9_000 }]]))[0]!.updatedAt).toBe(1_000);
     expect(toRows(sessions, new Map([['s', { ...live('running'), sessionId: 's', updatedAt: 9_000 }]]))[0]!.updatedAt).toBe(9_000);
@@ -128,7 +147,7 @@ describe('toRows', () => {
   });
 
   it('puts a session started in this app above one already working', () => {
-    const summary = { id: 'busy', title: 'busy', firstPrompt: null, customTitle: null, cwd: '/p/a', projectRoot: '/p/a', gitBranch: null, worktree: null, origin: 'cli', createdAt: null, updatedAt: NOW - HOUR, fileSize: null, tag: null, pinned: false, settledAt: null, viewedAt: null, unread: false, inApp: true, profileId: 'default' } as const;
+    const summary = { id: 'busy', title: 'busy', firstPrompt: null, customTitle: null, cwd: '/p/a', projectRoot: '/p/a', gitBranch: null, worktree: null, origin: 'cli', createdAt: null, updatedAt: NOW - HOUR, fileSize: null, tag: null, pinned: false, settledAt: null, archivedAt: null, viewedAt: null, unread: false, inApp: true, profileId: 'default' } as const;
     const busy: SessionHostInfo = { sessionId: 'busy', cwd: '/p/a', state: 'running', model: null, permissionMode: 'default', effort: null, costUsd: 0, contextPercent: null, contextTokens: null, contextMax: null, error: null, startedAt: NOW - 2 * HOUR, queued: 0, profileId: 'default', backgroundTasks: [] };
     const fresh: SessionHostInfo = { ...busy, sessionId: 'fresh', state: 'starting', startedAt: NOW };
     const rows = toRows(new Map([['busy', summary]]), new Map(), new Map([['busy', busy], ['fresh', fresh]]));

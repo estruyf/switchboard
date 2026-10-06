@@ -604,6 +604,7 @@ let paletteResult = 'not run';
 let toolsResult = 'not run';
 let splitResult = 'not run';
 let settleResult = 'not run';
+let archiveResult = 'not run';
 let dropResult = 'not run';
 let controlsResult = 'not run';
 let projectsResult = 'not run';
@@ -1583,6 +1584,72 @@ async function runSettleStep(win: BrowserWindow): Promise<string> {
   return `ok: settled ${working ? 'a working session' : 'a session'} and moved it back`;
 }
 
+/**
+ * ⌘-click picks a second session, right-click → "Archive 2 sessions" hides both (Settled too), and the selection bar under
+ * "Archived" brings them back. Flags live in the throwaway profile.
+ */
+async function runArchiveStep(win: BrowserWindow): Promise<string> {
+  const js = (code: string) => win.webContents.executeJavaScript(code);
+  const pause = (ms = 50) => new Promise((resolve) => setTimeout(resolve, ms));
+  const list = "document.querySelector('[data-session-list]')";
+  await js(`${list}.scrollTop = 0`);
+  await pause(100);
+  // Two sessions from the main list (above the first section header), leaving the smoke session alone.
+  const ids = (await js(`(() => {
+    const header = document.querySelector('[data-settled-toggle], [data-archived-toggle]');
+    const top = header ? header.getBoundingClientRect().top : Infinity;
+    return [...document.querySelectorAll('[data-session-id]')]
+      .filter((r) => r.getBoundingClientRect().top < top && r.dataset.sessionId !== ${JSON.stringify(smokeSessionId)} && r.dataset.indexed === 'true' && !r.querySelector('[aria-label="Claude is working"]'))
+      .slice(0, 2).map((r) => r.dataset.sessionId);
+  })()`)) as string[];
+  if (ids.length < 2) return `ok: skipped, only ${ids.length} idle indexed session(s) in the main list`;
+  const row = (id: string) => `document.querySelector('[data-session-id="${id}"]')`;
+  const click = (id: string, meta: boolean) => js(`${row(id)}?.dispatchEvent(new MouseEvent('click', { bubbles: true, metaKey: ${meta} }))`);
+  const inMainList = (id: string) =>
+    `(() => { const r = ${row(id)}; if (!r) return false; const h = document.querySelector('[data-settled-toggle], [data-archived-toggle]'); return !h || r.getBoundingClientRect().top < h.getBoundingClientRect().top; })()`;
+  const [a, b] = ids as [string, string];
+
+  await click(a, false);
+  await click(b, true);
+  if (!(await waitInPage(win, "document.querySelector('[data-selection-count]')?.dataset.selectionCount === '2'", 2_000))) return 'picking a second session with ⌘-click showed no selection bar for 2';
+  // Let the window paint the selection before capturing it.
+  await pause(150);
+  await shot(win, 'multi-select.png');
+  await js(`(() => { const r = ${row(a)}.getBoundingClientRect(); ${row(a)}.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, clientX: r.left + 40, clientY: r.top + 20 })); })()`);
+  const item = "[...document.querySelectorAll('[role=menuitem]')].find((b) => b.innerText.startsWith('Archive 2 sessions'))";
+  if (!(await waitInPage(win, `!!${item}`, 3_000))) {
+    const seen = await js("JSON.stringify([...document.querySelectorAll('[role=menuitem]')].map((b) => b.innerText))");
+    await js("document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))");
+    return `no "Archive 2 sessions" item in the menu: ${seen}`;
+  }
+  await js(`${item}.click()`);
+  await js(`${list}.scrollTop = 0`);
+  if (!(await waitInPage(win, `!${inMainList(a)} && !${inMainList(b)} && !document.querySelector('[data-selection-bar]')`, 3_000))) return 'archiving left the sessions in the main list';
+
+  // Find them under Archived (the last section; scroll until its header renders) and bring them back.
+  for (let i = 0; i < 80 && !(await js("!!document.querySelector('[data-archived-toggle]')")); i++) {
+    await js(`${list}.scrollTop += 400`);
+    await pause();
+  }
+  if (!(await js("!!document.querySelector('[data-archived-toggle]')"))) return 'no Archived header';
+  const opened = (await js("document.querySelector('[data-archived-toggle]').dataset.open")) === 'false';
+  if (opened) await js("document.querySelector('[data-archived-toggle]').click()");
+  for (let i = 0; i < 40 && !(await js(`!!${row(a)} && !!${row(b)}`)); i++) {
+    await js(`${list}.scrollTop += 300`);
+    await pause();
+  }
+  if (!(await waitInPage(win, `!!${row(a)} && !!${row(b)}`, 2_000))) return 'archived sessions not listed under Archived';
+  await click(a, false);
+  await click(b, true);
+  if (!(await waitInPage(win, "!!document.querySelector('[data-unarchive-selected]')", 2_000))) return 'no Unarchive button for two archived sessions';
+  await js("document.querySelector('[data-unarchive-selected]').click()");
+  await js(`${list}.scrollTop = 0`);
+  if (!(await waitInPage(win, `${inMainList(a)} && ${inMainList(b)}`, 3_000))) return 'unarchiving did not bring the sessions back';
+  if (opened && (await js("document.querySelector('[data-archived-toggle]')?.dataset.open")) === 'true') await js("document.querySelector('[data-archived-toggle]').click()");
+  if (smokeSessionId) await js(`${row(smokeSessionId)}?.click()`);
+  return 'ok: ⌘-click picked two sessions, archived both from the menu and unarchived them from the selection bar';
+}
+
 async function runSmokeStep(win: BrowserWindow | null): Promise<void> {
   if (!smokeOutDir || !win) return;
   mkdirSync(smokeOutDir, { recursive: true });
@@ -1651,6 +1718,7 @@ async function runSmokeStep(win: BrowserWindow | null): Promise<void> {
     toolsResult = await runToolsStep(win).catch((error: Error) => `failed: ${error.message}`);
     splitResult = await runSplitStep(win).catch((error: Error) => `failed: ${error.message}`);
     settleResult = await runSettleStep(win).catch((error: Error) => `failed: ${error.message}`);
+    archiveResult = await runArchiveStep(win).catch((error: Error) => `failed: ${error.message}`);
     dropResult = await runDropStep(win).catch((error: Error) => `failed: ${error.message}`);
     controlsResult = await runControlsStep(win).catch((error: Error) => `failed: ${error.message}`);
     newSessionResult = await runNewSessionStep(win).catch((error: Error) => `failed: ${error.message}`);
@@ -1706,6 +1774,7 @@ async function runSmokeStep(win: BrowserWindow | null): Promise<void> {
         toolsResult,
         splitResult,
         settleResult,
+        archiveResult,
         dropResult,
         controlsResult,
         newSessionResult,

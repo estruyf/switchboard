@@ -49,6 +49,16 @@ export function isActive(row: SessionRowData, now: number): boolean {
   return row.live?.origin === 'app' || row.unread || now - row.updatedAt < RECENT_MS;
 }
 
+/**
+ * Archived: out of the sidebar altogether (Settled too) until there's something new, like settling.
+ * Anything that needs you still shows, and a session archived while working stays hidden until it finishes.
+ */
+export function isArchived(row: SessionRowData): boolean {
+  if (row.archivedAt === null) return false;
+  if (row.live?.status === 'needs-you' || row.error) return false;
+  return row.archivedAt >= row.updatedAt || row.live?.status === 'running';
+}
+
 export interface SessionListOptions {
   search: string;
   /** Only this project folder; null = all. */
@@ -63,18 +73,26 @@ const matches = (row: SessionRowData, needle: string) =>
   row.projectRoot.toLowerCase().includes(needle) ||
   (row.branch?.toLowerCase().includes(needle) ?? false);
 
-/** Splits sessions into the main list (pinned first, then newest) and the settled list (newest first). */
-export function buildSessionList(rows: readonly SessionRowData[], options: SessionListOptions): { active: SessionRowData[]; settled: SessionRowData[] } {
+/**
+ * Splits sessions into the main list (pinned first, then newest), the settled list and the archived
+ * list (both newest first).
+ */
+export function buildSessionList(
+  rows: readonly SessionRowData[],
+  options: SessionListOptions,
+): { active: SessionRowData[]; settled: SessionRowData[]; archived: SessionRowData[] } {
   const needle = options.search.trim().toLowerCase();
   const active: SessionRowData[] = [];
   const settled: SessionRowData[] = [];
+  const archived: SessionRowData[] = [];
   for (const row of rows) {
     if (options.scope && !inScope(row, options.scope)) continue;
     if (options.project && row.projectRoot !== options.project) continue;
     if (needle && !matches(row, needle)) continue;
-    (isActive(row, options.now) ? active : settled).push(row);
+    (isArchived(row) ? archived : isActive(row, options.now) ? active : settled).push(row);
   }
   active.sort((a, b) => Number(b.pinned) - Number(a.pinned) || b.updatedAt - a.updatedAt);
   settled.sort((a, b) => b.updatedAt - a.updatedAt);
-  return { active, settled };
+  archived.sort((a, b) => b.updatedAt - a.updatedAt);
+  return { active, settled, archived };
 }

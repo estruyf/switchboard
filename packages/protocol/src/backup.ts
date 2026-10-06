@@ -52,6 +52,7 @@ export const SettingsFile = z.object({
     .object({
       pinned: z.array(SessionId).max(100_000).default([]),
       settled: z.array(z.object({ id: SessionId, at: z.number() })).max(100_000).default([]),
+      archived: z.array(z.object({ id: SessionId, at: z.number() })).max(100_000).default([]),
       owned: z.array(SessionId).max(100_000).default([]),
       continued: z.array(SessionId).max(100_000).default([]),
     })

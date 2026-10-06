@@ -102,12 +102,12 @@ describe('SessionIndex', () => {
     expect(second.index.snapshot()).toMatchObject({ complete: false, sessions: [{ id: ID_A }] });
   });
 
-  it('tracks pins, settling and unread state, and keeps them across restarts', async () => {
+  it('tracks pins, settling, archiving and unread state, and keeps them across restarts', async () => {
     const db = openCacheDatabase(join(tempDir(), 'cache.sqlite'));
     const t = setup([info(ID_A, { lastModified: 1000 }), info(ID_B, { lastModified: 9_000 })], db);
     await t.index.refresh();
     // Older than the baseline → read; newer → unread until viewed.
-    expect(t.index.get(ID_A)).toMatchObject({ unread: false, pinned: false, settledAt: null });
+    expect(t.index.get(ID_A)).toMatchObject({ unread: false, pinned: false, settledAt: null, archivedAt: null });
     expect(t.index.get(ID_B)!.unread).toBe(true);
     t.index.markViewed(ID_B);
     expect(t.index.get(ID_B)).toMatchObject({ unread: false });
@@ -116,10 +116,13 @@ describe('SessionIndex', () => {
     expect(t.index.get(ID_A)!.settledAt).toBeGreaterThan(0);
     t.index.setFlags(ID_A, { settled: false });
     expect(t.index.get(ID_A)).toMatchObject({ pinned: true, settledAt: null });
+    t.index.setFlags(ID_B, { archived: true });
+    expect(t.index.get(ID_B)!.archivedAt).toBeGreaterThan(0);
     t.index.stop();
     const again = setup([], db);
     expect(again.index.get(ID_A)).toMatchObject({ pinned: true });
     expect(again.index.get(ID_B)).toMatchObject({ unread: false });
+    expect(again.index.get(ID_B)!.archivedAt).toBeGreaterThan(0);
   });
 
   it('dates a session by its last message, so Claude Code exiting does not make it unread', async () => {

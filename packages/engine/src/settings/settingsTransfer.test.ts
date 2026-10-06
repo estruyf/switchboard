@@ -63,7 +63,7 @@ describe('settings export and import', () => {
     before.stores.actions.save(web, action({ id: 'dev', command: 'npm run dev', shortcut: 'cmd+shift+d', runOnWorktreeCreate: true }));
     before.stores.appState.set('editor.default', 'vscode');
     before.stores.appState.set('shell.path', '/usr/bin');
-    before.stores.db.prepare("INSERT INTO session_flags (id, pinned, settled_at) VALUES ('s1', 1, NULL), ('s2', 0, 42)").run();
+    before.stores.db.prepare("INSERT INTO session_flags (id, pinned, settled_at, archived_at) VALUES ('s1', 1, NULL, NULL), ('s2', 0, 42, NULL), ('s3', 0, NULL, 7)").run();
     before.stores.db.prepare("INSERT INTO owned_sessions (id, created_at) VALUES ('s1', 1)").run();
 
     const file = roundTrip(before.stores, { ...DEFAULT_PREFERENCES, colorScheme: 'dark' });
@@ -95,9 +95,10 @@ describe('settings export and import', () => {
 
     expect(after.stores.appState.get('editor.default')).toBe('vscode');
     expect(after.stores.appState.get('shell.path')).toBeNull();
-    expect(after.stores.db.prepare('SELECT id, pinned, settled_at FROM session_flags ORDER BY id').all()).toEqual([
-      { id: 's1', pinned: 1, settled_at: null },
-      { id: 's2', pinned: 0, settled_at: 42 },
+    expect(after.stores.db.prepare('SELECT id, pinned, settled_at, archived_at FROM session_flags ORDER BY id').all()).toEqual([
+      { id: 's1', pinned: 1, settled_at: null, archived_at: null },
+      { id: 's2', pinned: 0, settled_at: 42, archived_at: null },
+      { id: 's3', pinned: 0, settled_at: null, archived_at: 7 },
     ]);
     expect(after.stores.db.prepare('SELECT id FROM owned_sessions').all()).toEqual([{ id: 's1' }]);
 

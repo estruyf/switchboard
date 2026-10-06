@@ -115,6 +115,7 @@ export function exportSettings(stores: SettingsStores, options: ExportOptions): 
     file.sessions = {
       pinned: ids('SELECT id FROM session_flags WHERE pinned = 1 ORDER BY id'),
       settled: stores.db.prepare('SELECT id, settled_at AS at FROM session_flags WHERE settled_at IS NOT NULL ORDER BY id').all() as Array<{ id: string; at: number }>,
+      archived: stores.db.prepare('SELECT id, archived_at AS at FROM session_flags WHERE archived_at IS NOT NULL ORDER BY id').all() as Array<{ id: string; at: number }>,
       owned: ids('SELECT id FROM owned_sessions ORDER BY id'),
       continued: ids('SELECT id FROM continued_sessions ORDER BY id'),
     };
@@ -360,7 +361,7 @@ export function planImport(stores: SettingsStores, file: SettingsFile, options: 
 
   // --- Sessions (only ever added) -------------------------------------------------------------
   if (has('sessions')) {
-    const { pinned, settled, owned, continued } = file.sessions!;
+    const { pinned, settled, archived, owned, continued } = file.sessions!;
     const ids = (sql: string) => new Set((stores.db.prepare(sql).all() as Array<{ id: string }>).map((r) => r.id));
     const groups = [
       { label: 'pinned', ids: pinned, have: ids('SELECT id FROM session_flags WHERE pinned = 1'), sql: 'INSERT INTO session_flags (id, pinned) VALUES (?, 1) ON CONFLICT (id) DO UPDATE SET pinned = 1' },
@@ -378,16 +379,21 @@ export function planImport(stores: SettingsStores, file: SettingsFile, options: 
         for (const id of add) (group.sql.includes('created_at') ? statement.run(id, at) : statement.run(id));
       });
     }
-    const settledHere = ids('SELECT id FROM session_flags WHERE settled_at IS NOT NULL');
-    const settle = settled.filter((s) => !settledHere.has(s.id));
-    unchanged += settled.length - settle.length;
-    if (settle.length > 0) {
-      note('sessions', `${settle.length} ${settle.length === 1 ? 'session' : 'sessions'} settled`, 'add', 'shows only where their transcripts are');
+    // Settled and archived keep their moment: activity after it is what brings a session back.
+    for (const { label, column, entries } of [
+      { label: 'settled', column: 'settled_at', entries: settled },
+      { label: 'archived', column: 'archived_at', entries: archived },
+    ]) {
+      const here = ids(`SELECT id FROM session_flags WHERE ${column} IS NOT NULL`);
+      const add = entries.filter((s) => !here.has(s.id));
+      unchanged += entries.length - add.length;
+      if (add.length === 0) continue;
+      note('sessions', `${add.length} ${add.length === 1 ? 'session' : 'sessions'} ${label}`, 'add', 'shows only where their transcripts are');
       writes.push(() => {
         const statement = stores.db.prepare(
-          'INSERT INTO session_flags (id, settled_at) VALUES (?, ?) ON CONFLICT (id) DO UPDATE SET settled_at = COALESCE(session_flags.settled_at, excluded.settled_at)',
+          `INSERT INTO session_flags (id, ${column}) VALUES (?, ?) ON CONFLICT (id) DO UPDATE SET ${column} = COALESCE(session_flags.${column}, excluded.${column})`,
         );
-        for (const { id, at } of settle) statement.run(id, at);
+        for (const { id, at } of add) statement.run(id, at);
       });
     }
   }

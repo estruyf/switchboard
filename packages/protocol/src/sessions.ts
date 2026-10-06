@@ -35,6 +35,8 @@ export const SessionSummary = z.object({
   pinned: z.boolean(),
   /** When the user settled it by hand; new activity after this brings it back. */
   settledAt: z.number().nullable(),
+  /** When the user archived it: hidden from the sidebar (Settled too) until it has new activity. */
+  archivedAt: z.number().nullable(),
   /** When the user last looked at it in this app. */
   viewedAt: z.number().nullable(),
   /** Changed since the user last looked at it. */

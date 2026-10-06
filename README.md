@@ -13,7 +13,8 @@ It uses the Claude Code you already have installed, with your login, settings, c
 ## What you can do
 
 **Keep track of every session**
-- One list of all your sessions, newest first, across every project. Sessions you haven't touched for a while move to **Settled**, out of the way. You can settle one yourself too, even while it works: it comes back when it needs you or has finished.
+- One list of all your sessions, newest first, across every project. Sessions you haven't touched for a while move to **Settled**, out of the way. You can settle one yourself too, even while it works: it comes back when it needs you or has finished. **Archive** the ones you're done with to take them out of the list altogether (they wait under **Archived**, and nothing is deleted).
+- Select several sessions with ⌘-click or ⇧-click to archive or settle them together.
 - See at a glance which sessions are **working**, **waiting for you**, **finished** or **unread**.
 - Filter by one of your projects, filter by title, and pin the sessions you keep coming back to.
 - **Search every conversation** (⌘⇧F): your prompts and Claude's replies across all sessions, with the matching words highlighted. Pick a result to jump straight to that message.
@@ -110,6 +111,7 @@ To stop the checks, turn off *Check for Claude Code updates automatically* in Se
 | ⌘F | Find in this conversation (↩ next, ⇧↩ previous) |
 | ⌘⇧F | Search all conversations |
 | ↑ ↓ | Move through sessions in the sidebar |
+| ⌘-click, ⇧-click, ⇧↑ ↓ | Select several sessions (Esc clears the selection) |
 | ⌘⌫ | Delete the selected session (to the Trash) |
 | ⌘O | Open the session's folder in your editor |
 | ⌘J | Show or hide the terminal |
@@ -122,7 +124,7 @@ To stop the checks, turn off *Check for Claude Code updates automatically* in Se
 | `/` and `@` | Commands and file mentions in the message box |
 | ⌘Q | Quit (Switchboard asks first; press ⌘Q again to quit) |
 
-Right-click a session for more: open it beside, pin, settle, open its folder, copy its ID, or delete it.
+Right-click a session for more: open it beside, pin, settle, archive, open its folder, copy its ID, or delete it. With several sessions selected, right-click one of them to archive, settle or move them all back at once.
 
 Drag the sidebar's right edge to make it wider or narrower; double-click the edge to reset it. Switchboard remembers the width.
 
@@ -144,7 +146,7 @@ Open Settings with ⌘, or the gear at the bottom of the sidebar. While it is op
 
 To move to a new Mac, restore your setup after a reset, or share a set of actions with someone, use **Settings → Backup** (or *Export settings…* and *Import settings…* in the command palette).
 
-- **Export** saves the parts you tick to one `.json` file: preferences, projects (in your order, with their icons and defaults), project actions (global and per project, with shortcuts and worktree setup), and app choices such as your default editor. Pinned and settled sessions are left out unless you tick them; they're only useful on the same Mac, or when you copy `~/.claude` too. Your sessions themselves are never in the file.
+- **Export** saves the parts you tick to one `.json` file: preferences, projects (in your order, with their icons and defaults), project actions (global and per project, with shortcuts and worktree setup), and app choices such as your default editor. Pinned, settled and archived sessions are left out unless you tick them; they're only useful on the same Mac, or when you copy `~/.claude` too. Your sessions themselves are never in the file.
 - **Import** shows what the file would add, change or skip before anything happens. *Merge* (the default) adds what's missing and keeps your own values; *Replace* makes your projects, actions and preferences match the file. A project folder that doesn't exist on this Mac (a different user name, say) can be pointed at another folder, or skipped.
 - Imported shell actions ask for your approval the first time they run, even if you approved them on the other Mac, so a settings file can't run a command you haven't seen.
 - Before importing, Switchboard saves your current settings in the `backups` folder of its app data. To undo an import, import that file with *Replace*.

@@ -38,6 +38,9 @@ export function sessionRowLabel(row: {
   status: RowStatus;
   pinned: boolean;
   settled: boolean;
+  archived?: boolean;
+  /** One of several sessions picked with ⌘- or ⇧-click. */
+  picked?: boolean;
   beside: boolean;
   updatedAt: number;
   now: number;
@@ -47,6 +50,8 @@ export function sessionRowLabel(row: {
   if (row.status) parts.push(STATUS_LABEL[row.status]);
   if (row.pinned) parts.push('pinned');
   if (row.settled) parts.push('settled');
+  if (row.archived) parts.push('archived');
+  if (row.picked) parts.push('in the selection');
   if (row.beside) parts.push('open in the other pane');
   parts.push(`updated ${spokenAge(row.updatedAt, row.now)}`);
   return parts.join(', ');

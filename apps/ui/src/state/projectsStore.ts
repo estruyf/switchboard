@@ -13,6 +13,7 @@ interface ProjectsState {
   /** Show only this project's sessions; null = all projects. */
   filter: string | null;
   settledOpen: boolean;
+  archivedOpen: boolean;
   /** Bumped to ask for a reload after icon or project changes. */
   version: number;
   /** The Add project dialog is open. */
@@ -24,6 +25,7 @@ interface ProjectsState {
   setProjects(projects: ProjectInfo[]): void;
   setFilter(root: string | null): void;
   toggleSettled(): void;
+  toggleArchived(): void;
   reload(): void;
   showAdd(open: boolean): void;
   setManageFocus(root: string | null): void;
@@ -35,6 +37,7 @@ export const useProjects = create<ProjectsState>()((set) => ({
   loaded: false,
   filter: null,
   settledOpen: false,
+  archivedOpen: false,
   version: 0,
   adding: false,
   manageFocus: null,
@@ -42,6 +45,7 @@ export const useProjects = create<ProjectsState>()((set) => ({
   setProjects: (projects) => set({ projects: new Map(projects.map((p) => [p.root, p])), loaded: true }),
   setFilter: (filter) => set({ filter }),
   toggleSettled: () => set((s) => ({ settledOpen: !s.settledOpen })),
+  toggleArchived: () => set((s) => ({ archivedOpen: !s.archivedOpen })),
   reload: () => set((s) => ({ version: s.version + 1 })),
   showAdd: (adding) => set({ adding }),
   setManageFocus: (manageFocus) => set({ manageFocus }),

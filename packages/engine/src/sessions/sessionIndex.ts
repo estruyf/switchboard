@@ -8,15 +8,16 @@ import type { RawSessionInfo, SessionSource } from '../claude/sessionSource.ts';
 import { coalesce } from '../util/coalesce.ts';
 
 /** What the index derives from disk; user flags are added on the way out (see `decorate`). */
-type RawSummary = Omit<SessionSummary, 'pinned' | 'settledAt' | 'viewedAt' | 'unread' | 'inApp'>;
+type RawSummary = Omit<SessionSummary, 'pinned' | 'settledAt' | 'archivedAt' | 'viewedAt' | 'unread' | 'inApp'>;
 
 interface Flags {
   pinned: boolean;
   settledAt: number | null;
+  archivedAt: number | null;
   viewedAt: number | null;
 }
 
-const NO_FLAGS: Flags = { pinned: false, settledAt: null, viewedAt: null };
+const NO_FLAGS: Flags = { pinned: false, settledAt: null, archivedAt: null, viewedAt: null };
 /** Writes that land right after the user looked are not "new" for them. */
 const UNREAD_SLACK_MS = 2_000;
 
@@ -98,11 +99,11 @@ export class SessionIndex {
           jsonl_path = excluded.jsonl_path, jsonl_mtime = excluded.jsonl_mtime,
           entrypoint = excluded.entrypoint, summary_json = excluded.summary_json`),
       remove: db.prepare('DELETE FROM sessions WHERE id = ?'),
-      flagsAll: db.prepare('SELECT id, pinned, settled_at, viewed_at FROM session_flags'),
+      flagsAll: db.prepare('SELECT id, pinned, settled_at, archived_at, viewed_at FROM session_flags'),
       flagsDelete: db.prepare('DELETE FROM session_flags WHERE id = ?'),
       flagsUpsert: db.prepare(`
-        INSERT INTO session_flags (id, pinned, settled_at, viewed_at) VALUES (?, ?, ?, ?)
-        ON CONFLICT (id) DO UPDATE SET pinned = excluded.pinned, settled_at = excluded.settled_at, viewed_at = excluded.viewed_at`),
+        INSERT INTO session_flags (id, pinned, settled_at, archived_at, viewed_at) VALUES (?, ?, ?, ?, ?)
+        ON CONFLICT (id) DO UPDATE SET pinned = excluded.pinned, settled_at = excluded.settled_at, archived_at = excluded.archived_at, viewed_at = excluded.viewed_at`),
     };
     this.loadFlags();
     this.loadCache();
@@ -110,8 +111,8 @@ export class SessionIndex {
 
   private loadFlags(): void {
     this.flags.clear();
-    for (const row of this.statements.flagsAll.all() as Array<{ id: string; pinned: number; settled_at: number | null; viewed_at: number | null }>) {
-      this.flags.set(row.id, { pinned: row.pinned === 1, settledAt: row.settled_at, viewedAt: row.viewed_at });
+    for (const row of this.statements.flagsAll.all() as Array<{ id: string; pinned: number; settled_at: number | null; archived_at: number | null; viewed_at: number | null }>) {
+      this.flags.set(row.id, { pinned: row.pinned === 1, settledAt: row.settled_at, archivedAt: row.archived_at, viewedAt: row.viewed_at });
     }
   }
 
@@ -170,13 +171,14 @@ export class SessionIndex {
     if (this.entries.has(sessionId)) this.apply([], [sessionId]);
   }
 
-  /** Pins, or settles/unsettles, a session and tells every window. */
-  setFlags(sessionId: string, change: { pinned?: boolean; settled?: boolean }): void {
+  /** Pins, settles or archives a session (or undoes it) and tells every window. */
+  setFlags(sessionId: string, change: { pinned?: boolean; settled?: boolean; archived?: boolean }): void {
     const current = this.flags.get(sessionId) ?? NO_FLAGS;
     const next: Flags = {
       ...current,
       ...(change.pinned !== undefined ? { pinned: change.pinned } : {}),
       ...(change.settled !== undefined ? { settledAt: change.settled ? Date.now() : null } : {}),
+      ...(change.archived !== undefined ? { archivedAt: change.archived ? Date.now() : null } : {}),
     };
     this.writeFlags(sessionId, next);
   }
@@ -187,7 +189,7 @@ export class SessionIndex {
 
   private writeFlags(sessionId: string, flags: Flags): void {
     this.flags.set(sessionId, flags);
-    this.statements.flagsUpsert.run(sessionId, flags.pinned ? 1 : 0, flags.settledAt, flags.viewedAt);
+    this.statements.flagsUpsert.run(sessionId, flags.pinned ? 1 : 0, flags.settledAt, flags.archivedAt, flags.viewedAt);
     this.republish(sessionId);
   }
 

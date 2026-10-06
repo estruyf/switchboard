@@ -486,8 +486,12 @@ export function createEngine(options: EngineOptions): Engine {
       return {};
     },
     'sessions.list': () => ({ ...sessions.snapshot(), live: liveList() }),
-    'sessions.setFlags': ({ sessionId, pinned, settled }) => {
-      sessions.setFlags(sessionId, { ...(pinned !== undefined ? { pinned } : {}), ...(settled !== undefined ? { settled } : {}) });
+    'sessions.setFlags': ({ sessionId, pinned, settled, archived }) => {
+      sessions.setFlags(sessionId, {
+        ...(pinned !== undefined ? { pinned } : {}),
+        ...(settled !== undefined ? { settled } : {}),
+        ...(archived !== undefined ? { archived } : {}),
+      });
       return {};
     },
     'session.delete': async ({ sessionId }) => {

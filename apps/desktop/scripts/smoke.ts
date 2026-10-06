@@ -56,6 +56,8 @@ console.log(`${String(result.splitResult).startsWith('ok') ? '✓' : '✗'} spli
 if (!String(result.splitResult).startsWith('ok')) process.exitCode = 1;
 console.log(`${String(result.settleResult).startsWith('ok') ? '✓' : '✗'} settle: ${result.settleResult}`);
 if (!String(result.settleResult).startsWith('ok')) process.exitCode = 1;
+console.log(`${String(result.archiveResult).startsWith('ok') ? '✓' : '✗'} multi-select and archive: ${result.archiveResult}`);
+if (!String(result.archiveResult).startsWith('ok')) process.exitCode = 1;
 console.log(`${String(result.dropResult).startsWith('ok') ? '✓' : '✗'} drop target: ${result.dropResult}`);
 if (!String(result.dropResult).startsWith('ok')) process.exitCode = 1;
 console.log(`${String(result.controlsResult).startsWith('ok') ? '✓' : '✗'} controls: ${result.controlsResult}`);

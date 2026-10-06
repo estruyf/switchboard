@@ -25,6 +25,7 @@ describe('sessionRowLabel', () => {
 
   it('names what the icons and colours show', () => {
     expect(sessionRowLabel({ ...base, status: 'needs-you', pinned: true })).toBe('Fix the login bug, switchboard, Waiting for you, pinned, updated 5 minutes ago');
+    expect(sessionRowLabel({ ...base, archived: true, picked: true })).toBe('Fix the login bug, switchboard, archived, in the selection, updated 5 minutes ago');
     expect(sessionRowLabel({ ...base, status: 'running', settled: true, beside: true })).toBe(
       'Fix the login bug, switchboard, Claude is working, settled, open in the other pane, updated 5 minutes ago',
     );

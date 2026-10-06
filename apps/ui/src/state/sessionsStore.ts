@@ -130,6 +130,7 @@ export interface SessionRowData {
   summary: SessionSummary | null;
   pinned: boolean;
   settledAt: number | null;
+  archivedAt: number | null;
   unread: boolean;
   /** Started, forked or continued in Switchboard, or running in it now. */
   inApp: boolean;
@@ -164,6 +165,7 @@ export function toRows(
       summary: s,
       pinned: s.pinned,
       settledAt: s.settledAt,
+      archivedAt: s.archivedAt,
       unread: s.unread,
       inApp: s.inApp || l?.origin === 'app',
       error: hosts.get(s.id)?.state === 'error',
@@ -193,6 +195,7 @@ export function toRows(
       summary: null,
       pinned: false,
       settledAt: null,
+      archivedAt: null,
       unread: false,
       inApp: l.origin === 'app',
       error: false,

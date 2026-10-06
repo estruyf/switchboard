@@ -113,9 +113,9 @@ export const contract = {
       params: z.object({}),
       result: SessionsSnapshot,
     },
-    /** Pin a session, or settle it (moves it to "Settled" until it has new activity). */
+    /** Pin a session, settle it (moves it to "Settled") or archive it (hides it), each until it has new activity. */
     'sessions.setFlags': {
-      params: z.object({ sessionId: SessionId, pinned: z.boolean().optional(), settled: z.boolean().optional() }),
+      params: z.object({ sessionId: SessionId, pinned: z.boolean().optional(), settled: z.boolean().optional(), archived: z.boolean().optional() }),
       result: z.object({}),
     },
     /**

@@ -208,4 +208,9 @@ export const migrations: readonly string[] = [
     effort          TEXT
   );
   `,
+
+  // v12: archived sessions are hidden from the sidebar (Settled included) until they have new activity. A user choice: keep it.
+  `
+  ALTER TABLE session_flags ADD COLUMN archived_at INTEGER;
+  `,
 ];
