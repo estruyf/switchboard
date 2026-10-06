@@ -60,7 +60,7 @@ function useShortcuts() {
         }
       } else if (key === 'n') {
         event.preventDefault();
-        useSessions.getState().setView('new');
+        useSessions.getState().openNewSession();
       } else if (key === 'o') {
         const { view, selectedId, sessions, live } = useSessions.getState();
         if (view !== 'session' || !selectedId) return;

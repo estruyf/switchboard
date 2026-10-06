@@ -251,7 +251,7 @@ export function Sidebar() {
         <button
           type="button"
           data-new-session
-          onClick={() => setView('new')}
+          onClick={() => useSessions.getState().openNewSession()}
           title="New session (⌘N)"
           className={`no-drag flex size-7 items-center justify-center rounded-md hover:bg-border/50 ${view === 'new' ? 'bg-accent/15 text-text' : 'text-muted hover:text-text'}`}
         >

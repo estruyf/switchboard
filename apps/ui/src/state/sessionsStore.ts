@@ -24,6 +24,8 @@ interface SessionsState {
   splitId: string | null;
   activePane: Pane;
   view: MainView;
+  /** Bumped each time New session is asked for (⌘N, the sidebar, the palette), so the view focuses its prompt even when already open. */
+  newSessionRequest: number;
   filter: string;
 
   applySnapshot(snapshot: SessionsSnapshot): void;
@@ -37,6 +39,8 @@ interface SessionsState {
   closePane(pane?: Pane): void;
   focusPane(pane: Pane): void;
   setView(view: MainView): void;
+  /** Opens the New session view and asks it to focus the prompt. */
+  openNewSession(): void;
   setFilter(filter: string): void;
 }
 
@@ -53,6 +57,7 @@ export const useSessions = create<SessionsState>()((set) => ({
   splitId: null,
   activePane: 'main',
   view: 'session',
+  newSessionRequest: 0,
   filter: '',
 
   applySnapshot: (snapshot) =>
@@ -98,6 +103,7 @@ export const useSessions = create<SessionsState>()((set) => ({
     }),
   focusPane: (pane) => set((s) => (s.activePane === pane || (pane === 'split' && !s.splitId) ? {} : panes({ ...s, activePane: pane }))),
   setView: (view) => set({ view }),
+  openNewSession: () => set((s) => ({ view: 'new', newSessionRequest: s.newSessionRequest + 1 })),
   setFilter: (filter) => set({ filter }),
 }));
 

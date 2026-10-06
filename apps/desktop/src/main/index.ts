@@ -299,7 +299,9 @@ async function runLiveSessionStep(win: BrowserWindow, cwd: string): Promise<stri
   if (!(await waitInPage(win, `document.querySelector('[data-folder-option=${JSON.stringify(JSON.stringify(cwd)).slice(1, -1)}]')`, 5_000))) return 'folder not offered';
   await shot('folder-picker.png');
   await win.webContents.executeJavaScript(`document.querySelector('[data-folder-option=${JSON.stringify(JSON.stringify(cwd)).slice(1, -1)}]').click()`);
-  await setFieldValue(win, '[data-model-select]', 'haiku');
+  await click('[data-model-select]');
+  if (!(await waitInPage(win, "document.querySelector('[data-menu=\"model\"] [data-choice=\"haiku\"]')", 3_000))) return 'Haiku not offered in the model menu';
+  await click('[data-menu="model"] [data-choice="haiku"]');
   // Attach a red square through the attach button's file input, like picking a file.
   await win.webContents.executeJavaScript(`(async () => {
     const canvas = document.createElement('canvas');
@@ -475,6 +477,7 @@ let splitResult = 'not run';
 let settleResult = 'not run';
 let projectsResult = 'not run';
 let profilesResult = 'not run';
+let newSessionResult = 'not run';
 let rendering: Record<string, number> = {};
 
 /** Adds a project action through the editor, runs it from the header and checks it opened a terminal tab. */
@@ -641,10 +644,11 @@ async function runProjectsStep(win: BrowserWindow): Promise<string> {
 
   // A new session in the project starts from its defaults; a change there can be saved back.
   await click('[data-new-session]');
-  if (!(await waitInPage(win, `document.querySelector('[data-folder-select]')?.dataset.value === ${JSON.stringify(root)} && document.querySelector('[data-new-effort]')?.value === 'high'`, 5_000))) {
-    return `New session did not start from the project's defaults (${String(await js("document.querySelector('[data-folder-select]')?.dataset.value + ' ' + document.querySelector('[data-new-effort]')?.value"))})`;
+  const pickedEffort = "document.querySelector('[data-effort-dial] [aria-checked=\"true\"]')?.dataset.effort";
+  if (!(await waitInPage(win, `document.querySelector('[data-folder-select]')?.dataset.value === ${JSON.stringify(root)} && ${pickedEffort} === 'high'`, 5_000))) {
+    return `New session did not start from the project's defaults (${String(await js(`document.querySelector('[data-folder-select]')?.dataset.value + ' ' + ${pickedEffort}`))})`;
   }
-  await setFieldValue(win, '[data-new-effort]', 'low');
+  await click('[data-effort="low"]');
   if (!(await waitInPage(win, "document.querySelector('[data-save-project-defaults]')", 3_000))) return 'no Save as project default after a change';
   await click('[data-save-project-defaults]');
   if (!(await waitInPage(win, "!document.querySelector('[data-save-project-defaults]')", 3_000))) return 'Save as project default did not save';
@@ -688,9 +692,12 @@ async function runProfilesStep(win: BrowserWindow): Promise<string> {
 
   await click(`[data-profile-default=${JSON.stringify(id)}]`);
   await click('[data-new-session]');
-  if (!(await waitInPage(win, `document.querySelector('[data-profile-select]')?.value === ${JSON.stringify(id)} && document.querySelectorAll('[data-profile-select] option').length === 2`, 5_000))) {
+  if (!(await waitInPage(win, `document.querySelector('[data-profile-select]')?.dataset.value === ${JSON.stringify(id)}`, 5_000))) {
     return 'New session did not offer the profiles with the new default chosen';
   }
+  await click('[data-profile-select]');
+  if (!(await waitInPage(win, "document.querySelectorAll('[data-menu=\"profile\"] [role=menuitemradio]').length === 2", 3_000))) return 'the profile menu did not list both profiles';
+  win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Escape' });
 
   await click('[data-open-settings]');
   if (!(await waitInPage(win, `document.querySelector(${JSON.stringify(`${card} [data-remove-profile]`)})`, 3_000))) return 'no way to remove the profile';
@@ -769,6 +776,54 @@ async function runSearchStep(win: BrowserWindow): Promise<string> {
   await js(`document.querySelector('[data-session-id="${smokeSessionId}"]').click()`);
   await waitInPage(win, "document.querySelector('[data-transcript-item]')", 5_000);
   return `ok: ${groups} sessions matched (${indexing}); opened and highlighted the first`;
+}
+
+/**
+ * The new session view, read-only: project header, model menu (Escape closes it), effort dial with
+ * reset, permission menu and the route tray. Nothing is submitted; the session under test is reopened after.
+ */
+async function runNewSessionStep(win: BrowserWindow): Promise<string> {
+  const js = (code: string) => win.webContents.executeJavaScript(code);
+  const click = (selector: string) => js(`document.querySelector(${JSON.stringify(selector)}).click()`);
+  const escape = () => {
+    win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Escape' });
+    win.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Escape' });
+  };
+  const newSession = () => win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'N', modifiers: ['meta'] });
+  const promptFocused = "document.activeElement?.matches('[data-composer]')";
+  newSession();
+  if (!(await waitInPage(win, "document.querySelector('[data-project-header]') && document.querySelector('[data-route-tray]')", 3_000))) return 'the new session view did not open';
+  // Projects are added by hand: the throwaway profile has none yet, so there may be no folder to preselect.
+  if (!(await waitInPage(win, "document.querySelector('[data-folder-select]').dataset.value || document.querySelector('[data-sidebar-onboarding]')", 5_000))) return 'no folder chosen by default';
+  // Without a folder the prompt is disabled, so there is nothing to focus.
+  const hasFolder = (await js("!!document.querySelector('[data-folder-select]').dataset.value")) as boolean;
+  if (hasFolder && !(await waitInPage(win, promptFocused, 3_000))) return '⌘N did not focus the prompt';
+  await click('[data-model-select]');
+  if (!(await waitInPage(win, "document.activeElement?.closest('[data-menu=\"model\"]')", 2_000))) return 'the model menu did not open with focus';
+  escape();
+  if (!(await waitInPage(win, "!document.querySelector('[data-menu=\"model\"]') && document.activeElement?.matches('[data-model-select]')", 2_000))) return 'Escape did not close the model menu';
+  const effortBefore = (await js("document.querySelector('[data-effort-dial] [aria-checked=\"true\"]')?.dataset.effort ?? ''")) as string;
+  // Clicking the picked bar again clears it, so pick one that isn't picked yet.
+  const pick = effortBefore === 'high' ? 'max' : 'high';
+  await click(`[data-effort="${pick}"]`);
+  if (!(await waitInPage(win, `document.querySelector('[data-effort="${pick}"]').getAttribute('aria-checked') === 'true' && document.querySelector('[data-effort-reset]')`, 2_000))) return 'picking an effort did not stick';
+  await click('[data-mode-select]');
+  if (!(await waitInPage(win, "document.querySelectorAll('[data-menu=\"mode\"] [role=menuitemradio]').length >= 4", 2_000))) return 'the permission menu did not open';
+  await new Promise((resolve) => setTimeout(resolve, 200));
+  await shot(win, 'new-session-view.png');
+  escape();
+  await click('[data-effort-reset]');
+  if (!(await waitInPage(win, "!document.querySelector('[data-effort-dial] [aria-checked=\"true\"]') && !document.querySelector('[data-effort-reset]')", 2_000))) return 'Default did not clear the effort';
+  // Put back the effort the profile had, so the remembered defaults are as they were.
+  if (effortBefore) await click(`[data-effort="${effortBefore}"]`);
+  // ⌘N while already on New session puts the cursor back in the prompt.
+  await js("document.querySelector('[data-model-select]').focus()");
+  newSession();
+  if (hasFolder && !(await waitInPage(win, promptFocused, 2_000))) return '⌘N on an open New session did not focus the prompt';
+  const hint = (await js("document.querySelector('[data-route-hint]').innerText.replace(/\\s+/g, ' ')")) as string;
+  await js(`document.querySelector('[data-session-id="${smokeSessionId}"]')?.click()`);
+  await waitInPage(win, "document.querySelector('[data-transcript-item]')", 5_000);
+  return `ok: ${hint}`;
 }
 
 /** ⌘K, type "tog chan", Enter: the Changes panel toggles; again to put it back. */
@@ -950,6 +1005,7 @@ async function runSmokeStep(win: BrowserWindow | null): Promise<void> {
     toolsResult = await runToolsStep(win).catch((error: Error) => `failed: ${error.message}`);
     splitResult = await runSplitStep(win).catch((error: Error) => `failed: ${error.message}`);
     settleResult = await runSettleStep(win).catch((error: Error) => `failed: ${error.message}`);
+    newSessionResult = await runNewSessionStep(win).catch((error: Error) => `failed: ${error.message}`);
     usageBand = (await waitInPage(win, "document.querySelector('[data-usage-band]')", 15_000))
       ? await win.webContents.executeJavaScript("document.querySelector('[data-usage-band]').innerText.replace(/\\s+/g, ' ')")
       : null;
@@ -993,6 +1049,7 @@ async function runSmokeStep(win: BrowserWindow | null): Promise<void> {
         toolsResult,
         splitResult,
         settleResult,
+        newSessionResult,
         liveSession,
         terminalOpened,
         quitGuarded,

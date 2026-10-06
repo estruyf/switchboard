@@ -76,8 +76,9 @@ const money = (minorUnits: number, currency: string | null) =>
 /**
  * Plan usage above the composer, like the claude-stats mod: one pill per window with a ring and a
  * reset countdown. Shows the limits of the given Claude profile (the default one when omitted).
+ * `compact` drops the pills for a single line (`6% 5h · 4h44m`), for the new session's route tray.
  */
-export function UsageBand({ profileId }: { profileId?: string | null }) {
+export function UsageBand({ profileId, compact = false }: { profileId?: string | null; compact?: boolean }) {
   const defaultId = useProfiles((s) => s.defaultId);
   const id = profileId ?? defaultId;
   const usage = useUsageFor(id);
@@ -90,6 +91,25 @@ export function UsageBand({ profileId }: { profileId?: string | null }) {
   const limits = visibleLimits(usage.limits);
   const extra = usage.extraUsage;
   if (limits.length === 0) return null;
+  const resetTitle = (limit: UsageLimit) =>
+    limit.resetsAt ? `Resets ${new Date(limit.resetsAt).toLocaleString(undefined, { weekday: 'short', hour: 'numeric', minute: '2-digit' })}` : undefined;
+
+  if (compact) {
+    return (
+      <div className="flex shrink-0 items-center divide-x divide-border text-[11.5px]" data-usage-band data-usage-profile={id}>
+        {limits.map((limit) => (
+          <div key={`${limit.kind}:${limit.scope ?? ''}`} className="flex items-center gap-1.5 px-2.5 whitespace-nowrap first:pl-0 last:pr-0" title={resetTitle(limit)}>
+            <Ring percent={limit.percent} severity={limit.severity} />
+            <span className="font-semibold text-muted tabular-nums">{Math.round(limit.percent)}%</span>
+            <span className="text-faint">
+              {limitLabel(limit)}
+              {limit.resetsAt && ` · ${countdown(limit.resetsAt, now)}`}
+            </span>
+          </div>
+        ))}
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-wrap items-center gap-1.5" data-usage-band data-usage-profile={id}>
@@ -98,7 +118,7 @@ export function UsageBand({ profileId }: { profileId?: string | null }) {
         <div
           key={`${limit.kind}:${limit.scope ?? ''}`}
           className="flex h-7 items-center gap-1.5 rounded-full border border-border bg-card px-2.5 text-[12px]"
-          title={limit.resetsAt ? `Resets ${new Date(limit.resetsAt).toLocaleString(undefined, { weekday: 'short', hour: 'numeric', minute: '2-digit' })}` : undefined}
+          title={resetTitle(limit)}
         >
           <Ring percent={limit.percent} severity={limit.severity} />
           <span className="font-semibold tabular-nums">{Math.round(limit.percent)}%</span>
