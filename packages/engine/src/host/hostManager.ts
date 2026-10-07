@@ -334,7 +334,8 @@ export class HostManager {
     const key = folder ? { profileId: host?.info.profileId ?? profileId, cwd: folder } : null;
     const list = host?.commands.length ? host.commands : key ? (this.commandsByCwd.get(keyOf(key)) ?? (await this.fetchCommands(key))) : [];
     for (const name of host?.terminalOnly ?? []) TERMINAL_ONLY.add(name);
-    return list.filter((c) => !TERMINAL_ONLY.has(c.name));
+    // Names starting with `__` (such as `__remote-workflow`) are Claude Code's own plumbing, not for people.
+    return list.filter((c) => !TERMINAL_ONLY.has(c.name) && !c.name.startsWith('__'));
   }
 
   private readonly commandFetches = new Map<string, Promise<SlashCommand[]>>();
@@ -567,6 +568,7 @@ export class HostManager {
         messages: (id, messages) => this.deps.onMessages(id, messages),
         log: this.deps.log,
         usageHint: () => this.deps.onUsageHint?.(config.profileId),
+        knownCommands: () => this.commandsByCwd.get(keyOf({ profileId: config.profileId, cwd: config.cwd })) ?? [],
       },
       startQuery,
     );

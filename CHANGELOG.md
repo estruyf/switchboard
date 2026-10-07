@@ -26,6 +26,8 @@ All notable changes to Switchboard are listed here. Each release is also on the 
 - The right-click menu of a session no longer offers **Remove from Switchboard**, which removed the project and was easy to mistake for deleting the session. It is still in the project menus and in Projects.
 - With **Show sessions from other apps** on, opening New session no longer adds a session named after the project that runs in the background for a couple of minutes.
 - Picking a slash command with Tab no longer puts a focus ring around the message box.
+- A slash command you send shows as a command straight away, in a card with everything you wrote after it, instead of changing style a moment later and cutting your message off.
+- Claude Code's internal commands, such as `/__remote-workflow`, are no longer offered in the slash command list.
 - A session whose first prompt has a pasted image is listed under its project, with the project's icon, instead of under **Unknown folder**.
 
 ## [0.0.7] - 2026-10-07

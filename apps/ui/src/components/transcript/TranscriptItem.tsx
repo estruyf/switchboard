@@ -243,10 +243,13 @@ export const TranscriptItem = memo(function TranscriptItem({
       );
     case 'command':
       return (
-        <div className="flex items-center justify-end gap-2 font-mono text-ui">
-          <Speaker name="You ran a command" />
-          <span className="rounded bg-accent/15 px-1.5 py-0.5 text-accent-ink">{item.name}</span>
-          {item.args && <span className="truncate text-muted">{item.args}</span>}
+        // A prompt card like your other messages: the command as a chip, then everything you wrote after it.
+        <div className="flex justify-end" data-command-item>
+          <div className="max-w-[80%] min-w-0 rounded-xl border border-border bg-card px-3.5 py-2.5 text-body whitespace-pre-wrap [overflow-wrap:anywhere]">
+            <Speaker name="You ran a command" />
+            <span className="mr-1.5 rounded bg-accent/15 px-1.5 py-0.5 font-mono text-ui text-accent-ink [box-decoration-break:clone]">{item.name}</span>
+            {item.args}
+          </div>
         </div>
       );
     case 'text':

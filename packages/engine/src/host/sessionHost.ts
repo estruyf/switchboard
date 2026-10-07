@@ -18,6 +18,7 @@ import type {
 } from '@switchboard/protocol';
 import type { RawSessionMessage } from '../claude/transcript.ts';
 import { pluginsFromInit, readCapabilities } from './capabilities.ts';
+import { commandEcho } from './commandEcho.ts';
 import { InputQueue } from './inputQueue.ts';
 
 /** Starts the Claude Code process for a host. Real hosts use the SDK's `query()` (or a pre-warmed one). */
@@ -31,6 +32,8 @@ export interface HostEvents {
   log(level: LogLevel, message: string): void;
   /** Plan usage probably changed (a turn finished, or Claude Code reported a rate-limit update). */
   usageHint?(): void;
+  /** Commands already listed for this folder, for a message sent before this session has listed its own. */
+  knownCommands?(): readonly SlashCommand[];
 }
 
 export interface HostConfig {
@@ -201,9 +204,10 @@ export class SessionHost {
     const message: SDKUserMessage = { type: 'user', uuid, parent_tool_use_id: null, message: { role: 'user', content } };
     this.input.push(message);
     this.lastActivity = Date.now();
-    this.events.messages(this.sessionId, [
-      { type: 'user', uuid, message: message.message, parent_tool_use_id: null, timestamp: new Date().toISOString() },
-    ]);
+    // Claude Code gets the text as typed; the echo shows a slash command the way the stored transcript will.
+    const commands = this.commands.length ? this.commands : (this.events.knownCommands?.() ?? []);
+    const echo = attachments.length === 0 && text ? { role: 'user' as const, content: [{ type: 'text' as const, text: commandEcho(text, commands.map((c) => c.name)) }] } : message.message;
+    this.events.messages(this.sessionId, [{ type: 'user', uuid, message: echo, parent_tool_use_id: null, timestamp: new Date().toISOString() }]);
     if (this.info.state === 'running' || this.info.state === 'needs-you') this.update({ queued: this.info.queued + 1 });
     return uuid;
   }

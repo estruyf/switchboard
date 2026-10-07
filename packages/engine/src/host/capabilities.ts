@@ -69,7 +69,7 @@ export async function readCapabilities(query: Query, plugins: PluginInfo[], live
     mcp: mcp.map(toMcpInfo).sort((a, b) => a.name.localeCompare(b.name)),
     agents: agents.map((a) => ({ name: a.name, description: a.description, model: a.model ?? null })).sort((a, b) => a.name.localeCompare(b.name)),
     commands: commands
-      .filter((c) => !c.builtin)
+      .filter((c) => !c.builtin && !c.name.startsWith('__'))
       .map((c) => ({ name: c.name, description: c.description, argumentHint: c.argumentHint }))
       .sort((a, b) => a.name.localeCompare(b.name)),
     plugins: [...plugins].sort((a, b) => a.name.localeCompare(b.name)),

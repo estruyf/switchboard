@@ -106,6 +106,7 @@ class FakeQuery {
     return [
       { name: 'review', description: 'Review the diff', argumentHint: '' },
       { name: 'doctor', description: 'Terminal only', argumentHint: '' },
+      { name: '__remote-workflow', description: 'Internal', argumentHint: '' },
     ];
   }
   async supportedModels() {
@@ -240,6 +241,21 @@ describe('HostManager', () => {
     expect(t.infos.filter((i) => i.sessionId === 'busy')).toEqual([]);
     expect(t.messages.every((m) => m.id === forked.sessionId)).toBe(true);
     expect(t.manager.list().hosts.map((h) => h.sessionId)).toEqual([forked.sessionId]);
+    t.manager.closeAll();
+  });
+
+  it('shows a sent slash command the way the transcript stores it', async () => {
+    const t = setup({ cwds: { old: '/repo' } });
+    await t.manager.send({ sessionId: 'old', text: 'hello', attachments: [], fork: false });
+    await until(() => lastState(t.infos, 'old') === 'idle');
+    expect((await t.manager.commands('old', undefined, 'default')).map((c) => c.name)).toEqual(['review']);
+    const echoed = async (text: string) => {
+      const { messageUuid } = await t.manager.send({ sessionId: 'old', text, attachments: [], fork: false });
+      const message = t.messages.flatMap((m) => m.messages).find((m) => m.uuid === messageUuid)!;
+      return (message.message as { content: { text: string }[] }).content[0]!.text;
+    };
+    expect(await echoed('/review the diff\nslowly')).toBe('<command-message>review</command-message>\n<command-name>/review</command-name>\n<command-args>the diff\nslowly</command-args>');
+    expect(await echoed('/tmp is full')).toBe('/tmp is full');
     t.manager.closeAll();
   });
 
