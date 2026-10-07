@@ -2,7 +2,7 @@
 
 All notable changes to Switchboard are listed here. Each release is also on the [releases page](https://github.com/estruyf/switchboard/releases), with the `.dmg` to download.
 
-## [Unreleased]
+## [0.0.9] - 2026-10-07
 
 ### New
 
@@ -17,6 +17,7 @@ All notable changes to Switchboard are listed here. Each release is also on the 
 - You can select text in a command you ran (such as `/review …`) in the conversation, as in your other messages.
 - A report from an agent that finishes while you watch the session no longer shows up as a message from you; it appears with the other steps, as it does when you open the session later.
 - The usage bars under the message box no longer disappear in a narrower window or with two sessions side by side; they only make way when the line under the message box is really short of room.
+- Long paths and words in tooltips wrap onto the next line instead of running out of the tooltip.
 
 ## [0.0.8] - 2026-10-07
 
