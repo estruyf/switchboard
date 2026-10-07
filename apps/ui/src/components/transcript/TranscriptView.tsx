@@ -1,6 +1,6 @@
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { Blocks, ChevronDown, FileDiff, GitBranch, ListTodo, LoaderCircle, SquareTerminal, X } from 'lucide-react';
-import { lazy, Suspense, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { lazy, Suspense, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type RefObject } from 'react';
 import type { ChangesBase, GitChanges, ImageAttachment, PermissionRequest, RewindResult, SlashCommand } from '@switchboard/protocol/client';
 import { useEngineConnection } from '../../engine/useEngine.ts';
 import { clearFindHighlights, rangesIn, setFindHighlights } from '../../lib/findHighlights.ts';
@@ -21,6 +21,7 @@ import { useActionsMenu } from '../actions/useActionsMenu.tsx';
 import { CapabilitiesDialog } from '../capabilities/CapabilitiesDialog.tsx';
 import { ChangesPanel, useChangesLayout } from '../changes/ChangesPanel.tsx';
 import { ContextMeter } from '../session/ContextMeter.tsx';
+import { effectiveDock, rightBlocked } from '../terminal/terminalLayout.ts';
 import { BranchMenu } from '../worktree/BranchMenu.tsx';
 import { inWorktree } from '../worktree/branchMenu.ts';
 import { WorktreeMenu } from '../worktree/WorktreeMenu.tsx';
@@ -34,7 +35,7 @@ import { SegmentedControl } from '../ui/SegmentedControl.tsx';
 import { PermissionCard, permissionTitle } from '../session/PermissionCard.tsx';
 import { MoreMenu } from '../session/MoreMenu.tsx';
 import { SessionControls } from '../session/StatusBar.tsx';
-import { UsageBand } from '../UsageBand.tsx';
+import { UsageBand, useUsageLines } from '../UsageBand.tsx';
 import { liveLabel, StatusDot } from '../StatusDot.tsx';
 import { formatDuration, useTicker, WorkingDots } from './ActivityGroup.tsx';
 import { buildDisplayItems, groupActivity, type RenderItem } from './displayItems.ts';
@@ -155,6 +156,20 @@ function useGitChanges(cwd: string | null, base: ChangesBase, activity: string) 
   return { changes, isRepo, refresh: () => setVersion((v) => v + 1) };
 }
 
+/** An element's width, following resizes (null until it has been measured). */
+function useWidth(ref: RefObject<HTMLElement | null>): number | null {
+  const [width, setWidth] = useState<number | null>(null);
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    setWidth(el.getBoundingClientRect().width);
+    const observer = new ResizeObserver(([entry]) => setWidth(entry!.contentRect.width));
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [ref]);
+  return width;
+}
+
 /** A session: live transcript, plus composer and controls when it can run here. */
 export function TranscriptView({ sessionId, pane = null, active = true }: { sessionId: string; pane?: Pane | null; active?: boolean }) {
   const connection = useEngineConnection();
@@ -241,6 +256,21 @@ export function TranscriptView({ sessionId, pane = null, active = true }: { sess
   const changedCount = changesBase === 'uncommitted' && changes ? changes.files.length : 0;
   const showChanges = Boolean(changesOpen && active && cwd && isRepo);
   const changesExpanded = useChangesLayout((s) => s.expanded);
+  // The terminal docks below or on the right; the right side goes to Changes when both want it. Maximized, it
+  // takes the whole view: the conversation (and Changes) stay mounted but hidden.
+  const terminalShown = panelOpen && active;
+  const bodyRef = useRef<HTMLDivElement>(null);
+  const bodyWidth = useWidth(bodyRef);
+  const terminalBlocked = rightBlocked(showChanges, bodyWidth);
+  const terminalDock = effectiveDock(useTerminals((s) => s.dock), terminalBlocked);
+  const terminalMaximized = useTerminals((s) => s.maximized) && terminalShown;
+  // Docked below, the terminal takes the room of the footer under the message box: a ring in the box stands in for it.
+  const foldFooter = terminalShown && terminalDock === 'bottom' && !terminalMaximized;
+  const usageLines = useUsageLines(profileId);
+  // Opening Changes (⌘⇧D) while the terminal fills the view brings the view back, or Changes would open out of sight.
+  useEffect(() => {
+    if (showChanges) useTerminals.getState().setMaximized(false);
+  }, [showChanges]);
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       // Behind the Settings sheet the session stays mounted (inert); its shortcuts wait until Settings closes.
@@ -516,6 +546,17 @@ export function TranscriptView({ sessionId, pane = null, active = true }: { sess
   const statusLabel = live ? liveLabel(live) : failed ? 'Failed' : 'Not running';
   const statusTone = live ? (live.status === 'idle' && live.background?.length ? 'text-ok' : STATUS_TONE[live.status]) : failed ? 'text-error' : 'text-muted';
   const gitActivity = `${items.length}:${live?.status ?? ''}:${branchSwitches}`;
+  const contextLive =
+    activeHost && activeHost.contextTokens !== null && activeHost.contextMax
+      ? { tokens: activeHost.contextTokens, max: activeHost.contextMax, percent: activeHost.contextPercent ?? (activeHost.contextTokens / activeHost.contextMax) * 100 }
+      : null;
+  const compact = activeHost ? () => void send('/compact', []).catch((e: Error) => setActionError(e.message)) : undefined;
+  // One element for both docks: below it sits in the conversation's column, on the right next to it.
+  const terminalPanel = (
+    <Suspense fallback={<div className={`theme-dark shrink-0 bg-terminal ${terminalDock === 'right' ? 'w-90 border-l border-border' : 'h-40 border-t border-border'}`} />}>
+      <TerminalPanel sessionId={sessionId} cwd={cwd} projectRoot={projectRoot} home={home} dock={terminalDock} rightBlocked={terminalBlocked} viewWidth={bodyWidth} />
+    </Suspense>
+  );
 
   return (
     // `@container`: the header compacts itself when the pane is narrow (two sessions side by side).
@@ -659,10 +700,10 @@ export function TranscriptView({ sessionId, pane = null, active = true }: { sess
         )}
       </header>
 
-      <div className="flex min-h-0 flex-1">
+      <div ref={bodyRef} className="flex min-h-0 flex-1">
         {/* An expanded Changes panel takes the whole view; the conversation stays mounted (scroll position, drafts) but hidden. */}
-        <div className={`relative min-w-0 flex-1 flex-col ${showChanges && changesExpanded ? 'hidden' : 'flex'}`}>
-          {findQuery !== null && (
+        <div className={`relative min-w-0 flex-1 flex-col ${(showChanges && changesExpanded && !terminalMaximized) || (terminalMaximized && terminalDock === 'right') ? 'hidden' : 'flex'}`}>
+          {findQuery !== null && !terminalMaximized && (
             <FindBar
               query={findQuery}
               onQuery={setFindQuery}
@@ -683,7 +724,7 @@ export function TranscriptView({ sessionId, pane = null, active = true }: { sess
               onKeyDown={onScrollKey}
               role="region"
               aria-label="Conversation"
-              className="min-h-0 flex-1 overflow-y-auto"
+              className={`min-h-0 flex-1 overflow-y-auto ${terminalMaximized ? 'hidden' : ''}`}
               data-transcript
             >
               {status === 'loading' ? (
@@ -763,7 +804,7 @@ export function TranscriptView({ sessionId, pane = null, active = true }: { sess
             />
           )}
 
-          <div className="shrink-0 border-t border-border bg-bg">
+          <div className={`shrink-0 border-t border-border bg-bg ${terminalMaximized ? 'hidden' : ''}`}>
             {/* minmax(0,1fr): the column stays as wide as the pane, so long lines truncate instead of pushing it wider. */}
             <div className="mx-auto grid max-w-3xl grid-cols-[minmax(0,1fr)] gap-2 px-6 pt-3 pb-1.5 @max-[860px]:px-4">
               {(actionsMenu.openEditor || showTodos || backgroundTasks.length > 0) && (
@@ -859,6 +900,7 @@ export function TranscriptView({ sessionId, pane = null, active = true }: { sess
                     </span>
                   )
                 }
+                meter={foldFooter && <ContextMeter sessionId={sessionId} live={contextLive} messages={messages} onCompact={compact} compact usage={usageLines} />}
                 actions={
                   cwd && (
                     <Button
@@ -876,30 +918,20 @@ export function TranscriptView({ sessionId, pane = null, active = true }: { sess
                 }
               />
               {/* One quiet line: plan usage (of the session's profile, which is a chip in the box) and how full the context is. */}
-              <div className="flex min-h-6 items-center gap-3 px-1 text-meta text-muted" data-session-footer>
-                <div className="flex min-w-0 flex-1 items-center gap-3 overflow-hidden">
-                  <UsageBand profileId={profileId} footer />
+              {!foldFooter && (
+                <div className="flex min-h-6 items-center gap-3 px-1 text-meta text-muted" data-session-footer>
+                  <div className="flex min-w-0 flex-1 items-center gap-3 overflow-hidden">
+                    <UsageBand profileId={profileId} footer />
+                  </div>
+                  <ContextMeter sessionId={sessionId} live={contextLive} messages={messages} onCompact={compact} />
                 </div>
-                <ContextMeter
-                  sessionId={sessionId}
-                  live={
-                    activeHost && activeHost.contextTokens !== null && activeHost.contextMax
-                      ? { tokens: activeHost.contextTokens, max: activeHost.contextMax, percent: activeHost.contextPercent ?? (activeHost.contextTokens / activeHost.contextMax) * 100 }
-                      : null
-                  }
-                  messages={messages}
-                  onCompact={activeHost ? () => void send('/compact', []).catch((e: Error) => setActionError(e.message)) : undefined}
-                />
-              </div>
+              )}
             </div>
           </div>
-          {panelOpen && active && (
-            <Suspense fallback={<div className="theme-dark h-40 shrink-0 border-t border-border bg-bg" />}>
-              <TerminalPanel sessionId={sessionId} cwd={cwd} />
-            </Suspense>
-          )}
+          {terminalShown && terminalDock === 'bottom' && terminalPanel}
         </div>
-        {showChanges && cwd && (
+        {terminalShown && terminalDock === 'right' && terminalPanel}
+        {showChanges && cwd && !terminalMaximized && (
           <ChangesPanel cwd={cwd} changes={changes} base={changesBase} onBase={setChangesBase} onRefresh={refreshChanges} onClose={() => toggleChanges(false)} />
         )}
       </div>

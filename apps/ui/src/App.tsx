@@ -29,7 +29,7 @@ import { useClaudeUpdateSync } from './state/claudeUpdateStore.ts';
 import { useHostsSync } from './state/useHostsSync.ts';
 import { useSessionsSync } from './state/useSessionsSync.ts';
 
-/** ⌘N new session, ⌘O open the current session's folder in the default editor, ⌘J toggle the terminal, ⌘K palette, ⌘⇧F search. */
+/** ⌘N new session, ⌘O open the current session's folder in the default editor, ⌘J toggle the terminal (⌘⇧J maximize it), ⌘K palette, ⌘⇧F search. */
 function useShortcuts() {
   const openIn = useOpenIn();
   useEffect(() => {
@@ -44,6 +44,19 @@ function useShortcuts() {
         const overlay = useOverlay.getState();
         if (overlay.open === 'search') overlay.close();
         else overlay.show('search');
+        return;
+      }
+      if (event.metaKey && event.shiftKey && !event.altKey && event.key.toLowerCase() === 'j') {
+        // ⌘⇧J: the terminal takes the whole session view, or gives it back. Closed, it opens maximized.
+        if (useSessions.getState().view === 'session') {
+          event.preventDefault();
+          const { panelOpen, togglePanel, setMaximized } = useTerminals.getState();
+          if (panelOpen) setMaximized();
+          else {
+            togglePanel();
+            setMaximized(true);
+          }
+        }
         return;
       }
       if (!event.metaKey || event.shiftKey || event.altKey) return;

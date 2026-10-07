@@ -24,16 +24,16 @@ const ANSI = {
 
 /**
  * Terminal colours: always the dark theme, in light mode too (the panel is `.theme-dark`, so its
- * tokens are the dark ones), on the darkest background, with the dark ANSI palette.
+ * tokens are the dark ones), on the panel's own background (darker than the conversation), with the dark ANSI palette.
  */
 function themeFromCss(el: Element = document.documentElement): ITheme {
   const css = getComputedStyle(el);
   const v = (name: string) => css.getPropertyValue(name).trim();
   return {
-    background: v('--sb-bg'),
+    background: v('--sb-terminal-bg'),
     foreground: v('--sb-text'),
     cursor: v('--sb-accent-ink'),
-    cursorAccent: v('--sb-bg'),
+    cursorAccent: v('--sb-terminal-bg'),
     selectionBackground: '#ffd43b40',
     ...ANSI.dark,
   };
@@ -92,7 +92,7 @@ export function XTerm({ id, active, exited, onClose }: { id: string; active: boo
 
     // App shortcuts (⌘J, ⌘N, ⌘O…) must reach the window instead of the shell.
     term.attachCustomKeyEventHandler((event) => {
-      // Nothing runs any more, so Escape closes the tab (the panel's Close button shows it).
+      // Nothing runs any more, so Escape closes the tab (as its × does).
       if (exitedRef.current && event.key === 'Escape') {
         if (event.type === 'keydown') onCloseRef.current();
         return false;
@@ -160,7 +160,12 @@ export function XTerm({ id, active, exited, onClose }: { id: string; active: boo
     });
   }, [active]);
 
-  // `isolate`: xterm stacks its own layers with z-index (the WebGL addon's full-size link canvas is z-index 2). Kept
-  // inside the terminal, they can't cover the Stop and Restart buttons the panel floats over it.
-  return <div ref={hostRef} className="isolate h-full w-full px-2 pt-1" data-terminal={id} />;
+  // The padding sits on a wrapper: the fit addon sizes the terminal to its parent's box and would count padding there as room.
+  // `isolate`: xterm stacks its own layers with z-index (the WebGL addon's full-size link canvas is z-index 2); kept
+  // inside the terminal, they can't cover anything the panel puts next to it.
+  return (
+    <div className="isolate h-full w-full px-4 py-2.5">
+      <div ref={hostRef} className="h-full w-full" data-terminal={id} />
+    </div>
+  );
 }

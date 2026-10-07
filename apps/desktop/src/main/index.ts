@@ -624,6 +624,7 @@ let liveSession: string | null = null;
 let terminalOpened = false;
 let actionRan = false;
 let actionTerminalResult = 'not run';
+let terminalLayoutResult = 'not run';
 let actionMenuResult = 'not run';
 let highlighted = false;
 let usageBand: string | null = null;
@@ -709,8 +710,8 @@ async function clickLikeAUser(win: BrowserWindow, selector: string, button: 'lef
 }
 
 /**
- * Runs a long project action from its pill, then stops it with the terminal's Stop button and runs it
- * again with Restart, clicking both with real mouse events. The command only sleeps.
+ * Runs a long project action from the header menu, then stops and restarts it from the run strip above
+ * the terminal: with real mouse events in light, with Tab and Enter in dark. The command only sleeps.
  */
 async function runActionTerminalStep(win: BrowserWindow): Promise<string> {
   const js = (code: string) => win.webContents.executeJavaScript(code);
@@ -724,32 +725,242 @@ async function runActionTerminalStep(win: BrowserWindow): Promise<string> {
 
 async function actionTerminalChecks(win: BrowserWindow, js: (code: string) => Promise<unknown>): Promise<string> {
   updatePreferences({ colorScheme: 'light' });
+  const strip = "document.querySelector('[data-terminal-run-strip]')";
+  const state = (value: string) => `${strip}?.dataset.terminalRunState === '${value}'`;
+  const elapsed = `(${strip}?.querySelector('[data-terminal-run-elapsed]')?.innerText ?? '').trim()`;
   if (!(await addAction(win, 'Smoke wait', 'sleep 60'))) return 'failed: could not add the action, or saving did not close the editor';
   // Run it from the header menu, wherever its pill ended up.
   await js("document.querySelector('[data-current-session] [data-actions-menu]').click()");
   if (!(await waitInPage(win, "document.querySelector('[role=menuitem][data-action=\"smoke-wait\"]')", 3_000))) return 'failed: action not in the menu';
   await js("document.querySelector('[role=menuitem][data-action=\"smoke-wait\"]').click()");
-  if (!(await waitInPage(win, "document.querySelector('[data-terminal-stop]')", 8_000))) return 'failed: no Stop button on the running action';
-  // Let the terminal draw and the shell start, as when someone looks before clicking.
-  await new Promise((resolve) => setTimeout(resolve, 800));
+  if (!(await waitInPage(win, `${state('running')} && document.querySelector('[data-terminal-stop]')`, 8_000))) return 'failed: no run strip with Stop on the running action';
+  // The strip sits between the tabs and the terminal, not over it, and says what runs where, for how long.
+  const look = (await js(`(() => {
+    const s = ${strip}.getBoundingClientRect(), t = document.querySelector('[data-terminal-panel] [role=tabpanel]:not(.hidden)').getBoundingClientRect();
+    return { height: Math.round(s.height), above: s.bottom <= t.top + 0.5, status: ${strip}.querySelector('[data-terminal-run-status]').innerText, command: ${strip}.querySelector('[data-terminal-run-command]').innerText, dot: !!document.querySelector('[data-terminal-tab-dot="running"]') };
+  })()`)) as { height: number; above: boolean; status: string; command: string; dot: boolean };
+  if (look.height !== 34 || !look.above) return `failed: the run strip is ${look.height}px high and ${look.above ? 'above' : 'over'} the terminal`;
+  if (look.status !== 'Running' || look.command !== 'sleep 60' || !look.dot) return `failed: the strip says "${look.status}" / "${look.command}", running dot on the tab: ${look.dot}`;
+  const firstTick = (await js(elapsed)) as string;
+  if (!(await waitInPage(win, `${elapsed} !== ${JSON.stringify(firstTick)}`, 2_500))) return `failed: the elapsed time stayed at ${firstTick}`;
+  await shot(win, 'action-running.png');
+
+  // Stop and Restart with the mouse.
   const stop = await clickLikeAUser(win, '[data-terminal-stop]');
-  if (!(await waitInPage(win, "document.querySelector('[data-terminal-exited]')", 8_000))) return `failed: Stop did not end the command (the click landed on ${stop.at})`;
-  const exited = (await js("document.querySelector('[data-terminal-exited]').innerText")) as string;
+  if (!(await waitInPage(win, state('failed'), 8_000))) return `failed: Stop did not end the command (the click landed on ${stop.at})`;
+  const stopped = (await js(`${strip}.querySelector('[data-terminal-run-status]').innerText`)) as string;
+  if (stopped !== 'Failed (exit 130)' || !(await js("!!document.querySelector('[data-terminal-tab-dot=\"failed\"]') && !document.querySelector('[data-terminal-stop]')"))) return `failed: after Stop the strip says "${stopped}"`;
   await shot(win, 'action-stopped.png');
   const restart = await clickLikeAUser(win, '[data-terminal-restart]');
-  if (!(await waitInPage(win, "document.querySelector('[data-terminal-stop]')", 5_000))) return `failed: Restart did not run it again (the click landed on ${restart.at})`;
-  // The same in the dark theme, which also leaves nothing running; then close the tab.
+  if (!(await waitInPage(win, `${state('running')} && document.querySelector('[data-terminal-stop]')`, 5_000))) return `failed: Restart did not run it again (the click landed on ${restart.at})`;
+  // Restart while it runs stops it first and starts a new run: the clock starts over.
+  await new Promise((resolve) => setTimeout(resolve, 2_200));
+  const before = (await js(elapsed)) as string;
+  const again = await clickLikeAUser(win, '[data-terminal-restart]');
+  if (!(await waitInPage(win, `${state('running')} && /^0:0[01]$/.test(${elapsed})`, 8_000))) return `failed: Restart on the running command (at ${before}, the click landed on ${again.at}) did not start a new run`;
+
+  // The same from the keyboard, in the dark theme: Tab from the tab reaches the strip (xterm keeps Tab for the shell), Enter presses.
   updatePreferences({ colorScheme: 'dark' });
-  await new Promise((resolve) => setTimeout(resolve, 800));
-  const stopDark = await clickLikeAUser(win, '[data-terminal-stop]');
-  if (!(await waitInPage(win, "document.querySelector('[data-terminal-exited]')", 8_000))) return `failed: Stop did not end the restarted command in the dark theme (the click landed on ${stopDark.at})`;
+  await new Promise((resolve) => setTimeout(resolve, 500));
+  const tabTo = async (selector: string) => {
+    await js("document.querySelector('[data-terminal-panel] [role=tab][aria-selected=true]').focus()");
+    for (let i = 0; i < 12; i++) {
+      if (await js(`document.activeElement?.matches(${JSON.stringify(selector)})`)) return true;
+      win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Tab' });
+      win.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Tab' });
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+    return false;
+  };
+  const press = (keyCode: string) => {
+    win.webContents.sendInputEvent({ type: 'keyDown', keyCode });
+    win.webContents.sendInputEvent({ type: 'char', keyCode: keyCode === 'Return' ? '\r' : keyCode });
+    win.webContents.sendInputEvent({ type: 'keyUp', keyCode });
+  };
+  if (!(await tabTo('[data-terminal-stop]'))) return 'failed: Tab from the terminal tab did not reach Stop';
+  press('Return');
+  if (!(await waitInPage(win, state('failed'), 8_000))) return 'failed: Enter on Stop did not end the command';
   await shot(win, 'action-stopped-dark.png');
-  // The exited tab offers Close next to Restart, and Close removes the tab.
+  if (!(await tabTo('[data-terminal-restart]'))) return 'failed: Tab from the terminal tab did not reach Restart';
+  press('Return');
+  if (!(await waitInPage(win, state('running'), 5_000))) return 'failed: Enter on Restart did not run it again';
+  await clickLikeAUser(win, '[data-terminal-stop]');
+  if (!(await waitInPage(win, state('failed'), 8_000))) return 'failed: the last Stop did not end the command';
+
+  // The selected tab's × closes it.
   const tabs = () => js("document.querySelectorAll('[data-terminal-panel] [role=tab]').length") as Promise<number>;
-  const before = await tabs();
-  const close = await clickLikeAUser(win, '[data-terminal-close]');
-  if (!(await waitInPage(win, `document.querySelectorAll('[data-terminal-panel] [role=tab]').length < ${before}`, 3_000))) return `failed: Close did not close the exited tab (the click landed on ${close.at})`;
-  return `ok: Stop ended the command ("${exited.replace(/\s+/g, ' ').trim()}"), Restart ran it again and Close closed the tab, clicked with the mouse in light and dark`;
+  const count = await tabs();
+  const close = await clickLikeAUser(win, "[data-terminal-panel] [role=tab][aria-selected=true] + [data-terminal-tab-close]");
+  if (!(await waitInPage(win, `!document.querySelector('[data-terminal-panel]') || document.querySelectorAll('[data-terminal-panel] [role=tab]').length < ${count}`, 3_000))) return `failed: the tab's × did not close it (the click landed on ${close.at})`;
+  return `ok: the 34px strip above the terminal showed Running, the command and a ticking clock; Stop (${stopped}), Restart, and Restart while running worked with the mouse in light, Tab + Enter reached Stop and Restart in dark, and × closed the tab`;
+}
+
+/** The current terminal panel's box, its dock and whether it is maximized. */
+const PANEL_BOX = `(() => {
+  const p = document.querySelector('[data-terminal-panel]');
+  if (!p) return null;
+  const r = p.getBoundingClientRect();
+  return { top: Math.round(r.top), left: Math.round(r.left), width: Math.round(r.width), height: Math.round(r.height), bottom: Math.round(r.bottom), dock: p.dataset.terminalDockSide, maximized: p.hasAttribute('data-terminal-maximized') };
+})()`;
+type PanelBox = { top: number; left: number; width: number; height: number; bottom: number; dock: string; maximized: boolean };
+
+/**
+ * The terminal panel's layout: its own darker surface with a grab handle and padding, the footer folded into a
+ * ring in the message box, resizing by drag and keys, docking right (and back below while Changes holds the
+ * right), maximize with its button, Esc and ⌘⇧J, in light and dark and at the narrowest window. Reads nothing
+ * but the session's own shell tab.
+ */
+async function runTerminalLayoutStep(win: BrowserWindow): Promise<string> {
+  const scheme = preferences.get().colorScheme;
+  const bounds = win.getBounds();
+  try {
+    return await terminalLayoutChecks(win);
+  } finally {
+    updatePreferences({ colorScheme: scheme });
+    win.setBounds(bounds);
+    // Leave the next steps a closed panel docked below.
+    const js = (code: string) => win.webContents.executeJavaScript(code);
+    if (await js("document.querySelector('[data-terminal-dock=\"right\"]') !== null")) await js("document.querySelector('[data-terminal-dock]').click()");
+    if (await js("document.querySelector('[data-terminal-panel]') !== null")) await js("document.querySelector('[data-terminal-hide]').click()");
+  }
+}
+
+async function terminalLayoutChecks(win: BrowserWindow): Promise<string> {
+  const js = (code: string) => win.webContents.executeJavaScript(code);
+  const box = () => js(PANEL_BOX) as Promise<PanelBox | null>;
+  const key = (keyCode: string, modifiers: Array<'meta' | 'shift'> = []) => {
+    win.webContents.sendInputEvent({ type: 'keyDown', keyCode, modifiers });
+    win.webContents.sendInputEvent({ type: 'keyUp', keyCode, modifiers });
+  };
+  updatePreferences({ colorScheme: 'light' });
+  await js("document.querySelector('[data-toggle-terminal]')?.click()");
+  if (!(await waitInPage(win, "document.querySelector('[data-terminal-panel] [data-terminal] textarea')", 5_000))) return 'failed: the panel did not open with a terminal';
+  await new Promise((resolve) => setTimeout(resolve, 600));
+
+  // Its own surface: the terminal background, a shadow on the top edge, a 36x4 pill centred on it, and padding round the terminal.
+  const look = (await js(`(() => {
+    const p = document.querySelector('[data-terminal-panel]'), pill = p.querySelector('[data-terminal-resize] > span');
+    const pr = p.getBoundingClientRect(), r = pill.getBoundingClientRect(), pad = getComputedStyle(p.querySelector('[data-terminal]').parentElement);
+    return { bg: getComputedStyle(p).backgroundColor, shadow: getComputedStyle(p).boxShadow !== 'none', pill: Math.round(r.width) + 'x' + Math.round(r.height), centred: Math.abs(r.left + r.width / 2 - (pr.left + pr.width / 2)) < 2, padding: pad.paddingTop + ' ' + pad.paddingLeft };
+  })()`)) as { bg: string; shadow: boolean; pill: string; centred: boolean; padding: string };
+  if (look.bg !== 'rgb(13, 16, 22)' || !look.shadow) return `failed: the panel is ${look.bg}, shadow ${look.shadow}`;
+  if (look.pill !== '36x4' || !look.centred) return `failed: the grab handle is ${look.pill}, centred ${look.centred}`;
+  if (look.padding !== '10px 16px') return `failed: the terminal's padding is ${look.padding}`;
+
+  // Docked below, the footer row folds into a ring next to Send; it shows every number and opens the same popup.
+  if (!(await waitInPage(win, "!document.querySelector('[data-current-session] [data-session-footer]') && document.querySelector('[data-current-session] [data-folded-meter]')", 5_000))) {
+    return 'failed: the footer did not fold into a ring in the message box';
+  }
+  const ring = (await js("document.querySelector('[data-folded-meter]').dataset.tooltip")) as string;
+  // A real click, which moves focus off the terminal (xterm keeps the keys, Escape too, while it has focus).
+  await clickLikeAUser(win, '[data-folded-meter]');
+  if (!(await waitInPage(win, "document.querySelector('[data-context-breakdown]')", 2_000))) return 'failed: the ring did not open the context popup';
+  await shot(win, 'terminal-ring.png');
+  key('Escape');
+  if (!(await waitInPage(win, "!document.querySelector('[data-context-breakdown]')", 2_000))) return 'failed: Escape did not close the ring popup';
+
+  // Resize from the handle: ↑ from the keyboard, then a drag.
+  const start = (await box())!;
+  await js("document.querySelector('[data-terminal-resize]').focus()");
+  key('Up');
+  if (!(await waitInPage(win, `${PANEL_BOX}.height === ${start.height + 24}`, 2_000))) return `failed: ↑ on the handle did not make the panel taller (${start.height}px)`;
+  const grip = (await js("(() => { const r = document.querySelector('[data-terminal-resize] > span').getBoundingClientRect(); return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) }; })()")) as { x: number; y: number };
+  win.webContents.sendInputEvent({ type: 'mouseMove', x: grip.x, y: grip.y });
+  win.webContents.sendInputEvent({ type: 'mouseDown', x: grip.x, y: grip.y, button: 'left', clickCount: 1 });
+  for (const dy of [10, 20, 30]) win.webContents.sendInputEvent({ type: 'mouseMove', x: grip.x, y: grip.y - dy, modifiers: ['leftbuttondown'] });
+  win.webContents.sendInputEvent({ type: 'mouseUp', x: grip.x, y: grip.y - 30, button: 'left', clickCount: 1 });
+  if (!(await waitInPage(win, `${PANEL_BOX}.height === ${start.height + 54}`, 2_000))) return `failed: dragging the handle did not resize the panel (${(await box())?.height}px)`;
+  await shot(win, 'terminal-bottom-light.png');
+
+  // Dock right: full height under the header, the footer row back under the message box, the handle on the left edge.
+  const dock = await clickLikeAUser(win, '[data-terminal-dock]');
+  if (!(await waitInPage(win, "document.querySelector('[data-terminal-panel]')?.dataset.terminalDockSide === 'right' && document.querySelector('[data-terminal-panel] [data-terminal] textarea')", 3_000))) {
+    return `failed: Dock right did not move the panel (the click landed on ${dock.at})`;
+  }
+  const side = (await js(`(() => {
+    const p = document.querySelector('[data-terminal-panel]').getBoundingClientRect(), h = document.querySelector('[data-current-session] header').getBoundingClientRect();
+    const send = document.querySelector('[data-current-session] [data-composer-submit]').getBoundingClientRect();
+    return { underHeader: Math.abs(p.top - h.bottom) < 2, fullHeight: Math.abs(p.bottom - innerHeight) < 2, sendLeft: send.right <= p.left, footer: !!document.querySelector('[data-current-session] [data-session-footer]'), ring: !!document.querySelector('[data-folded-meter]'), handle: document.querySelector('[data-terminal-resize]').getAttribute('aria-orientation') };
+  })()`)) as { underHeader: boolean; fullHeight: boolean; sendLeft: boolean; footer: boolean; ring: boolean; handle: string };
+  if (!side.underHeader || !side.fullHeight || !side.sendLeft) return `failed: docked right the panel is not full height beside the conversation (${JSON.stringify(side)})`;
+  if (!side.footer || side.ring) return 'failed: docked right the footer row did not come back';
+  if (side.handle !== 'vertical') return 'failed: docked right the handle is not on the left edge';
+  const wide = (await box())!;
+  await js("document.querySelector('[data-terminal-resize]').focus()");
+  key('Right');
+  if (!(await waitInPage(win, `${PANEL_BOX}.width === ${wide.width - 24}`, 2_000))) return `failed: → on the handle did not narrow the panel (${wide.width}px)`;
+  key('Left');
+  if (!(await waitInPage(win, `${PANEL_BOX}.width === ${wide.width}`, 2_000))) return `failed: ← on the handle did not widen the panel again (${(await box())?.width}px)`;
+  await shot(win, 'terminal-right-light.png');
+
+  // Changes also wants the right side: the terminal docks below until it closes.
+  let changes = 'no Changes button (not a git checkout)';
+  if (await js("document.querySelector('[data-current-session] [data-toggle-changes]') !== null")) {
+    await js("document.querySelector('[data-current-session] [data-toggle-changes]').click()");
+    if (!(await waitInPage(win, "document.querySelector('[data-changes-panel]') && document.querySelector('[data-terminal-panel]')?.dataset.terminalDockSide === 'bottom' && document.querySelector('[data-terminal-dock]').disabled", 3_000))) {
+      return 'failed: with Changes open the terminal did not fall back to docking below';
+    }
+    await shot(win, 'terminal-with-changes.png');
+    await js("document.querySelector('[data-current-session] [data-toggle-changes]').click()");
+    if (!(await waitInPage(win, "!document.querySelector('[data-changes-panel]') && document.querySelector('[data-terminal-panel]')?.dataset.terminalDockSide === 'right'", 3_000))) {
+      return 'failed: closing Changes did not put the terminal back on the right';
+    }
+    changes = 'docked below while Changes was open, back on the right after';
+  }
+
+  // Maximize: the button, then Esc from it; ⌘⇧J twice.
+  const hidden = "document.querySelector('[data-current-session] [data-transcript]').offsetParent === null";
+  const maximize = await clickLikeAUser(win, '[data-terminal-maximize]');
+  if (!(await waitInPage(win, `${PANEL_BOX}.maximized && ${hidden} && !document.querySelector('[data-current-session] [data-composer-submit]')?.offsetParent`, 3_000))) {
+    return `failed: Maximize did not give the terminal the whole view (the click landed on ${maximize.at})`;
+  }
+  const full = (await box())!;
+  const view = (await js("Math.round(document.querySelector('[data-current-session]').getBoundingClientRect().width)")) as number;
+  if (Math.abs(full.width - view) > 2) return `failed: maximized, the terminal is ${full.width}px of ${view}px`;
+  // Let xterm refit to the new size and redraw before the picture.
+  await new Promise((resolve) => setTimeout(resolve, 600));
+  await shot(win, 'terminal-maximized.png');
+  key('Escape');
+  if (!(await waitInPage(win, `!${PANEL_BOX}.maximized && !(${hidden})`, 2_000))) return 'failed: Esc did not restore the maximized terminal';
+  key('J', ['meta', 'shift']);
+  if (!(await waitInPage(win, `${PANEL_BOX}.maximized`, 2_000))) return 'failed: ⌘⇧J did not maximize the terminal';
+  key('J', ['meta', 'shift']);
+  if (!(await waitInPage(win, `!${PANEL_BOX}.maximized && !(${hidden})`, 2_000))) return 'failed: ⌘⇧J did not restore the terminal';
+
+  // Dark theme, both docks.
+  updatePreferences({ colorScheme: 'dark' });
+  await new Promise((resolve) => setTimeout(resolve, 500));
+  if ((await js("getComputedStyle(document.querySelector('[data-terminal-panel]')).backgroundColor")) !== 'rgb(13, 16, 22)') return 'failed: in dark the panel lost its own background';
+  await shot(win, 'terminal-right-dark.png');
+  await js("document.querySelector('[data-terminal-dock]').click()");
+  if (!(await waitInPage(win, `${PANEL_BOX}.dock === 'bottom'`, 3_000))) return 'failed: Dock below did not move the panel back';
+  await new Promise((resolve) => setTimeout(resolve, 300));
+  await shot(win, 'terminal-bottom-dark.png');
+
+  // The narrowest window has no room for the terminal beside a usable conversation: docked right, it moves below
+  // (the dock button says why) and goes back to the right when the window is wide again. Nothing scrolls sideways.
+  const wideBounds = win.getBounds();
+  await js("document.querySelector('[data-terminal-dock]').click()");
+  if (!(await waitInPage(win, `${PANEL_BOX}.dock === 'right'`, 3_000))) return 'failed: Dock right did not move the panel again';
+  win.setContentSize(900, Math.max(win.getContentSize()[1] ?? 0, 560));
+  if (!(await waitInPage(win, `${PANEL_BOX}.dock === 'bottom' && document.querySelector('[data-terminal-dock]').disabled && document.querySelector('[data-terminal-dock]').dataset.tooltip.startsWith('Too narrow')`, 3_000))) {
+    return 'failed: in the narrowest window the terminal stayed on the right';
+  }
+  await new Promise((resolve) => setTimeout(resolve, 300));
+  const fits = "document.documentElement.scrollWidth <= innerWidth && document.querySelector('[data-terminal-hide]').getBoundingClientRect().right <= innerWidth && document.querySelector('[data-composer-submit]').getBoundingClientRect().right <= document.querySelector('[data-current-session] [data-transcript]').getBoundingClientRect().right";
+  if (!(await js(fits))) return 'failed: the narrowest window scrolls sideways or cuts off the panel or Send';
+  await shot(win, 'terminal-narrow.png');
+  win.setBounds(wideBounds);
+  if (!(await waitInPage(win, `${PANEL_BOX}.dock === 'right'`, 3_000))) return 'failed: widening the window did not put the terminal back on the right';
+  const roomy = (await js("document.querySelector('[data-composer-submit]').getBoundingClientRect().right <= document.querySelector('[data-terminal-panel]').getBoundingClientRect().left")) as boolean;
+  if (!roomy) return 'failed: docked right, Send is cut off by the panel';
+  await js("document.querySelector('[data-terminal-dock]').click()");
+  if (!(await waitInPage(win, `${PANEL_BOX}.dock === 'bottom'`, 3_000))) return 'failed: Dock below did not move the panel back';
+
+  // Hide brings the footer row back.
+  await js("document.querySelector('[data-terminal-hide]').click()");
+  if (!(await waitInPage(win, "!document.querySelector('[data-terminal-panel]') && document.querySelector('[data-current-session] [data-session-footer]')", 3_000))) return 'failed: hiding the panel did not bring the footer row back';
+  return `ok: own background with a top shadow, 36x4 handle, 10/16px padding; footer folded into a ring ("${ring.replace(/\n/g, ' · ')}"); ↑ and drag resize; docked right full height with the footer back and → ← resizing; ${changes}; maximize by button, Esc and ⌘⇧J; light and dark; a 900px window docks it below and widening puts it back`;
 }
 
 /** Adds a project action through the editor, opened from the header's More menu; saving closes the editor. */
@@ -1982,6 +2193,7 @@ async function runSmokeStep(win: BrowserWindow | null): Promise<void> {
     quitGuarded = await runQuitStep(win);
     settingsResult = await runSettingsStep(win).catch((error: Error) => `failed: ${error.message}`);
     terminalOpened = await runTerminalStep(win);
+    terminalLayoutResult = await runTerminalLayoutStep(win).catch((error: Error) => `failed: ${error.message}`);
     actionRan = await runActionStep(win);
     actionTerminalResult = await runActionTerminalStep(win).catch((error: Error) => `failed: ${error.message}`);
     actionMenuResult = await runActionMenuStep(win).catch((error: Error) => `failed: ${error.message}`);
@@ -2040,6 +2252,7 @@ async function runSmokeStep(win: BrowserWindow | null): Promise<void> {
         settingsResult,
         actionRan,
         actionTerminalResult,
+        terminalLayoutResult,
         actionMenuResult,
         projectsResult,
         profilesResult,

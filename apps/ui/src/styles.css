@@ -41,6 +41,12 @@
   --sb-overlay-shadow: 0 2px 6px rgb(21 24 31 / 0.08), 0 12px 32px -4px rgb(21 24 31 / 0.2);
   /* Backdrop behind dialogs. */
   --sb-scrim: rgb(21 24 31 / 0.35);
+  /*
+   * The terminal panel: always dark, and darker than the conversation in either theme so it reads as its
+   * own layer. The shadow it casts onto the conversation follows the app's theme (.theme-dark leaves it alone).
+   */
+  --sb-terminal-bg: #0d1016;
+  --sb-terminal-shadow: rgb(21 24 31 / 0.16);
   color-scheme: light;
 }
 
@@ -76,6 +82,8 @@
     --sb-overlay-border: #414861;
     --sb-overlay-shadow: 0 0 0 1px rgb(0 0 0 / 0.35), 0 4px 10px rgb(0 0 0 / 0.35), 0 16px 40px -6px rgb(0 0 0 / 0.7);
     --sb-scrim: rgb(0 0 0 / 0.6);
+    --sb-terminal-bg: #0d1016;
+    --sb-terminal-shadow: rgb(0 0 0 / 0.55);
     color-scheme: dark;
   }
 }
@@ -115,6 +123,7 @@
   --sb-overlay-border: #414861;
   --sb-overlay-shadow: 0 0 0 1px rgb(0 0 0 / 0.35), 0 4px 10px rgb(0 0 0 / 0.35), 0 16px 40px -6px rgb(0 0 0 / 0.7);
   --sb-scrim: rgb(0 0 0 / 0.6);
+  --sb-terminal-bg: #0d1016;
   color-scheme: dark;
 }
 
@@ -147,6 +156,7 @@
   --color-profile-gray: var(--sb-profile-gray);
   --color-popover: var(--sb-popover);
   --color-scrim: var(--sb-scrim);
+  --color-terminal: var(--sb-terminal-bg);
   --font-sans: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Inter', system-ui, sans-serif;
   --font-mono: 'SF Mono', ui-monospace, Menlo, monospace;
   /*
@@ -202,6 +212,17 @@
   &:disabled {
     opacity: 0.5;
   }
+}
+
+/*
+ * The soft shadow the terminal panel casts onto the conversation, on the edge that faces it, so the two
+ * read as separate layers: upwards when it is docked below, to the left when it is docked right.
+ */
+@utility terminal-edge-top {
+  box-shadow: 0 -10px 24px -14px var(--sb-terminal-shadow);
+}
+@utility terminal-edge-left {
+  box-shadow: -10px 0 24px -14px var(--sb-terminal-shadow);
 }
 
 /* Frameless-window drag regions (macOS hiddenInset title bar). */

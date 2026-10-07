@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { create } from 'zustand';
 import type { UsageLimit, UsageSnapshot } from '@switchboard/protocol/client';
 import type { EngineClient } from '../engine/connection.ts';
@@ -6,6 +6,7 @@ import { useEngineConnection } from '../engine/useEngine.ts';
 import { useProfile, useProfiles } from '../state/profilesStore.ts';
 import { ProfileBadge, ProfileDot } from './profiles/ProfileBadge.tsx';
 import { Meter } from './ui/Meter.tsx';
+import type { UsageLine } from './session/foldedMeter.ts';
 import { countdown, limitLabel, nextUsageEntry, resetLabel, spokenLimit, usageMessage, visibleLimits, type UsageEntry } from './usageFormat.ts';
 
 interface UsageState {
@@ -72,6 +73,13 @@ const money = (minorUnits: number, currency: string | null) =>
 function footerLabel(limit: UsageLimit): string {
   const label = limitLabel(limit);
   return label.startsWith('7d') ? `Week${label.slice(2)}` : label;
+}
+
+/** The footer's windows as short names and percentages, for the ring that stands in for the footer while the terminal is open below. */
+export function useUsageLines(profileId?: string | null): UsageLine[] {
+  const defaultId = useProfiles((s) => s.defaultId);
+  const usage = useUsageFor(profileId ?? defaultId)?.usage;
+  return useMemo(() => (usage ? visibleLimits(usage.limits).map((limit) => ({ label: footerLabel(limit), percent: limit.percent })) : []), [usage]);
 }
 
 /** A window's tooltip: when it resets, as a time and a countdown. */

@@ -8,11 +8,15 @@ All notable changes to Switchboard are listed here. Each release is also on the 
 
 - **New session shows where you are working.** Each project tile is one row with its icon, name, status and ⌘ shortcut. The project you pick, and the message box around your prompt, take that project's colour.
 - **See when your plan limits reset.** Under the message box in New session, the usage line starts with the Claude profile you picked and says when the 5-hour and weekly limits reset. It follows the profile you choose.
+- **The terminal panel is its own layer.** It has a darker background with a soft shadow, a handle you can see and grab (or use the arrow keys), and room around the prompt. Tabs show a dot while an action runs and the exit code when something failed; the close button stays on the selected tab.
+- **Dock the terminal on the right.** The button in the terminal's tab bar moves it beside the conversation, full height, and back below. While Changes is open, or the window is too narrow, it stays below. **Maximize** (⌘⇧J) gives the terminal the whole view; Esc or ⌘⇧J brings the conversation back.
+- **More room for the conversation with the terminal open.** While the terminal is open below, the usage and context line under the message box folds into a small ring next to Send. Hover it for the numbers, click it for the details.
 
 ### Fixes
 
 - **Fetch, Pull, Push and project actions show what they run.** Their terminal tab starts with the command and ends with a **Done** line (or the exit code), so a command that prints nothing, like a fetch with nothing new, no longer looks like it never ran.
-- **A finished terminal tab says so.** The cursor no longer blinks as if you could type, and next to **Restart** there is a **Close** button (or press Esc).
+- **A finished terminal tab says so.** The cursor no longer blinks as if you could type, and Esc closes the tab.
+- **Stop and Restart for actions always respond.** They moved into a strip above the terminal that shows the command, how long it has run and where. You can reach them with Tab, and Restart also works while the command is still running.
 - The right-click menu of a session no longer offers **Remove from Switchboard**, which removed the project and was easy to mistake for deleting the session. It is still in the project menus and in Projects.
 - With **Show sessions from other apps** on, opening New session no longer adds a session named after the project that runs in the background for a couple of minutes.
 

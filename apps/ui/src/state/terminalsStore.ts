@@ -3,6 +3,8 @@ import { create } from 'zustand';
 import type { TerminalInfo, TerminalKind } from '@switchboard/protocol/client';
 import type { EngineClient } from '../engine/connection.ts';
 import { useEngineConnection } from '../engine/useEngine.ts';
+import { clampPanelHeight, clampPanelWidth, PANEL_DEFAULT_HEIGHT, PANEL_DEFAULT_WIDTH, parseDock, type TerminalDock } from '../components/terminal/terminalLayout.ts';
+import { trackRuns, type RunTimes } from '../components/terminal/terminalStatus.ts';
 
 const PANEL_KEY = 'ui.terminalPanel';
 
@@ -19,7 +21,16 @@ interface TerminalsState {
   panelOpen: boolean;
   /** The user just opened the panel (Terminal button, ⌘J): it starts a shell when the session has none. */
   shellWanted: boolean;
+  /** Docked below: its height. */
   panelHeight: number;
+  /** Docked right: its width. */
+  panelWidth: number;
+  /** Where the user wants the panel. It still docks below while the Changes panel is on the right (`effectiveDock`). */
+  dock: TerminalDock;
+  /** The panel takes the whole session view, hiding the conversation (⌘⇧J; Esc or ⌘⇧J restores it). */
+  maximized: boolean;
+  /** When each terminal's current run started and ended, for the run strip's elapsed time. */
+  runs: Map<string, RunTimes>;
   /** Selected tab per session. */
   active: Map<string, string>;
   /** Per session. */
@@ -30,6 +41,10 @@ interface TerminalsState {
   setShellWanted(wanted: boolean): void;
   setNotice(sessionId: string, notice: TerminalNotice | null): void;
   setPanelHeight(height: number): void;
+  setPanelWidth(width: number): void;
+  setDock(dock: TerminalDock): void;
+  /** No argument: toggle. */
+  setMaximized(maximized?: boolean): void;
   setActive(sessionId: string, terminalId: string): void;
 }
 
@@ -38,11 +53,20 @@ export const useTerminals = create<TerminalsState>()((set) => ({
   loaded: false,
   panelOpen: false,
   shellWanted: false,
-  panelHeight: 280,
+  panelHeight: PANEL_DEFAULT_HEIGHT,
+  panelWidth: PANEL_DEFAULT_WIDTH,
+  dock: 'bottom',
+  maximized: false,
+  runs: new Map(),
   active: new Map(),
   notices: new Map(),
-  setTerminals: (list) => set({ terminals: new Map(list.map((t) => [t.id, t])), loaded: true }),
-  togglePanel: (open) => set((s) => (open === undefined ? { panelOpen: !s.panelOpen, shellWanted: !s.panelOpen } : { panelOpen: open })),
+  setTerminals: (list) => set((s) => ({ terminals: new Map(list.map((t) => [t.id, t])), runs: trackRuns(s.runs, s.terminals, list, Date.now()), loaded: true })),
+  // Hiding the panel also ends a maximized view, so the conversation is back the next time.
+  togglePanel: (open) =>
+    set((s) => {
+      const next = open ?? !s.panelOpen;
+      return { panelOpen: next, ...(open === undefined ? { shellWanted: next } : {}), ...(next ? {} : { maximized: false }) };
+    }),
   setShellWanted: (shellWanted) => set({ shellWanted }),
   setNotice: (sessionId, notice) =>
     set((s) => {
@@ -51,7 +75,10 @@ export const useTerminals = create<TerminalsState>()((set) => ({
       else notices.delete(sessionId);
       return { notices };
     }),
-  setPanelHeight: (panelHeight) => set({ panelHeight: Math.round(Math.min(Math.max(panelHeight, 120), window.innerHeight * 0.75)) }),
+  setPanelHeight: (height) => set({ panelHeight: clampPanelHeight(height, window.innerHeight) }),
+  setPanelWidth: (width) => set({ panelWidth: clampPanelWidth(width, window.innerWidth) }),
+  setDock: (dock) => set({ dock }),
+  setMaximized: (maximized) => set((s) => ({ maximized: maximized ?? !s.maximized })),
   setActive: (sessionId, terminalId) => set((s) => ({ active: new Map(s.active).set(sessionId, terminalId) })),
 }));
 
@@ -74,20 +101,48 @@ export async function openTerminal(client: EngineClient, sessionId: string, cwd:
   }
 }
 
-/** Keeps the terminal list current and remembers the panel's open state and height. */
+/**
+ * Resolves once the terminal has exited (or is gone), or after `timeoutMs`. Restart on a running action
+ * stops it first, and the engine only restarts a terminal that has exited.
+ */
+export function waitForExit(id: string, timeoutMs: number): Promise<boolean> {
+  const exited = () => {
+    const t = useTerminals.getState().terminals.get(id);
+    return !t || t.exitCode !== null;
+  };
+  if (exited()) return Promise.resolve(true);
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => {
+      off();
+      resolve(false);
+    }, timeoutMs);
+    const off = useTerminals.subscribe(() => {
+      if (!exited()) return;
+      clearTimeout(timer);
+      off();
+      resolve(true);
+    });
+  });
+}
+
+/** Keeps the terminal list current and remembers the panel's open state, size and dock. */
 export function useTerminalsSync(): void {
   const connection = useEngineConnection();
   const client = connection.status === 'connected' ? connection.client : null;
   const panelOpen = useTerminals((s) => s.panelOpen);
   const panelHeight = useTerminals((s) => s.panelHeight);
+  const panelWidth = useTerminals((s) => s.panelWidth);
+  const dock = useTerminals((s) => s.dock);
 
   useEffect(() => {
     if (!client) return;
     const off = client.on('terminals.changed', ({ terminals }) => useTerminals.getState().setTerminals(terminals));
     void client.call('terminal.list', {}).then(({ terminals }) => useTerminals.getState().setTerminals(terminals));
     void client.call('appState.get', { key: PANEL_KEY }).then(({ value }) => {
-      const stored = value as { open?: unknown; height?: unknown } | null;
+      const stored = value as { open?: unknown; height?: unknown; width?: unknown; dock?: unknown } | null;
       if (typeof stored?.height === 'number') useTerminals.getState().setPanelHeight(stored.height);
+      if (typeof stored?.width === 'number') useTerminals.getState().setPanelWidth(stored.width);
+      useTerminals.getState().setDock(parseDock(stored?.dock));
       if (typeof stored?.open === 'boolean') useTerminals.getState().togglePanel(stored.open);
     });
     return off;
@@ -95,7 +150,7 @@ export function useTerminalsSync(): void {
 
   useEffect(() => {
     if (!client) return;
-    const timer = setTimeout(() => void client.call('appState.set', { key: PANEL_KEY, value: { open: panelOpen, height: panelHeight } }), 300);
+    const timer = setTimeout(() => void client.call('appState.set', { key: PANEL_KEY, value: { open: panelOpen, height: panelHeight, width: panelWidth, dock } }), 300);
     return () => clearTimeout(timer);
-  }, [client, panelOpen, panelHeight]);
+  }, [client, panelOpen, panelHeight, panelWidth, dock]);
 }

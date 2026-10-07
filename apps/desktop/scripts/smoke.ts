@@ -72,6 +72,8 @@ console.log(`${result.quitGuarded ? '✓' : '✗'} ⌘Q asks first, Cancel keeps
 console.log(`${result.settingsResult === 'ok' ? '✓' : '✗'} settings: theme, sidebar style, session scope, tool activity, startup and quit prompt apply at once and are saved${result.settingsResult === 'ok' ? '' : ` (${result.settingsResult})`}`);
 console.log(`${result.terminalOpened ? '✓' : '✗'} terminal panel opened a shell`);
 console.log(`${result.actionRan ? '✓' : '✗'} project action added through the editor (saving closes it and confirms), run in a terminal tab`);
+console.log(`${String(result.terminalLayoutResult).startsWith('ok') ? '✓' : '✗'} terminal layout: ${result.terminalLayoutResult}`);
+if (!String(result.terminalLayoutResult).startsWith('ok')) process.exitCode = 1;
 console.log(`${String(result.actionTerminalResult).startsWith('ok') ? '✓' : '✗'} action terminal: ${result.actionTerminalResult}`);
 if (!String(result.actionTerminalResult).startsWith('ok')) process.exitCode = 1;
 console.log(`${String(result.actionMenuResult).startsWith('ok') ? '✓' : '✗'} action menu: ${result.actionMenuResult}`);

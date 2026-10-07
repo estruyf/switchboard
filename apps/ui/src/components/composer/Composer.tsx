@@ -37,6 +37,8 @@ export interface ComposerProps {
   controls?: ReactNode;
   /** Buttons in the card's bottom-right corner, before attach (a session's Tools). */
   actions?: ReactNode;
+  /** Right before Stop and Send: the ring that stands in for the session footer while the terminal is open below. */
+  meter?: ReactNode;
   /** A shortcut shown on the submit button, like `⌘↵`. */
   submitHint?: string;
   /** A taller prompt that is the main thing on screen. */
@@ -431,6 +433,7 @@ export function Composer(props: ComposerProps) {
               aria-label="Attach images"
               data-attach
             />
+            {props.meter}
             {props.running && props.onInterrupt && (
               <Button size="lg" icon={<span className="size-2 rounded-[2px] bg-current" aria-hidden />} kbd="Esc" kbdHideNarrow onClick={props.onInterrupt} data-tooltip="Stop Claude (Esc)" data-composer-stop>
                 Stop
