@@ -6,6 +6,10 @@
 
 <p align="center">A fast Mac app for running and keeping track of your Claude Code sessions.</p>
 
+<p align="center">
+  <a href="https://visitorbadge.io/status?path=https%3A%2F%2Fgithub.com%2Festruyf%2Fswitchboard"><img src="https://api.visitorbadge.io/api/visitors?path=https%3A%2F%2Fgithub.com%2Festruyf%2Fswitchboard&labelColor=%2315181f&countColor=%23ffd43b" alt="Visitors"></a>
+</p>
+
 Switchboard puts all your Claude Code sessions in one window: the ones you start in the app, and the ones running in your terminal. Start new sessions, see at a glance which ones are working or waiting for you, approve permissions, and pick up any past conversation where you left off.
 
 It uses the Claude Code you already have installed, with your login, settings, commands and skills. Nothing extra to sign in to.
