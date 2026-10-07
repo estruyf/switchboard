@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import type { LiveSession, SessionHostInfo } from '@switchboard/protocol/client';
+import type { LaterItem, LiveSession, SessionHostInfo } from '@switchboard/protocol/client';
 import { toRows, useSessions, type SessionRowData } from './sessionsStore.ts';
-import { buildListRows, buildSessionList, groupSessions, inScope, isActive, RECENT_MS, rowStatus, sessionGroup, sessionsByHeader, startOfDay, startupSession, waitingLabel } from './sidebarRows.ts';
+import { buildListRows, buildSessionList, groupSessions, inScope, isActive, laterInList, RECENT_MS, rowStatus, sessionGroup, sessionsByHeader, startOfDay, startupSession, waitingLabel } from './sidebarRows.ts';
 
 const NOW = Date.UTC(2026, 9, 5, 12);
 const HOUR = 3_600_000;
@@ -163,7 +163,28 @@ describe('buildListRows', () => {
   const active = [row('busy', { live: live('running') }), row('a', { updatedAt: midnight + HOUR }), row('b', { updatedAt: midnight + 2 * HOUR })];
   const archived = [row('old', { updatedAt: old })];
   const shape = (rows: ReturnType<typeof buildListRows>) =>
-    rows.map((r) => (r.kind === 'session' ? r.data.id : r.kind === 'group' ? `[${r.group} ${r.count}${r.first ? ' first' : ''}]` : `[archived ${r.count} ${r.open ? 'open' : 'closed'}]`));
+    rows.map((r) =>
+      r.kind === 'session'
+        ? r.data.id
+        : r.kind === 'group'
+          ? `[${r.group} ${r.count}${r.first ? ' first' : ''}]`
+          : r.kind === 'later'
+            ? `later:${r.item.prompt}`
+            : `[${r.kind === 'later-header' ? 'later' : 'archived'} ${r.count} ${r.open ? 'open' : 'closed'}${r.kind === 'later-header' && r.first ? ' first' : ''}]`,
+    );
+  const saved = (prompt: string, cwd = '/p/a'): LaterItem => ({
+    id: prompt,
+    cwd,
+    prompt,
+    model: null,
+    effort: null,
+    permissionMode: 'default',
+    workspace: 'current',
+    baseRef: 'fresh',
+    branch: null,
+    profileId: null,
+    createdAt: NOW,
+  });
 
   it('puts a header above each section and the Archived toggle last', () => {
     expect(shape(buildListRows(active, archived, { now: NOW, archivedOpen: false }))).toEqual(['[working 1 first]', 'busy', '[today 2]', 'a', 'b', '[archived 1 closed]']);
@@ -175,6 +196,36 @@ describe('buildListRows', () => {
   it('shows no Archived toggle without archived sessions, and no headers for an empty list', () => {
     expect(shape(buildListRows([], [], { now: NOW, archivedOpen: true }))).toEqual([]);
     expect(shape(buildListRows([], archived, { now: NOW, archivedOpen: true }))).toEqual(['[archived 1 open]', 'old']);
+  });
+
+  it('puts prompts saved for later between the sections and Archived, collapsible', () => {
+    const later = { items: [saved('Monthly export'), saved('Speaker notes')], open: true };
+    expect(shape(buildListRows(active, archived, { now: NOW, archivedOpen: false, later }))).toEqual([
+      '[working 1 first]',
+      'busy',
+      '[today 2]',
+      'a',
+      'b',
+      '[later 2 open]',
+      'later:Monthly export',
+      'later:Speaker notes',
+      '[archived 1 closed]',
+    ]);
+    expect(shape(buildListRows([], [], { now: NOW, archivedOpen: false, later: { ...later, open: false } }))).toEqual(['[later 2 closed first]']);
+    expect(shape(buildListRows(active, [], { now: NOW, archivedOpen: false, later: { items: [], open: true } }))).toEqual(['[working 1 first]', 'busy', '[today 2]', 'a', 'b']);
+  });
+
+  it('never offers saved prompts to Select all', () => {
+    const rows = buildListRows(active, archived, { now: NOW, archivedOpen: true, later: { items: [saved('Idea')], open: true } });
+    expect([...sessionsByHeader(rows)]).toEqual([['working', ['busy']], ['today', ['a', 'b']], ['archived', ['old']]]);
+  });
+
+  it('filters saved prompts by project and search', () => {
+    const items = [saved('Monthly export', '/p/web'), saved('Speaker notes', '/p/demo')];
+    expect(laterInList(items, { search: '', project: null })).toHaveLength(2);
+    expect(laterInList(items, { search: '', project: '/p/demo' }).map((i) => i.prompt)).toEqual(['Speaker notes']);
+    expect(laterInList(items, { search: 'EXPORT', project: null }).map((i) => i.prompt)).toEqual(['Monthly export']);
+    expect(laterInList(items, { search: 'web', project: null }).map((i) => i.prompt)).toEqual(['Monthly export']);
   });
 
   it('lists the sessions under each header, for Select all', () => {

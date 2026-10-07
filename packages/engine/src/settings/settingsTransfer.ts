@@ -42,6 +42,9 @@ const PREFERENCE_LABELS: Record<keyof Preferences, string> = {
   startupView: 'On startup',
   autoUpdate: 'Automatic updates',
   updateChannel: 'Update channel',
+  focusLimit: 'Focus limit',
+  focusMode: 'At the focus limit',
+  focusCountExternal: 'Count terminal and IDE sessions',
 };
 
 /** What the settings file is read from and written to. */
@@ -61,7 +64,8 @@ export interface ExportOptions {
 }
 
 const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
-const showValue = (value: unknown) => (typeof value === 'boolean' ? (value ? 'on' : 'off') : String(value));
+// A focus limit of null is the limit turned off.
+const showValue = (value: unknown) => (typeof value === 'boolean' ? (value ? 'on' : 'off') : value === null ? 'off' : String(value));
 
 /** A stored icon as it travels in a file; an image that is gone or unreadable falls back to the detected icon. */
 function exportIcon(icon: StoredIcon | null): ExportedIcon | null {

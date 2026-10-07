@@ -8,6 +8,7 @@ import { guessHome, shortAge, tildify } from '../../lib/format.ts';
 import { nextMode } from '../../lib/modes.ts';
 import { hostAsLive, isActiveHost, useHosts } from '../../state/hostsStore.ts';
 import { useCheckoutBranches } from '../../state/checkoutBranchesStore.ts';
+import { passFocusGate } from '../../state/focusGate.ts';
 import { useOverlay } from '../../state/overlayStore.ts';
 import { usePreferences } from '../../state/preferencesStore.ts';
 import { useProjects } from '../../state/projectsStore.ts';
@@ -517,8 +518,14 @@ export function TranscriptView({ sessionId, pane = null, active = true }: { sess
     };
   }, [client, items, sessionId, select]);
 
-  const send = async (text: string, attachments: ImageAttachment[], fork = false) => {
+  /**
+   * Sends a message (resuming the session when it isn't running here). A message that brings a session
+   * back, or a fork, goes through the focus limit's gate; answering a session that already counts never
+   * does. `ungated`: finishing work (commit, compact), which the limit never stands in the way of.
+   */
+  const send = async (text: string, attachments: ImageAttachment[], fork = false, ungated = false): Promise<void | false> => {
     if (!client) throw new Error('Not connected to the engine');
+    if (!ungated && (await passFocusGate({ target: fork ? null : sessionId })) !== 'start') return false;
     stickToBottom.current = true;
     const result = await client.call('session.send', { sessionId, text, attachments, fork });
     if (result.sessionId !== sessionId) select(result.sessionId);
@@ -550,7 +557,7 @@ export function TranscriptView({ sessionId, pane = null, active = true }: { sess
     activeHost && activeHost.contextTokens !== null && activeHost.contextMax
       ? { tokens: activeHost.contextTokens, max: activeHost.contextMax, percent: activeHost.contextPercent ?? (activeHost.contextTokens / activeHost.contextMax) * 100 }
       : null;
-  const compact = activeHost ? () => void send('/compact', []).catch((e: Error) => setActionError(e.message)) : undefined;
+  const compact = activeHost ? () => void send('/compact', [], false, true).catch((e: Error) => setActionError(e.message)) : undefined;
   // One element for both docks: below it sits in the conversation's column, on the right next to it.
   const terminalPanel = (
     <Suspense fallback={<div className={`theme-dark shrink-0 bg-terminal ${terminalDock === 'right' ? 'w-90 border-l border-border' : 'h-40 border-t border-border'}`} />}>
@@ -656,7 +663,7 @@ export function TranscriptView({ sessionId, pane = null, active = true }: { sess
             active={active}
             activity={gitActivity}
             isWorktree={isWorktree}
-            onCommit={() => void send('Commit the current changes with a clear, conventional commit message.', [], openElsewhere).catch((e: Error) => setActionError(e.message))}
+            onCommit={() => void send('Commit the current changes with a clear, conventional commit message.', [], openElsewhere, true).catch((e: Error) => setActionError(e.message))}
             onBranchMenu={() => setBranchMenuRequest((n) => n + 1)}
             onNewWorktree={() => {
               useProjects.getState().startIn(projectRoot ?? cwd, { worktree: true });

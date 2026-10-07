@@ -17,5 +17,6 @@ export type * from './usage.ts';
 export type * from './profiles.ts';
 export type * from './claudeUpdate.ts';
 export type * from './backup.ts';
+export type * from './later.ts';
 export { BACKUP_SECTIONS, SETTINGS_FILE_FORMAT, settingsFileName, type BackupSection } from './backupConstants.ts';
 export { BUILTIN_PROFILE_ID, PROFILE_COLORS } from './profileConstants.ts';

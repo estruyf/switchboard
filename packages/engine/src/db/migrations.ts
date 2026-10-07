@@ -221,4 +221,16 @@ export const migrations: readonly string[] = [
   ALTER TABLE session_flags DROP COLUMN archived_at;
   ALTER TABLE session_flags RENAME COLUMN settled_at TO archived_at;
   `,
+
+  // v14: prompts saved for later instead of starting a session (the focus limit's Later list). A user choice: keep it.
+  `
+  CREATE TABLE later_prompts (
+    id            TEXT PRIMARY KEY,
+    cwd           TEXT NOT NULL,
+    prompt        TEXT NOT NULL,
+    settings_json TEXT NOT NULL,
+    created_at    INTEGER NOT NULL
+  );
+  CREATE INDEX later_prompts_cwd ON later_prompts (cwd, created_at DESC);
+  `,
 ];

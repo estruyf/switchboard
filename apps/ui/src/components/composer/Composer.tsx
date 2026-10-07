@@ -33,6 +33,8 @@ export interface ComposerProps {
   autoFocus?: boolean;
   /** Changing it focuses the prompt again (New session asked for while already open). */
   focusRequest?: number;
+  /** Changing it sends what is in the box, as Enter would (New session's Start anyway). */
+  submitRequest?: number;
   /** Compact controls in the card's bottom-left corner in place of the hint line (the model, mode and effort chips). */
   controls?: ReactNode;
   /** Buttons in the card's bottom-right corner, before attach (a session's Tools). */
@@ -49,7 +51,8 @@ export interface ComposerProps {
   dropHint?: boolean;
   /** Called with the prompt's text whenever it changes (typing, completions, presets, sending). */
   onTextChange?(text: string): void;
-  onSubmit(text: string, attachments: ImageAttachment[]): Promise<void> | void;
+  /** Returning `false` means nothing was sent (the focus limit asked and you cancelled): the prompt stays as it is. */
+  onSubmit(text: string, attachments: ImageAttachment[], requested?: boolean): Promise<void | false> | void | false;
   onInterrupt?(): void;
   onCycleMode?(): void;
 }
@@ -159,7 +162,8 @@ export function Composer(props: ComposerProps) {
     requestAnimationFrame(() => el.setSelectionRange(position, position));
   };
 
-  const submit = async () => {
+  /** `requested`: sent through `submitRequest` rather than Enter or the button. */
+  const submit = async (requested = false) => {
     if (sending || props.disabledReason) return;
     const sentText = text;
     const value = text.trim();
@@ -169,7 +173,7 @@ export function Composer(props: ComposerProps) {
     setNotice(null);
     closePalette();
     try {
-      await props.onSubmit(value, sentAttachments);
+      if ((await props.onSubmit(value, sentAttachments, requested)) === false) return;
       // The box stays editable while sending: keep whatever was typed or attached in the meantime.
       setText((current) => textAfterSend(current, sentText));
       setAttachments((current) => attachmentsAfterSend(current, sentAttachments));
@@ -182,6 +186,16 @@ export function Composer(props: ComposerProps) {
       ref.current?.focus();
     }
   };
+
+  // Start anyway (New session) sends what is in the box from outside it.
+  const lastSubmitRequest = useRef(props.submitRequest);
+  const submitRef = useRef(submit);
+  submitRef.current = submit;
+  useEffect(() => {
+    if (props.submitRequest === lastSubmitRequest.current) return;
+    lastSubmitRequest.current = props.submitRequest;
+    void submitRef.current(true);
+  }, [props.submitRequest]);
 
   const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
     if (event.nativeEvent.isComposing) return;

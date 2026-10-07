@@ -27,6 +27,7 @@ import { checkoutRoot, fileDiff, listBranches, listChanges, removeWorktree, reve
 import { SearchIndex } from './sessions/searchIndex.ts';
 import { installedPlugins } from './host/capabilities.ts';
 import { ActionStore, expandCommand, shellQuote, suggestActions } from './actions/actionStore.ts';
+import { LaterStore } from './later/laterStore.ts';
 import { HostManager, type SdkRuntime } from './host/hostManager.ts';
 import { createSessionSettingsStore } from './host/sessionSettings.ts';
 import { UsageMonitor } from './host/usageMonitor.ts';
@@ -398,6 +399,9 @@ export function createEngine(options: EngineOptions): Engine {
   };
 
   const actions = new ActionStore(cache.db);
+  const later = new LaterStore(cache.db);
+  /** Every window keeps the whole Later list: tell them all after a change. */
+  const laterChanged = () => broadcast('later.changed', { items: later.list() });
 
   /** Runs an action's command in a terminal tab of the session and returns the terminal id. */
   const runShellAction = async (sessionId: string, cwd: string, name: string, command: string) =>
@@ -785,6 +789,17 @@ export function createEngine(options: EngineOptions): Engine {
       const terminalId = await runShellAction(sessionId, runIn, action.name, expandCommand(action.command, vars, true));
       actionRuns.set(terminalId, { sessionId, projectRoot, cwd, id });
       return { kind: 'terminal' as const, terminalId };
+    },
+    'later.list': ({ cwd }) => ({ items: later.list(cwd) }),
+    'later.add': ({ draft, id, createdAt }) => {
+      const item = later.add(draft, { ...(id ? { id } : {}), ...(createdAt !== undefined ? { createdAt } : {}) });
+      laterChanged();
+      return { item };
+    },
+    'later.remove': ({ id }) => {
+      later.remove(id);
+      laterChanged();
+      return {};
     },
     'search.query': async ({ query, limit }) => ({ hits: search.search(query, limit), indexing: { ...search.progress } }),
     'git.changes': async ({ cwd, base }) => {

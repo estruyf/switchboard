@@ -35,6 +35,7 @@ import { Capabilities } from './capabilities.ts';
 import { ProfileColor, ProfilesSnapshot } from './profiles.ts';
 import { ClaudeUpdateState } from './claudeUpdate.ts';
 import { BackupSectionSchema, FolderMapping, ImportMode, ImportPreview } from './backup.ts';
+import { LaterDraft, LaterItem } from './later.ts';
 
 export const ClaudeInstall = z.object({
   path: z.string(),
@@ -399,6 +400,16 @@ export const contract = {
      */
     'terminal.restart': { params: z.object({ id: z.string() }), result: TerminalInfo },
 
+    // --- Later list ----------------------------------------------------------------------------
+    /** Prompts saved for later, newest first; only one folder's with `cwd`. */
+    'later.list': { params: z.object({ cwd: AbsolutePath.optional() }), result: z.object({ items: z.array(LaterItem) }) },
+    /** Saves a prompt for later. `id` and `createdAt` put a removed item back as it was (Undo). */
+    'later.add': {
+      params: z.object({ draft: LaterDraft, id: z.string().min(1).max(100).optional(), createdAt: z.number().optional() }),
+      result: z.object({ item: LaterItem }),
+    },
+    'later.remove': { params: z.object({ id: z.string().min(1).max(100) }), result: z.object({}) },
+
     // --- Settings backup -----------------------------------------------------------------------
     /** Writes the chosen kinds of user choices (never the cache) to a settings file. */
     'settings.export': {
@@ -458,6 +469,8 @@ export const contract = {
     /** Full list whenever terminals start, exit or close. */
     'terminals.changed': z.object({ terminals: z.array(TerminalInfo) }),
     'claudeUpdate.changed': ClaudeUpdateState,
+    /** The whole Later list, newest first, whenever an item is added or removed. */
+    'later.changed': z.object({ items: z.array(LaterItem) }),
     /** Settings were imported: reload projects and actions. */
     'settings.imported': z.object({}),
   },

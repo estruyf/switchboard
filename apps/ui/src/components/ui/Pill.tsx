@@ -4,7 +4,7 @@ import { pillClass, type PillTone } from './buttonStyles.ts';
 import { Kbd } from './Kbd.tsx';
 
 interface PillProps extends Omit<HTMLAttributes<HTMLElement>, 'onClick'> {
-  /** `default`, `muted` (quiet, on a card), `ok` (background work), `warn` (needs you), `count` (the number next to a group heading). */
+  /** `default`, `muted` (quiet, on a card), `accent` (at a limit), `ok` (background work), `warn` (needs you or over a limit), `count` (the number next to a group heading). */
   tone?: PillTone;
   /** A button when given, otherwise a label. */
   onClick?: MouseEventHandler<HTMLButtonElement>;

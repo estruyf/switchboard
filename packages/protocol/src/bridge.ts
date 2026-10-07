@@ -43,6 +43,14 @@ export type SessionScope = 'switchboard' | 'all';
 export type StartupView = 'home' | 'last' | 'new';
 /** Which releases to update to: published releases, or the nightly pre-releases too. */
 export type UpdateChannel = 'stable' | 'nightly';
+/** At the focus limit: ask first and allow going over (`nudge`), or wait until a session is finished (`strict`). */
+export type FocusMode = 'nudge' | 'strict';
+
+/** The focus limit's range: at least one session, at most ten. */
+export const FOCUS_LIMIT_MIN = 1;
+export const FOCUS_LIMIT_MAX = 10;
+/** What the limit starts at when it is turned on. */
+export const FOCUS_LIMIT_DEFAULT = 3;
 
 /** App preferences, kept by main in the app's data folder. */
 export interface Preferences {
@@ -56,6 +64,11 @@ export interface Preferences {
   /** Check GitHub for a newer release shortly after launch and every few hours. */
   autoUpdate: boolean;
   updateChannel: UpdateChannel;
+  /** The most sessions going at the same time (1–10); null turns the focus limit off. */
+  focusLimit: number | null;
+  focusMode: FocusMode;
+  /** Also count live sessions started outside Switchboard (terminal, IDE). */
+  focusCountExternal: boolean;
 }
 
 export const DEFAULT_PREFERENCES: Preferences = {
@@ -67,6 +80,9 @@ export const DEFAULT_PREFERENCES: Preferences = {
   startupView: 'home',
   autoUpdate: true,
   updateChannel: 'stable',
+  focusLimit: null,
+  focusMode: 'nudge',
+  focusCountExternal: false,
 };
 
 const oneOf = <T extends string>(values: readonly T[], value: unknown): value is T => values.includes(value as T);
@@ -83,6 +99,12 @@ export function sanitizePreferences(input: unknown): Partial<Preferences> {
   if (oneOf(['home', 'last', 'new'] as const, raw.startupView)) out.startupView = raw.startupView;
   if (typeof raw.autoUpdate === 'boolean') out.autoUpdate = raw.autoUpdate;
   if (oneOf(['stable', 'nightly'] as const, raw.updateChannel)) out.updateChannel = raw.updateChannel;
+  if (raw.focusLimit === null) out.focusLimit = null;
+  else if (typeof raw.focusLimit === 'number' && Number.isFinite(raw.focusLimit)) {
+    out.focusLimit = Math.min(FOCUS_LIMIT_MAX, Math.max(FOCUS_LIMIT_MIN, Math.round(raw.focusLimit)));
+  }
+  if (oneOf(['nudge', 'strict'] as const, raw.focusMode)) out.focusMode = raw.focusMode;
+  if (typeof raw.focusCountExternal === 'boolean') out.focusCountExternal = raw.focusCountExternal;
   return out;
 }
 

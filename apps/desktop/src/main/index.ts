@@ -630,6 +630,7 @@ let highlighted = false;
 let usageBand: string | null = null;
 let quitGuarded = false;
 let settingsResult = 'not run';
+let focusResult = 'not run';
 let transcriptAtBottom: number | null = null;
 /** The opened conversation is shorter than the window, so there is no end to scroll to and the gap is just empty space. */
 let transcriptFits = false;
@@ -1177,6 +1178,81 @@ async function runSettingsStep(win: BrowserWindow): Promise<string> {
   win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Escape' });
   if (!(await waitInPage(win, "!document.querySelector('[data-settings]')", 2_000))) return 'Escape did not close Settings';
   return 'ok';
+}
+
+/**
+ * The focus limit: turning it on in Settings › Focus shows the counter in the sidebar footer, in both
+ * themes, with its list of the sessions that count; turning it off hides it again. Only preferences in
+ * the throwaway profile change: no session is started and nothing is saved for later.
+ */
+async function runFocusStep(win: BrowserWindow): Promise<string> {
+  const js = (code: string) => win.webContents.executeJavaScript(code);
+  const click = (selector: string) => js(`document.querySelector(${JSON.stringify(selector)}).click()`);
+  const counter = "document.querySelector('[data-sidebar] [data-focus-counter]')";
+  const counterText = `${counter}?.innerText.trim()`;
+  const counterColour = `getComputedStyle(${counter}).color`;
+  const pause = () => new Promise((resolve) => setTimeout(resolve, 300));
+  const section = async (id: string) => {
+    await click(`[data-settings-section="${id}"]`);
+    return waitInPage(win, `document.querySelector('[data-settings-page="${id}"]')`, 2_000);
+  };
+
+  if (preferences.get().focusLimit !== null) return 'the focus limit was already on in a new profile';
+  await click('[data-open-settings]');
+  if (!(await waitInPage(win, "document.querySelector('[data-settings]')", 3_000))) return 'settings did not open';
+  if (!(await section('focus'))) return 'the Focus section did not open';
+  if (!(await waitInPage(win, "document.querySelector('[data-focus-settings]') && document.querySelector('[data-focus-why]')?.href.startsWith('https://')", 2_000))) return 'Focus did not show its intro and link';
+  if (await js(`!!document.querySelector('[data-focus-options]') || !!${counter}`)) return 'the limit looked on before it was turned on';
+
+  await click('[data-focus-limit-switch]');
+  if (!(await waitInPage(win, `document.querySelector('[data-focus-options]') && /^\\d+ \\/ 3$/.test(${counterText} ?? '')`, 2_000))) {
+    return `turning it on did not show the options and a counter out of 3 (${await js(`${counterText} ?? 'no counter'`)})`;
+  }
+  await click('[data-focus-limit-more]');
+  const raised = await waitInPage(win, `/ \\/ 4$/.test(${counterText} ?? '') && document.querySelector('[data-focus-limit-value]').innerText === '4'`, 2_000);
+  await click('[data-focus-limit-less]');
+  if (!raised || !(await waitInPage(win, `/ \\/ 3$/.test(${counterText} ?? '')`, 2_000))) return 'the stepper did not change the limit';
+  await click('[data-focus-mode="strict"]');
+  await pause();
+  const saved = JSON.parse(readFileSync(join(app.getPath('userData'), 'preferences.json'), 'utf8')) as Record<string, unknown>;
+  if (saved.focusLimit !== 3 || saved.focusMode !== 'strict') return `not saved: ${JSON.stringify({ focusLimit: saved.focusLimit, focusMode: saved.focusMode })}`;
+
+  // The counter in both themes: shown, readable, in each theme's own colour.
+  await section('theme');
+  await click('[data-color-scheme="light"]');
+  if (!(await waitInPage(win, "getComputedStyle(document.body).backgroundColor === 'rgb(255, 255, 255)'", 2_000))) return 'Light did not apply';
+  await pause();
+  const light = (await js(`(() => { const el = ${counter}; return el && el.offsetWidth > 0 ? ${counterColour} : null; })()`)) as string | null;
+  await shot(win, 'focus-light.png');
+  await click('[data-color-scheme="dark"]');
+  if (!(await waitInPage(win, "getComputedStyle(document.body).backgroundColor === 'rgb(21, 24, 31)'", 2_000))) return 'Dark did not apply';
+  await pause();
+  const dark = (await js(`(() => { const el = ${counter}; return el && el.offsetWidth > 0 ? ${counterColour} : null; })()`)) as string | null;
+  if (!light || !dark) return `the counter was not visible in ${light ? 'dark' : 'light'} mode`;
+  if (light === dark) return `the counter kept one colour in both themes (${light})`;
+
+  // A click lists what counts, with the footer line; a second click closes it.
+  await click('[data-focus-counter]');
+  const listed = await waitInPage(win, "document.querySelector('[data-focus-popover]')?.innerText.includes('free a place')", 2_000);
+  await pause();
+  await shot(win, 'focus-dark.png');
+  await click('[data-focus-counter]');
+  const closed = await waitInPage(win, "!document.querySelector('[data-focus-popover]')", 2_000);
+
+  // Back to how it was: the system theme, Nudge, and the limit off.
+  await click('[data-color-scheme="system"]');
+  await section('focus');
+  await click('[data-focus-mode="nudge"]');
+  await click('[data-focus-limit-switch]');
+  const hidden = await waitInPage(win, `!document.querySelector('[data-focus-options]') && !${counter}`, 2_000);
+  await click('[data-close-settings]');
+  await waitInPage(win, "!document.querySelector('[data-settings]')", 2_000);
+  const restored = preferences.get();
+  if (!listed) return 'the counter did not open its list of sessions';
+  if (!closed) return 'a second click did not close the list';
+  if (!hidden) return 'turning it off did not hide the counter';
+  if (restored.focusLimit !== null || restored.focusMode !== 'nudge' || restored.colorScheme !== 'system') return `could not restore the defaults: ${JSON.stringify({ focusLimit: restored.focusLimit, focusMode: restored.focusMode, colorScheme: restored.colorScheme })}`;
+  return `ok (light ${light}, dark ${dark})`;
 }
 
 /**
@@ -2192,6 +2268,7 @@ async function runSmokeStep(win: BrowserWindow | null): Promise<void> {
     if (usageBand) await shot(win, 'usage.png');
     quitGuarded = await runQuitStep(win);
     settingsResult = await runSettingsStep(win).catch((error: Error) => `failed: ${error.message}`);
+    focusResult = await runFocusStep(win).catch((error: Error) => `failed: ${error.message}`);
     terminalOpened = await runTerminalStep(win);
     terminalLayoutResult = await runTerminalLayoutStep(win).catch((error: Error) => `failed: ${error.message}`);
     actionRan = await runActionStep(win);
@@ -2250,6 +2327,7 @@ async function runSmokeStep(win: BrowserWindow | null): Promise<void> {
         terminalOpened,
         quitGuarded,
         settingsResult,
+        focusResult,
         actionRan,
         actionTerminalResult,
         terminalLayoutResult,

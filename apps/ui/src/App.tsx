@@ -2,6 +2,8 @@ import { useEffect } from 'react';
 import { NewSessionView } from './components/newSession/NewSessionView.tsx';
 import { HomeView } from './components/home/HomeView.tsx';
 import { TooltipLayer } from './components/ui/Tooltip.tsx';
+import { ToastLayer } from './components/ui/Toast.tsx';
+import { FocusGateDialog } from './components/focus/FocusGateDialog.tsx';
 import { useOpenIn } from './components/OpenInButton.tsx';
 import { LinkError } from './components/LinkError.tsx';
 import { QuitPrompt } from './components/QuitPrompt.tsx';
@@ -16,6 +18,7 @@ import { Sidebar } from './components/sidebar/Sidebar.tsx';
 import { TranscriptView } from './components/transcript/TranscriptView.tsx';
 import { useReadyReport } from './engine/useReadyReport.ts';
 import { isActiveHost, useHosts } from './state/hostsStore.ts';
+import { useLaterSync } from './state/laterStore.ts';
 import { useLinksSync } from './state/linksStore.ts';
 import { useSessions, type Pane } from './state/sessionsStore.ts';
 import { useOverlay } from './state/overlayStore.ts';
@@ -124,6 +127,7 @@ export function App() {
   useSidebarSync();
   useUsageSync();
   usePreferencesSync();
+  useLaterSync();
   // Listen for links before telling main the window is ready: main hands over waiting links then.
   useLinksSync();
   useReadyReport();
@@ -184,6 +188,8 @@ export function App() {
       {overlay === 'palette' && <CommandPalette />}
       {adding && <AddProjectDialog onClose={() => useProjects.getState().showAdd(false)} />}
       <BackupDialogs />
+      <FocusGateDialog />
+      <ToastLayer />
       <TooltipLayer />
     </div>
   );

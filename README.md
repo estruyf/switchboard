@@ -49,6 +49,7 @@ It uses the Claude Code you already have installed, with your login, settings, c
 
 **Stay on top of things**
 - A notification and Dock badge when a session needs you or finishes, so you can leave it running in the background.
+- An optional **focus limit**: how many sessions you want going at the same time, so starting another doesn't come at the cost of the ones already running. See [Focus limit](#focus-limit).
 - Your plan usage under the message box: how much of your 5-hour and weekly limits you've used (hover for when they reset).
 
 **Review and finish the work**
@@ -168,10 +169,27 @@ Open Settings with ⌘, or the gear at the bottom of the sidebar. While it is op
 - **Theme:** Match System, Light or Dark. The colours come from the [Demo Time theme](https://github.com/estruyf/vscode-demo-time-theme).
 - **Sidebar:** *Large icons* (easy to spot each project), *Standard*, or *Compact* (one line per session). *Show sessions from other apps* also lists sessions from the terminal, Claude desktop and your editor (off by default), and notifies you when a terminal session is waiting.
 - **Conversation:** *Summarised* (the default) shows each run of tool calls as one line, like Claude Code: what Claude is doing right now, or what it did, with how long it took. Click it to see the steps, and a step to see its details. *Every step* shows each tool call as its own card.
+- **Focus:** the [focus limit](#focus-limit): on or off, how many sessions at the same time (1 to 10, 3 to start with), *Nudge* or *Strict*, and whether sessions from the terminal and your editor count.
 - **Claude profiles:** use more than one Claude account, for example a personal plan and a work one. Each profile is a Claude Code config folder with its own login, settings, plugins and sessions (`~/.claude` is the first). Add one, sign in there once in a terminal with the command Settings shows (`CLAUDE_CONFIG_DIR=~/.claude-work claude`, then `/login`), and pick the default. *How to set up another profile* under the list walks through it step by step. Link a project to a profile from its menu or the Projects view; New session shows the profile a folder uses and lets you pick another for one session. With more than one profile, sessions show which account they use, and the usage band shows that account's limits.
 - **Backup:** export your settings to a file and import them again. See [Back up and move your settings](#back-up-and-move-your-settings).
 - **Diagnostics:** whether the engine is connected, which Claude Code it found, version numbers and the engine's recent log. Useful when something doesn't work.
 - **About:** the version you're running (and the commit it was built from, handy for bug reports), links to its release notes and the changelog, and the update controls: *Check for Updates*, automatic checks on or off, and the channel. The version also shows at the bottom of the Settings sidebar. Below them, the Claude Code that Switchboard runs: its version, path and how it was installed, the newest version, and an *Update* button when there is one.
+
+## Focus limit
+
+AI makes starting work easy, and every session you start is one more thing to keep up with. The focus limit helps you not start more than you can follow. Why it helps: [The AI chaos beast in your head](https://www.eliostruyf.com/ai-chaos-beast-head/).
+
+Turn it on in **Settings → Focus** and choose a number (1 to 10). A counter at the bottom of the sidebar shows how many sessions are going, for example `2 / 3`: neutral under the limit, yellow at it, pink over it. Click it to see which ones, sessions that need you first, and open one.
+
+**What counts.** A session counts while it's on your mind: Claude is **working** on it, it **needs you** (a question or a permission), or it **finished something you haven't read**. Reading the result or archiving the session frees its place; stopped sessions never count. By default only sessions you started or continued in Switchboard count. Turn on *Count terminal and IDE sessions* to also count Claude Code running in your terminal or editor.
+
+**At the limit**, New session lists the sessions that count, each with **Open**, and Start asks first:
+- **Nudge** (the default): you can start anyway.
+- **Strict**: finish, read or archive a session first, or save the prompt for later.
+
+Everything that starts work asks the same way: a message that brings back a session that isn't counted, a fork, a prompt action, or Claude in the terminal. Answering a session that already counts, stopping, archiving, reviewing changes and committing are never held up.
+
+**Later list.** *Save for later* keeps the prompt with its project and settings (model, effort, mode, branch or worktree) instead of starting it. Saved prompts are listed under **Later** in the sidebar and under *Later in <project>* in New session, newest first. Pick one (or **Use**) to fill in New session so you can check it before you start it; starting it takes it off the list. Removing one doesn't ask: **Undo** brings it back. Images you attached aren't saved with the prompt.
 
 ## Back up and move your settings
 
