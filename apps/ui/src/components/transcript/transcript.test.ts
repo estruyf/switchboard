@@ -123,6 +123,10 @@ describe('agent reports', () => {
 
   it('reads the agent id and the report, without the indent', () => {
     expect(agentReport(handBack)).toEqual({ agentId: 'ac19e09f62c5886f3', toolUseId: null, status: 'completed', title: 'Found **3 files**.', text: 'Found **3 files**.\n\n- a.txt' });
+    // The live stream sends the tag without the line before it.
+    const live = handBack.slice('Another Claude session sent a message:\n'.length);
+    expect(agentReport(live)).toEqual(agentReport(handBack));
+    expect(agentReport('Can you explain <agent-message from="x">hi</agent-message>?')).toBeNull();
     const notification =
       '<task-notification>\n<task-id>aa50</task-id>\n<tool-use-id>toolu_1</tool-use-id>\n<status>completed</status>\n<summary>Agent "List files" finished</summary>\n<result>79 files</result>\n</task-notification>';
     expect(agentReport(notification)).toEqual({ agentId: 'aa50', toolUseId: 'toolu_1', status: 'completed', title: 'Agent "List files" finished', text: '79 files' });

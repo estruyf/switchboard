@@ -59,7 +59,8 @@ export function agentReport(text: string): Report | null {
     const summary = field('summary') ?? 'Background task finished';
     return { agentId: taskId, toolUseId: field('tool-use-id'), status: field('status') ?? 'completed', title: summary, text: field('result') ?? summary };
   }
-  if (!/^Another Claude session sent a message:/.test(trimmed)) return null;
+  // The saved transcript puts a line before the tag; the live stream sends the tag on its own.
+  if (!/^(Another Claude session sent a message:\s*)?<agent-message from="/.test(trimmed)) return null;
   const match = AGENT_MESSAGE.exec(trimmed);
   if (!match) return null;
   const body = match[2]!;
