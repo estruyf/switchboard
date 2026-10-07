@@ -18,6 +18,20 @@ export function countdown(resetsAt: number, now = Date.now()): string {
   return `${mins}m`;
 }
 
+/**
+ * When a window resets, for the line after its meter: "3h 10m" or "45m" within a day, else the
+ * weekday ("Mon"). `locale` is for tests; the app uses the system's.
+ */
+export function resetLabel(resetsAt: number, now = Date.now(), locale?: string): string {
+  const minutes = Math.max(0, Math.round((resetsAt - now) / 60_000));
+  if (minutes < 1) return 'now';
+  if (minutes >= 24 * 60) return new Date(resetsAt).toLocaleDateString(locale, { weekday: 'short' });
+  const hours = Math.floor(minutes / 60);
+  const mins = minutes % 60;
+  if (!hours) return `${mins}m`;
+  return mins ? `${hours}h ${mins}m` : `${hours}h`;
+}
+
 /** The 5-hour and weekly windows, plus scoped ones once they're in use. */
 export function visibleLimits(limits: UsageLimit[]): UsageLimit[] {
   return limits.filter((l) => l.kind === 'session' || l.kind === 'weekly_all' || l.percent >= 1);

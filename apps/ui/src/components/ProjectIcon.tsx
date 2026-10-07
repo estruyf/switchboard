@@ -1,11 +1,63 @@
-import type { ProjectInfo } from '@switchboard/protocol/client';
+import { useEffect, useState } from 'react';
+import type { ProjectIcon as Icon, ProjectInfo } from '@switchboard/protocol/client';
 import { basename } from '../lib/format.ts';
+import { accentFromPixels, letterColor } from '../lib/projectColor.ts';
 
-/** Stable, readable colour per project name for the letter fallback. */
-export function letterColor(name: string): string {
-  let hash = 0;
-  for (const ch of name) hash = (hash * 31 + ch.charCodeAt(0)) >>> 0;
-  return `hsl(${hash % 360} 45% 42%)`;
+/** Sampled icon colours by icon (null: no clear colour), so each icon is drawn and read once. */
+const iconColors = new Map<string, Promise<string | null>>();
+
+/** The cache key of an icon: its picture or its emoji. */
+const iconKey = (icon: Icon) => (icon.kind === 'image' ? icon.dataUrl : `emoji:${icon.value}`);
+
+/** Draws an image or emoji icon small and reads the colour it shows. */
+function sampleIcon(icon: Icon): Promise<string | null> {
+  const key = iconKey(icon);
+  let color = iconColors.get(key);
+  if (!color) {
+    color = (async () => {
+      const canvas = document.createElement('canvas');
+      canvas.width = canvas.height = 32;
+      const ctx = canvas.getContext('2d', { willReadFrequently: true });
+      if (!ctx) return null;
+      if (icon.kind === 'image') {
+        const img = new Image();
+        img.src = icon.dataUrl;
+        await img.decode();
+        ctx.drawImage(img, 0, 0, 32, 32);
+      } else {
+        ctx.font = '28px "Apple Color Emoji", sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(icon.value, 16, 17);
+      }
+      return accentFromPixels(ctx.getImageData(0, 0, 32, 32).data);
+    })().catch(() => null);
+    iconColors.set(key, color);
+  }
+  return color;
+}
+
+/**
+ * The colour a project's icon shows, for borders and glows that point at it: the letter tile's
+ * colour, or the main colour of its image or emoji (the name's colour when that has none). Null
+ * without a folder.
+ */
+export function useProjectColor(project: ProjectInfo | undefined, root: string | null): string | null {
+  const icon = project?.icon ?? null;
+  // Compared by key: the projects list comes back as new objects on every reload.
+  const key = icon ? iconKey(icon) : null;
+  const [sampled, setSampled] = useState<{ key: string; color: string | null } | null>(null);
+  useEffect(() => {
+    if (!icon || !key) return;
+    let cancelled = false;
+    void sampleIcon(icon).then((color) => !cancelled && setSampled({ key, color }));
+    return () => {
+      cancelled = true;
+    };
+  }, [key]);
+  if (!root) return null;
+  const fallback = letterColor(project?.name ?? basename(root));
+  return (key && sampled?.key === key ? sampled.color : null) ?? fallback;
 }
 
 /** A project's icon: its image, its emoji, or its first letter on a coloured tile. */

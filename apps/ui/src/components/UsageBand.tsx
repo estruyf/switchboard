@@ -3,10 +3,10 @@ import { create } from 'zustand';
 import type { UsageLimit, UsageSnapshot } from '@switchboard/protocol/client';
 import type { EngineClient } from '../engine/connection.ts';
 import { useEngineConnection } from '../engine/useEngine.ts';
-import { useProfiles } from '../state/profilesStore.ts';
+import { useProfile, useProfiles } from '../state/profilesStore.ts';
 import { ProfileBadge, ProfileDot } from './profiles/ProfileBadge.tsx';
 import { Meter } from './ui/Meter.tsx';
-import { countdown, limitLabel, nextUsageEntry, spokenLimit, usageMessage, visibleLimits, type UsageEntry } from './usageFormat.ts';
+import { countdown, limitLabel, nextUsageEntry, resetLabel, spokenLimit, usageMessage, visibleLimits, type UsageEntry } from './usageFormat.ts';
 
 interface UsageState {
   /** Plan usage per Claude profile (each login has its own limits). No entry: not loaded yet. */
@@ -74,26 +74,65 @@ function footerLabel(limit: UsageLimit): string {
   return label.startsWith('7d') ? `Week${label.slice(2)}` : label;
 }
 
+/** A window's tooltip: when it resets, as a time and a countdown. */
+const resetTitle = (limit: UsageLimit, now: number) =>
+  limit.resetsAt
+    ? `Resets ${new Date(limit.resetsAt).toLocaleString(undefined, { weekday: 'short', hour: 'numeric', minute: '2-digit' })} (in ${countdown(limit.resetsAt, now)})`
+    : undefined;
+
 /**
  * Plan usage, like the claude-stats mod: one pill per window with a ring and a reset countdown.
  * Shows the limits of the given Claude profile (the default one when omitted).
  * `compact` drops the pills for a single line (`6% 5h · 4h44m`), for the new session's route tray.
  * `footer`: tiny bars (`5h ▬ 9%   Week ▬ 18%`) for the quiet line under a session's composer, reset times in the tooltips;
  * the profile is shown next to it by the caller.
+ * `tray`: the footer with the profile in front and when each window resets (`● Work  5h ▬ 9% · resets 3h 10m`),
+ * for New session. Its parent must be an `@container`: the reset times go first when it is narrow, then the bars.
  */
-export function UsageBand({ profileId, compact = false, footer = false }: { profileId?: string | null; compact?: boolean; footer?: boolean }) {
+export function UsageBand({ profileId, compact = false, footer = false, tray = false }: { profileId?: string | null; compact?: boolean; footer?: boolean; tray?: boolean }) {
   const defaultId = useProfiles((s) => s.defaultId);
   const id = profileId ?? defaultId;
+  const profile = useProfile(id);
   const usage = useUsageFor(id)?.usage;
   const [now, setNow] = useState(Date.now());
   useEffect(() => {
     const timer = setInterval(() => setNow(Date.now()), 30_000);
     return () => clearInterval(timer);
   }, []);
-  if (!usage) return null;
-  const limits = visibleLimits(usage.limits);
-  const extra = usage.extraUsage;
-  if (limits.length === 0) return null;
+  const limits = usage ? visibleLimits(usage.limits) : [];
+  const extra = usage?.extraUsage;
+  if (tray) {
+    // The profile shows at once, also while its usage loads: it is the answer to "which account?".
+    return (
+      <div role="group" aria-label="Plan usage" className="flex min-w-0 items-center gap-3 text-meta text-muted" data-usage-band data-usage-profile={id}>
+        {profile && (
+          <span className="flex min-w-0 items-center gap-1.5 whitespace-nowrap" data-tooltip={profile.account?.email ? `Claude profile: ${profile.name} (${profile.account.email})` : `Claude profile: ${profile.name}`} data-usage-profile-name>
+            <ProfileDot color={profile.color} />
+            <span className="truncate text-text">{profile.name}</span>
+          </span>
+        )}
+        {limits.map((limit) => (
+          <span key={`${limit.kind}:${limit.scope ?? ''}`} className="flex items-center gap-1.5 whitespace-nowrap" data-tooltip={resetTitle(limit, now)}>
+            <Meter percent={limit.percent} label={spokenLimit(limit, now)} showValue hideTrackNarrow="tight">
+              <span>{footerLabel(limit)}</span>
+            </Meter>
+            {/* The meter's label already says when it resets. */}
+            {limit.resetsAt && (
+              <span aria-hidden className="text-faint @max-[640px]:hidden" data-usage-reset>
+                · resets {resetLabel(limit.resetsAt, now)}
+              </span>
+            )}
+          </span>
+        ))}
+        {extra?.enabled && extra.usedCredits !== null && extra.usedCredits > 0 && (
+          <span className="whitespace-nowrap @max-[640px]:hidden" data-tooltip={extra.monthlyLimit !== null ? `Extra usage this month, of ${money(extra.monthlyLimit, extra.currency)}` : 'Extra usage this month'}>
+            <span className="text-ok">{money(extra.usedCredits, extra.currency)}</span> extra
+          </span>
+        )}
+      </div>
+    );
+  }
+  if (!usage || limits.length === 0) return null;
   // Each pill is a meter, read as one sentence ("5-hour limit: 6% used, resets in 4h3m") instead of "6% 5h".
   const meter = (limit: UsageLimit) => ({
     role: 'meter',
@@ -102,16 +141,12 @@ export function UsageBand({ profileId, compact = false, footer = false }: { prof
     'aria-valuemin': 0,
     'aria-valuemax': 100,
   });
-  const resetTitle = (limit: UsageLimit) =>
-    limit.resetsAt
-      ? `Resets ${new Date(limit.resetsAt).toLocaleString(undefined, { weekday: 'short', hour: 'numeric', minute: '2-digit' })} (in ${countdown(limit.resetsAt, now)})`
-      : undefined;
 
   if (footer) {
     return (
       <div role="group" aria-label="Plan usage" className="flex min-w-0 items-center gap-4 text-meta text-muted" data-usage-band data-usage-profile={id}>
         {limits.map((limit) => (
-          <Meter key={`${limit.kind}:${limit.scope ?? ''}`} percent={limit.percent} label={spokenLimit(limit, now)} showValue hideTrackNarrow data-tooltip={resetTitle(limit)}>
+          <Meter key={`${limit.kind}:${limit.scope ?? ''}`} percent={limit.percent} label={spokenLimit(limit, now)} showValue hideTrackNarrow data-tooltip={resetTitle(limit, now)}>
             <span>{footerLabel(limit)}</span>
           </Meter>
         ))}
@@ -132,7 +167,7 @@ export function UsageBand({ profileId, compact = false, footer = false }: { prof
             key={`${limit.kind}:${limit.scope ?? ''}`}
             {...meter(limit)}
             className="flex items-center gap-1.5 px-2.5 whitespace-nowrap first:pl-0 last:pr-0"
-            data-tooltip={resetTitle(limit)}
+            data-tooltip={resetTitle(limit, now)}
           >
             <Meter kind="ring" size="md" percent={limit.percent} />
             <span className="font-semibold text-muted tabular-nums">{Math.round(limit.percent)}%</span>
@@ -154,7 +189,7 @@ export function UsageBand({ profileId, compact = false, footer = false }: { prof
           key={`${limit.kind}:${limit.scope ?? ''}`}
           {...meter(limit)}
           className="flex h-7 items-center gap-1.5 rounded-full border border-border bg-card px-2.5 text-ui"
-          data-tooltip={resetTitle(limit)}
+          data-tooltip={resetTitle(limit, now)}
         >
           <Meter kind="ring" size="md" percent={limit.percent} />
           <span className="font-semibold tabular-nums">{Math.round(limit.percent)}%</span>

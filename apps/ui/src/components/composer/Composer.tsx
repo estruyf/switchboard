@@ -41,6 +41,8 @@ export interface ComposerProps {
   submitHint?: string;
   /** A taller prompt that is the main thing on screen. */
   large?: boolean;
+  /** The card's border colour in place of the theme's (New session: the picked project's). */
+  frameColor?: string | null;
   /** Say next to the attach button that images can be pasted or dropped (an empty session). */
   dropHint?: boolean;
   /** Called with the prompt's text whenever it changes (typing, completions, presets, sending). */
@@ -322,7 +324,10 @@ export function Composer(props: ComposerProps) {
       )}
 
       {/* Disabled dims the text, not the card: the chips' menus open from inside it and must stay readable. */}
-      <div className={`rounded-xl border border-border bg-card px-3 pt-2.5 pb-2 shadow-sm transition-colors ${disabled ? '' : 'focus-within:border-accent-ink/60'}`}>
+      <div
+        className={`rounded-xl border border-border bg-card px-3 pt-2.5 pb-2 shadow-sm transition-colors ${disabled ? '' : 'focus-within:border-accent-ink/60'}`}
+        style={props.frameColor ? { borderColor: props.frameColor } : undefined}
+      >
         {attachments.length > 0 && (
           <div className="mb-2 flex flex-wrap gap-2">
             {attachments.map((a, i) => (

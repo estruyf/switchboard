@@ -12,8 +12,11 @@ interface MeterProps extends Omit<HTMLAttributes<HTMLElement>, 'children'> {
   label?: string;
   /** Show the percentage after the graphic (`md`: at the end of the caption line). */
   showValue?: boolean;
-  /** Drop the graphic in a narrow pane and keep the number. */
-  hideTrackNarrow?: boolean;
+  /**
+   * Drop the graphic when its container is narrow and keep the number: `true` below 860px (a session
+   * pane), `'tight'` below 480px (a small container of its own, such as New session's footer).
+   */
+  hideTrackNarrow?: boolean | 'tight';
   /** A caption before the graphic (`md`: the line above the bar). */
   children?: ReactNode;
   'data-tooltip'?: string;
@@ -28,7 +31,7 @@ export function Meter({ percent, kind = 'bar', size = 'sm', label, showValue = f
   const a11y = label
     ? { role: 'meter', 'aria-label': label, 'aria-valuenow': Math.round(clampPercent(percent)), 'aria-valuemin': 0, 'aria-valuemax': 100 }
     : { 'aria-hidden': true };
-  const narrow = hideTrackNarrow ? '@max-[860px]:hidden' : '';
+  const narrow = hideTrackNarrow === 'tight' ? '@max-[480px]:hidden' : hideTrackNarrow ? '@max-[860px]:hidden' : '';
   const value = showValue && <span className={`tabular-nums ${size === 'md' ? 'font-semibold' : ''} ${valueTone(percent)}`}>{formatPercent(percent)}</span>;
 
   if (kind === 'ring') {

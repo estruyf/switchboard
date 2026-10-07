@@ -24,7 +24,7 @@ import { Kbd } from '../ui/Kbd.tsx';
 import { Notice } from '../ui/Notice.tsx';
 import { SectionHeader } from '../ui/SectionHeader.tsx';
 import { Switch } from '../ui/Toggle.tsx';
-import { ProjectIcon } from '../ProjectIcon.tsx';
+import { ProjectIcon, useProjectColor } from '../ProjectIcon.tsx';
 import { OpenInButton } from '../OpenInButton.tsx';
 import { UsageBand } from '../UsageBand.tsx';
 import { linkNoticeText } from './linkNotice.ts';
@@ -111,7 +111,8 @@ export function NewSessionView() {
   const defaultsKey = JSON.stringify(projectDefaults);
   const projectProfile = project?.profileId && profiles.some((p) => p.id === project.profileId) ? project.profileId : null;
   const profileId = (profileOverride && profiles.some((p) => p.id === profileOverride) ? profileOverride : null) ?? projectProfile ?? defaultProfile;
-  const profile = profiles.find((p) => p.id === profileId);
+  /** The picked folder's colour: the message box's frame, matching its tile. */
+  const projectColor = useProjectColor(project, cwd);
   const lastBranches = useMemo(() => latestBranches(sessions.values()), [sessions]);
   // The sessions the sidebar lists (sessions from other apps only when the scope shows them): the
   // tiles' status lines and "Pick up in" come from these.
@@ -460,9 +461,18 @@ export function NewSessionView() {
             openRequest={pickerRequest}
           />
 
-          {/* The message box with its route strip on top: the strip's bottom edge is the card's top border. */}
-          <div className="[&>div>.rounded-xl]:rounded-t-none">
-            <div className="flex min-h-10 min-w-0 items-center gap-1 rounded-t-xl border border-b-0 border-border bg-border/25 px-1.5 py-1" data-route-tray>
+          {/* The message box with its route strip on top: the strip's bottom edge is the card's top border.
+              With a folder picked, the whole card takes its project's colour, with a faint ring around it. */}
+          <div
+            className="rounded-xl transition-shadow [&>div>.rounded-xl]:rounded-t-none"
+            style={projectColor ? { boxShadow: `0 0 0 4px color-mix(in srgb, ${projectColor} 14%, transparent)` } : undefined}
+            data-project-color={projectColor ?? undefined}
+          >
+            <div
+              className="flex min-h-10 min-w-0 items-center gap-1 rounded-t-xl border border-b-0 border-border bg-border/25 px-1.5 py-1 transition-colors"
+              style={projectColor ? { borderColor: projectColor } : undefined}
+              data-route-tray
+            >
               {/* Where and branch depend on the folder: until there is one, say why instead of showing empty controls. */}
               {!cwd ? (
                 <span className="min-w-0 flex-1 px-1.5 py-0.5 text-ui text-muted" data-route-placeholder data-route-hint>
@@ -601,6 +611,7 @@ export function NewSessionView() {
               submitLabel="Start session"
               submitHint="⌘↵"
               large
+              frameColor={projectColor}
               autoFocus
               focusRequest={focusRequest}
               preset={preset}
@@ -611,10 +622,11 @@ export function NewSessionView() {
             />
           </div>
 
-          <div className="-mt-2 flex min-h-5 items-center justify-between gap-4 px-2 text-meta text-muted" data-tray-footer>
+          {/* A container: as the column narrows, the usage drops its reset times, then its bars. */}
+          <div className="@container -mt-2 flex min-h-5 items-center justify-between gap-4 px-2 text-meta text-muted" data-tray-footer>
             <span className="flex min-w-0 items-center">{notice}</span>
-            <span className="shrink-0">
-              <UsageBand footer profileId={profileId} />
+            <span className="min-w-0 shrink-0">
+              <UsageBand tray profileId={profileId} />
             </span>
           </div>
 

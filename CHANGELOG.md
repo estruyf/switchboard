@@ -4,6 +4,11 @@ All notable changes to Switchboard are listed here. Each release is also on the 
 
 ## [Unreleased]
 
+### Improved
+
+- **New session shows where you are working.** Each project tile is one row with its icon, name, status and ⌘ shortcut. The project you pick, and the message box around your prompt, take that project's colour.
+- **See when your plan limits reset.** Under the message box in New session, the usage line starts with the Claude profile you picked and says when the 5-hour and weekly limits reset. It follows the profile you choose.
+
 ### Fixes
 
 - **Fetch, Pull, Push and project actions show what they run.** Their terminal tab starts with the command and ends with a **Done** line (or the exit code), so a command that prints nothing, like a fetch with nothing new, no longer looks like it never ran.

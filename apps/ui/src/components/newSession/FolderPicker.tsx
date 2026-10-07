@@ -1,8 +1,8 @@
-import { FolderPlus, Plus, Search } from 'lucide-react';
+import { FolderPlus, Search } from 'lucide-react';
 import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent } from 'react';
 import { basename, tildify } from '../../lib/format.ts';
 import { useProjects } from '../../state/projectsStore.ts';
-import { ProjectIcon } from '../ProjectIcon.tsx';
+import { ProjectIcon, useProjectColor } from '../ProjectIcon.tsx';
 import { Button } from '../ui/Button.tsx';
 import { Kbd } from '../ui/Kbd.tsx';
 import { filterFolders, quickTiles, type TileTone } from './projectTiles.ts';
@@ -13,6 +13,8 @@ const QUICK = 4;
 
 const TONE_DOT: Record<TileTone, string> = { 'needs-you': 'bg-warn animate-pulse', working: 'bg-accent-ink', idle: 'bg-faint/60' };
 const TONE_TEXT: Record<TileTone, string> = { 'needs-you': 'text-warn', working: 'text-accent-ink', idle: 'text-muted' };
+/** One row per tile: icon, name over status, shortcut. In a narrow column the shortcut goes, then the icon moves above the name. */
+const TILE = 'flex min-w-0 items-center gap-2 rounded-lg border p-2.5 text-left transition-[background-color,border-color,box-shadow,translate] @max-[600px]:flex-col @max-[600px]:items-start @max-[600px]:gap-1.5';
 
 /**
  * Where a new session starts: the four most recent projects as tiles, and a fifth tile that opens all
@@ -54,6 +56,8 @@ export function FolderPicker({
   const id = useId();
   const optionId = (index: number) => `${id}-option-${index}`;
   const nameOf = (folder: string) => projects.get(folder)?.name ?? basename(folder);
+  /** The picked project's colour: its tile's border and shadow. */
+  const valueColor = useProjectColor(value ? projects.get(value) : undefined, value);
 
   const quick = useMemo(() => quickTiles(folders, value, QUICK), [folders, value]);
   const options = useMemo(() => {
@@ -139,27 +143,35 @@ export function FolderPicker({
         data-tooltip={`${tildify(folder, home)}${branch ? ` · ${branch}` : ''}`}
         onMouseMove={open ? () => setActive(index) : undefined}
         onClick={() => (open ? pick(index) : choose(folder))}
-        className={`flex min-w-0 flex-col gap-1.5 rounded-lg border p-2.5 text-left transition-colors ${
-          selected ? 'border-accent-ink/70 bg-selected' : highlighted ? 'border-border bg-border/45' : 'border-border bg-card hover:bg-border/45'
-        }`}
+        // The picked tile wears its project's colour, lifted a pixel, the same colour as the message box's frame.
+        style={selected && valueColor ? { borderColor: valueColor, boxShadow: `0 6px 14px -6px color-mix(in srgb, ${valueColor} 55%, transparent)` } : undefined}
+        className={`${TILE} ${selected ? '-translate-y-px bg-selected' : highlighted ? 'border-border bg-border/45' : 'border-border bg-card hover:bg-border/45'}`}
       >
-        <span className="flex items-center justify-between gap-2">
-          <ProjectIcon project={projects.get(folder)} root={folder} size={24} />
-          {index < 9 && <Kbd keys={`⌘${index + 1}`} tone="plain" />}
+        <ProjectIcon project={projects.get(folder)} root={folder} size={24} />
+        <span className="grid min-w-0 flex-1 content-start gap-0.5 @max-[600px]:w-full">
+          <span className="truncate text-ui font-semibold text-text">{nameOf(folder)}</span>
+          <span className={`flex min-w-0 items-center gap-1.5 text-meta ${TONE_TEXT[status.tone]}`}>
+            <span aria-hidden className={`size-1.5 shrink-0 rounded-full ${TONE_DOT[status.tone]}`} />
+            <span className="truncate">{status.label}</span>
+          </span>
         </span>
-        <span className="block truncate text-ui font-semibold text-text">{nameOf(folder)}</span>
-        <span className={`flex min-w-0 items-center gap-1.5 text-meta ${TONE_TEXT[status.tone]}`}>
-          <span aria-hidden className={`size-1.5 shrink-0 rounded-full ${TONE_DOT[status.tone]}`} />
-          <span className="truncate">{status.label}</span>
-        </span>
+        {index < 9 && <Kbd keys={`⌘${index + 1}`} tone="plain" className="@max-[680px]:hidden" />}
       </button>
     );
   };
 
-  const dashed = 'flex min-w-0 flex-col items-center justify-center gap-1 rounded-lg border border-dashed border-border p-2.5 text-center text-ui text-muted hover:bg-border/45 hover:text-text';
+  const dashed = `${TILE} border-dashed border-border text-muted hover:bg-border/45 hover:text-text`;
+  /** The dashed tile's two lines, like a project's name and status. */
+  const dashedText = (label: string, hint: string) => (
+    <span className="grid min-w-0 flex-1 content-center gap-0.5 @max-[600px]:w-full">
+      <span className="truncate text-ui font-semibold">{label}</span>
+      <span className="truncate text-meta text-faint">{hint}</span>
+    </span>
+  );
 
   return (
-    <div className="grid gap-2" data-project-header>
+    // A container: the tiles drop their shortcut, then stack, as the column narrows.
+    <div className="@container grid gap-2" data-project-header>
       {open ? (
         <div className="grid gap-2" data-folder-list>
           <label className="flex h-8 items-center gap-2 rounded-lg border border-border bg-card px-2.5 focus-within:border-accent-ink/60">
@@ -208,8 +220,10 @@ export function FolderPicker({
               onClick={() => pick(options.length)}
               className={`${dashed} ${active === options.length ? 'bg-border/45 text-text' : ''}`}
             >
-              <FolderPlus size={16} aria-hidden />
-              Other folder…
+              <span className="flex size-6 shrink-0 items-center justify-center">
+                <FolderPlus size={16} aria-hidden />
+              </span>
+              {dashedText('Other folder…', 'or type a path above')}
             </button>
           </div>
           {options.length === 0 && <p className="px-1 text-meta text-muted">No project matches.</p>}
@@ -229,8 +243,17 @@ export function FolderPicker({
             onClick={() => setOpen(true)}
             className={dashed}
           >
-            {more > 0 ? <Plus size={16} aria-hidden /> : <Search size={15} aria-hidden />}
-            {more > 0 ? `${more} more projects` : quick.length ? 'Other folder…' : 'Choose a folder…'}
+            {/* "+3 more projects" says it all, so it gets the whole width; the folder choices keep an icon. */}
+            {more > 0 ? (
+              dashedText(`+${more} more projects`, 'or just type a name')
+            ) : (
+              <>
+                <span className="flex size-6 shrink-0 items-center justify-center">
+                  <Search size={15} aria-hidden />
+                </span>
+                {dashedText(quick.length ? 'Other folder…' : 'Choose a folder…', quick.length ? 'or just type a name' : 'or type a path')}
+              </>
+            )}
           </button>
         </div>
       )}
