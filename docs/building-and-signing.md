@@ -80,8 +80,9 @@ The configuration is in [`apps/desktop/electron-builder.yml`](../apps/desktop/el
 
 [`.github/workflows/release.yml`](../.github/workflows/release.yml) runs when a release is published on GitHub. To release:
 
-1. Add a `## [X.Y.Z] - YYYY-MM-DD` section to [`CHANGELOG.md`](../CHANGELOG.md), written for people using the app, and push it.
-2. On GitHub, create a release with a new tag `vX.Y.Z` (Releases → Draft a new release) and publish it. You can leave the notes empty.
+1. Add a `## [X.Y.Z] - YYYY-MM-DD` section to [`CHANGELOG.md`](../CHANGELOG.md), written for people using the app.
+2. Retake the README screenshots with `npm run screenshots` (see [README screenshots](development.md#readme-screenshots)) and look at each one: does it still match the app and the README text, and does it show what this release changed? A failing run means a view in the tour has changed; fix the tour instead of keeping the old pictures. Commit the images with the CHANGELOG and push.
+3. On GitHub, create a release with a new tag `vX.Y.Z` (Releases → Draft a new release) and publish it. You can leave the notes empty.
 
 The workflow then:
 

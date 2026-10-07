@@ -50,7 +50,9 @@ npm run screenshots
 
 Builds the app and takes the screenshots in the README, in light and dark mode, into `docs/screenshots`. It runs against a made-up home folder (`apps/desktop/scripts/screenshot-demo.ts`): a few small git projects, their Claude Code sessions, and two sleeping processes in the live registry that stand in for sessions working and waiting in a terminal. `HOME` and `CLAUDE_CONFIG_DIR` both point there, so your own projects and transcripts never show up, and Claude Code finds no login, so nothing is sent. `apps/desktop/src/main/screenshotTour.ts` walks through the views; `scripts/screenshot-frame.mjs` puts each one in a window frame on a backdrop. The unframed captures stay in `apps/desktop/.screenshots`.
 
-Run it again after a visible UI change. To add a view, add a step to the tour and the image to the README.
+Run it again after a visible UI change, and always before a release (it is a step in [Releasing](building-and-signing.md#releasing-automated-in-github-actions)). The tour waits for each view's `data-` hooks and fails when one is gone, so a failing run means the tour is out of date with the UI. To add a view, add a step to the tour and the image to the README.
+
+From VS Code's terminal it needs Node 24 on the PATH (the script itself unsets `ELECTRON_RUN_AS_NODE` for Electron).
 
 Tests that call the real Claude Code (a few cents of Haiku each) are opt-in and need a throwaway git repo:
 
