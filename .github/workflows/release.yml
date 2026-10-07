@@ -9,6 +9,8 @@
 # is the Nightly feed (nightly-mac.yml). Any other pre-release gets the .dmg and .zip but no feed, so
 # no one is ever updated to it.
 #
+# A Stable release also updates the Homebrew cask in estruyf/homebrew-tap (docs/homebrew.md).
+#
 # Nothing is ever attached unsigned: without the signing secrets the run fails.
 # See docs/building-and-signing.md for the secrets.
 name: Release
@@ -169,3 +171,18 @@ jobs:
           else
             echo "::warning::CHANGELOG.md has no section for $VERSION; the release notes stay empty."
           fi
+
+      # What makes `brew install --cask estruyf/tap/switchboard` resolve. Only the Stable feed belongs in
+      # the tap: a cask carries one version, and a pre-release would reach everyone running
+      # `brew upgrade --greedy` while releases/latest still points elsewhere. Last, so a tap failure
+      # never leaves a release without its notes.
+      - name: Update the Homebrew tap
+        if: env.FEED == 'latest'
+        env:
+          HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+        run: |
+          if [ -z "${HOMEBREW_TAP_TOKEN:-}" ]; then
+            echo "::warning::HOMEBREW_TAP_TOKEN is not set, so the tap still serves the previous version. Run homebrew/publish-cask.sh --push by hand (docs/homebrew.md)."
+            exit 0
+          fi
+          ./homebrew/publish-cask.sh --push

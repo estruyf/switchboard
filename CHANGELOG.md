@@ -11,6 +11,7 @@ All notable changes to Switchboard are listed here. Each release is also on the 
 
 ### Improved
 
+- **Install with Homebrew.** `brew install --cask estruyf/tap/switchboard` installs the same signed app as the download, and the tap follows every release.
 - **New session shows where you are working.** Each project tile is one row with its icon, name, status and ⌘ shortcut. The project you pick, and the message box around your prompt, take that project's colour.
 - **See when your plan limits reset.** Under the message box in New session, the usage line starts with the Claude profile you picked and says when the 5-hour and weekly limits reset. It follows the profile you choose.
 - **The terminal panel is its own layer.** It has a darker background with a soft shadow, a handle you can see and grab (or use the arrow keys), and room around the prompt. Tabs show a dot while an action runs and the exit code when something failed; the close button stays on the selected tab.

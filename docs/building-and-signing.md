@@ -93,6 +93,7 @@ The workflow then:
 5. attaches `Switchboard-X.Y.Z-arm64.dmg`, the `.zip` and its `.blockmap` to the release, then the update feed (`latest-mac.yml`) last, so the feed never points at a file that isn't there yet;
 6. fails if a `latest*.yml` ended up on a draft or pre-release;
 7. fills in the release notes from the CHANGELOG section, if you left them empty. The in-app updater shows these notes (cleaned up and shortened) for the new version.
+8. for a Stable release, stamps the Homebrew cask with the version and the `.zip`'s checksum and pushes it to [estruyf/homebrew-tap](https://github.com/estruyf/homebrew-tap) (see [Homebrew](homebrew.md)).
 
 Everyone on the Stable channel is offered the release within a few hours, or straight away with **Check for Updates…**.
 
@@ -117,6 +118,7 @@ Add these repository secrets (Settings → Secrets and variables → Actions):
 | `APPLE_ID` | The Apple ID of your developer account |
 | `APPLE_APP_SPECIFIC_PASSWORD` | An app-specific password for it ([account.apple.com](https://account.apple.com) → Sign-In and Security → App-Specific Passwords) |
 | `APPLE_TEAM_ID` | Your team ID (the 10 characters in brackets after your name in the certificate) |
+| `HOMEBREW_TAP_TOKEN` | A fine-grained token with *Contents: read and write* on `estruyf/homebrew-tap` only. Without it the release still succeeds and the tap keeps the previous version (see [Homebrew](homebrew.md)) |
 
 `MAC_CERTIFICATE_PASSWORD` may be left out only if the `.p12` was exported without a password.
 

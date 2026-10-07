@@ -101,6 +101,14 @@ It uses the Claude Code you already have installed, with your login, settings, c
 
 Download the `.dmg` from the [latest release](https://github.com/estruyf/switchboard/releases/latest), open it and drag Switchboard to Applications.
 
+Or install it with [Homebrew](https://brew.sh):
+
+```bash
+brew install --cask estruyf/tap/switchboard
+```
+
+Switchboard updates itself, so `brew upgrade` skips it; `brew upgrade --cask estruyf/tap/switchboard` updates it through Homebrew instead.
+
 Or build it from this repository, which takes a couple of minutes. You need Node 24 or later.
 
 ```bash
@@ -210,6 +218,7 @@ Switchboard reads the session files Claude Code already keeps in `~/.claude` (an
 - [Links](docs/deep-links.md): open Switchboard from a `switchboard://` URL, with examples for the shell, READMEs, Raycast, Alfred and alerts.
 - [Building, signing and notarisation](docs/building-and-signing.md): packaging the app, and signing it with an Apple Developer ID.
 - [Development](docs/development.md): running from source, tests, and how the code is organised.
+- [Homebrew](docs/homebrew.md): the cask and how each release updates the tap.
 - [Changelog](CHANGELOG.md): what's new in each release.
 - [Plan](PLAN.md): the roadmap and design decisions.
 
