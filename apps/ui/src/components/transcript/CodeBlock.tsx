@@ -37,9 +37,9 @@ export const CodeBlock = memo(function CodeBlock({ code, language }: { code: str
       {language && <span className="absolute top-1 right-2 text-[10px] text-faint uppercase select-none">{language}</span>}
       {html ? (
         // Shiki escapes the code; the HTML is spans with colour variables only.
-        <div className="overflow-x-auto px-3 py-2 font-mono text-[12px] leading-relaxed select-text" dangerouslySetInnerHTML={{ __html: html }} />
+        <div className="overflow-x-auto px-3 py-2 font-mono text-ui leading-relaxed select-text" dangerouslySetInnerHTML={{ __html: html }} />
       ) : (
-        <pre className="overflow-x-auto px-3 py-2 font-mono text-[12px] leading-relaxed select-text">
+        <pre className="overflow-x-auto px-3 py-2 font-mono text-ui leading-relaxed select-text">
           <code>{code}</code>
         </pre>
       )}

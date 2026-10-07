@@ -16,4 +16,25 @@ describe('parseUnifiedDiff', () => {
   it('notes binary files', () => {
     expect(parseUnifiedDiff('diff --git a/x.png b/x.png\nBinary files a/x.png and b/x.png differ\n')).toEqual([{ kind: 'note', text: 'Binary file' }]);
   });
+
+  it('reads an empty line inside a hunk as a blank context line', () => {
+    // git with diff.suppressBlankEmpty writes a blank context line as '' instead of ' '.
+    const diff = ['@@ -1,4 +1,4 @@', ' one', '', '-three', '+THREE', ' four', ''].join('\n');
+    expect(parseUnifiedDiff(diff)).toEqual([
+      { kind: 'hunk', text: '' },
+      { kind: 'same', text: 'one', oldLine: 1, newLine: 1 },
+      { kind: 'same', text: '', oldLine: 2, newLine: 2 },
+      { kind: 'del', text: 'three', oldLine: 3, newLine: null },
+      { kind: 'add', text: 'THREE', oldLine: null, newLine: 3 },
+      { kind: 'same', text: 'four', oldLine: 4, newLine: 4 },
+    ]);
+  });
+
+  it('takes a hunk header without counts as one line', () => {
+    expect(parseUnifiedDiff('@@ -3 +3 @@\n-a\n+b\n')).toEqual([
+      { kind: 'hunk', text: '' },
+      { kind: 'del', text: 'a', oldLine: 3, newLine: null },
+      { kind: 'add', text: 'b', oldLine: null, newLine: 3 },
+    ]);
+  });
 });

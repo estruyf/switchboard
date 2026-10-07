@@ -17,7 +17,7 @@ function CommandToCopy({ command }: { command: string }) {
   }, [copied]);
   return (
     <div className="flex items-center gap-2 rounded-md border border-border bg-card py-1 pr-1 pl-2.5" data-claude-update-command>
-      <code className="min-w-0 flex-1 truncate font-mono text-[12px]">{command}</code>
+      <code className="min-w-0 flex-1 truncate font-mono text-ui">{command}</code>
       <Button
         variant="quiet"
         size="sm"
@@ -69,7 +69,7 @@ export function ClaudeCodeUpdates({ now }: { now: number }) {
       <div className="flex items-start gap-3">
         <div className="min-w-0 flex-1">
           <h3 className="text-[12.5px] font-medium">Claude Code</h3>
-          <p role="status" className={`mt-0.5 text-[12px] ${failed ? 'text-error' : 'text-muted'}`} data-claude-update-text>
+          <p role="status" className={`mt-0.5 text-ui ${failed ? 'text-error' : 'text-muted'}`} data-claude-update-text>
             {claudeUpdateStatusText(state)}
           </p>
           {state.quiet && state.status === 'available' && <p className="mt-0.5 text-[11.5px] text-muted">Claude Code’s own auto-updater is turned off, so Switchboard doesn’t show a notice for it.</p>}
@@ -88,11 +88,11 @@ export function ClaudeCodeUpdates({ now }: { now: number }) {
       </div>
 
       {state.path && (
-        <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-[12px]" data-claude-install>
+        <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-ui" data-claude-install>
           <Row label="Installed">
             <span data-claude-installed-version={state.installedVersion ?? ''}>{state.installedVersion ? `v${state.installedVersion}` : 'unknown version'}</span>
           </Row>
-          <Row label="Latest">{state.latestVersion ? `v${state.latestVersion} (${state.channel})` : '—'}</Row>
+          <Row label="Latest">{state.latestVersion ? `v${state.latestVersion} (${state.channel})` : 'Unknown'}</Row>
           <Row label="Installed with">{INSTALL_METHOD_LABEL[state.method]}</Row>
           <Row label="Path">
             <span className="font-mono text-[11.5px]" data-tooltip={state.path}>
@@ -104,14 +104,14 @@ export function ClaudeCodeUpdates({ now }: { now: number }) {
 
       {showManual && (
         <div className="grid gap-1.5" data-claude-update-manual>
-          <p className="text-[12px] text-muted">{state.manualReason} Run this in a terminal:</p>
+          <p className="text-ui text-muted">{state.manualReason} Run this in a terminal:</p>
           <CommandToCopy command={state.command!} />
         </div>
       )}
 
       {(state.status === 'updating' || state.output) && <UpdateOutput output={state.output} running={state.status === 'updating'} />}
       {refused && (
-        <p role="alert" className="text-[12px] text-error">
+        <p role="alert" className="text-ui text-error">
           {refused}
         </p>
       )}

@@ -1,6 +1,6 @@
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join, relative } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { DatabaseSync } from 'node:sqlite';
 import { openCacheDatabase } from '../db/database.ts';
@@ -33,6 +33,24 @@ describe('detectIconPath', () => {
     file(join(root, 'media', 'brand.png'), 'png');
     writeFileSync(join(root, 'package.json'), JSON.stringify({ icon: 'media/brand.png' }));
     expect(detectIconPath(root)).toBe(join(root, 'media', 'brand.png'));
+  });
+
+  it('ignores a declared icon outside the project folder', () => {
+    const outside = tempDir();
+    file(join(outside, 'secret.png'), 'png');
+    const root = tempDir();
+    writeFileSync(join(root, '.switchboard.json'), JSON.stringify({ iconPath: join('..', relative(dirname(root), outside), 'secret.png') }));
+    expect(detectIconPath(root)).toBeNull();
+    writeFileSync(join(root, '.switchboard.json'), JSON.stringify({ iconPath: join(outside, 'secret.png') }));
+    expect(detectIconPath(root)).toBeNull();
+    // Nor through a link inside the project that points out of it.
+    mkdirSync(join(root, 'public'));
+    symlinkSync(join(outside, 'secret.png'), join(root, 'public', 'favicon.png'));
+    expect(detectIconPath(root)).toBeNull();
+    // A workspace package may use the monorepo's shared icon.
+    file(join(root, 'media', 'icon.svg'));
+    file(join(root, 'packages', 'app', 'package.json'), JSON.stringify({ icon: '../../media/icon.svg' }));
+    expect(detectIconPath(root)).toBe(join(root, 'media', 'icon.svg'));
   });
 
   it('skips files that are too large to send', () => {

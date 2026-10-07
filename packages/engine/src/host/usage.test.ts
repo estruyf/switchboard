@@ -110,3 +110,75 @@ describe('UsageMonitor', () => {
     monitor.stop();
   });
 });
+
+describe('UsageMonitor retries', () => {
+  /** A fake Claude Code that answers `/usage` with `answer()`, or never answers when it returns `hang`. */
+  const fakeSdk = (answer: () => unknown, counters: { fetches: number; closed: number }): SdkRuntime => ({
+    query: ({ prompt }) => {
+      let wake: (() => void) | undefined;
+      let closed = false;
+      return {
+        async *[Symbol.asyncIterator]() {
+          for await (const _ of prompt) {
+            counters.fetches++;
+            const report = answer();
+            if (report === 'hang') {
+              while (!closed) await new Promise<void>((resolve) => (wake = resolve));
+              return;
+            }
+            yield { type: 'assistant', message: { content: [] }, usage_report: report };
+            yield { type: 'result', subtype: 'success' };
+            return;
+          }
+        },
+        close: () => {
+          counters.closed++;
+          closed = true;
+          wake?.();
+        },
+      } as never;
+    },
+    startup: async () => ({}) as never,
+  });
+  const monitorFor = (sdk: SdkRuntime, extra: { retryMs?: number; timeoutMs?: number } = {}) =>
+    new UsageMonitor({
+      sdk: async () => sdk,
+      env: async () => ({}),
+      claudePath: async () => '/bin/claude',
+      onChange: () => {},
+      log: () => {},
+      ephemeral: { add: () => {}, delete: () => {} },
+      ...extra,
+    });
+
+  it('retries a miss once, not forever', async () => {
+    const counters = { fetches: 0, closed: 0 };
+    const monitor = monitorFor(fakeSdk(() => null, counters), { retryMs: 10 });
+    await monitor.get(false);
+    await new Promise((resolve) => setTimeout(resolve, 120));
+    expect(counters.fetches).toBe(2);
+    monitor.stop();
+  });
+
+  it('starts nothing after stop()', async () => {
+    const counters = { fetches: 0, closed: 0 };
+    const monitor = monitorFor(fakeSdk(() => null, counters), { retryMs: 10 });
+    // Stopped while the fetch is still running: its miss must not arm a retry, and nudges are ignored.
+    const pending = monitor.get(false);
+    monitor.stop();
+    await pending;
+    monitor.nudge();
+    await new Promise((resolve) => setTimeout(resolve, 80));
+    expect(counters.fetches).toBe(1);
+  });
+
+  it('says when Claude Code took too long, and closes the helper', async () => {
+    const counters = { fetches: 0, closed: 0 };
+    const monitor = monitorFor(fakeSdk(() => 'hang', counters), { timeoutMs: 20, retryMs: 60_000 });
+    const { usage, error } = await monitor.get(false);
+    expect(usage).toBeNull();
+    expect(error).toMatch(/in time/);
+    expect(counters.closed).toBeGreaterThan(0);
+    monitor.stop();
+  });
+});

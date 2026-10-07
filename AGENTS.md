@@ -17,9 +17,9 @@ The path of a feature is usually: add the request or event to `packages/protocol
 
 ### Claude Code
 
-- Sessions run through `@anthropic-ai/claude-agent-sdk` (pinned), using the user's own `claude` binary and login. Only `packages/engine/src/host/sessionHost.ts` and `hostManager.ts` drive `query()`; keep it that way.
+- Sessions run through `@anthropic-ai/claude-agent-sdk` (pinned), using the user's own `claude` binary and login. Only `packages/engine/src/host/sessionHost.ts` and `hostManager.ts` drive `query()`, plus one documented exception: `usageMonitor.ts`, whose helper sends `/usage` (see below). Keep it that way.
 - Read transcripts through the SDK (`listSessions`, `getSessionMessages`, `forkSession`, …) in `packages/engine/src/claude/sessionSource.ts`. Parse Claude Code's on-disk formats only where the SDK has no answer (the live registry in `~/.claude/sessions`, `agent-*.meta.json`, `installed_plugins.json`), and degrade quietly when a format changes.
-- Short-lived helper processes (command lists, Tools, usage) never get a prompt and use `persistSession: false`. Register their ids as ephemeral so they don't show up as sessions.
+- Short-lived helper processes (command lists, Tools) never get a prompt. The usage helper is the one exception: it sends the local `/usage` command, which uses no tokens. All of them use `persistSession: false` and register their ids as ephemeral so they don't show up as sessions.
 - The SDK can throw asynchronously after interrupts: every session is wrapped so one failing session can't take the engine down.
 - **Claude profiles** (`packages/engine/src/profiles/`): each is a config folder with its own login. Anything that starts Claude Code gets the profile's environment (`envFor` in `engine.ts`); never set `CLAUDE_CONFIG_DIR` for the built-in profile. The SDK's transcript readers only read `process.env.CLAUDE_CONFIG_DIR`, so they go through `ConfigDirLane`; don't call them around it.
 

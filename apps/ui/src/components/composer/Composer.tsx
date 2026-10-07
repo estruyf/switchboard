@@ -3,6 +3,7 @@ import { useEffect, useId, useLayoutEffect, useRef, useState, type ClipboardEven
 import type { ImageAttachment, SlashCommand } from '@switchboard/protocol/client';
 import { useEngineConnection } from '../../engine/useEngine.ts';
 import { Button } from '../ui/Button.tsx';
+import { attachmentsAfterSend, textAfterSend } from './afterSend.ts';
 import { dropMessage, dropVerdict, MAX_ATTACHMENTS, mergeAttachments, planDrop, readImage } from './images.ts';
 import { insertMentions, mentionFor } from './mentions.ts';
 import { tokenAtCaret } from './tokens.ts';
@@ -68,15 +69,20 @@ export function Composer(props: ComposerProps) {
   const fileRef = useRef<HTMLInputElement>(null);
   const rootRef = useRef<HTMLDivElement>(null);
   const listRef = useRef<HTMLUListElement>(null);
+  /** Bumped whenever the palette's input moves on: a file search that answers after that is dropped. */
   const searchSeq = useRef(0);
   const ids = useId();
+  const closePalette = () => {
+    ++searchSeq.current;
+    setPalette(null);
+  };
 
   const presetSeq = props.preset?.seq;
   useEffect(() => {
     if (presetSeq === undefined) return;
     const value = props.preset!.text;
     setText(value);
-    setPalette(null);
+    closePalette();
     requestAnimationFrame(() => {
       const el = ref.current;
       if (el && !el.disabled) {
@@ -114,6 +120,8 @@ export function Composer(props: ComposerProps) {
   }, [props.focusRequest, props.disabledReason]);
 
   const updatePalette = (value: string, caret: number) => {
+    // Any edit makes an earlier file search stale, whatever this one turns out to be.
+    const seq = ++searchSeq.current;
     const token = tokenAtCaret(value, caret);
     if (!token) return setPalette(null);
     if (token.kind === 'slash') {
@@ -126,12 +134,14 @@ export function Composer(props: ComposerProps) {
       return setPalette(items.length ? { kind: 'slash', start: token.start, items, active: 0 } : null);
     }
     if (!client || !props.cwd) return setPalette(null);
-    const seq = ++searchSeq.current;
-    void client.call('files.search', { cwd: props.cwd, query: token.query, limit: 8 }).then(({ files }) => {
-      if (seq !== searchSeq.current) return;
-      const items = files.map((f) => ({ value: `@${f}`, label: f.slice(f.lastIndexOf('/') + 1), detail: f }));
-      setPalette(items.length ? { kind: 'file', start: token.start, items, active: 0 } : null);
-    });
+    client.call('files.search', { cwd: props.cwd, query: token.query, limit: 8 }).then(
+      ({ files }) => {
+        if (seq !== searchSeq.current) return;
+        const items = files.map((f) => ({ value: `@${f}`, label: f.slice(f.lastIndexOf('/') + 1), detail: f }));
+        setPalette(items.length ? { kind: 'file', start: token.start, items, active: 0 } : null);
+      },
+      () => {},
+    );
   };
 
   const choose = (item: PaletteItem) => {
@@ -140,22 +150,26 @@ export function Composer(props: ComposerProps) {
     const caret = el.selectionStart;
     const next = `${text.slice(0, palette.start)}${item.value} ${text.slice(caret)}`;
     setText(next);
-    setPalette(null);
+    closePalette();
     const position = palette.start + item.value.length + 1;
     requestAnimationFrame(() => el.setSelectionRange(position, position));
   };
 
   const submit = async () => {
     if (sending || props.disabledReason) return;
+    const sentText = text;
     const value = text.trim();
-    if (!value && attachments.length === 0) return;
+    const sentAttachments = attachments;
+    if (!value && sentAttachments.length === 0) return;
     setSending(true);
     setNotice(null);
+    closePalette();
     try {
-      await props.onSubmit(value, attachments);
-      setText('');
-      setAttachments([]);
-      setPalette(null);
+      await props.onSubmit(value, sentAttachments);
+      // The box stays editable while sending: keep whatever was typed or attached in the meantime.
+      setText((current) => textAfterSend(current, sentText));
+      setAttachments((current) => attachmentsAfterSend(current, sentAttachments));
+      closePalette();
     } catch (error) {
       // The text stays in the box, so trying again is one Enter away.
       setNotice(`Not sent: ${error instanceof Error ? error.message : String(error)}`);
@@ -183,7 +197,7 @@ export function Composer(props: ComposerProps) {
       }
       if (event.key === 'Escape') {
         event.preventDefault();
-        setPalette(null);
+        closePalette();
         return;
       }
     }
@@ -300,8 +314,8 @@ export function Composer(props: ComposerProps) {
               }}
               className={`flex w-full cursor-default items-baseline gap-3 px-3 py-1.5 text-left hover:bg-accent/10 ${i === palette.active ? 'bg-accent/15' : ''}`}
             >
-              <span className="shrink-0 font-mono text-[12px]">{item.label}</span>
-              <span className="min-w-0 truncate text-[11px] text-muted">{item.detail}</span>
+              <span className="shrink-0 font-mono text-ui">{item.label}</span>
+              <span className="min-w-0 truncate text-meta text-muted">{item.detail}</span>
             </li>
           ))}
         </ul>
@@ -352,11 +366,15 @@ export function Composer(props: ComposerProps) {
           }}
           onKeyDown={onKeyDown}
           onPaste={onPaste}
-          onBlur={() => setTimeout(() => setPalette(null), 100)}
+          onBlur={() => {
+            // A search still on its way must not reopen the list after focus left; the open list waits a moment so a click on it lands.
+            ++searchSeq.current;
+            setTimeout(() => setPalette(null), 100);
+          }}
           className={`block max-h-80 w-full resize-none bg-transparent leading-relaxed text-text outline-none placeholder:text-faint disabled:opacity-60 ${props.large ? 'min-h-24 px-1 pt-1 text-title font-normal' : 'text-body'}`}
         />
         {props.controls && notice && (
-          <p role="alert" className="mt-1 truncate text-[11px] text-error" data-tooltip={notice}>
+          <p role="alert" className="mt-1 truncate text-meta text-error" data-tooltip={notice}>
             {notice}
           </p>
         )}
@@ -370,7 +388,7 @@ export function Composer(props: ComposerProps) {
               </span>
             </div>
           ) : (
-            <span id={`${ids}-hint`} className="min-w-0 truncate text-[11px] text-muted">
+            <span id={`${ids}-hint`} className="min-w-0 truncate text-meta text-muted">
               {notice ? (
                 <span role="alert" className="text-error" data-tooltip={notice}>
                   {notice}
@@ -383,7 +401,7 @@ export function Composer(props: ComposerProps) {
             </span>
           )}
           <div className="flex shrink-0 items-center gap-1.5">
-            {props.dropHint && !text && attachments.length === 0 && !disabled && <span className="text-[11px] text-muted @max-[860px]:hidden">Paste or drop images and files</span>}
+            {props.dropHint && !text && attachments.length === 0 && !disabled && <span className="text-meta text-muted @max-[860px]:hidden">Paste or drop images and files</span>}
             {props.actions}
             <input
               ref={fileRef}

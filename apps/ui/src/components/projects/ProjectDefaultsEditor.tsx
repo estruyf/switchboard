@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { Effort, PermissionMode, ProjectDefaults } from '@switchboard/protocol/client';
 import { useEngineConnection } from '../../engine/useEngine.ts';
 import { MODE_CHOICES, MODE_LABEL } from '../../lib/modes.ts';
@@ -6,14 +6,14 @@ import { useHosts } from '../../state/hostsStore.ts';
 import { EFFORT_LABEL, EFFORTS } from '../newSession/route.ts';
 import { Select } from '../ui/Select.tsx';
 
-const field = 'h-7 min-w-0 rounded-md border border-border bg-bg px-2 text-[12px] text-text outline-none focus:border-accent-ink/60 disabled:opacity-50';
+const field = 'h-7 min-w-0 rounded-md border border-border bg-bg px-2 text-ui text-text outline-none focus:border-accent-ink/60 disabled:opacity-50';
 /** The value an unset field shows; unset fields use the choices last made in the New session view. */
 const UNSET = '';
 
 function Row({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="grid grid-cols-[110px_minmax(0,1fr)] items-center gap-3 @max-[560px]:grid-cols-1 @max-[560px]:gap-1">
-      <span className="text-[12px] text-muted">{label}</span>
+      <span className="text-ui text-muted">{label}</span>
       <span className="flex min-w-0 flex-wrap items-center gap-2">{children}</span>
     </div>
   );
@@ -41,7 +41,18 @@ export function ProjectDefaultsEditor({ root, defaults, isGitRepo, onSave }: { r
     };
   }, [client, root, isGitRepo]);
 
-  const set = (patch: Partial<ProjectDefaults>) => onSave({ ...defaults, ...patch });
+  // Changes build on the last one made, not on the props: a quick second change arrives before the
+  // first has been saved and reloaded, and would otherwise undo it.
+  const latest = useRef(defaults);
+  const seen = useRef(defaults);
+  if (seen.current !== defaults) {
+    seen.current = defaults;
+    latest.current = defaults;
+  }
+  const set = (patch: Partial<ProjectDefaults>) => {
+    latest.current = { ...latest.current, ...patch };
+    onSave(latest.current);
+  };
   const nullable = <T extends string>(value: string) => (value === UNSET ? null : (value as T));
   const branchOptions = defaults.branch && !branches.branches.includes(defaults.branch) ? [defaults.branch, ...branches.branches] : branches.branches;
 

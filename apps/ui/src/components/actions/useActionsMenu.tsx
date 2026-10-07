@@ -3,10 +3,12 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import type { ListedAction } from '@switchboard/protocol/client';
 import { useEngineConnection } from '../../engine/useEngine.ts';
 import { useOverlay } from '../../state/overlayStore.ts';
+import { useSessions } from '../../state/sessionsStore.ts';
 import { useTerminals } from '../../state/terminalsStore.ts';
 import { ConfirmDialog } from '../ConfirmDialog.tsx';
 import type { MenuEntry } from '../Menu.tsx';
 import { ActionEditor } from './ActionEditor.tsx';
+import { sameShortcut } from '../../lib/shortcuts.ts';
 import { ACTION_ICON, formatShortcut, shortcutFromEvent, useProjectActionList } from './useActions.ts';
 
 export interface ActionsMenu {
@@ -26,9 +28,22 @@ export interface ActionsMenu {
  * "Edit actions…", plus the dialogs they open (`overlays`, rendered by the caller). Also runs actions
  * from their shortcuts and from the command palette. Shell actions open a terminal tab; prompt
  * actions message Claude. `error`: the last run that failed.
- * Call it once per session view: every call adds its own shortcut listener and dialogs.
+ * Call it once per session view: every call adds its own shortcut listener and dialogs. With two panes
+ * both views call it, so only the `active` one answers shortcuts and palette requests, and only while
+ * the session view is on screen (it stays mounted behind Settings).
  */
-export function useActionsMenu({ sessionId, projectRoot: root, cwd }: { sessionId: string; projectRoot: string | null; cwd: string | null }): ActionsMenu {
+export function useActionsMenu({
+  sessionId,
+  projectRoot: root,
+  cwd,
+  active = true,
+}: {
+  sessionId: string;
+  projectRoot: string | null;
+  cwd: string | null;
+  /** The pane people are working in; the other pane leaves shortcuts and palette requests to it. */
+  active?: boolean;
+}): ActionsMenu {
   // A session whose folder is unknown has no real project to keep actions for: saving would be refused.
   const projectRoot = root?.startsWith('/') ? root : null;
   const connection = useEngineConnection();
@@ -60,26 +75,29 @@ export function useActionsMenu({ sessionId, projectRoot: root, cwd }: { sessionI
     else void execute(action);
   };
 
-  // The command palette asks for an action by id.
+  // The command palette asks for an action by id. Only the active pane takes the request, so it runs once.
   const actionRequest = useOverlay((s) => s.actionRequest);
   useEffect(() => {
-    if (!actionRequest) return;
+    if (!actionRequest || !active || useSessions.getState().view !== 'session') return;
     const action = actions.find((a) => a.id === actionRequest.id);
     useOverlay.getState().requestAction(null);
     if (action) runRef.current(action);
-  }, [actionRequest, actions]);
+  }, [actionRequest, actions, active]);
 
   // Action shortcuts while this session is on screen.
   const runRef = useRef(run);
   runRef.current = run;
   useEffect(() => {
     const withShortcut = actions.filter((a) => a.shortcut);
-    if (withShortcut.length === 0) return;
+    if (withShortcut.length === 0 || !active) return;
     const onKey = (event: KeyboardEvent) => {
+      // Something else took the key (recording a shortcut in the action editor), a dialog is open, or
+      // the session isn't on screen (Settings or another view is over it).
+      if (event.defaultPrevented || useSessions.getState().view !== 'session' || document.querySelector('[aria-modal="true"]')) return;
       // In a terminal, ⌃ and ⌥ keys belong to the shell (⌃C stops a running action); only ⌘ shortcuts run actions there.
       if (!event.metaKey && (event.target as HTMLElement | null)?.closest?.('.xterm')) return;
       const shortcut = shortcutFromEvent(event);
-      const action = shortcut && withShortcut.find((a) => a.shortcut === shortcut);
+      const action = shortcut && withShortcut.find((a) => sameShortcut(a.shortcut!, shortcut));
       if (action) {
         event.preventDefault();
         runRef.current(action);
@@ -87,7 +105,7 @@ export function useActionsMenu({ sessionId, projectRoot: root, cwd }: { sessionI
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [actions]);
+  }, [actions, active]);
 
   if (!projectRoot) return { entries: [], overlays: null, error: null, actions: [], run, openEditor: null };
   const openEditor = () => setEditor(true);
@@ -137,7 +155,7 @@ export function useActionsMenu({ sessionId, projectRoot: root, cwd }: { sessionI
                   )}
                 </p>
               )}
-              <pre className="max-h-48 overflow-auto rounded-md bg-sidebar px-2.5 py-1.5 font-mono text-[12px] whitespace-pre-wrap text-text">{pending.action.command}</pre>
+              <pre className="max-h-48 overflow-auto rounded-md bg-sidebar px-2.5 py-1.5 font-mono text-ui whitespace-pre-wrap text-text">{pending.action.command}</pre>
             </>
           }
           onConfirm={async () => {

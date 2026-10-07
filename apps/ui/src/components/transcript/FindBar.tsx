@@ -42,6 +42,8 @@ export function FindBar({
         value={query}
         onChange={(event) => onQuery(event.target.value)}
         onKeyDown={(event) => {
+          // Keys that confirm an IME composition (Enter picking a candidate) belong to the input method.
+          if (event.nativeEvent.isComposing) return;
           if (event.key === 'Escape') {
             // Escape here only closes the bar; it must not reach the message box and stop Claude.
             event.preventDefault();
@@ -58,7 +60,7 @@ export function FindBar({
         className="w-48 bg-transparent text-[12.5px] text-text outline-none placeholder:text-faint @max-[860px]:w-32"
         data-find-input
       />
-      <span className="min-w-14 text-right text-[11px] text-faint tabular-nums" role="status" aria-live="polite" data-find-count>
+      <span className="min-w-14 text-right text-meta text-faint tabular-nums" role="status" aria-live="polite" data-find-count>
         {status}
       </span>
       <Button variant="quiet" size="sm" iconOnly icon={<ChevronUp size={14} />} disabled={count === 0} onClick={() => onStep(-1)} data-tooltip="Previous (⇧Enter)" aria-label="Previous match" />

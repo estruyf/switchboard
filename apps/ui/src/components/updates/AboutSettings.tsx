@@ -16,7 +16,7 @@ const CHANNELS: Array<{ value: UpdateChannel; label: string; detail: string }> =
   { value: 'nightly', label: 'Nightly', detail: 'Pre-release builds as they are published. Newer, with rougher edges.' },
 ];
 
-const link = 'inline-flex items-center gap-1 text-[12px] text-link hover:underline';
+const link = 'inline-flex items-center gap-1 text-ui text-link hover:underline';
 
 /** Re-renders every half minute, so "Last checked" stays true. */
 function useNow(): number {
@@ -80,7 +80,7 @@ export function AboutSettings() {
           <div className="min-w-0 flex-1">
             <h3 className="text-[12.5px] font-medium">Updates</h3>
             {/* A live region: a check started here reports its result without moving focus. */}
-            <p role="status" className={`mt-0.5 text-[12px] ${state?.status === 'error' ? 'text-error' : 'text-muted'}`} data-update-status={state?.status ?? 'unavailable'}>
+            <p role="status" className={`mt-0.5 text-ui ${state?.status === 'error' ? 'text-error' : 'text-muted'}`} data-update-status={state?.status ?? 'unavailable'}>
               {state ? updateStatusText(state) : 'Updates are only available in the app.'}
             </p>
             {state && state.status !== 'disabled' && <p className="mt-0.5 text-[11.5px] text-muted">{lastChecked(state.checkedAt, now)}</p>}
@@ -114,8 +114,8 @@ export function AboutSettings() {
 
         {notesVersion && state?.releaseNotes && (
           <div className="rounded-md border border-border bg-card px-3 py-2.5" data-about-release-notes>
-            <p className="text-[12px] font-semibold">What’s new in v{notesVersion}</p>
-            <p className="mt-1 max-h-60 overflow-y-auto text-[12px] leading-relaxed whitespace-pre-wrap text-muted">{state.releaseNotes}</p>
+            <p className="text-ui font-semibold">What’s new in v{notesVersion}</p>
+            <p className="mt-1 max-h-60 overflow-y-auto text-ui leading-relaxed whitespace-pre-wrap text-muted">{state.releaseNotes}</p>
           </div>
         )}
 
@@ -144,7 +144,7 @@ export function AboutSettings() {
                 dataAttrs={{ 'data-update-channel': value }}
               >
                 <span className="block text-[12.5px] text-text">{label}</span>
-                <span className="block text-[12px] text-muted">{detail}</span>
+                <span className="block text-ui text-muted">{detail}</span>
               </Radio>
             ))}
           </RadioGroup>
@@ -162,7 +162,7 @@ export function SettingsVersion() {
   const info = window.switchboard?.appInfo;
   if (!info) return null;
   const label = versionLabel(info);
-  const className = 'mx-2.5 mt-auto truncate pt-2 text-[11px] text-faint';
+  const className = 'mx-2.5 mt-auto truncate pt-2 text-meta text-faint';
   return info.dev ? (
     <p className={className} data-tooltip="A development build, not a release" data-settings-version>
       {label}

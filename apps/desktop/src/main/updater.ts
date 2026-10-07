@@ -43,6 +43,8 @@ export interface UpdaterOptions {
   onState(state: UpdateState): void;
   /** Called right before quitAndInstall, e.g. to stop the engine cleanly. */
   beforeInstall(): void;
+  /** The install failed or the app wasn't restarted (e.g. run from the DMG): undo beforeInstall, the app keeps running. */
+  installFailed(): void;
   log(message: string): void;
   /** Injected in tests; defaults to electron-updater's autoUpdater (loaded on first use). */
   load?: () => Promise<AutoUpdater>;
@@ -94,6 +96,9 @@ export class Updater {
   #timer: ReturnType<typeof setTimeout> | undefined;
   #autoCheck: boolean;
   #stallTimer: ReturnType<typeof setTimeout> | undefined;
+  #installTimer: ReturnType<typeof setTimeout> | undefined;
+  /** A channel picked while a check, download or install was running; applied when it ends. */
+  #pendingChannel: UpdateChannel | null = null;
 
   constructor(private readonly options: UpdaterOptions) {
     const marker = options.disabledReason ? { updatedTo: null, error: null } : readUpdateMarker(options.markerFile, options.currentVersion);
@@ -115,6 +120,8 @@ export class Updater {
   stop(): void {
     clearTimeout(this.#timer);
     clearTimeout(this.#stallTimer);
+    // Quitting (also the quit quitAndInstall starts): not a failed install.
+    clearTimeout(this.#installTimer);
   }
 
   setAutoCheck(on: boolean): void {
@@ -123,8 +130,17 @@ export class Updater {
     this.#schedule(on ? FIRST_CHECK_DELAY_MS : null);
   }
 
-  /** Saves nothing itself (main keeps the preference); forgets the other channel's update and checks right away. */
+  /**
+   * Saves nothing itself (main keeps the preference); forgets the other channel's update and checks right away.
+   * While a check, download or install runs, the switch waits for it to end, so its result can't be recorded
+   * as the new channel's.
+   */
   setChannel(channel: UpdateChannel): void {
+    if (isBusy(this.#state)) {
+      this.#pendingChannel = channel === this.#state.channel ? null : channel;
+      return;
+    }
+    this.#pendingChannel = null;
     if (channel === this.#state.channel) return;
     this.#set(changeChannel(this.#state, channel));
     void this.check();
@@ -139,7 +155,12 @@ export class Updater {
   }
 
   async check(): Promise<void> {
-    if (this.#state.status === 'disabled' || isBusy(this.#state)) return;
+    if (this.#state.status === 'disabled') return;
+    if (isBusy(this.#state)) {
+      // The automatic check came while a download ran: keep the schedule going instead of stopping it.
+      this.#schedule(CHECK_INTERVAL_MS);
+      return;
+    }
     this.#set(checking(this.#state));
     try {
       const updater = await this.#load();
@@ -155,6 +176,7 @@ export class Updater {
       this.#set({ ...failed(this.#state, shortMessage(error as Error), retryable(error as Error)), checkedAt: Date.now() });
     } finally {
       this.#schedule(CHECK_INTERVAL_MS);
+      this.#applyPendingChannel();
     }
   }
 
@@ -181,6 +203,7 @@ export class Updater {
     } finally {
       clearTimeout(this.#stallTimer);
       this.#onProgress = undefined;
+      this.#applyPendingChannel();
     }
   }
 
@@ -197,15 +220,30 @@ export class Updater {
       this.options.beforeInstall();
       updater.quitAndInstall(false, true);
       // Still here after a while: Squirrel didn't restart us.
-      setTimeout(() => {
-        if (this.#state.status !== 'installing') return;
-        rmSync(this.options.markerFile, { force: true });
-        this.#set(failed(this.#state, 'Switchboard didn’t restart to install the update.', true));
-      }, INSTALL_TIMEOUT_MS).unref();
+      clearTimeout(this.#installTimer);
+      this.#installTimer = setTimeout(() => {
+        if (this.#state.status === 'installing') this.#installFailed('Switchboard didn’t restart to install the update.');
+      }, INSTALL_TIMEOUT_MS);
+      this.#installTimer.unref?.();
     } catch (error) {
-      rmSync(this.options.markerFile, { force: true });
-      this.#set(failed(this.#state, shortMessage(error as Error), true));
+      this.#installFailed(shortMessage(error as Error));
     }
+  }
+
+  /** The app keeps running on this version: no marker, the engine back, and Retry offered. */
+  #installFailed(message: string): void {
+    try {
+      rmSync(this.options.markerFile, { force: true });
+    } catch {
+      // A leftover marker is ignored once it's old.
+    }
+    this.options.installFailed();
+    this.#set(failed(this.#state, message, true));
+    this.#applyPendingChannel();
+  }
+
+  #applyPendingChannel(): void {
+    if (this.#pendingChannel) this.setChannel(this.#pendingChannel);
   }
 
   #onProgress: (() => void) | undefined;

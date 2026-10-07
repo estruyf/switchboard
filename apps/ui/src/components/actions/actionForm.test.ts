@@ -75,6 +75,24 @@ describe('validateDraft', () => {
     expect(validateDraft({ ...EMPTY_DRAFT, name: 'Test', command: 'ls', scope: 'global' }, [action({})], null)).toEqual({});
     expect(validateDraft({ ...EMPTY_DRAFT, name: 'Test', command: 'ls' }, [action({})], { scope: 'project', id: 'test' })).toEqual({});
   });
+  it('refuses a shortcut Switchboard uses', () => {
+    expect(validateDraft({ ...EMPTY_DRAFT, name: 'X', command: 'ls', shortcut: 'cmd+k' }, [], null).shortcut).toBe('⌘K is used by Switchboard.');
+    expect(validateDraft({ ...EMPTY_DRAFT, name: 'X', command: 'ls', shortcut: 'cmd+shift+f' }, [], null).shortcut).toMatch(/Switchboard/);
+  });
+  it('refuses a shortcut another action already has, in any scope', () => {
+    const list = [action({ id: 'build', name: 'Build', shortcut: 'cmd+shift+b', scope: 'global' })];
+    expect(validateDraft({ ...EMPTY_DRAFT, name: 'X', command: 'ls', shortcut: 'cmd+shift+b' }, list, null).shortcut).toBe('“Build” already uses ⌘⇧B.');
+  });
+  it('lets the action being edited keep its shortcut, also when it moves scope', () => {
+    const list = [action({ id: 'build', name: 'Build', shortcut: 'cmd+shift+b' })];
+    const draft = { ...EMPTY_DRAFT, name: 'Build', command: 'ls', shortcut: 'cmd+shift+b' };
+    expect(validateDraft(draft, list, { scope: 'project', id: 'build' }).shortcut).toBeUndefined();
+    expect(validateDraft({ ...draft, scope: 'global' }, list, { scope: 'project', id: 'build' }).shortcut).toBeUndefined();
+  });
+  it('compares shortcuts saved in the older form', () => {
+    const list = [action({ id: 'zoom', name: 'Zoom', shortcut: 'cmd+alt++' })];
+    expect(validateDraft({ ...EMPTY_DRAFT, name: 'X', command: 'ls', shortcut: 'cmd+alt+plus' }, list, null).shortcut).toMatch(/Zoom/);
+  });
 });
 
 describe('friendlySaveError', () => {

@@ -110,6 +110,8 @@ export function ChoiceMenu<T extends string>({
   };
 
   const onKeyDown = (e: KeyboardEvent) => {
+    // Keys that confirm an IME composition (Enter picking a candidate) belong to the input method.
+    if (e.nativeEvent.isComposing) return;
     const items = [...(panel.current?.querySelectorAll<HTMLButtonElement>(ITEMS) ?? [])];
     const index = items.indexOf(document.activeElement as HTMLButtonElement);
     const inField = (e.target as HTMLElement).tagName === 'INPUT';

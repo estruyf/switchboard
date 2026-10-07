@@ -194,7 +194,9 @@
   color: var(--sb-text);
   font-size: var(--text-ui);
   font-weight: 500;
-  &:hover:not(:disabled) {
+  /* Hovered, or highlighted from the keyboard as the last choice of a list (Button's `selected`). */
+  &:hover:not(:disabled),
+  &[data-selected] {
     background-color: color-mix(in srgb, var(--sb-text) 10%, transparent);
   }
   &:disabled {

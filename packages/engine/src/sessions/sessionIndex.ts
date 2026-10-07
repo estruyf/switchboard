@@ -1,5 +1,5 @@
-import { existsSync, readdirSync, statSync, watch, type FSWatcher } from 'node:fs';
-import { join } from 'node:path';
+import { existsSync, mkdirSync, readdirSync, statSync, watch, type FSWatcher } from 'node:fs';
+import { dirname, join } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 import { BUILTIN_PROFILE_ID, type LogLevel, type SessionsChanged, type SessionSummary } from '@switchboard/protocol';
 import { originFromEntrypoint, readEntrypoint, readLastActivity } from '../claude/origin.ts';
@@ -84,6 +84,8 @@ export class SessionIndex {
   private started = false;
   private timer: ReturnType<typeof setInterval> | undefined;
   private readonly perFile = new Map<string, ReturnType<typeof coalesce>>();
+  /** Sessions changed or forgotten while a full scan awaited the source; that scan's older view must not undo them. */
+  private touchedDuringScan: Set<string> | undefined;
   private readonly statements;
 
   constructor(private readonly options: SessionIndexOptions) {
@@ -165,6 +167,7 @@ export class SessionIndex {
 
   /** Drops a deleted session from the index and its flags, and tells every window. */
   forget(sessionId: string): void {
+    this.touchedDuringScan?.add(sessionId);
     this.flags.delete(sessionId);
     this.statements.flagsDelete.run(sessionId);
     if (this.entries.has(sessionId)) this.apply([], [sessionId]);
@@ -234,11 +237,20 @@ export class SessionIndex {
     for (const { dir, profileId } of roots) {
       if (this.watchers.has(dir)) continue;
       try {
+        // A new profile has no projects folder until its first session. Create it when the profile's own
+        // folder exists, so that first session shows up at once; otherwise the next refresh tries again.
+        if (!existsSync(dir) && existsSync(dirname(dir))) mkdirSync(dir);
+        if (!existsSync(dir)) continue;
         const watcher = watch(dir, { recursive: true }, (_event, filename) => {
           const match = filename ? SESSION_FILE.exec(filename.toString()) : null;
           if (match) this.fileChanged(match[2]!, join(dir, filename!.toString()), profileId);
         });
-        watcher.on('error', (error) => this.options.log('warn', `Watching ${dir} failed: ${error.message}`));
+        watcher.on('error', (error) => {
+          this.options.log('warn', `Watching ${dir} failed: ${error.message}`);
+          // Dropped, so the next refresh watches the folder again (it may have been removed and made again).
+          watcher.close();
+          if (this.watchers.get(dir) === watcher) this.watchers.delete(dir);
+        });
         this.watchers.set(dir, watcher);
       } catch (error) {
         this.options.log('warn', `Cannot watch ${dir}: ${(error as Error).message}`);
@@ -262,21 +274,28 @@ export class SessionIndex {
 
   private async runRefresh(): Promise<void> {
     const started = performance.now();
+    // Folders that could not be watched before (not made yet, or a watcher that failed) get another try.
+    if (this.started) this.watch();
+    const touched = new Set<string>();
+    this.touchedDuringScan = touched;
     try {
       const files = this.scanFiles();
       const infos = await this.options.source.list();
+      this.touchedDuringScan = undefined;
       this.options.resolver.clear();
       const seen = new Set<string>();
       const upserted: Entry[] = [];
       for (const info of infos) {
         seen.add(info.sessionId);
+        // Written or forgotten meanwhile: what the file watcher or a delete did is newer than this list.
+        if (touched.has(info.sessionId)) continue;
         const previous = this.entries.get(info.sessionId);
         const entry = this.build(info, files.get(info.sessionId) ?? null, previous);
         if (!previous || JSON.stringify(previous.summary) !== JSON.stringify(entry.summary) || previous.path !== entry.path) {
           upserted.push(entry);
         }
       }
-      const removed = [...this.entries.keys()].filter((id) => !seen.has(id));
+      const removed = [...this.entries.keys()].filter((id) => !seen.has(id) && !touched.has(id));
       const firstCompletion = !this.complete;
       this.complete = true;
       if (upserted.length || removed.length || firstCompletion) this.apply(upserted, removed);
@@ -286,6 +305,8 @@ export class SessionIndex {
       );
     } catch (error) {
       this.options.log('error', `Session scan failed: ${(error as Error).message}`);
+    } finally {
+      if (this.touchedDuringScan === touched) this.touchedDuringScan = undefined;
     }
   }
 
@@ -349,6 +370,8 @@ export class SessionIndex {
   }
 
   private apply(upserted: Entry[], removed: string[]): void {
+    for (const entry of upserted) this.touchedDuringScan?.add(entry.summary.id);
+    for (const id of removed) this.touchedDuringScan?.add(id);
     const { db } = this.options;
     db.exec('BEGIN');
     try {

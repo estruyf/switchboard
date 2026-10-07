@@ -196,10 +196,23 @@ export class HostManager {
     return sessionId;
   }
 
+  /** Resumes that are starting, so a second send while the first is still starting joins it instead of starting another process. */
+  private readonly starting = new Map<string, Promise<SessionHost>>();
+
   /** The running host for a session, resuming it (or starting a fork) when it isn't running here. */
-  private async ensureHost(sessionId: string, fork: boolean, busyMessage: string): Promise<SessionHost> {
-    const running = fork ? undefined : this.hosts.get(sessionId);
-    if (running?.active) return running;
+  private ensureHost(sessionId: string, fork: boolean, busyMessage: string): Promise<SessionHost> {
+    if (fork) return this.startHost(sessionId, true, busyMessage);
+    const running = this.hosts.get(sessionId);
+    if (running?.active) return Promise.resolve(running);
+    let pending = this.starting.get(sessionId);
+    if (!pending) {
+      pending = this.startHost(sessionId, false, busyMessage).finally(() => this.starting.delete(sessionId));
+      this.starting.set(sessionId, pending);
+    }
+    return pending;
+  }
+
+  private async startHost(sessionId: string, fork: boolean, busyMessage: string): Promise<SessionHost> {
     if (!fork && this.deps.isOpenElsewhere(sessionId) && this.recentlyClosed(sessionId)) {
       await this.waitForExit(sessionId);
     }
@@ -211,13 +224,17 @@ export class HostManager {
     const permissionMode = this.lastMode.get(sessionId) ?? saved?.permissionMode ?? 'default';
     const model = saved?.model ?? null;
     const effort = saved?.effort ?? null;
-    return this.spawn({ sessionId, cwd, profileId, mode: fork ? 'fork' : 'resume', model, permissionMode, effort, worktree: null });
+    const common = { cwd, profileId, model, permissionMode, effort, worktree: null };
+    // A fork gets its own id up front, so it is never stored or reported under the original's id
+    // (which would show the original as starting, or replace it in the map while it runs here).
+    if (fork) return this.spawn({ ...common, sessionId: randomUUID(), forkFrom: sessionId, mode: 'fork' });
+    return this.spawn({ ...common, sessionId, mode: 'resume' });
   }
 
   async send(params: { sessionId: string; text: string; attachments: ImageAttachment[]; fork: boolean }): Promise<{ sessionId: string; messageUuid: string }> {
     const host = await this.ensureHost(params.sessionId, params.fork, 'This session is open in another Claude Code window. Fork it to continue here.');
     const messageUuid = host.send(params.text, params.attachments);
-    // A fork only learns its new id once Claude Code has started.
+    // Wait for a fork to start, so a fork that fails says so, and in case Claude Code settled on another id than the one we gave it.
     const sessionId = params.fork ? await host.initialized : host.sessionId;
     if (params.fork) {
       this.deps.onCreated(sessionId);
@@ -432,10 +449,26 @@ export class HostManager {
     this.settings.delete(sessionId);
   }
 
+  /** Bumped whenever the warm process is replaced or discarded, so a pre-warm that finishes late knows it lost. */
+  private warmGeneration = 0;
+  /** The folder and profile a pre-warm is starting for, until it has stored its process. */
+  private warming: { cwd: string; profileId: string } | undefined;
+
   /** Starts a Claude Code process for `cwd` so a new session there answers about a second faster. */
   async prewarm(cwd: string, profileId: string): Promise<void> {
-    if (this.warm?.cwd === cwd && this.warm.profileId === profileId) return;
+    const target = this.warm ?? this.warming;
+    if (target?.cwd === cwd && target.profileId === profileId) return;
     this.discardWarm();
+    const generation = this.warmGeneration;
+    this.warming = { cwd, profileId };
+    let env: Record<string, string>, claudePath: string | undefined, sdk: SdkRuntime;
+    try {
+      [env, claudePath, sdk] = await Promise.all([this.deps.env(profileId), this.deps.claudePath(), this.deps.sdk()]);
+    } finally {
+      if (generation === this.warmGeneration) this.warming = undefined;
+    }
+    // Another pre-warm (or a shutdown) took over while this one waited: start nothing, or its process would leak.
+    if (generation !== this.warmGeneration) return;
     const sessionId = randomUUID();
     const route: Warm['route'] = { canUseTool: null };
     const options = buildOptions(
@@ -448,13 +481,13 @@ export class HostManager {
         permissionMode: 'default',
         effort: null,
         worktree: null,
-        env: await this.deps.env(profileId),
-        claudePath: await this.deps.claudePath(),
+        env,
+        claudePath,
         canUseTool: (...args) => (route.canUseTool ? route.canUseTool(...args) : Promise.resolve({ behavior: 'deny', message: 'Not ready' })),
       },
       this.deps.log,
     );
-    const warm = (await this.deps.sdk()).startup({ options });
+    const warm = sdk.startup({ options });
     warm.catch((error: unknown) => this.deps.log('debug', `Pre-warm failed: ${(error as Error).message}`));
     const timer = setTimeout(() => this.discardWarm(), this.deps.warmTtlMs ?? 120_000);
     timer.unref?.();
@@ -470,8 +503,9 @@ export class HostManager {
   // ---------------------------------------------------------------------------
 
   private recentlyClosed(sessionId: string): boolean {
-    const at = this.closedAt.get(sessionId) ?? this.hosts.get(sessionId)?.closedAt;
-    return at !== undefined && Date.now() - at < 15_000;
+    // The later of the two: a stop recorded here can be older than the exit of a host resumed since.
+    const at = Math.max(this.closedAt.get(sessionId) ?? -Infinity, this.hosts.get(sessionId)?.closedAt ?? -Infinity);
+    return Date.now() - at < 15_000;
   }
 
   /** Gives a process this app just stopped up to 5 s to exit and leave the registry. */
@@ -500,6 +534,8 @@ export class HostManager {
   }
 
   private discardWarm(): void {
+    this.warmGeneration++;
+    this.warming = undefined;
     const warm = this.warm;
     if (!warm) return;
     this.warm = undefined;

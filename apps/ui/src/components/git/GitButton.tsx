@@ -2,6 +2,7 @@ import { ChevronDown, CloudDownload, CloudUpload, GitBranch, GitBranchPlus, GitC
 import { useEffect, useRef, useState } from 'react';
 import type { GitSyncAction, WorktreeStatus } from '@switchboard/protocol/client';
 import { useEngineConnection } from '../../engine/useEngine.ts';
+import { useSessions } from '../../state/sessionsStore.ts';
 import { useTerminals } from '../../state/terminalsStore.ts';
 import { Menu, useMenu, type MenuEntry } from '../Menu.tsx';
 import { CommitDialog } from './CommitDialog.tsx';
@@ -61,6 +62,9 @@ export function GitButton({
   const [error, setError] = useState<string | null>(null);
   const [version, setVersion] = useState(0);
   const [committing, setCommitting] = useState(false);
+  /** A git step is starting: a second click (or ⌘⇧L) waits until it has, instead of running it twice. */
+  const pendingRef = useRef(false);
+  const [pending, setPending] = useState(false);
   /** The folder whose status has been read once. */
   const loaded = useRef<string | null>(null);
 
@@ -97,12 +101,17 @@ export function GitButton({
   const run = async (step: GitStep) => {
     setError(null);
     if (step === 'commit') return onCommit();
-    if (!client) return;
+    if (!client || pendingRef.current) return;
+    pendingRef.current = true;
+    setPending(true);
     try {
       const { terminalId } = await client.call('git.sync', { sessionId, cwd, action: step satisfies GitSyncAction });
       openTerminal(terminalId);
     } catch (e) {
       setError(`Couldn't ${STEP_LABEL[step].toLowerCase()}: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      pendingRef.current = false;
+      setPending(false);
     }
   };
 
@@ -112,6 +121,9 @@ export function GitButton({
   useEffect(() => {
     if (!active) return;
     const onKey = (event: KeyboardEvent) => {
+      // Not while another view (Settings) covers the session, a dialog is open, or a shortcut recorder took the key.
+      if (event.defaultPrevented || useSessions.getState().view !== 'session' || document.querySelector('[aria-modal="true"]')) return;
+      if (wrapperRef.current?.closest('[inert]')) return;
       if (event.metaKey && event.shiftKey && !event.altKey && event.key.toLowerCase() === 'l' && pullRef.current) {
         event.preventDefault();
         pullRef.current();
@@ -135,14 +147,15 @@ export function GitButton({
 
   const face = plan.primary;
   const FaceIcon = ICON[face];
-  const faceBlocked = plan.blocked[face];
+  // While a step is starting, the face waits (the reason is only for its tooltip).
+  const faceBlocked = plan.blocked[face] ?? (pending && face !== 'commit' ? 'Starting…' : null);
   const count = COUNT[face] ? stepCount(status, face) : null;
   // The header's one yellow button, whenever there is something to do (pull, commit, push or a PR).
   // With nothing to do the face is Fetch, which stays a quiet bordered button.
   const primary = face !== 'fetch' && faceBlocked === null;
   const step = (s: GitStep, label: string, extra: Partial<Extract<MenuEntry, { label: string }>> = {}): MenuEntry => ({
     label,
-    disabled: plan.blocked[s] !== null,
+    disabled: plan.blocked[s] !== null || (pending && s !== 'commit'),
     onSelect: () => void run(s),
     data: { 'data-git-step': s },
     ...extra,

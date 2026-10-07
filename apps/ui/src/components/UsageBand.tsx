@@ -1,25 +1,38 @@
 import { useEffect, useState } from 'react';
 import { create } from 'zustand';
 import type { UsageLimit, UsageSnapshot } from '@switchboard/protocol/client';
+import type { EngineClient } from '../engine/connection.ts';
 import { useEngineConnection } from '../engine/useEngine.ts';
 import { useProfiles } from '../state/profilesStore.ts';
 import { ProfileBadge, ProfileDot } from './profiles/ProfileBadge.tsx';
 import { Meter } from './ui/Meter.tsx';
-import { countdown, limitLabel, spokenLimit, visibleLimits } from './usageFormat.ts';
+import { countdown, limitLabel, nextUsageEntry, spokenLimit, usageMessage, visibleLimits, type UsageEntry } from './usageFormat.ts';
 
 interface UsageState {
-  /** Plan usage per Claude profile (each login has its own limits). */
-  usage: Map<string, UsageSnapshot | null>;
-  /** Profiles a band has shown; refreshed when the window comes back into focus. */
+  /** Plan usage per Claude profile (each login has its own limits). No entry: not loaded yet. */
+  usage: Map<string, UsageEntry>;
+  /** Profiles a band has shown; refreshed when the window comes back into focus (also after a failed fetch). */
   wanted: Set<string>;
-  set(profileId: string, usage: UsageSnapshot | null): void;
+  set(profileId: string, result: { usage: UsageSnapshot | null; error?: string | null }): void;
 }
 
 export const useUsage = create<UsageState>()((set) => ({
   usage: new Map(),
   wanted: new Set(),
-  set: (profileId, usage) => set((s) => ({ usage: new Map(s.usage).set(profileId, usage), wanted: s.wanted.has(profileId) ? s.wanted : new Set(s.wanted).add(profileId) })),
+  set: (profileId, result) =>
+    set((s) => ({
+      usage: new Map(s.usage).set(profileId, nextUsageEntry(s.usage.get(profileId), result)),
+      wanted: s.wanted.has(profileId) ? s.wanted : new Set(s.wanted).add(profileId),
+    })),
 }));
+
+/** Asks the engine for a profile's usage and stores the answer, or why there is none. */
+function fetchUsage(client: EngineClient, profileId: string): Promise<void> {
+  return client.call('usage.get', { refresh: false, profileId }).then(
+    (result) => useUsage.getState().set(profileId, result),
+    (error: unknown) => useUsage.getState().set(profileId, { usage: null, error: error instanceof Error ? error.message : String(error) }),
+  );
+}
 
 /** Follows usage updates, and refreshes the profiles on screen when the window comes back into focus. */
 export function useUsageSync(): void {
@@ -27,11 +40,9 @@ export function useUsageSync(): void {
   const client = connection.status === 'connected' ? connection.client : null;
   useEffect(() => {
     if (!client) return;
-    const off = client.on('usage.changed', ({ profileId, usage }) => useUsage.getState().set(profileId, usage));
+    const off = client.on('usage.changed', ({ profileId, usage }) => useUsage.getState().set(profileId, { usage }));
     const onFocus = () => {
-      for (const profileId of useUsage.getState().wanted) {
-        void client.call('usage.get', { refresh: false, profileId }).then(({ usage }) => useUsage.getState().set(profileId, usage)).catch(() => {});
-      }
+      for (const profileId of useUsage.getState().wanted) void fetchUsage(client, profileId);
     };
     window.addEventListener('focus', onFocus);
     return () => {
@@ -41,20 +52,17 @@ export function useUsageSync(): void {
   }, [client]);
 }
 
-/** Loads a profile's usage the first time a band shows it. */
-function useUsageFor(profileId: string): UsageSnapshot | null {
+/** Loads a profile's usage the first time a band shows it. Undefined until the first answer. */
+function useUsageFor(profileId: string): UsageEntry | undefined {
   const connection = useEngineConnection();
   const client = connection.status === 'connected' ? connection.client : null;
   useEffect(() => {
     if (!client || useUsage.getState().usage.has(profileId)) return;
     // Fetching starts a short-lived Claude Code process; let the window finish starting first.
-    const timer = setTimeout(
-      () => void client.call('usage.get', { refresh: false, profileId }).then(({ usage }) => useUsage.getState().set(profileId, usage)).catch(() => {}),
-      performance.now() < 10_000 ? 2_000 : 0,
-    );
+    const timer = setTimeout(() => void fetchUsage(client, profileId), performance.now() < 10_000 ? 2_000 : 0);
     return () => clearTimeout(timer);
   }, [client, profileId]);
-  return useUsage((s) => s.usage.get(profileId) ?? null);
+  return useUsage((s) => s.usage.get(profileId));
 }
 
 const money = (minorUnits: number, currency: string | null) =>
@@ -76,7 +84,7 @@ function footerLabel(limit: UsageLimit): string {
 export function UsageBand({ profileId, compact = false, footer = false }: { profileId?: string | null; compact?: boolean; footer?: boolean }) {
   const defaultId = useProfiles((s) => s.defaultId);
   const id = profileId ?? defaultId;
-  const usage = useUsageFor(id);
+  const usage = useUsageFor(id)?.usage;
   const [now, setNow] = useState(Date.now());
   useEffect(() => {
     const timer = setInterval(() => setNow(Date.now()), 30_000);
@@ -173,7 +181,8 @@ export function UsageBand({ profileId, compact = false, footer = false }: { prof
  */
 export function ProfileUsageCard({ profileId, activity }: { profileId: string; activity: string }) {
   const profile = useProfiles((s) => s.profiles.find((p) => p.id === profileId));
-  const usage = useUsageFor(profileId);
+  const entry = useUsageFor(profileId);
+  const usage = entry?.usage ?? null;
   const [now, setNow] = useState(Date.now());
   useEffect(() => {
     const timer = setInterval(() => setNow(Date.now()), 30_000);
@@ -191,7 +200,9 @@ export function ProfileUsageCard({ profileId, activity }: { profileId: string; a
       </div>
       <p className="text-meta text-muted">{activity}</p>
       {limits.length === 0 ? (
-        <p className="text-meta text-faint">{usage ? 'No plan limits reported.' : 'Loading usage…'}</p>
+        <p className="text-meta text-faint" data-tooltip={entry?.error ?? undefined} data-usage-status>
+          {usageMessage(entry)}
+        </p>
       ) : (
         <div className="grid gap-2" role="group" aria-label="Plan usage">
           {limits.map((limit) => (

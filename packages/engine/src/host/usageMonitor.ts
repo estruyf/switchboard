@@ -65,6 +65,8 @@ export interface UsageMonitorOptions {
   refreshMs?: number;
   /** Retry after a failed fetch (default 30 s). */
   retryMs?: number;
+  /** Give up on a fetch after this long (default 20 s). */
+  timeoutMs?: number;
 }
 
 const STALE_MS = 60_000;
@@ -80,19 +82,23 @@ export class UsageMonitor {
   private inflight: Promise<void> | undefined;
   private nudgeTimer: ReturnType<typeof setTimeout> | undefined;
   private interval: ReturnType<typeof setInterval> | undefined;
+  /** Set by stop(): the monitor is being thrown away (profile removed, engine quitting) and starts nothing more. */
+  private stopped = false;
+  /** Fetches in a row that brought no numbers; only the first is retried soon. */
+  private misses = 0;
 
   constructor(private readonly options: UsageMonitorOptions) {}
 
   async get(refresh: boolean): Promise<{ usage: UsageSnapshot | null; error: string | null }> {
     const stale = !this.snapshot || Date.now() - this.snapshot.fetchedAt > STALE_MS;
     if (refresh || stale) await this.fetch();
-    this.start();
+    if (!this.stopped) this.start();
     return { usage: this.snapshot, error: this.error };
   }
 
   /** Something used the plan (a turn finished, a rate-limit update): refresh soon, once. */
   nudge(): void {
-    if (this.nudgeTimer) return;
+    if (this.nudgeTimer || this.stopped) return;
     this.nudgeTimer = setTimeout(() => {
       this.nudgeTimer = undefined;
       void this.fetch();
@@ -101,15 +107,20 @@ export class UsageMonitor {
   }
 
   stop(): void {
+    this.stopped = true;
     if (this.interval) clearInterval(this.interval);
     if (this.nudgeTimer) clearTimeout(this.nudgeTimer);
     if (this.retryTimer) clearTimeout(this.retryTimer);
   }
 
   private retryTimer: ReturnType<typeof setTimeout> | undefined;
-  /** After a failed fetch: once more in 30 s rather than waiting for the next 5-minute refresh. */
+  /**
+   * After a failed fetch: once more in 30 s rather than waiting for the next 5-minute refresh.
+   * Only after the first miss in a row; when that fails too (API key sign-in, offline), the regular refresh takes over.
+   */
   private retrySoon(): void {
-    if (this.retryTimer) return;
+    this.misses++;
+    if (this.retryTimer || this.stopped || this.misses > 1) return;
     this.retryTimer = setTimeout(() => {
       this.retryTimer = undefined;
       void this.fetch();
@@ -124,6 +135,7 @@ export class UsageMonitor {
   }
 
   private fetch(): Promise<void> {
+    if (this.stopped) return Promise.resolve();
     this.inflight ??= this.run().finally(() => (this.inflight = undefined));
     return this.inflight;
   }
@@ -132,6 +144,8 @@ export class UsageMonitor {
     const sessionId = randomUUID();
     this.options.ephemeral.add(sessionId);
     let query: ReturnType<SdkRuntime['query']> | undefined;
+    let deadline: ReturnType<typeof setTimeout> | undefined;
+    let timedOut = false;
     try {
       const [env, claudePath, sdk] = await Promise.all([this.options.env(), this.options.claudePath(), this.options.sdk()]);
       const prompt: AsyncIterable<SDKUserMessage> = {
@@ -145,14 +159,21 @@ export class UsageMonitor {
         options: { cwd: homedir(), env, pathToClaudeCodeExecutable: claudePath, sessionId, persistSession: false, settingSources: ['user'] },
       });
       let report: RawUsageReport | undefined;
-      const deadline = setTimeout(() => query?.close(), 20_000);
+      deadline = setTimeout(() => {
+        timedOut = true;
+        query?.close();
+      }, this.options.timeoutMs ?? 20_000);
       for await (const message of query) {
         if (message.type === 'assistant' && 'usage_report' in message && message.usage_report) report = message.usage_report as RawUsageReport;
         if (message.type === 'result') break;
       }
-      clearTimeout(deadline);
       const next = toUsageSnapshot(report);
-      this.error = next ? null : 'No plan usage available (API key sign-in, or the usage endpoint is unreachable)';
+      this.error = next
+        ? null
+        : timedOut
+          ? 'Claude Code did not report plan usage in time'
+          : 'No plan usage available (API key sign-in, or the usage endpoint is unreachable)';
+      if (next) this.misses = 0;
       if (!next) {
         // A miss (the endpoint can be briefly unavailable): keep the last good numbers, try again soon.
         this.retrySoon();
@@ -163,10 +184,11 @@ export class UsageMonitor {
         this.snapshot = next;
       }
     } catch (error) {
-      this.error = (error as Error).message;
-      this.options.log('debug', `Usage fetch failed: ${this.error}`);
+      this.error = timedOut ? 'Claude Code did not report plan usage in time' : (error as Error).message;
+      this.options.log('debug', `Usage fetch failed: ${(error as Error).message}`);
       this.retrySoon();
     } finally {
+      clearTimeout(deadline);
       query?.close();
       // Let the helper leave the live registry before we stop hiding it.
       setTimeout(() => this.options.ephemeral.delete(sessionId), 5_000).unref?.();

@@ -1,6 +1,6 @@
 import { useEffect } from 'react';
 import { create } from 'zustand';
-import type { ProjectInfo } from '@switchboard/protocol/client';
+import type { ProjectInfo, SessionSummary } from '@switchboard/protocol/client';
 import { useEngineConnection } from '../engine/useEngine.ts';
 import { useSessions } from './sessionsStore.ts';
 
@@ -51,11 +51,21 @@ export const useProjects = create<ProjectsState>()((set) => ({
   startIn: (newSessionIn, options = {}) => set({ newSessionIn, newSessionWorktree: options.worktree ?? false }),
 }));
 
+/**
+ * The project folders of all sessions, as one string to compare. The sessions map is replaced only when
+ * the list changes, so the key is rebuilt then and not on every live status update.
+ */
+let rootsCache: { sessions: Map<string, SessionSummary>; key: string } | null = null;
+function rootsKeyOf(sessions: Map<string, SessionSummary>): string {
+  if (rootsCache?.sessions !== sessions) rootsCache = { sessions, key: [...new Set([...sessions.values()].map((x) => x.projectRoot))].sort().join('\n') };
+  return rootsCache.key;
+}
+
 /** Loads projects (with icons) whenever the set of project folders changes, and persists the filter. */
 export function useProjectsSync(): void {
   const connection = useEngineConnection();
   const client = connection.status === 'connected' ? connection.client : null;
-  const rootsKey = useSessions((s) => [...new Set([...s.sessions.values()].map((x) => x.projectRoot))].sort().join('\n'));
+  const rootsKey = useSessions((s) => rootsKeyOf(s.sessions));
   const version = useProjects((s) => s.version);
   const filter = useProjects((s) => s.filter);
 

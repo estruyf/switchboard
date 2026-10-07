@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
+import { appendFileSync, mkdirSync, mkdtempSync, realpathSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -156,6 +156,67 @@ describe('SessionIndex', () => {
     unlinkSync(file);
     await until(() => index.snapshot().sessions.length === 0);
     expect(changes.at(-1)?.removed).toEqual([ID_A]);
+  });
+
+  it('watches the projects folder of a new profile that has none yet', async () => {
+    const configDir = join(tempDir(), 'profile');
+    mkdirSync(configDir);
+    const later = join(tempDir(), 'later');
+    const fake = fakeSource([]);
+    const index = new SessionIndex({
+      baseline: 1500,
+      db: openCacheDatabase(join(tempDir(), 'cache.sqlite')).db,
+      source: fake.source,
+      projectsDirs: () => [
+        { profileId: 'work', dir: join(configDir, 'projects') },
+        // A config folder that doesn't exist yet: watched once a refresh finds it.
+        { profileId: 'later', dir: join(later, 'projects') },
+      ],
+      resolver: createProjectResolver('/nonexistent-home'),
+      log: () => {},
+      onChange: () => {},
+      onTranscriptChanged: () => {},
+    });
+    cleanups.push(() => index.stop());
+    index.start();
+    await index.refresh();
+    fake.infos.set(ID_A, info(ID_A));
+    mkdirSync(join(configDir, 'projects', '-repo'), { recursive: true });
+    writeFileSync(join(configDir, 'projects', '-repo', `${ID_A}.jsonl`), '{"entrypoint":"cli"}\n');
+    await until(() => index.get(ID_A) !== null);
+
+    mkdirSync(join(later, 'projects', '-repo'), { recursive: true });
+    await index.refresh();
+    fake.infos.set(ID_B, info(ID_B));
+    // FSEvents can miss a write made the moment a watcher starts, so keep appending (as Claude Code does) until it is seen.
+    const transcriptB = join(later, 'projects', '-repo', `${ID_B}.jsonl`);
+    writeFileSync(transcriptB, '{"entrypoint":"cli"}\n');
+    await until(() => {
+      if (index.get(ID_B) !== null) return true;
+      appendFileSync(transcriptB, '{}\n');
+      return false;
+    });
+  });
+
+  it('does not let a slow full scan undo a delete or a write that happened meanwhile', async () => {
+    const t = setup([info(ID_A)]);
+    await t.index.refresh();
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    // The scan's list is read before the delete and before the new session.
+    const stale = await t.source.list();
+    t.source.list = async () => (await gate, stale);
+    t.index.start();
+    const scan = t.index.refresh();
+
+    t.index.forget(ID_A);
+    t.infos.set(ID_B, info(ID_B));
+    writeFileSync(join(t.projectsDir, '-repo', `${ID_B}.jsonl`), '{"entrypoint":"cli"}\n');
+    await until(() => t.index.get(ID_B) !== null);
+    release();
+    await scan;
+    expect(t.index.get(ID_A)).toBeNull();
+    expect(t.index.get(ID_B)).not.toBeNull();
   });
 });
 

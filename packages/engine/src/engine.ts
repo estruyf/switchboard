@@ -268,7 +268,8 @@ export function createEngine(options: EngineOptions): Engine {
     return map;
   };
 
-  if (cache.recovered) log('warn', 'Cache database was unreadable and has been rebuilt');
+  if (cache.recovered) log('warn', 'Cache database was corrupt; it was moved aside and rebuilt');
+  if (cache.fallback) log('warn', `Cache database left untouched (${cache.fallback.reason}); this run uses ${cache.path}`);
 
   // Found again by the Claude Code updater (after an update, and on each check), so new sessions use the version installed now.
   let claude = shell.forLookup().then((env) => findClaude(env, options.claudeBinary));
@@ -367,16 +368,32 @@ export function createEngine(options: EngineOptions): Engine {
     onChange: (list) => broadcast('terminals.changed', { terminals: list }),
     log,
   });
+  /** The terminals each connection is attached to, so one dispose hook per connection detaches it from all of them. */
+  const viewedBy = new WeakMap<HandlerContext<Contract>, Set<string>>();
+  const detachTerminal = (id: string, context: HandlerContext<Contract>) => {
+    const viewers = terminalViewers.get(id);
+    viewers?.delete(context);
+    if (viewers?.size === 0) terminalViewers.delete(id);
+  };
   const viewTerminal = (id: string, context: HandlerContext<Contract>, attach: boolean) => {
-    let viewers = terminalViewers.get(id);
+    let viewed = viewedBy.get(context);
     if (attach) {
-      if (!viewers) terminalViewers.set(id, (viewers = new Set()));
-      if (!viewers.has(context)) {
-        viewers.add(context);
-        context.onDispose(() => terminalViewers.get(id)?.delete(context));
+      if (!viewed) {
+        const created = new Set<string>();
+        viewedBy.set(context, created);
+        context.onDispose(() => {
+          for (const viewedId of created) detachTerminal(viewedId, context);
+          created.clear();
+        });
+        viewed = created;
       }
+      viewed.add(id);
+      let viewers = terminalViewers.get(id);
+      if (!viewers) terminalViewers.set(id, (viewers = new Set()));
+      viewers.add(context);
     } else {
-      viewers?.delete(context);
+      viewed?.delete(id);
+      detachTerminal(id, context);
     }
   };
 
@@ -388,13 +405,16 @@ export function createEngine(options: EngineOptions): Engine {
   /** Terminals started by `actions.run`, so Restart can look the action up again. */
   const actionRuns = new Map<string, { sessionId: string; projectRoot: string; cwd: string; id: string }>();
 
-  /** Refuses (SESSION_BUSY) while Claude works in the checkout at `cwd`, wherever that session runs: changing the files under a running turn would confuse it. */
-  const assertCheckoutIdle = async (cwd: string) => {
+  /**
+   * Refuses (SESSION_BUSY) while Claude works in the checkout at `cwd`, wherever that session runs: changing the files under a
+   * running turn would confuse it. `except` leaves out the session asking, when what it asks for stops it anyway.
+   */
+  const assertCheckoutIdle = async (cwd: string, except?: string) => {
     const root = await checkoutRoot(cwd);
     scanLive();
     const busy = [
-      ...hosts.list().hosts.filter((h) => h.state === 'starting' || h.state === 'running' || h.state === 'needs-you').map((h) => h.cwd),
-      ...liveList().filter((l) => l.status !== 'idle').flatMap((l) => (l.cwd ? [l.cwd] : [])),
+      ...hosts.list().hosts.filter((h) => h.sessionId !== except && (h.state === 'starting' || h.state === 'running' || h.state === 'needs-you')).map((h) => h.cwd),
+      ...liveList().filter((l) => l.sessionId !== except && l.status !== 'idle').flatMap((l) => (l.cwd ? [l.cwd] : [])),
     ];
     for (const other of new Set(busy)) {
       if (existsSync(other) && (await checkoutRoot(other)) === root) {
@@ -635,6 +655,9 @@ export function createEngine(options: EngineOptions): Engine {
       const profileId = requireProfile(chosenProfile ?? folderProfile(params.cwd));
       if (checkoutBranch) {
         if (params.worktree) throw new RpcError('INVALID', 'A new worktree gets its own branch; choose the current folder to check out a branch');
+        // Only a real switch changes files under another session; starting on the branch already checked out is fine.
+        const { current } = await listBranches(params.cwd).catch(() => ({ current: null }));
+        if (current !== checkoutBranch) await assertCheckoutIdle(params.cwd);
         try {
           await switchBranch(params.cwd, checkoutBranch);
         } catch (error) {
@@ -854,9 +877,13 @@ export function createEngine(options: EngineOptions): Engine {
           throw new RpcError('WRONG_BRANCH', `The main checkout is on ${status.mainCheckout.branch ?? 'a detached HEAD'}, not ${status.baseBranch ?? 'the base branch'}.`);
         }
         if (status.mainCheckout.dirty) throw new RpcError('MAIN_DIRTY', 'The main checkout has uncommitted changes. Commit or stash them there first.');
+        // The merge changes the main checkout's files, under any session working there.
+        await assertCheckoutIdle(status.root);
         return { terminalId: await runShellAction(sessionId, status.root, `Merge ${status.branch}`, `git merge --no-edit ${branch}`) };
       }
       if (status.uncommitted > 0) throw new RpcError('UNCOMMITTED', 'The worktree has uncommitted changes. Commit or revert them first.');
+      // Removing the folder pulls it from under every session in it; this session is stopped first, any other has to be idle.
+      await assertCheckoutIdle(status.path, sessionId);
       await hosts.release(sessionId);
       try {
         await removeWorktree(status, deleteBranch);

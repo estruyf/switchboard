@@ -1,5 +1,5 @@
 import { Check, ChevronRight, Copy, FolderOpen, Plus, X } from 'lucide-react';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { PROFILE_COLORS, type ClaudeProfile, type ProfileColor } from '@switchboard/protocol/client';
 import { useEngineConnection } from '../../engine/useEngine.ts';
 import { guessHome, tildify } from '../../lib/format.ts';
@@ -9,7 +9,7 @@ import { Button } from '../ui/Button.tsx';
 import { Radio, RadioGroup } from '../ui/Radio.tsx';
 import { PROFILE_DOT } from './ProfileBadge.tsx';
 
-const field = 'h-7 min-w-0 rounded-md border border-border bg-bg px-2 text-[12px] text-text outline-none focus:border-accent-ink/60';
+const field = 'h-7 min-w-0 rounded-md border border-border bg-bg px-2 text-ui text-text outline-none focus:border-accent-ink/60';
 
 const slug = (name: string) =>
   name
@@ -82,6 +82,8 @@ function ProfileRow({ profile, home, onRemove }: { profile: ClaudeProfile; home:
   const connection = useEngineConnection();
   const client = connection.status === 'connected' ? connection.client : null;
   const [name, setName] = useState(profile.name);
+  // A rename saved here (or in another window) comes back as a new name; the row stays mounted, so focus stays where Tab put it.
+  useEffect(() => setName(profile.name), [profile.name]);
   const [error, setError] = useState<string | null>(null);
   const call = (promise: Promise<unknown> | undefined) => promise?.catch((e: Error) => setError(e.message));
   const saveName = () => {
@@ -111,7 +113,7 @@ function ProfileRow({ profile, home, onRemove }: { profile: ClaudeProfile; home:
             tabbable
             label={`Use ${profile.name} by default`}
             onSelect={() => void call(client?.call('profiles.setDefault', { id: profile.id }))}
-            className="items-center text-[12px] text-muted"
+            className="items-center text-ui text-muted"
             dataAttrs={{ 'data-profile-default': profile.id }}
           >
             Default
@@ -132,18 +134,18 @@ function ProfileRow({ profile, home, onRemove }: { profile: ClaudeProfile; home:
           />
         )}
       </div>
-      <p className="truncate text-[12px] text-muted" data-tooltip={profile.configDir}>
+      <p className="truncate text-ui text-muted" data-tooltip={profile.configDir}>
         {tildify(profile.configDir, home)}
         {profile.builtin && <span> · Claude Code’s own folder</span>}
         {!profile.exists && <span className="text-warn"> · folder not found</span>}
       </p>
       {profile.account ? (
-        <p className="text-[12px] text-muted">
+        <p className="text-ui text-muted">
           Signed in as <span className="text-text">{profile.account.email ?? 'a claude.ai account'}</span>
           {profile.account.organization && <> · {profile.account.organization}</>}
         </p>
       ) : (
-        <div className="grid gap-1 text-[12px] text-muted">
+        <div className="grid gap-1 text-ui text-muted">
           <p>
             Not signed in yet. In Terminal, run this command, then type <code className="font-mono">/login</code>:
           </p>
@@ -151,7 +153,7 @@ function ProfileRow({ profile, home, onRemove }: { profile: ClaudeProfile; home:
         </div>
       )}
       {error && (
-        <p role="alert" className="text-[12px] text-error">
+        <p role="alert" className="text-ui text-error">
           {error}
         </p>
       )}
@@ -213,18 +215,18 @@ function AddProfileForm({ home, onDone }: { home: string | null; onDone(): void 
           Choose…
         </Button>
       </div>
-      <p className="text-[12px] text-muted">
+      <p className="text-ui text-muted">
         Claude Code keeps a separate login, settings, plugins and sessions in each folder. A new folder is created; sign in there afterwards. Use an existing one (for
         example where you already run <code className="font-mono">CLAUDE_CONFIG_DIR=… claude</code>) to see its sessions.
       </p>
       {error && (
-        <p role="alert" className="text-[12px] text-error">
+        <p role="alert" className="text-ui text-error">
           Couldn't add the profile: {error}
         </p>
       )}
       <div className="flex items-center justify-end gap-2">
         {problem && (
-          <p id="add-profile-problem" className="min-w-0 flex-1 text-[12px] text-muted">
+          <p id="add-profile-problem" className="min-w-0 flex-1 text-ui text-muted">
             {problem}
           </p>
         )}
@@ -251,14 +253,14 @@ function SetupGuide() {
         type="button"
         onClick={() => setOpen(!open)}
         aria-expanded={open}
-        className="flex w-full items-center gap-1.5 px-3 py-2 text-left text-[12px] text-muted hover:text-text"
+        className="flex w-full items-center gap-1.5 px-3 py-2 text-left text-ui text-muted hover:text-text"
         data-profile-guide-toggle
       >
         <ChevronRight size={13} aria-hidden className={`shrink-0 transition-transform ${open ? 'rotate-90' : ''}`} />
         How to set up another profile
       </button>
       {open && (
-        <ol className="grid list-decimal gap-3 border-t border-border py-3 pr-3 pl-8 text-[12px] text-muted marker:text-faint">
+        <ol className="grid list-decimal gap-3 border-t border-border py-3 pr-3 pl-8 text-ui text-muted marker:text-faint">
           <li className={step}>
             <span className="font-medium text-text">Create a config folder and sign in.</span>
             <span>
@@ -308,7 +310,7 @@ export function ProfilesSettings() {
     <div className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-2" data-profiles>
       <ul className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-2" aria-label="Claude profiles">
         {profiles.map((profile) => (
-          <ProfileRow key={`${profile.id}:${profile.name}`} profile={profile} home={home} onRemove={() => setRemoving(profile)} />
+          <ProfileRow key={profile.id} profile={profile} home={home} onRemove={() => setRemoving(profile)} />
         ))}
       </ul>
       {adding ? (

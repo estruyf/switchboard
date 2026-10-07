@@ -65,7 +65,7 @@ export function Menu({ x, y, entries, onClose, width = 220, above = false, label
         entry === 'separator' ? (
           <div key={i} role="separator" className="my-1 border-t border-border" />
         ) : 'heading' in entry ? (
-          <p key={i} role="presentation" className="px-3 pt-1.5 pb-0.5 text-[11px] tracking-wide text-muted uppercase">
+          <p key={i} role="presentation" className="px-3 pt-1.5 pb-0.5 text-meta tracking-wide text-muted uppercase">
             {entry.heading}
           </p>
         ) : 'title' in entry ? (
@@ -77,7 +77,7 @@ export function Menu({ x, y, entries, onClose, width = 220, above = false, label
           <p
             key={i}
             role="presentation"
-            className={`text-[12px] ${entry.tone === 'warn' ? 'mx-2 my-1 rounded-md bg-warn/10 px-2.5 py-1.5 text-warn' : 'px-3 pt-1 pb-1.5 text-muted'}`}
+            className={`text-ui ${entry.tone === 'warn' ? 'mx-2 my-1 rounded-md bg-warn/10 px-2.5 py-1.5 text-warn' : 'px-3 pt-1 pb-1.5 text-muted'}`}
             data-menu-note
           >
             {entry.note}
@@ -93,7 +93,7 @@ export function Menu({ x, y, entries, onClose, width = 220, above = false, label
               onClose();
               entry.onSelect();
             }}
-            className={`flex w-full items-center gap-2 px-3 py-1 text-left text-[12px] hover:bg-accent/15 focus-visible:bg-accent/15 disabled:opacity-40 ${entry.danger ? 'text-error' : 'text-text'}`}
+            className={`flex w-full items-center gap-2 px-3 py-1 text-left text-ui hover:bg-accent/15 focus-visible:bg-accent/15 disabled:opacity-40 ${entry.danger ? 'text-error' : 'text-text'}`}
           >
             {entry.icon && (
               <span aria-hidden className="flex w-4 shrink-0 justify-center text-muted">
@@ -101,7 +101,7 @@ export function Menu({ x, y, entries, onClose, width = 220, above = false, label
               </span>
             )}
             <span className="min-w-0 flex-1 truncate">{entry.label}</span>
-            {entry.hint && <span className="shrink-0 text-[11px] text-faint">{entry.hint}</span>}
+            {entry.hint && <span className="shrink-0 text-meta text-faint">{entry.hint}</span>}
           </button>
         ),
       )}

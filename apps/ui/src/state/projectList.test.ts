@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { ProjectInfo } from '@switchboard/protocol/client';
-import { projectByName } from './projectList.ts';
+import { baseOrder, moveRoot, projectByName } from './projectList.ts';
 
 const project = (root: string, name: string, added: boolean, order: number | null = null): ProjectInfo => ({
   root,
@@ -34,5 +34,19 @@ describe('projectByName', () => {
     expect(projectByName(projects, 'payments-api')?.root).toBe('/work/payments-api');
     expect(projectByName(projects, 'scratch')).toBeNull();
     expect(projectByName(projects, 'nope')).toBeNull();
+  });
+});
+
+describe('baseOrder', () => {
+  it('builds a quick second move on the first one still being saved', () => {
+    const shown = ['/a', '/b', '/c'];
+    const first = moveRoot(shown, '/c', -1);
+    expect(first).toEqual(['/a', '/c', '/b']);
+    expect(moveRoot(baseOrder(first, shown), '/c', -1)).toEqual(['/c', '/a', '/b']);
+  });
+  it('uses the list as shown when nothing is pending or the projects changed', () => {
+    expect(baseOrder(null, ['/a', '/b'])).toEqual(['/a', '/b']);
+    expect(baseOrder(['/b', '/a'], ['/a', '/b', '/c'])).toEqual(['/a', '/b', '/c']);
+    expect(baseOrder(['/b', '/x'], ['/a', '/b'])).toEqual(['/a', '/b']);
   });
 });

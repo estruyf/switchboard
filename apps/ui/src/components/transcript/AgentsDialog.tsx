@@ -43,15 +43,15 @@ function AgentRow({ run, sessionId, cwd, now, initiallyOpen }: { run: AgentRun; 
         {/* The icon shows the state; say it in words for screen readers. */}
         <span className="sr-only">{running ? 'Running: ' : failed ? 'Failed: ' : 'Finished: '}</span>
         <span className="min-w-0 flex-1 truncate">{what}</span>
-        <span className="shrink-0 rounded bg-border/60 px-1.5 text-[11px] text-muted" data-tooltip="Agent type">
+        <span className="shrink-0 rounded bg-border/60 px-1.5 text-meta text-muted" data-tooltip="Agent type">
           {type}
         </span>
         {run.background && (
-          <span className="shrink-0 text-[11px] text-muted" data-tooltip="Runs in the background while Claude carries on">
+          <span className="shrink-0 text-meta text-muted" data-tooltip="Runs in the background while Claude carries on">
             background
           </span>
         )}
-        {item.at !== null && end !== null && <span className="shrink-0 text-[11px] text-muted tabular-nums">{formatDuration(end - item.at)}</span>}
+        {item.at !== null && end !== null && <span className="shrink-0 text-meta text-muted tabular-nums">{formatDuration(end - item.at)}</span>}
       </button>
       {open && (
         <div id={runId} className="px-4 pb-3">

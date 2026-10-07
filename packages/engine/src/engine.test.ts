@@ -414,4 +414,35 @@ describe('Claude profiles', () => {
     writeFileSync(join(registry, `${process.pid}.json`), entry('idle'));
     await expect(client.call('git.switch', { cwd: repo, branch: 'main' })).resolves.toEqual({ current: 'main' });
   });
+
+  it('refuses to switch, merge into or remove a checkout while another session works there', async () => {
+    const { client, dataDir } = connect();
+    const repo = realpathSync(mkdtempSync(join(tmpdir(), 'switchboard-busy-')));
+    cleanups.push(() => rmSync(repo, { recursive: true, force: true }));
+    const run = (...args: string[]) => git(repo, args);
+    await run('init', '-q', '-b', 'main');
+    await run('config', 'user.email', 'test@example.com');
+    await run('config', 'user.name', 'Test');
+    writeFileSync(join(repo, 'a.txt'), 'one\n');
+    await run('add', '.');
+    await run('commit', '-qm', 'initial');
+    await run('branch', 'feature');
+    const tree = join(repo, '.worktrees', 'wt');
+    await run('worktree', 'add', '-q', '-b', 'wt-branch', tree);
+    await git(tree, ['commit', '-q', '--allow-empty', '-m', 'work']);
+
+    const registry = join(dataDir, 'claude', 'sessions');
+    mkdirSync(registry, { recursive: true });
+    const busyIn = (cwd: string) =>
+      writeFileSync(join(registry, `${process.pid}.json`), JSON.stringify({ pid: process.pid, sessionId: '77777777-7777-4777-8777-777777777777', cwd, status: 'busy', entrypoint: 'cli' }));
+
+    busyIn(repo);
+    await expect(client.call('session.create', { cwd: repo, prompt: 'hi', checkoutBranch: 'feature' })).rejects.toMatchObject({ code: 'SESSION_BUSY' });
+    expect((await client.call('git.branches', { cwd: repo })).current).toBe('main');
+    await expect(client.call('worktree.finish', { sessionId: SESSION_ID, cwd: tree, action: 'merge' })).rejects.toMatchObject({ code: 'SESSION_BUSY' });
+
+    busyIn(tree);
+    await expect(client.call('worktree.finish', { sessionId: SESSION_ID, cwd: tree, action: 'remove' })).rejects.toMatchObject({ code: 'SESSION_BUSY' });
+    expect(existsSync(tree)).toBe(true);
+  });
 });

@@ -10,6 +10,8 @@ import { DEEP_LINK_SCHEME, linkFromArgv, parseDeepLink } from './deepLink.ts';
 import { Notifier } from './notifier.ts';
 import { PreferencesStore, windowBackground } from './preferences.ts';
 import { QuitGuard } from './quitGuard.ts';
+import { ReloadLimiter } from './reloadLimiter.ts';
+import { RendererQueue } from './rendererQueue.ts';
 import { isConfigDir, isTrashableRepoFile, isTrashableSessionPath } from './trashGuard.ts';
 import { Updater } from './updater.ts';
 import { updatesDisabledReason } from './updateState.ts';
@@ -38,7 +40,10 @@ if (smokeOutDir) {
   process.env.SWITCHBOARD_NO_CLAUDE_UPDATE = '1';
 }
 
-if (!app.requestSingleInstanceLock()) app.quit();
+// A second launch hands its arguments to the running instance (its second-instance event) and stops here.
+// app.quit() would let this module run on: the updater would delete the running instance's update marker and
+// whenReady would start a second engine. app.exit() ends the process before the next line.
+if (!app.requestSingleInstanceLock()) app.exit(0);
 
 // SWITCHBOARD_COLOR_SCHEME=light|dark forces a scheme without saving it (to check both in the smoke test).
 const forcedScheme = process.env.SWITCHBOARD_COLOR_SCHEME;
@@ -65,6 +70,8 @@ const updater = new Updater({
     for (const win of BrowserWindow.getAllWindows()) win.webContents.send(IpcChannel.updateState, state);
   },
   beforeInstall: () => engine?.stop(),
+  // Squirrel didn't restart the app (run from the DMG, a read-only folder): bring the engine back.
+  installFailed: () => engine?.resume(),
   log: (message) => console.log(`[updater] ${message}`),
 });
 ipcMain.on(IpcChannel.getUpdateState, (event) => {
@@ -103,32 +110,34 @@ ipcMain.on(IpcChannel.focusSession, (_event, sessionId: unknown) => {
 });
 
 function openSession(sessionId: string): void {
-  const win = BrowserWindow.getAllWindows()[0] ?? createWindow();
-  if (win.isMinimized()) win.restore();
-  win.show();
-  win.focus();
-  win.webContents.send(IpcChannel.selectSession, sessionId);
+  sendToWindow(showWindow(), IpcChannel.selectSession, sessionId, { latestOnly: true });
 }
 
 async function handleEngineRequest(message: unknown): Promise<unknown> {
   const request = message as { type?: unknown; id?: unknown; paths?: unknown; repoRoot?: unknown; configDir?: unknown } | null;
   if (request?.type !== 'trash' || typeof request.id !== 'number' || !Array.isArray(request.paths)) return undefined;
-  // Each Claude profile has its own config folder; session files must be inside its projects folder.
-  const configDir = isConfigDir(request.configDir) ? request.configDir : process.env.CLAUDE_CONFIG_DIR || join(homedir(), '.claude');
-  const paths = request.paths.filter((p): p is string => typeof p === 'string');
-  // Session files, or (for a git revert) new files inside the repository being reverted.
-  const repoRoot = typeof request.repoRoot === 'string' ? request.repoRoot : null;
-  const refused = paths.filter((p) => (repoRoot ? !isTrashableRepoFile(p, repoRoot) : !isTrashableSessionPath(p, configDir)));
-  if (refused.length > 0 || paths.length !== request.paths.length) {
-    const where = repoRoot ? `the repository ${repoRoot}` : "Claude Code's projects folder";
-    return { type: 'trash-result', id: request.id, error: `Refusing to move files outside ${where}: ${refused.join(', ')}` };
-  }
+  // Always answer: the engine waits for a reply to every trash request.
   try {
-    for (const path of paths) await shell.trashItem(path);
-    return { type: 'trash-result', id: request.id };
+    return await trashForEngine(request.id, request.paths, request.repoRoot, request.configDir);
   } catch (error) {
     return { type: 'trash-result', id: request.id, error: (error as Error).message };
   }
+}
+
+/** Moves session files, or (for a git revert) new files in a repository, to the Trash after checking every path. */
+async function trashForEngine(id: number, requested: unknown[], requestedRoot: unknown, requestedConfigDir: unknown): Promise<unknown> {
+  // Each Claude profile has its own config folder; session files must be inside its projects folder.
+  const configDir = isConfigDir(requestedConfigDir) ? requestedConfigDir : process.env.CLAUDE_CONFIG_DIR || join(homedir(), '.claude');
+  const paths = requested.filter((p): p is string => typeof p === 'string');
+  // Session files, or (for a git revert) new files inside the repository being reverted.
+  const repoRoot = typeof requestedRoot === 'string' ? requestedRoot : null;
+  const refused = paths.filter((p) => (repoRoot ? !isTrashableRepoFile(p, repoRoot) : !isTrashableSessionPath(p, configDir)));
+  if (refused.length > 0 || paths.length !== requested.length) {
+    const where = repoRoot ? `the repository ${repoRoot}` : "Claude Code's projects folder";
+    return { type: 'trash-result', id, error: `Refusing to move files outside ${where}: ${refused.join(', ')}` };
+  }
+  for (const path of paths) await shell.trashItem(path);
+  return { type: 'trash-result', id };
 }
 
 /** Windows whose renderer is up and can show the quit prompt. */
@@ -158,8 +167,26 @@ ipcMain.on(IpcChannel.quitAnswer, (_event, answer: unknown) => {
   if (answer === 'quit' || answer === 'cancel') quitGuard.answer(answer);
 });
 
-/** Links that arrived before a window could take them: one that launched the app, or one during an engine restart. */
-const pendingLinks: DeepLinkMessage[] = [];
+/**
+ * Messages that arrived before a window could take them: the link that launched the app, a notification
+ * clicked after the window was closed (a new one is still loading), Settings… with no window open.
+ */
+const pendingMessages = new RendererQueue();
+
+/** The window to show something in, created if they were all closed, and brought to the front. */
+function showWindow(): BrowserWindow {
+  const win = BrowserWindow.getAllWindows()[0] ?? createWindow();
+  if (win.isMinimized()) win.restore();
+  win.show();
+  win.focus();
+  return win;
+}
+
+/** Sends now if the window's renderer is listening, otherwise when it reports ready. */
+function sendToWindow(win: BrowserWindow, channel: string, payload: unknown, options: { latestOnly?: boolean } = {}): void {
+  if (readyRenderers.has(win.webContents.id)) win.webContents.send(channel, payload);
+  else pendingMessages.push(channel, payload, options);
+}
 
 /**
  * Opens a `switchboard://` link. It is validated here, then handed to the window, which fills in New
@@ -170,26 +197,17 @@ function openDeepLink(url: string): void {
   const message: DeepLinkMessage = parsed.ok ? { link: parsed.link } : { error: parsed.error };
   console.log(`[main] link: ${parsed.ok ? parsed.link.action : `refused (${parsed.error})`}`);
   if (!app.isReady()) {
-    pendingLinks.push(message);
+    pendingMessages.push(IpcChannel.deepLink, message);
     return;
   }
-  const win = BrowserWindow.getAllWindows()[0] ?? createWindow();
-  if (win.isMinimized()) win.restore();
-  win.show();
-  win.focus();
-  if (readyRenderers.has(win.webContents.id)) win.webContents.send(IpcChannel.deepLink, message);
-  else pendingLinks.push(message);
+  sendToWindow(showWindow(), IpcChannel.deepLink, message);
 }
 
 // The smoke test checks quitting without ending its own run.
 const quitApp = () => (smokeOutDir ? (quitRecorded = true) : app.quit());
 
 function openSettings(section: 'about' | null = null): void {
-  const win = BrowserWindow.getAllWindows()[0] ?? createWindow();
-  if (win.isMinimized()) win.restore();
-  win.show();
-  win.focus();
-  win.webContents.send(IpcChannel.openSettings, section);
+  sendToWindow(showWindow(), IpcChannel.openSettings, section, { latestOnly: true });
 }
 
 /** Switchboard → Check for Updates…: checks, and opens Settings → About where the result shows. */
@@ -272,7 +290,18 @@ function createWindow(): BrowserWindow {
   win.once('ready-to-show', () => win.show());
   const contentsId = win.webContents.id;
   win.webContents.on('did-start-loading', () => readyRenderers.delete(contentsId));
-  win.webContents.on('render-process-gone', () => readyRenderers.delete(contentsId));
+  // A crashed page leaves the window blank: reload it, unless it keeps crashing.
+  const reloads = new ReloadLimiter();
+  win.webContents.on('render-process-gone', (_event, details) => {
+    readyRenderers.delete(contentsId);
+    if (win.isDestroyed()) return;
+    if (reloads.shouldReload(details.reason)) {
+      console.error(`[main] renderer gone (${details.reason}); reloading`);
+      win.webContents.reload();
+    } else if (details.reason !== 'clean-exit') {
+      console.error(`[main] renderer gone (${details.reason}); not reloading, it crashed too often`);
+    }
+  });
   win.on('closed', () => readyRenderers.delete(contentsId));
 
   // The renderer is a local app: links open in the browser, never inside the window.
@@ -372,7 +401,7 @@ ipcMain.on(IpcChannel.rendererReady, (event, report: RendererReadyReport) => {
   };
   readyReports.push(timed);
   readyRenderers.add(event.sender.id);
-  for (const message of pendingLinks.splice(0)) event.sender.send(IpcChannel.deepLink, message);
+  for (const { channel, payload } of pendingMessages.drain()) event.sender.send(channel, payload);
   if (readyReports.length === 1) {
     console.log(`[main] engine connected ${timed.connectedMs}ms, diagnostics loaded ${timed.loadedMs}ms after process start`);
   }
@@ -1931,7 +1960,7 @@ app.whenReady().then(() => {
   if (smokeOutDir) setTimeout(() => exitApp(2), process.env.SWITCHBOARD_SMOKE_LIVE_CWD ? 180_000 : 45_000).unref();
 });
 
-// macOS delivers links here, also the one that launched the app (before 'ready', so it waits in pendingLinks).
+// macOS delivers links here, also the one that launched the app (before 'ready', so it waits in pendingMessages).
 app.on('open-url', (event, url) => {
   event.preventDefault();
   openDeepLink(url);
@@ -1941,11 +1970,8 @@ app.on('second-instance', (_event, argv) => {
   // Elsewhere a link arrives as an argument to a second instance.
   const link = linkFromArgv(argv);
   if (link) return openDeepLink(link);
-  const [win] = BrowserWindow.getAllWindows();
-  if (win) {
-    if (win.isMinimized()) win.restore();
-    win.focus();
-  }
+  // Launching the app again shows it, with a new window if they were all closed.
+  if (app.isReady()) showWindow();
 });
 
 app.on('window-all-closed', () => {

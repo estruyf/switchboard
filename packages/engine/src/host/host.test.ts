@@ -1,5 +1,5 @@
 import type { Options, PermissionResult, SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type { ModelOption, PermissionRequest, SessionHostInfo, StreamDelta } from '@switchboard/protocol';
 import type { RawSessionMessage } from '../claude/transcript.ts';
 import { HostManager, type SdkRuntime } from './hostManager.ts';
@@ -44,6 +44,8 @@ class FakeQuery {
   readonly out = new Channel<unknown>();
   interrupts = 0;
   closed = false;
+  /** The host ended its input (it lets go of the process once it has stopped). */
+  inputEnded = false;
   mode: string;
   model = 'fake-model';
   constructor(
@@ -57,7 +59,8 @@ class FakeQuery {
     return this.out[Symbol.asyncIterator]();
   }
   private async run() {
-    const sessionId = this.options.forkSession ? 'forked-session' : (this.options.sessionId ?? this.options.resume)!;
+    // Claude Code takes the id we pass for new sessions and forks; a resume keeps the resumed id.
+    const sessionId = (this.options.sessionId ?? this.options.resume)!;
     const state = (s: string) => this.out.push({ type: 'system', subtype: 'session_state_changed', state: s, session_id: sessionId });
     const assistant = (text: string) =>
       this.out.push({ type: 'assistant', uuid: `a-${text}`, parent_tool_use_id: null, session_id: sessionId, message: { model: 'fake', content: [{ type: 'text', text }] } });
@@ -88,6 +91,7 @@ class FakeQuery {
       this.out.push({ type: 'result', subtype: 'success', total_cost_usd: 0.01, session_id: sessionId });
       state('idle');
     }
+    this.inputEnded = true;
   }
   async interrupt() {
     this.interrupts++;
@@ -124,7 +128,9 @@ const until = async (check: () => boolean, timeoutMs = 2000) => {
   }
 };
 
-function setup(opts: { openElsewhere?: string[]; cwds?: Record<string, string>; profiles?: Record<string, string>; settings?: SessionSettingsStore } = {}) {
+function setup(
+  opts: { openElsewhere?: string[]; cwds?: Record<string, string>; profiles?: Record<string, string>; settings?: SessionSettingsStore; refreshLive?: () => void } = {},
+) {
   const models: ModelOption[][] = [];
   const queries: FakeQuery[] = [];
   const infos: SessionHostInfo[] = [];
@@ -133,21 +139,25 @@ function setup(opts: { openElsewhere?: string[]; cwds?: Record<string, string>; 
   const permissions: PermissionRequest[] = [];
   const resolved: string[] = [];
   const created: string[] = [];
+  const warmups: Array<{ options: Options; closed: boolean }> = [];
   const sdk: SdkRuntime = {
     query: ({ prompt, options }) => {
       const q = new FakeQuery(prompt, options);
       queries.push(q);
       return q as never;
     },
-    startup: async ({ options }) =>
-      ({
+    startup: async ({ options }) => {
+      const warmup = { options, closed: false };
+      warmups.push(warmup);
+      return {
         query: (prompt: AsyncIterable<SDKUserMessage>) => {
           const q = new FakeQuery(prompt, options);
           queries.push(q);
           return q;
         },
-        close() {},
-      }) as never,
+        close: () => void (warmup.closed = true),
+      } as never;
+    },
   };
   const manager = new HostManager({
     sdk: async () => sdk,
@@ -157,6 +167,7 @@ function setup(opts: { openElsewhere?: string[]; cwds?: Record<string, string>; 
     isOpenElsewhere: (id) => (opts.openElsewhere ?? []).includes(id),
     sessionCwd: (id) => opts.cwds?.[id] ?? null,
     sessionProfile: (id) => opts.profiles?.[id] ?? 'default',
+    refreshLive: opts.refreshLive,
     onInfo: (i) => infos.push(i),
     onStream: (d) => streams.push(d),
     onMessages: (id, m) => messages.push({ id, messages: m }),
@@ -167,7 +178,7 @@ function setup(opts: { openElsewhere?: string[]; cwds?: Record<string, string>; 
     onModels: (m) => models.push(m),
     log: () => {},
   });
-  return { manager, queries, infos, streams, messages, permissions, resolved, created, models };
+  return { manager, queries, infos, streams, messages, permissions, resolved, created, models, warmups };
 }
 
 const base = { attachments: [], model: null, permissionMode: 'default' as const, effort: null, worktree: null, profileId: 'default' };
@@ -218,10 +229,46 @@ describe('HostManager', () => {
     const t = setup({ openElsewhere: ['busy'], cwds: { busy: '/repo' } });
     await expect(t.manager.send({ sessionId: 'busy', text: 'hi', attachments: [], fork: false })).rejects.toMatchObject({ code: 'SESSION_BUSY_ELSEWHERE' });
     const forked = await t.manager.send({ sessionId: 'busy', text: 'hi', attachments: [], fork: true });
-    expect(forked.sessionId).toBe('forked-session');
-    expect(t.queries[0]!.options).toMatchObject({ resume: 'busy', forkSession: true, cwd: '/repo' });
-    expect(t.created).toEqual(['forked-session']);
-    expect(t.manager.has('forked-session')).toBe(true);
+    expect(forked.sessionId).not.toBe('busy');
+    // The fork gets its own id up front (Claude Code takes --session-id together with --fork-session).
+    expect(t.queries[0]!.options).toMatchObject({ resume: 'busy', forkSession: true, sessionId: forked.sessionId, cwd: '/repo' });
+    expect(t.created).toEqual([forked.sessionId]);
+    expect(t.manager.has(forked.sessionId)).toBe(true);
+    // Nothing about the fork is ever reported under the original's id.
+    expect(t.infos.filter((i) => i.sessionId === 'busy')).toEqual([]);
+    expect(t.messages.every((m) => m.id === forked.sessionId)).toBe(true);
+    expect(t.manager.list().hosts.map((h) => h.sessionId)).toEqual([forked.sessionId]);
+    t.manager.closeAll();
+  });
+
+  it('forks a session running here without touching the running one', async () => {
+    const t = setup({ cwds: { old: '/repo' } });
+    await t.manager.send({ sessionId: 'old', text: 'hello', attachments: [], fork: false });
+    await until(() => lastState(t.infos, 'old') === 'idle');
+    const before = t.infos.filter((i) => i.sessionId === 'old').length;
+    const forked = await t.manager.send({ sessionId: 'old', text: 'try another way', attachments: [], fork: true });
+    await until(() => lastState(t.infos, forked.sessionId) === 'idle');
+    expect(t.infos.filter((i) => i.sessionId === 'old')).toHaveLength(before);
+    // The fork's prompt goes into the fork's transcript, not the original's.
+    expect(t.messages.filter((m) => m.messages[0]!.uuid === forked.messageUuid).map((m) => m.id)).toEqual([forked.sessionId]);
+    // Both stay in the map, so the original can still be stopped.
+    expect(t.manager.has('old')).toBe(true);
+    expect(t.manager.has(forked.sessionId)).toBe(true);
+    t.manager.close('old');
+    await until(() => t.queries[0]!.closed);
+    expect(t.queries[1]!.closed).toBe(false);
+    t.manager.closeAll();
+  });
+
+  it('starts one process when two messages arrive for a stopped session at once', async () => {
+    const t = setup({ cwds: { old: '/repo' } });
+    const [a, b] = await Promise.all([
+      t.manager.send({ sessionId: 'old', text: 'first', attachments: [], fork: false }),
+      t.manager.send({ sessionId: 'old', text: 'second', attachments: [], fork: false }),
+    ]);
+    expect(t.queries).toHaveLength(1);
+    expect([a.sessionId, b.sessionId]).toEqual(['old', 'old']);
+    await until(() => t.messages.filter((m) => m.messages[0]!.uuid === 'a-Hello').length === 2);
     t.manager.closeAll();
   });
 
@@ -252,6 +299,56 @@ describe('HostManager', () => {
     await until(() => lastState(t.infos, id) === 'idle');
     expect(t.queries).toHaveLength(1);
     expect(t.queries[0]!.mode).toBe('plan');
+    t.manager.closeAll();
+  });
+
+  it('keeps one pre-warmed process when pre-warms overlap, and none after a shutdown', async () => {
+    const t = setup();
+    await Promise.all([t.manager.prewarm('/a', 'default'), t.manager.prewarm('/b', 'default'), t.manager.prewarm('/b', 'default')]);
+    expect(t.warmups.map((w) => w.options.cwd)).toEqual(['/b']);
+    const late = t.manager.prewarm('/c', 'default');
+    t.manager.closeAll();
+    await late;
+    await until(() => t.warmups[0]!.closed);
+    expect(t.warmups).toHaveLength(1);
+  });
+
+  it('waits for its own exiting process after a natural exit, even when an older stop is on record', async () => {
+    const open: string[] = [];
+    const t = setup({ cwds: { old: '/w' }, openElsewhere: open, refreshLive: () => void open.splice(0) });
+    const now = Date.now();
+    const clock = vi.spyOn(Date, 'now').mockReturnValue(now);
+    try {
+      await t.manager.send({ sessionId: 'old', text: 'hello', attachments: [], fork: false });
+      await until(() => lastState(t.infos, 'old') === 'idle');
+      t.manager.close('old');
+      // Twenty seconds later it is resumed, and then its process exits on its own.
+      clock.mockReturnValue(now + 20_000);
+      await t.manager.send({ sessionId: 'old', text: 'again', attachments: [], fork: false });
+      await until(() => lastState(t.infos, 'old') === 'idle');
+      t.queries[1]!.out.end();
+      await until(() => lastState(t.infos, 'old') === 'closed');
+      // Its registry entry lingers for a moment: that's our own process leaving, not another window.
+      open.push('old');
+      await t.manager.send({ sessionId: 'old', text: 'once more', attachments: [], fork: false });
+      expect(t.queries).toHaveLength(3);
+    } finally {
+      clock.mockRestore();
+      t.manager.closeAll();
+    }
+  });
+
+  it('ends a closed session\'s input so the SDK can let go of it', async () => {
+    const t = setup();
+    const id = await t.manager.create({ ...base, cwd: '/w', prompt: 'hello' });
+    await until(() => lastState(t.infos, id) === 'idle');
+    t.manager.close(id);
+    await until(() => t.queries[0]!.inputEnded);
+    // A process that exits on its own is let go of too.
+    const other = await t.manager.create({ ...base, cwd: '/w', prompt: 'hello' });
+    await until(() => lastState(t.infos, other) === 'idle');
+    t.queries[1]!.out.end();
+    await until(() => t.queries[1]!.inputEnded && t.queries[1]!.closed);
     t.manager.closeAll();
   });
 
@@ -424,10 +521,13 @@ describe('buildOptions', () => {
   });
   it('resumes or forks instead of assigning an id', () => {
     expect(buildOptions({ ...config, mode: 'resume', worktree: null }, () => {})).toMatchObject({ resume: 's1' });
-    const fork = buildOptions({ ...config, mode: 'fork', worktree: null, model: null, effort: null }, () => {});
-    expect(fork).toMatchObject({ resume: 's1', forkSession: true });
-    expect(fork.sessionId).toBeUndefined();
+    const resume = buildOptions({ ...config, mode: 'resume', worktree: null }, () => {});
+    expect(resume.sessionId).toBeUndefined();
+    // A fork resumes the original under the id we gave it.
+    const fork = buildOptions({ ...config, sessionId: 'f1', forkFrom: 's1', mode: 'fork', worktree: null, model: null, effort: null }, () => {});
+    expect(fork).toMatchObject({ resume: 's1', forkSession: true, sessionId: 'f1' });
     expect(fork.model).toBeUndefined();
+    expect(() => buildOptions({ ...config, mode: 'fork', worktree: null }, () => {})).toThrow(/forks from/);
   });
 });
 

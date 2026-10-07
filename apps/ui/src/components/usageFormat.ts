@@ -1,4 +1,4 @@
-import type { UsageLimit } from '@switchboard/protocol/client';
+import type { UsageLimit, UsageSnapshot } from '@switchboard/protocol/client';
 
 /** "5h", "7d", "7d · Fable" for the server's meter kinds. */
 export function limitLabel(limit: UsageLimit): string {
@@ -30,4 +30,27 @@ export function spokenLimit(limit: UsageLimit, now = Date.now()): string {
   const severity = limit.severity === 'critical' ? ', nearly used up' : limit.severity === 'warning' ? ', getting close' : '';
   const reset = limit.resetsAt ? `, resets in ${countdown(limit.resetsAt, now)}` : '';
   return `${scoped}: ${Math.round(limit.percent)}% used${severity}${reset}`;
+}
+
+/** A profile's usage once it has been asked for: the numbers (null when there are none) and why the last fetch failed. */
+export interface UsageEntry {
+  usage: UsageSnapshot | null;
+  error: string | null;
+}
+
+/**
+ * The entry after a fetch or an update. A failed fetch keeps the numbers already shown (they are
+ * still the best guess) and records why; any new numbers clear the error.
+ */
+export function nextUsageEntry(prev: UsageEntry | undefined, result: { usage: UsageSnapshot | null; error?: string | null }): UsageEntry {
+  if (result.usage) return { usage: result.usage, error: null };
+  if (result.error) return { usage: prev?.usage ?? null, error: result.error };
+  return { usage: null, error: null };
+}
+
+/** What a usage card says while it has no limits to show. */
+export function usageMessage(entry: UsageEntry | undefined): string {
+  if (!entry) return 'Loading usage…';
+  if (entry.error && !entry.usage) return 'Usage unavailable';
+  return 'No plan limits reported.';
 }

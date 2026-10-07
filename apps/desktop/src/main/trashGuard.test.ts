@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { isConfigDir, isTrashableRepoFile, isTrashableSessionPath } from './trashGuard.ts';
@@ -55,6 +55,43 @@ describe('isTrashableRepoFile', () => {
       expect(isTrashableRepoFile(join(repo, 'missing.ts'), repo)).toBe(false);
       rmSync(join(repo, '.git'), { recursive: true });
       expect(isTrashableRepoFile(join(repo, 'src', 'new.ts'), repo)).toBe(false);
+    } finally {
+      rmSync(repo, { recursive: true, force: true });
+    }
+  });
+
+  it('refuses .git in any case and at any depth, and folders linked from outside', () => {
+    const repo = realpathSync(mkdtempSync(join(tmpdir(), 'trash-repo-')));
+    const outside = realpathSync(mkdtempSync(join(tmpdir(), 'trash-outside-')));
+    try {
+      mkdirSync(join(repo, '.git'));
+      writeFileSync(join(repo, '.git', 'config'), '');
+      mkdirSync(join(repo, 'vendor', 'x', '.git'), { recursive: true });
+      writeFileSync(join(repo, 'vendor', 'x', '.git', 'HEAD'), '');
+      writeFileSync(join(outside, 'precious.txt'), '');
+      symlinkSync(outside, join(repo, 'link'));
+      symlinkSync(join(repo, '.git'), join(repo, 'git-link'));
+      writeFileSync(join(repo, '.gitignore'), '');
+      expect(isTrashableRepoFile(join(repo, '.GIT', 'config'), repo)).toBe(false);
+      expect(isTrashableRepoFile(join(repo, 'vendor', 'x', '.git', 'HEAD'), repo)).toBe(false);
+      expect(isTrashableRepoFile(join(repo, 'link', 'precious.txt'), repo)).toBe(false);
+      expect(isTrashableRepoFile(join(repo, 'git-link', 'config'), repo)).toBe(false);
+      expect(isTrashableRepoFile(join(repo, '.gitignore'), repo)).toBe(true);
+      // The link itself is a file in the checkout; trashing it moves the link, not what it points to.
+      expect(isTrashableRepoFile(join(repo, 'link'), repo)).toBe(true);
+    } finally {
+      rmSync(repo, { recursive: true, force: true });
+      rmSync(outside, { recursive: true, force: true });
+    }
+  });
+
+  it('refuses instead of throwing when a parent is a file', () => {
+    const repo = realpathSync(mkdtempSync(join(tmpdir(), 'trash-repo-')));
+    try {
+      mkdirSync(join(repo, '.git'));
+      writeFileSync(join(repo, 'file.ts'), '');
+      expect(isTrashableRepoFile(join(repo, 'file.ts', 'child'), repo)).toBe(false);
+      expect(isConfigDir(join(repo, 'file.ts'))).toBe(false);
     } finally {
       rmSync(repo, { recursive: true, force: true });
     }

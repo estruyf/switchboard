@@ -7,7 +7,7 @@ function Row({ label, detail, button, icon: Icon, onClick, attr }: { label: stri
     <div className="flex items-center justify-between gap-4">
       <span>
         <span className="block text-[12.5px]">{label}</span>
-        <span className="block text-[12px] text-muted">{detail}</span>
+        <span className="block text-ui text-muted">{detail}</span>
       </span>
       <Button icon={<Icon size={13} />} onClick={onClick} className="shrink-0" {...{ [attr]: true }}>
         {button}

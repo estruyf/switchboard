@@ -1,5 +1,5 @@
 import { MoreHorizontal, Plus, Share2, X } from 'lucide-react';
-import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useId, useRef, useState, type ReactNode, type RefObject } from 'react';
 import { ACTION_ICONS, type ActionIcon, type ActionSuggestion, type ListedAction } from '@switchboard/protocol/client';
 import { useEngineConnection } from '../../engine/useEngine.ts';
 import { ConfirmDialog } from '../ConfirmDialog.tsx';
@@ -28,7 +28,7 @@ import {
   type ActionDraft,
   type DraftErrors,
 } from './actionForm.ts';
-import { ACTION_ICON, formatShortcut, RESERVED_SHORTCUTS, shortcutFromEvent } from './useActions.ts';
+import { ACTION_ICON, shortcutFromEvent } from './useActions.ts';
 
 const field = 'h-7 w-full rounded-md border bg-bg px-2.5 text-ui text-text outline-none focus:border-accent-ink disabled:opacity-70';
 const fieldBorder = (invalid: boolean) => (invalid ? 'border-error' : 'border-edge');
@@ -64,14 +64,32 @@ function draftOf(a: ListedAction): ActionDraft {
  * Records a key combination, styled like an input: click (or press Space), then press the keys.
  * Escape stops recording, and doesn't close the dialog since the key event is marked handled.
  */
-function ShortcutInput({ value, onChange, labelId }: { value: string | null; onChange(value: string | null): void; labelId: string }) {
+function ShortcutInput({
+  value,
+  onChange,
+  labelId,
+  check,
+  invalid,
+  buttonRef,
+}: {
+  value: string | null;
+  onChange(value: string | null): void;
+  labelId: string;
+  /** Why a recorded shortcut can't be used (Switchboard or another action has it), or null. */
+  check(shortcut: string): string | null;
+  /** The form's message for the saved value, shown when nothing was recorded since. */
+  invalid?: string;
+  buttonRef?: RefObject<HTMLButtonElement | null>;
+}) {
   const [recording, setRecording] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [recordError, setError] = useState<string | null>(null);
+  const error = recordError ?? invalid ?? null;
   const id = useId();
   return (
     <div className="grid gap-1">
-      <div className={`${field} flex items-center gap-1 pr-1 focus-within:border-accent-ink ${recording ? 'border-accent-ink' : 'border-edge'}`}>
+      <div className={`${field} flex items-center gap-1 pr-1 focus-within:border-accent-ink ${recording ? 'border-accent-ink' : fieldBorder(Boolean(error))}`}>
         <button
+          ref={buttonRef}
           type="button"
           aria-labelledby={`${labelId} ${id}-value`}
           aria-describedby={error ? `${id}-hint` : undefined}
@@ -84,7 +102,8 @@ function ShortcutInput({ value, onChange, labelId }: { value: string | null; onC
             const shortcut = shortcutFromEvent(e.nativeEvent);
             if (!shortcut) return;
             if (!shortcut.includes('+')) return setError('Include ⌘, ⌃ or ⌥');
-            if (RESERVED_SHORTCUTS.has(shortcut)) return setError(`${formatShortcut(shortcut)} is used by Switchboard`);
+            const problem = check(shortcut);
+            if (problem) return setError(problem);
             onChange(shortcut);
             setRecording(false);
           }}
@@ -257,6 +276,7 @@ export function ActionEditor({
   const [deleting, setDeleting] = useState<ListedAction | null>(null);
   const nameRef = useRef<HTMLInputElement>(null);
   const commandRef = useRef<HTMLTextAreaElement>(null);
+  const shortcutRef = useRef<HTMLButtonElement>(null);
   const id = useId();
 
   const readOnly = selected?.scope === 'shared';
@@ -277,6 +297,7 @@ export function ActionEditor({
     // A field that changes no longer needs its message.
     if ('name' in next) setFieldErrors((f) => ({ ...f, name: undefined }));
     if ('command' in next) setFieldErrors((f) => ({ ...f, command: undefined }));
+    if ('shortcut' in next || 'scope' in next) setFieldErrors((f) => ({ ...f, shortcut: undefined }));
     setError(null);
   };
 
@@ -294,6 +315,7 @@ export function ActionEditor({
     setFieldErrors(invalid);
     if (invalid.name) return nameRef.current?.focus();
     if (invalid.command) return commandRef.current?.focus();
+    if (invalid.shortcut) return shortcutRef.current?.focus();
     const { scope, ...action } = draft;
     if (scope === 'shared') return;
     const name = action.name.trim();
@@ -301,11 +323,6 @@ export function ActionEditor({
     const sameScope = editing?.scope === scope;
     const newId = editing && sameScope ? editing.id : slug(name);
     try {
-      if (editing && !sameScope)
-        await client.call('actions.delete', {
-          projectRoot: editing.scope === 'global' ? null : projectRoot,
-          id: editing.id,
-        });
       await client.call('actions.save', {
         projectRoot: scope === 'global' ? null : projectRoot,
         action: {
@@ -316,6 +333,13 @@ export function ActionEditor({
         },
         ...(editing && sameScope && editing.id !== slug(name) ? { previousId: editing.id } : {}),
       });
+      // A move to the other scope removes the old copy only once the new one is saved, so a failed
+      // save loses nothing (ids are unique per scope, so both can exist for a moment).
+      if (editing && !sameScope)
+        await client.call('actions.delete', {
+          projectRoot: editing.scope === 'global' ? null : projectRoot,
+          id: editing.id,
+        });
       // Stay on the saved action, so its row is highlighted once the list reloads.
       const saved: ListedAction = {
         ...draft,
@@ -613,7 +637,14 @@ export function ActionEditor({
                     <span id={`${id}-shortcut`} className={fieldLabel}>
                       Shortcut
                     </span>
-                    <ShortcutInput labelId={`${id}-shortcut`} value={draft.shortcut} onChange={(shortcut) => edit({ shortcut })} />
+                    <ShortcutInput
+                      labelId={`${id}-shortcut`}
+                      value={draft.shortcut}
+                      onChange={(shortcut) => edit({ shortcut })}
+                      check={(shortcut) => validateDraft({ ...draft, shortcut }, actions, selected && selected.scope !== 'shared' ? selected : null).shortcut ?? null}
+                      invalid={fieldErrors.shortcut}
+                      buttonRef={shortcutRef}
+                    />
                   </div>
                 </div>
 

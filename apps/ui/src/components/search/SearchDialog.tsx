@@ -133,7 +133,7 @@ export function SearchDialog() {
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           onKeyDown={(e) => {
-            if (e.key === 'ArrowDown') (e.preventDefault(), setActive((i) => Math.min(flat.length - 1, i + 1)));
+            if (e.key === 'ArrowDown') (e.preventDefault(), setActive((i) => Math.max(0, Math.min(flat.length - 1, i + 1))));
             else if (e.key === 'ArrowUp') (e.preventDefault(), setActive((i) => Math.max(0, i - 1)));
             else if (e.key === 'Enter' && flat[active]) open(flat[active]!);
           }}
@@ -145,9 +145,9 @@ export function SearchDialog() {
       </label>
 
       {typed === '' ? (
-        <p className="px-4 py-6 text-center text-[12px] text-muted">Search your prompts and Claude's replies in every session. Pick a match to jump to that message.</p>
+        <p className="px-4 py-6 text-center text-ui text-muted">Search your prompts and Claude's replies in every session. Pick a match to jump to that message.</p>
       ) : groups.length === 0 && !pending ? (
-        <div className="grid gap-1 px-4 py-6 text-center text-[12px]">
+        <div className="grid gap-1 px-4 py-6 text-center text-ui">
           <p className="text-text">{stillIndexing ? `Nothing for “${typed}” yet.` : `No conversations mention “${typed}”.`}</p>
           <p className="text-muted">{stillIndexing ? 'Still indexing; matches appear as sessions are read.' : 'Try another word, or fewer words.'}</p>
         </div>
@@ -182,7 +182,7 @@ export function SearchDialog() {
                       onClick={() => open(hit)}
                       className={`flex w-full cursor-default items-start gap-2.5 px-4 py-1.5 text-left ${index === active ? 'bg-accent/15' : ''}`}
                     >
-                      <span className={`mt-px w-11 shrink-0 text-[11px] font-medium tracking-wide uppercase ${hit.role === 'user' ? 'text-accent-ink' : 'text-muted'}`}>
+                      <span className={`mt-px w-11 shrink-0 text-meta font-medium tracking-wide uppercase ${hit.role === 'user' ? 'text-accent-ink' : 'text-muted'}`}>
                         {hit.role === 'user' ? 'You' : 'Claude'}
                         <span className="sr-only">:</span>
                       </span>

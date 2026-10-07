@@ -123,6 +123,8 @@ export function BranchMenu({ sessionId, cwd, root, busy, onSwitched, openRequest
   }, [openRequest]);
 
   const onKeyDown = (event: KeyboardEvent) => {
+    // Keys that confirm an IME composition (Enter picking a candidate) belong to the input method.
+    if (event.nativeEvent.isComposing) return;
     const items = [...(panel.current?.querySelectorAll<HTMLButtonElement>('[role=menuitemradio]') ?? [])];
     const index = items.indexOf(document.activeElement as HTMLButtonElement);
     const focus = (i: number) => items[(i + items.length) % items.length]?.focus();
@@ -187,18 +189,18 @@ export function BranchMenu({ sessionId, cwd, root, busy, onSwitched, openRequest
                 onClick={() => pick(branch)}
                 className="flex w-full items-center gap-2 px-3 py-1.5 text-left outline-none hover:bg-accent/15 focus-visible:bg-accent/15 disabled:opacity-50"
               >
-                <span className="min-w-0 flex-1 truncate font-mono text-[12px] text-text">{branch}</span>
+                <span className="min-w-0 flex-1 truncate font-mono text-ui text-text">{branch}</span>
                 <Check size={13} className={`shrink-0 text-accent-ink ${branch === current ? '' : 'invisible'}`} />
               </button>
             ))}
-            {listed.length === 0 && <p className="px-3 py-1.5 text-[12px] text-muted">{query ? 'No matching branch' : 'No local branches'}</p>}
+            {listed.length === 0 && <p className="px-3 py-1.5 text-ui text-muted">{query ? 'No matching branch' : 'No local branches'}</p>}
             {switching && (
-              <p role="status" className="border-t border-border px-3 pt-1.5 pb-1 text-[11px] text-muted">
+              <p role="status" className="border-t border-border px-3 pt-1.5 pb-1 text-meta text-muted">
                 Switching…
               </p>
             )}
             {error && (
-              <p className="mt-1 border-t border-border px-3 pt-1.5 pb-1 text-[11px] break-words whitespace-pre-wrap text-error" role="alert" data-branch-error>
+              <p className="mt-1 border-t border-border px-3 pt-1.5 pb-1 text-meta break-words whitespace-pre-wrap text-error" role="alert" data-branch-error>
                 {error}
               </p>
             )}

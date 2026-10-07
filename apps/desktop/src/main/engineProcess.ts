@@ -27,9 +27,13 @@ export class EngineProcess {
     this.child = child;
     for (const port of this.queued.splice(0)) child.postMessage({ type: 'connect' }, [port]);
     child.on('message', (message: unknown) => {
-      void this.options.onRequest?.(message)?.then((reply) => {
-        if (reply !== undefined && this.child === child) child.postMessage(reply);
-      });
+      // onRequest answers its own failures; this only keeps a bug there from becoming an unhandled rejection.
+      void this.options.onRequest?.(message)?.then(
+        (reply) => {
+          if (reply !== undefined && this.child === child) child.postMessage(reply);
+        },
+        (error: unknown) => console.error('[main] engine request failed', error),
+      );
     });
 
     // A process that stays up for a minute resets the backoff.
@@ -68,5 +72,18 @@ export class EngineProcess {
     this.stopping = true;
     clearTimeout(this.stableTimer);
     this.child?.kill();
+  }
+
+  /**
+   * Undoes stop(), e.g. when an update didn't install and the app keeps running. Windows reconnect
+   * through onRestarted, as after a crash.
+   */
+  resume(): void {
+    if (!this.stopping) return;
+    this.stopping = false;
+    // Still exiting from stop(): the exit handler sees stopping is off and restarts it.
+    if (this.child) return;
+    this.start();
+    this.options.onRestarted();
   }
 }

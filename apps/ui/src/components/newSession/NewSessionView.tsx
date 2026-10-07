@@ -30,7 +30,7 @@ import { UsageBand } from '../UsageBand.tsx';
 import { linkNoticeText } from './linkNotice.ts';
 import { activityByProject, latestBranches, pickUpRows, recentFirst, tileStatus } from './projectTiles.ts';
 import { branchLabel, branchNote, freshBase } from './trayLabels.ts';
-import { globalPatch, INITIAL_CHOICES, readGlobals, sameDefaults, startingChoices, toProjectDefaults, type Choices, type GlobalChoices } from './choices.ts';
+import { globalPatch, INITIAL_CHOICES, linkPermissionMode, linkStartingChoices, readGlobals, sameDefaults, startingChoices, toProjectDefaults, type Choices, type GlobalChoices } from './choices.ts';
 
 const DEFAULTS_KEY = 'newSession.defaults';
 
@@ -92,6 +92,11 @@ export function NewSessionView() {
   const [pickerRequest, setPickerRequest] = useState(0);
   /** An `autostart` link's prompt, sent as soon as its folder and the project's defaults are in place. */
   const [pendingStart, setPendingStart] = useState<string | null>(null);
+  /** An `autostart` link is waiting: its choices never take the permission mode you last picked (see `linkStartingChoices`). */
+  const autostarting = pendingStart !== null;
+  const choicesFor = autostarting ? linkStartingChoices : startingChoices;
+  /** Why the folder couldn't be checked (the engine call failed). */
+  const [inspectError, setInspectError] = useState<string | null>(null);
 
   const projects = useProjects((s) => s.projects);
   const projectFilter = useProjects((s) => s.filter);
@@ -121,12 +126,21 @@ export function NewSessionView() {
   // Restore the last folder and global choices.
   useEffect(() => {
     if (!client || loaded) return;
-    void client.call('appState.get', { key: DEFAULTS_KEY }).then(({ value }) => {
-      const stored = readGlobals(value);
-      setGlobals(stored.globals);
-      if (!folderFromLink.current) setCwd((current) => current ?? stored.cwd);
-      setLoaded(true);
-    });
+    let cancelled = false;
+    client.call('appState.get', { key: DEFAULTS_KEY }).then(
+      ({ value }) => {
+        if (cancelled) return;
+        const stored = readGlobals(value);
+        setGlobals(stored.globals);
+        if (!folderFromLink.current) setCwd((current) => current ?? stored.cwd);
+        setLoaded(true);
+      },
+      // Without the remembered choices, start from the initial ones rather than never getting going.
+      () => !cancelled && setLoaded(true),
+    );
+    return () => {
+      cancelled = true;
+    };
   }, [client, loaded]);
   // The palette or Projects view asked for a folder (a session's git menu: in a new worktree).
   /** The folder that should start on "New worktree", until its defaults are in or the user changes something. */
@@ -210,20 +224,32 @@ export function NewSessionView() {
   // A new folder starts from its project's defaults (again when they arrive or change, until the user changes something).
   useEffect(() => {
     if (!loaded || touchedFor.current === cwd) return;
-    const choices = startingChoices(globals, projectDefaults);
+    const choices = choicesFor(globals, projectDefaults);
     setD(worktreeFor.current === cwd ? { ...choices, workspace: 'worktree' } : choices);
-  }, [loaded, cwd, defaultsKey, globals]);
+  }, [loaded, cwd, defaultsKey, globals, autostarting]);
 
   // Inspect the folder (git? branch?), load its commands and branches, and pre-warm Claude Code there.
   useEffect(() => {
     if (!client || !cwd) return;
     let cancelled = false;
     setInspection(null);
+    setInspectError(null);
     setGitBranches({ current: null, branches: [] });
     setGitStatus(null);
     setSavedNote(null);
-    void client.call('projects.inspect', { path: cwd }).then((r) => !cancelled && setInspection(r));
-    void client.call('session.commands', { cwd, profileId }).then((r) => !cancelled && setCommands(r.commands));
+    client.call('projects.inspect', { path: cwd }).then(
+      (r) => !cancelled && setInspection(r),
+      (error: Error) => {
+        if (cancelled) return;
+        setInspectError(error.message);
+        // A link doesn't start in a folder that couldn't be checked; the prompt stays filled in.
+        setPendingStart(null);
+      },
+    );
+    client.call('session.commands', { cwd, profileId }).then(
+      (r) => !cancelled && setCommands(r.commands),
+      () => {},
+    );
     client.call('git.branches', { cwd }).then(
       (r) => !cancelled && setGitBranches(r),
       () => {},
@@ -308,7 +334,8 @@ export function NewSessionView() {
       prompt: text,
       attachments,
       model: d.model || null,
-      permissionMode: d.permissionMode,
+      // A link never starts a session in a mode that skips permission prompts (settled below already ensures it).
+      permissionMode: fromLink ? linkPermissionMode(d.permissionMode) : d.permissionMode,
       effort: d.effort || null,
       worktree: useWorktree ? { name: effectiveName || worktreeSlug(text), baseRef: d.baseRef } : null,
       checkoutBranch,
@@ -323,9 +350,10 @@ export function NewSessionView() {
   };
 
   // An `autostart` link: start once the folder is checked and the options are the project's defaults
-  // (they settle a render after the folder changes), exactly as if the user had pressed Enter.
+  // (they settle a render after the folder changes), exactly as if the user had pressed Enter. Its
+  // permission mode is the project's own default, or the default mode: never the one you last picked.
   const projectsLoaded = useProjects((s) => s.loaded);
-  const settled = JSON.stringify(d) === JSON.stringify(startingChoices(globals, projectDefaults));
+  const settled = JSON.stringify(d) === JSON.stringify(choicesFor(globals, projectDefaults));
   useEffect(() => {
     if (pendingStart === null || !client || !cwd || !loaded || !projectsLoaded || !settled || lookingFor || inspection?.path !== cwd) return;
     const text = pendingStart;
@@ -368,7 +396,13 @@ export function NewSessionView() {
       : folders.length
       ? 'Pick where Claude should work.'
       : 'Pick where Claude should work. Folders you add as projects are listed here.'
-    : !inspection ? 'Checking folder…' : !inspection.exists ? 'This folder no longer exists.' : null;
+    : !inspection
+      ? inspectError
+        ? `Couldn't check this folder: ${inspectError}`
+        : 'Checking folder…'
+      : !inspection.exists
+        ? 'This folder no longer exists.'
+        : null;
 
   const projectName = cwd ? (project?.name ?? basename(cwd)) : null;
   const clearButton = (attr: 'data-clear-link-prompt' | 'data-clear-draft') => (
@@ -378,7 +412,7 @@ export function NewSessionView() {
   );
   // One notice at a time, the most pressing first: a missing folder, a prompt from a link, a saved default, a restored draft.
   const notice =
-    cwd && inspection && !inspection.exists ? (
+    cwd && ((inspection && !inspection.exists) || (!inspection && inspectError)) ? (
       <span className="min-w-0 truncate text-error" data-route-hint>
         {folderProblem}
       </span>

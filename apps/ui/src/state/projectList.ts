@@ -31,6 +31,16 @@ export function moveRoot(roots: string[], root: string, delta: -1 | 1): string[]
   return next;
 }
 
+/**
+ * The order to move from: a reorder still on its way to the engine while the list shows the same
+ * projects in another order (so quick ↑ ↓ clicks build on each other), else the list as shown.
+ */
+export function baseOrder(pending: string[] | null, shown: string[]): string[] {
+  if (!pending || pending.length !== shown.length) return shown;
+  const same = new Set(shown);
+  return pending.every((root) => same.has(root)) ? pending : shown;
+}
+
 /** A project's display name for a folder that may not be a project. */
 export const folderName = (projects: Map<string, ProjectInfo>, root: string) => projects.get(root)?.name ?? basename(root);
 

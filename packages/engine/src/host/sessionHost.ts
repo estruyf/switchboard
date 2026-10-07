@@ -34,8 +34,13 @@ export interface HostEvents {
 }
 
 export interface HostConfig {
-  /** For new sessions the id we assign; for resume/fork the id being resumed until init reports the real one. */
+  /**
+   * The id this host runs under: the one we assign to a new session or a fork, or the one being resumed.
+   * Forks get theirs up front, so the original's id never stands in for the fork.
+   */
   sessionId: string;
+  /** For forks: the session being forked. */
+  forkFrom?: string;
   cwd: string;
   /** The Claude profile (login); `env` already points at its config folder. */
   profileId: string;
@@ -69,9 +74,13 @@ export function buildOptions(config: HostConfig, log: HostEvents['log']): Option
   if (config.model) options.model = config.model;
   if (config.effort) options.effort = config.effort;
   if (config.mode === 'new') options.sessionId = config.sessionId;
+  else if (config.mode === 'resume') options.resume = config.sessionId;
   else {
-    options.resume = config.sessionId;
-    if (config.mode === 'fork') options.forkSession = true;
+    if (!config.forkFrom) throw new Error('A fork needs the session it forks from');
+    // Claude Code accepts a custom id with --resume only together with --fork-session.
+    options.resume = config.forkFrom;
+    options.forkSession = true;
+    options.sessionId = config.sessionId;
   }
   if (config.worktree) {
     // Claude Code creates the worktree itself (same place and naming as `claude --worktree`).
@@ -174,6 +183,7 @@ export class SessionHost {
       },
       (error: unknown) => {
         this.fail(error);
+        this.input.end();
         return undefined;
       },
     );
@@ -269,6 +279,17 @@ export class SessionHost {
     });
     this.flushStream();
     this.update({ state: 'closed' });
+    this.release();
+  }
+
+  /**
+   * Lets go of the process once the host has ended. Ending the input lets the SDK finish its
+   * input stream, and dropping the Query lets it be collected: closed hosts stay in the manager's
+   * map (their last state is still shown), and would otherwise keep the whole Query alive until quit.
+   */
+  private release(): void {
+    this.input.end();
+    this.query = Promise.resolve(undefined);
   }
 
   private update(patch: Partial<SessionHostInfo>): void {
@@ -302,6 +323,13 @@ export class SessionHost {
     } finally {
       this.flushStream();
       this.initReject(new Error('Session ended before it started'));
+      // The process has ended (or failed); make sure the SDK has cleaned up after it before letting go.
+      try {
+        query.close();
+      } catch {
+        // Already closed.
+      }
+      this.release();
     }
   }
 

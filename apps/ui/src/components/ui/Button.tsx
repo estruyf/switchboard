@@ -16,7 +16,10 @@ interface BaseProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   kbdHideNarrow?: boolean;
   /** Danger only: the solid red button that confirms a destructive dialog. */
   filled?: boolean;
-  /** Quiet only: shown as pressed or current (an open panel, the view you're on). Set `aria-pressed` or `aria-current` yourself. */
+  /**
+   * Quiet: shown as pressed or current (an open panel, the view you're on); set `aria-pressed` or `aria-current` yourself.
+   * Secondary: highlighted from the keyboard, as the last choice under a list (Add project's Choose folder…).
+   */
   selected?: boolean;
   'data-tooltip'?: string;
   ref?: Ref<HTMLButtonElement>;
@@ -39,6 +42,7 @@ export function Button({ variant = 'secondary', size = 'md', icon, iconOnly = fa
       aria-keyshortcuts={kbd ? ariaShortcut(storedShortcut(kbd)) : undefined}
       {...rest}
       data-tooltip={tooltip}
+      data-selected={selected && variant === 'secondary' ? true : undefined}
       className={`${buttonClass({ variant, size, iconOnly, filled, selected })} ${className}`}
     >
       {icon}

@@ -6,6 +6,7 @@ import { useProfiles } from '../../state/profilesStore.ts';
 import { addedProjects } from '../../state/projectList.ts';
 import { useProjects } from '../../state/projectsStore.ts';
 import { useSessions } from '../../state/sessionsStore.ts';
+import { ConfirmDialog } from '../ConfirmDialog.tsx';
 import { Menu, type MenuEntry } from '../Menu.tsx';
 import { useOpenIn } from '../OpenInButton.tsx';
 import { ProfileDot } from '../profiles/ProfileBadge.tsx';
@@ -58,7 +59,7 @@ export function useProjectActions() {
   };
 }
 
-/** Picks an emoji for a project. */
+/** Picks an emoji for a project. A popover: kept on screen, closed by an outside click or Escape. */
 function EmojiPicker({ x, y, root, onClose }: { x: number; y: number; root: string; onClose(): void }) {
   const { setIcon } = useProjectActions();
   const [value, setValue] = useState('');
@@ -67,42 +68,55 @@ function EmojiPicker({ x, y, root, onClose }: { x: number; y: number; root: stri
     onClose();
   };
   return (
-    <div
-      role="dialog"
-      aria-label="Choose an emoji"
-      style={{ left: x, top: y }}
-      className="no-drag fixed z-50 w-56 rounded-lg border overlay p-2"
-      onMouseDown={(e) => e.stopPropagation()}
-      onKeyDown={(e) => e.key === 'Escape' && onClose()}
-    >
-      <div className="grid grid-cols-8 gap-0.5">
-        {SUGGESTED.map((emoji) => (
-          <button key={emoji} type="button" onClick={() => apply(emoji)} className="rounded py-0.5 text-[15px] hover:bg-accent/15 focus-visible:bg-accent/15">
-            {emoji}
-          </button>
-        ))}
+    <Popover x={x} y={y} width={224} onClose={onClose} role="dialog" aria-label="Choose an emoji" data-emoji-picker>
+      <div className="px-2 py-1">
+        <div className="grid grid-cols-8 gap-0.5">
+          {SUGGESTED.map((emoji) => (
+            <button key={emoji} type="button" onClick={() => apply(emoji)} className="rounded py-0.5 text-title hover:bg-accent/15 focus-visible:bg-accent/15">
+              {emoji}
+            </button>
+          ))}
+        </div>
+        <form
+          className="mt-2 flex gap-1"
+          onSubmit={(e) => {
+            e.preventDefault();
+            apply(value);
+          }}
+        >
+          <input
+            autoFocus
+            value={value}
+            maxLength={16}
+            onChange={(e) => setValue(e.target.value)}
+            placeholder="Or type any emoji (⌃⌘Space)"
+            aria-label="Emoji"
+            className="h-7 min-w-0 flex-1 rounded-md border border-edge bg-bg px-2 text-ui outline-none focus:border-accent-ink/60"
+          />
+          <Button variant="quiet" iconOnly icon={<X size={13} aria-hidden />} onClick={onClose} aria-label="Cancel" />
+        </form>
       </div>
-      <form
-        className="mt-2 flex gap-1"
-        onSubmit={(e) => {
-          e.preventDefault();
-          apply(value);
-        }}
-      >
-        <input
-          autoFocus
-          value={value}
-          maxLength={16}
-          onChange={(e) => setValue(e.target.value)}
-          placeholder="Or type any emoji (⌃⌘Space)"
-          aria-label="Emoji"
-          className="h-7 min-w-0 flex-1 rounded-md border border-border bg-bg px-2 text-[12px] outline-none focus:border-accent-ink/60"
-        />
-        <button type="button" onClick={onClose} className="flex size-7 shrink-0 items-center justify-center rounded text-muted hover:text-text" aria-label="Cancel" data-tooltip="Cancel">
-          <X size={13} aria-hidden />
-        </button>
-      </form>
-    </div>
+    </Popover>
+  );
+}
+
+/**
+ * "Remove from Switchboard?" for a project, from the Projects view or a sidebar menu. Removing the
+ * project the sidebar is filtered to shows all projects again.
+ */
+export function RemoveProjectDialog({ root, name, onClose }: { root: string; name: string; onClose(): void }) {
+  const { remove } = useProjectActions();
+  return (
+    <ConfirmDialog
+      title={`Remove ${name} from Switchboard?`}
+      confirmLabel="Remove"
+      body={<>It disappears from the sidebar and the New session view. The folder, its files and its sessions are not touched, and you can add it again later.</>}
+      onConfirm={async () => {
+        await remove(root);
+        if (useProjects.getState().filter === root) useProjects.getState().setFilter(null);
+      }}
+      onClose={onClose}
+    />
   );
 }
 
@@ -112,7 +126,7 @@ export function manage(root: string | null = null): void {
   useSessions.getState().setView('projects');
 }
 
-/** Menu entries to change a project's icon or remove it; renders the emoji picker when chosen. */
+/** Menu entries to change a project's icon or remove it, and the emoji picker and remove confirmation they open (`overlays`). */
 export function useProjectIconEntries() {
   const actions = useProjectActions();
   const projects = useProjects((s) => s.projects);
@@ -120,6 +134,7 @@ export function useProjectIconEntries() {
   const defaultProfile = profiles.find((p) => p.isDefault);
   const openIn = useOpenIn();
   const [emojiFor, setEmojiFor] = useState<{ root: string; x: number; y: number } | null>(null);
+  const [removing, setRemoving] = useState<string | null>(null);
 
   const entries = (root: string, at: { x: number; y: number }): MenuEntry[] => {
     const project = projects.get(root);
@@ -157,7 +172,7 @@ export function useProjectIconEntries() {
       ...(project?.added
         ? ([
             { label: 'Project settings…', icon: <FolderCog size={13} />, onSelect: () => manage(root) },
-            { label: 'Remove from Switchboard', icon: <X size={13} />, danger: true, onSelect: () => void actions.remove(root) },
+            { label: 'Remove from Switchboard…', icon: <X size={13} />, danger: true, onSelect: () => setRemoving(root) },
           ] satisfies MenuEntry[])
         : root.startsWith('/')
           ? [{ label: 'Add to projects', icon: <FolderPlus size={13} />, disabled: !project?.exists, onSelect: () => void actions.add(root) } satisfies MenuEntry]
@@ -165,8 +180,14 @@ export function useProjectIconEntries() {
     ];
   };
 
-  const picker = emojiFor ? <EmojiPicker {...emojiFor} onClose={() => setEmojiFor(null)} /> : null;
-  return { entries, picker };
+  // The emoji picker and the remove confirmation; the caller renders them.
+  const overlays = (
+    <>
+      {emojiFor && <EmojiPicker {...emojiFor} onClose={() => setEmojiFor(null)} />}
+      {removing && <RemoveProjectDialog root={removing} name={projects.get(removing)?.name ?? removing} onClose={() => setRemoving(null)} />}
+    </>
+  );
+  return { entries, overlays };
 }
 
 /** Filter-menu items in order, for ↑ ↓ Home End (the per-project ⋯ buttons are for the mouse; → opens the same menu). */
@@ -247,7 +268,7 @@ export function ProjectFilter({ counts }: { counts: Map<string, { total: number;
             e.currentTarget.click();
           }
         }}
-        className="no-drag flex h-7 min-w-0 flex-1 items-center gap-2 rounded-md px-1.5 text-left text-[12px] text-muted hover:bg-border/50 hover:text-text"
+        className="no-drag flex h-7 min-w-0 flex-1 items-center gap-2 rounded-md px-1.5 text-left text-ui text-muted hover:bg-border/50 hover:text-text"
       >
         {filter ? <ProjectIcon project={current} root={filter} /> : <Layers size={14} className="shrink-0" aria-hidden />}
         <span className="min-w-0 flex-1 truncate">{currentName}</span>
@@ -273,7 +294,7 @@ export function ProjectFilter({ counts }: { counts: Map<string, { total: number;
             />
           ))}
           {sorted.length === 0 && (
-            <p role="none" className="px-3 py-1.5 text-[12px] text-muted">
+            <p role="none" className="px-3 py-1.5 text-ui text-muted">
               No projects yet. Add the folders you work in.
             </p>
           )}
@@ -291,7 +312,7 @@ export function ProjectFilter({ counts }: { counts: Map<string, { total: number;
           onClose={() => setSubmenu(null)}
         />
       )}
-      {icons.picker}
+      {icons.overlays}
     </div>
   );
 }
@@ -356,12 +377,12 @@ function FilterRow(props: { selected?: boolean; root?: string; onSelect(): void;
               }
             : undefined
         }
-        className="flex min-w-0 flex-1 items-center gap-2 px-3 py-1.5 text-left text-[12px] outline-none"
+        className="flex min-w-0 flex-1 items-center gap-2 px-3 py-1.5 text-left text-ui outline-none"
       >
         {props.icon}
         <span className="min-w-0 flex-1 truncate">{props.label}</span>
         {props.count !== undefined && (
-          <span className="text-[11px] text-muted tabular-nums">
+          <span className="text-meta text-muted tabular-nums">
             {props.count}
             <span className="sr-only">{props.count === 1 ? ' session' : ' sessions'}</span>
           </span>

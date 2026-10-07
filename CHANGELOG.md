@@ -2,6 +2,45 @@
 
 All notable changes to Switchboard are listed here. Each release is also on the [releases page](https://github.com/estruyf/switchboard/releases), with the `.dmg` to download.
 
+## [Unreleased]
+
+### Safer
+
+- **A link can't start Claude without permission prompts any more.** A `switchboard://` link with `autostart` now uses the project's own permission mode, or Ask before edits when the project has none. It never uses the mode you last picked, and never Auto, Don't ask or Bypass permissions.
+- **Going back to an older version of Switchboard keeps your pins, projects, actions and profiles.** It used to start from an empty list; now the older version leaves your data alone, so it is all there when you update again.
+- **Reverting a file in the Changes panel only touches that file.** File names with `[`, `*` or `?` (such as `app/[id]/page.tsx`) could also affect a similar file next to them. Reverting a staged deletion now brings the file back, and reverting a renamed file restores the original name.
+- Switching branches when starting a session, and merging or removing a worktree, now wait while Claude is working in that checkout.
+- While **Settings** is open, permission shortcuts (Esc, ⌘↵), project action shortcuts and ⌘⇧L no longer act on the session behind it.
+- **Remove from Switchboard** in the sidebar menus asks first, as it does in Projects.
+
+### Fixes
+
+- With two sessions side by side, a project action's shortcut or **Run** from the command palette runs it once, in the active session, not in both.
+- Opening or closing a second pane keeps the message you were typing in the other one.
+- Recording a shortcut for a project action no longer runs the action that already uses those keys. A shortcut Switchboard already uses (such as ⌘K or ⌘F), or one another action has, is refused with a message. ⌘⇧+ and ⌘Space can be recorded and are shown properly.
+- Text you type while a message is still sending is kept.
+- A file search with `@` that finishes late no longer reopens the list and replaces what you typed on Enter.
+- **Approve and accept edits** only switches to Accept edits when the approval went through.
+- Double-clicking **Commit**, **Push** or **Pull** runs it once.
+- Clicking a notification, choosing **Settings…** or **Check for Updates…** after closing the window now opens the right place.
+- Home shows "Usage unavailable" for a profile whose plan usage can't be read, instead of "Loading usage…" forever, and tries again later.
+- Deleting the open session when it was the last one in the list no longer leaves it on screen.
+- Closing a session means it doesn't reopen the next time Switchboard starts on your last session.
+- The Changes panel shows correct diffs with git settings such as an external diff tool (difftastic), forced colour, or blank lines written without a leading space. An open diff refreshes when Claude edits it again.
+- A session started on a new Claude profile shows up right away, without waiting for a refresh or a restart.
+- Sessions no longer briefly disappear from, or come back to, the sidebar while it refreshes.
+- Forking a session (sending to a session open elsewhere) no longer makes the original look as if it is starting, or adds your message to it.
+- Sending twice quickly to a stopped session starts Claude Code once.
+- Plan usage that can't be read is retried once instead of every 30 seconds.
+- `@` file search in a folder that isn't a git repository no longer freezes the app or walks your Library, Desktop and Documents folders.
+- If an update can't be installed, Switchboard keeps working instead of losing its connection to Claude Code. Switching the update channel during a download no longer mixes up the two versions, and automatic update checks keep running after a busy moment.
+- A blank window after a crash reloads on its own.
+- Your preferences survive a crash while they are being saved.
+- Find in session highlights the right text after letters such as "İ".
+- Typing with an input method (Japanese, Chinese, Korean) no longer picks a branch, folder or find result on the Enter that confirms the text.
+- The emoji picker for a project closes when you click elsewhere and stays inside the window.
+- Renaming a Claude profile keeps the keyboard focus.
+
 ## [0.0.6] - 2026-10-06
 
 ### A fresh look

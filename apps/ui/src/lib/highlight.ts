@@ -1,4 +1,5 @@
 import type { HighlighterCore, ThemeRegistration } from 'shiki/core';
+import { SizedCache } from './sizedCache.ts';
 
 /** Fence names → Shiki grammar, loaded only when first needed. */
 const GRAMMARS: Record<string, () => Promise<unknown>> = {
@@ -71,7 +72,11 @@ export function grammarFor(language: string | undefined): string | null {
 
 let highlighter: Promise<HighlighterCore> | undefined;
 const loaded = new Set<string>();
-const cache = new Map<string, string>();
+/**
+ * Highlighted HTML by grammar and code, capped by size: a block Claude is still writing is
+ * highlighted again as it grows, and each of those copies counts against the budget.
+ */
+const cache = new SizedCache(4_000_000);
 const MAX_CODE = 50_000;
 
 function getHighlighter(): Promise<HighlighterCore> {
@@ -86,6 +91,8 @@ function getHighlighter(): Promise<HighlighterCore> {
     const themes = [light.default, dark.default] as unknown as ThemeRegistration[];
     return createHighlighterCore({ themes, langs: [], engine: createJavaScriptRegexEngine() });
   })();
+  // A failed load (a chunk that didn't arrive) is tried again next time instead of failing forever.
+  highlighter.catch(() => (highlighter = undefined));
   return highlighter;
 }
 
@@ -99,16 +106,20 @@ export async function highlight(code: string, language: string | undefined): Pro
   const key = `${grammar}\u0000${code}`;
   const hit = cache.get(key);
   if (hit) return hit;
-  const shiki = await getHighlighter();
-  if (!loaded.has(grammar)) {
-    const module = (await GRAMMARS[grammar]!()) as { default: Parameters<HighlighterCore['loadLanguage']>[0] };
-    await shiki.loadLanguage(module.default);
-    loaded.add(grammar);
+  try {
+    const shiki = await getHighlighter();
+    if (!loaded.has(grammar)) {
+      const module = (await GRAMMARS[grammar]!()) as { default: Parameters<HighlighterCore['loadLanguage']>[0] };
+      await shiki.loadLanguage(module.default);
+      loaded.add(grammar);
+    }
+    const html = shiki.codeToHtml(code, { lang: grammar, themes: { light: 'demotime-light', dark: 'demotime-dark' }, defaultColor: false });
+    cache.set(key, html);
+    return html;
+  } catch {
+    // Highlighting is a nicety: the block stays plain text.
+    return null;
   }
-  const html = shiki.codeToHtml(code, { lang: grammar, themes: { light: 'demotime-light', dark: 'demotime-dark' }, defaultColor: false });
-  if (cache.size > 500) cache.clear();
-  cache.set(key, html);
-  return html;
 }
 
 /** Language from a file path, for diffs and file contents. */

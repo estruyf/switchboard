@@ -211,7 +211,14 @@ export function createRpcClient<C extends ContractShape>(
           reject(new RpcError('TIMEOUT', `${method} timed out after ${timeoutMs}ms`));
         }, timeoutMs);
         pending.set(id, { resolve: resolve as (value: unknown) => void, reject, timer });
-        transport.send({ kind: 'request', id, method, params });
+        try {
+          transport.send({ kind: 'request', id, method, params });
+        } catch (error) {
+          // A closed port or an uncloneable param throws here; fail now instead of leaving the call to time out.
+          pending.delete(id);
+          clearTimeout(timer);
+          reject(new RpcError('DISCONNECTED', `${method} could not be sent: ${(error as Error).message}`));
+        }
       });
     },
     on(name, listener) {

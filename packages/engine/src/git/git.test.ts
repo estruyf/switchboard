@@ -2,7 +2,7 @@ import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileS
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { baseBranch, fileDiff, git, insideRepo, listBranches, listChanges, removeWorktree, revert, stage, stageForCommit, switchBranch, syncCommand, worktreeStatus } from './gitChanges.ts';
+import { baseBranch, countNewLines, fileDiff, git, insideRepo, listBranches, listChanges, removeWorktree, revert, stage, stageForCommit, switchBranch, syncCommand, worktreeStatus } from './gitChanges.ts';
 
 let repo: string;
 const write = (path: string, text: string) => writeFileSync(join(repo, path), text);
@@ -79,6 +79,92 @@ describe('fileDiff, stage and revert', () => {
     expect(() => insideRepo(repo, '../outside.txt')).toThrow();
     expect(() => insideRepo(repo, '/etc/passwd')).toThrow();
     await expect(fileDiff(repo, 'uncommitted', '../x')).rejects.toThrow();
+  });
+
+  it('takes paths literally, so a glob character never matches other files', async () => {
+    write('ab.txt', 'tracked\n');
+    await run('add', 'ab.txt');
+    await run('commit', '-qm', 'ab');
+    write('a*.txt', 'new\n');
+    const { untracked } = await revert(repo, ['a*.txt']);
+    expect(untracked).toEqual([join(repo, 'a*.txt')]);
+    // ab.txt is untouched and nothing is staged.
+    expect((await run('status', '--porcelain=v1', '--untracked-files=no')).trim()).toBe('');
+    await stage(repo, ['a*.txt'], true);
+    expect((await run('diff', '--cached', '--name-only')).trim()).toBe('a*.txt');
+  });
+
+  it('brings back a file whose deletion is staged, and shows its diff', async () => {
+    await run('rm', '-q', 'b.txt');
+    expect((await fileDiff(repo, 'uncommitted', 'b.txt')).diff).toContain('-keep');
+    const { untracked } = await revert(repo, ['b.txt']);
+    expect(untracked).toEqual([]);
+    expect(readFileSync(join(repo, 'b.txt'), 'utf8')).toBe('keep\n');
+    expect((await listChanges(repo, 'uncommitted')).files).toEqual([]);
+  });
+
+  it('undoes a staged rename: the old file comes back and the new one goes to the Trash', async () => {
+    await run('mv', 'a.txt', 'moved.txt');
+    expect((await listChanges(repo, 'uncommitted')).files.map((f) => [f.path, f.status])).toEqual([['moved.txt', 'renamed']]);
+    expect((await fileDiff(repo, 'uncommitted', 'moved.txt')).diff).toMatch(/rename from a\.txt\nrename to moved\.txt/);
+    const { untracked } = await revert(repo, ['moved.txt']);
+    expect(untracked).toEqual([join(repo, 'moved.txt')]);
+    expect(readFileSync(join(repo, 'a.txt'), 'utf8')).toBe('one\ntwo\n');
+    expect((await listChanges(repo, 'uncommitted')).files.map((f) => [f.path, f.status])).toEqual([['moved.txt', 'untracked']]);
+  });
+
+  it('lists a worktree rename (intent to add) once, without its old path as another file', async () => {
+    await run('mv', 'a.txt', 'moved.txt');
+    await run('reset', '-q');
+    await run('add', '-N', 'moved.txt');
+    const files = (await listChanges(repo, 'uncommitted')).files;
+    expect(files.map((f) => [f.path, f.status])).toEqual([['moved.txt', 'renamed']]);
+  });
+
+  it('unstages in a repository without commits', async () => {
+    const empty = realpathSync(mkdtempSync(join(tmpdir(), 'switchboard-git-empty-')));
+    try {
+      await git(empty, ['init', '-q', '-b', 'main']);
+      writeFileSync(join(empty, 'first.txt'), 'x\n');
+      await stage(empty, ['first.txt'], true);
+      expect((await listChanges(empty, 'uncommitted')).files).toMatchObject([{ path: 'first.txt', status: 'added', staged: true }]);
+      await stage(empty, ['first.txt'], false);
+      expect((await listChanges(empty, 'uncommitted')).files).toMatchObject([{ path: 'first.txt', status: 'untracked', additions: 1 }]);
+    } finally {
+      rmSync(empty, { recursive: true, force: true });
+    }
+  });
+
+  it('ignores diff settings that would break the parsed diff', async () => {
+    await run('config', 'diff.external', 'false');
+    await run('config', 'color.ui', 'always');
+    await run('config', 'diff.suppressBlankEmpty', 'true');
+    write('a.txt', 'one\n\ntwo\nthree\n');
+    await run('commit', '-qam', 'blank line');
+    write('a.txt', 'one\n\ntwo\nTHREE\n');
+    const { diff } = await fileDiff(repo, 'uncommitted', 'a.txt');
+    expect(diff).not.toContain('\u001b[');
+    // The blank context line keeps its leading space.
+    expect(diff).toContain(' one\n \n two\n-three\n+THREE\n');
+    expect((await listChanges(repo, 'uncommitted')).files).toMatchObject([{ path: 'a.txt', additions: 1, deletions: 1 }]);
+  });
+
+  it('counts the lines of new files like git does', async () => {
+    write('two.txt', 'a\nb\n');
+    write('open.txt', 'a\nb');
+    write('empty.txt', '');
+    writeFileSync(join(repo, 'bin.dat'), Buffer.from([1, 0, 2, 10, 3]));
+    expect(countNewLines(join(repo, 'two.txt')).lines).toBe(2);
+    expect(countNewLines(join(repo, 'open.txt')).lines).toBe(2);
+    expect(countNewLines(join(repo, 'empty.txt')).lines).toBe(0);
+    expect(countNewLines(join(repo, 'bin.dat')).lines).toBe(0);
+    const files = (await listChanges(repo, 'uncommitted')).files;
+    expect(files.map((f) => [f.path, f.additions])).toEqual([
+      ['bin.dat', 0],
+      ['empty.txt', 0],
+      ['open.txt', 2],
+      ['two.txt', 2],
+    ]);
   });
 });
 

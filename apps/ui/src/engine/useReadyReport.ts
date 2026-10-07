@@ -1,4 +1,5 @@
 import { useEffect } from 'react';
+import { firstSnapshot } from '../state/useSessionsSync.ts';
 import type { EngineClient } from './connection.ts';
 import { useEngineConnection } from './useEngine.ts';
 
@@ -28,7 +29,8 @@ export function useReadyReport(): void {
     let connectedAt = 0;
     // system.info waits on the login shell and `claude --version`; the ping shows when the engine itself is usable.
     const ping = measurePing(client).then((pingMs) => ((connectedAt = Date.now()), pingMs));
-    void Promise.all([client.call('system.info', {}), client.call('sessions.list', {}), ping]).then(([info, sessions, pingMs]) => {
+    // The count comes from the list the sessions sync loads anyway, not a second full list.
+    void Promise.all([client.call('system.info', {}), firstSnapshot(client), ping]).then(([info, sessions, pingMs]) => {
       if (cancelled || generation <= lastReportedGeneration) return;
       lastReportedGeneration = generation;
       window.switchboard?.reportReady({

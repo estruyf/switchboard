@@ -38,8 +38,8 @@ function NotesButton({ version, notes }: { version: string; notes: string }) {
       {at && (
         <Popover x={at.x} y={at.y} above width={340} anchor={anchor} onClose={() => setAt(null)} role="dialog" aria-label={`What’s new in v${version}`} data-update-notes>
           <div className="px-3 py-2">
-            <p className="text-[12px] font-semibold">What’s new in v{version}</p>
-            <p className="mt-1.5 text-[12px] leading-relaxed whitespace-pre-wrap text-muted">{notes}</p>
+            <p className="text-ui font-semibold">What’s new in v{version}</p>
+            <p className="mt-1.5 text-ui leading-relaxed whitespace-pre-wrap text-muted">{notes}</p>
           </div>
         </Popover>
       )}
@@ -68,7 +68,7 @@ export function UpdatePillButton() {
         onClick={act}
         disabled={!pill.action}
         data-tooltip={pill.action === 'retry' ? (state.error ?? undefined) : undefined}
-        className={`flex h-6 min-w-0 items-center gap-1.5 rounded-full border px-2 text-[11px] font-medium disabled:cursor-default ${TONE[pill.tone]}`}
+        className={`flex h-6 min-w-0 items-center gap-1.5 rounded-full border px-2 text-meta font-medium disabled:cursor-default ${TONE[pill.tone]}`}
       >
         {pill.action !== 'dismiss' && <Icon size={12} aria-hidden className={`shrink-0 ${pill.tone === 'error' ? 'text-error' : pill.action ? 'text-accent-ink' : 'animate-spin'}`} />}
         <span className="truncate">{pill.label}</span>

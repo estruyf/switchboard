@@ -158,8 +158,8 @@ const SECTIONS: Array<{ id: SettingsSection; label: string; icon: LucideIcon }> 
 const close = () => useSessions.getState().closeSettings();
 
 /**
- * Escape closes Settings, unless it belongs to another open dialog, menu or dropdown, or to a field
- * being edited. The sheet is a dialog itself, so only the others count.
+ * Escape closes Settings, unless it belongs to an open dialog, menu or dropdown, or to a field being
+ * edited. The sheet is a region rather than a dialog, so any of those on screen takes the key.
  */
 function useEscapeToClose(sheet: RefObject<HTMLElement | null>) {
   useEffect(() => {

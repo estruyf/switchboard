@@ -66,7 +66,7 @@ export function TranscriptImage({ sessionId, image, maxHeight = 320 }: { session
   const description = `${image.mediaType.replace(/^image\//, '').toUpperCase()} image, ${kb(image.bytes)}`;
   if (failed) {
     return (
-      <span className="flex h-16 w-28 items-center justify-center gap-1 rounded-md border border-border text-[11px] text-muted" data-tooltip="This image couldn’t be loaded">
+      <span className="flex h-16 w-28 items-center justify-center gap-1 rounded-md border border-border text-meta text-muted" data-tooltip="This image couldn’t be loaded">
         <ImageOff size={13} /> Unavailable
       </span>
     );

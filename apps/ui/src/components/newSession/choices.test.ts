@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { ProjectDefaults, ProjectInfo } from '@switchboard/protocol/client';
 import { addedProjects, knownFolders, moveRoot } from '../../state/projectList.ts';
-import { globalPatch, INITIAL_CHOICES, readGlobals, sameDefaults, startingChoices, toProjectDefaults } from './choices.ts';
+import { globalPatch, INITIAL_CHOICES, linkPermissionMode, linkStartingChoices, readGlobals, sameDefaults, startingChoices, toProjectDefaults } from './choices.ts';
 
 const unset: ProjectDefaults = { model: null, effort: null, permissionMode: null, workspace: null, baseRef: null, branch: null };
 
@@ -15,6 +15,22 @@ describe('new session choices', () => {
       effort: 'high',
       branch: 'develop',
     });
+  });
+
+  it('start a session from a link without the mode you last picked', () => {
+    const globals = { ...INITIAL_CHOICES, model: 'sonnet', permissionMode: 'bypassPermissions' as const };
+    // No project default: the last-used mode never carries over to a link.
+    expect(linkStartingChoices(globals, null)).toEqual({ ...globals, permissionMode: 'default', branch: '' });
+    expect(linkStartingChoices({ ...globals, permissionMode: 'acceptEdits' }, unset).permissionMode).toBe('default');
+    // The project's own default applies, unless it never asks.
+    expect(linkStartingChoices(globals, { ...unset, permissionMode: 'acceptEdits' }).permissionMode).toBe('acceptEdits');
+    expect(linkStartingChoices(globals, { ...unset, permissionMode: 'plan' }).permissionMode).toBe('plan');
+    for (const mode of ['bypassPermissions', 'auto', 'dontAsk'] as const) {
+      expect(linkStartingChoices(globals, { ...unset, permissionMode: mode }).permissionMode).toBe('default');
+      expect(linkPermissionMode(mode)).toBe('default');
+    }
+    expect(linkPermissionMode(null)).toBe('default');
+    expect(linkPermissionMode('default')).toBe('default');
   });
 
   it('only remember changes globally for fields the project leaves unset', () => {

@@ -1,19 +1,30 @@
 import { execFile } from 'node:child_process';
-import { statSync } from 'node:fs';
+import { lstatSync, readFileSync } from 'node:fs';
 import { isAbsolute, join, relative, resolve, sep } from 'node:path';
 import type { ChangedFile, ChangesBase, GitChanges, GitSyncAction, WorktreeStatus } from '@switchboard/protocol';
 
 const MAX_DIFF_BYTES = 512 * 1024;
+/** How much of the untracked files' contents `listChanges` reads in total to count their lines. */
+const MAX_UNTRACKED_COUNT_BYTES = 16 * 1024 * 1024;
+
+/**
+ * `git diff` with the user's settings that would break parsing turned off: an external diff tool
+ * (difftastic and the like), forced colours, and blank context lines written as empty lines.
+ */
+const DIFF = ['-c', 'diff.suppressBlankEmpty=false', 'diff', '--no-ext-diff', '--no-color'];
 
 export class GitError extends Error {}
 
-/** Runs git in `cwd`; resolves with stdout. Never goes through a shell. */
+/**
+ * Runs git in `cwd`; resolves with stdout. Never goes through a shell. Pathspecs are literal: the paths
+ * passed come from the file list, and `app/[id]/page.tsx` or `a*.txt` must not match other files.
+ */
 export function git(cwd: string, args: string[], options: { env?: Record<string, string>; allowExitCodes?: number[] } = {}): Promise<string> {
   return new Promise((resolvePromise, reject) => {
     execFile(
       'git',
       args,
-      { cwd, env: { ...process.env, ...options.env, GIT_OPTIONAL_LOCKS: '0', LC_ALL: 'C' }, maxBuffer: 32 * 1024 * 1024, timeout: 20_000 },
+      { cwd, env: { ...process.env, ...options.env, GIT_OPTIONAL_LOCKS: '0', GIT_LITERAL_PATHSPECS: '1', LC_ALL: 'C' }, maxBuffer: 32 * 1024 * 1024, timeout: 20_000 },
       (error, stdout, stderr) => {
         const code = typeof error?.code === 'number' ? error.code : error ? 1 : 0;
         if (error && !options.allowExitCodes?.includes(code)) reject(new GitError(stderr.trim() || error.message));
@@ -92,6 +103,56 @@ function parseNumstat(output: string): Map<string, { additions: number; deletion
   return stats;
 }
 
+interface StatusEntry {
+  x: string;
+  y: string;
+  path: string;
+  /** The path a rename or copy came from. */
+  from: string | null;
+}
+
+/** `status --porcelain=v1 -z`: "XY path", and for a rename or copy (in the index or, with intent-to-add, the worktree) the old path as the next entry. */
+function parsePorcelain(output: string): StatusEntry[] {
+  const entries: StatusEntry[] = [];
+  const parts = output.split('\0').filter(Boolean);
+  for (let i = 0; i < parts.length; i++) {
+    const entry = parts[i]!;
+    const x = entry[0]!;
+    const y = entry[1]!;
+    const moved = x === 'R' || x === 'C' || y === 'R' || y === 'C';
+    entries.push({ x, y, path: entry.slice(3), from: moved ? (parts[++i] ?? null) : null });
+  }
+  return entries;
+}
+
+/** Renamed files in the index or worktree: new path → the path it had in HEAD. */
+async function renames(root: string): Promise<Map<string, string>> {
+  const entries = parsePorcelain(await git(root, ['status', '--porcelain=v1', '-z', '--untracked-files=no']));
+  return new Map(entries.flatMap((e) => (e.from && (e.x === 'R' || e.y === 'R') ? [[e.path, e.from] as const] : [])));
+}
+
+/** Whether HEAD has the file (false on a branch without commits). */
+const inHead = (root: string, rel: string) => git(root, ['cat-file', '-e', `HEAD:${rel}`]).then(() => true, () => false);
+/** Whether the index has the file. */
+const inIndex = async (root: string, rel: string) => (await git(root, ['ls-files', '--error-unmatch', '--', rel], { allowExitCodes: [1] })).trim() !== '';
+const hasHead = async (root: string) => (await git(root, ['rev-parse', '--verify', '--quiet', 'HEAD'], { allowExitCodes: [1] })).trim() !== '';
+
+/**
+ * Lines in a new file, as `git diff --numstat` would count them: 0 for a binary file (a NUL byte in
+ * its first 8000 bytes, git's own test), 1 for a symbolic link (its target).
+ */
+export function countNewLines(path: string): { lines: number; bytes: number } {
+  const stat = lstatSync(path);
+  if (stat.isSymbolicLink()) return { lines: 1, bytes: 0 };
+  if (!stat.isFile() || stat.size >= MAX_DIFF_BYTES) return { lines: 0, bytes: 0 };
+  const data = readFileSync(path);
+  if (data.subarray(0, 8000).includes(0)) return { lines: 0, bytes: data.length };
+  let lines = 0;
+  for (let at = data.indexOf(10); at !== -1; at = data.indexOf(10, at + 1)) lines++;
+  if (data.length > 0 && data[data.length - 1] !== 10) lines++;
+  return { lines, bytes: data.length };
+}
+
 /**
  * What changed in a checkout. `uncommitted`: the working tree and index against HEAD,
  * plus untracked files. `branch`: everything since the branch left its base (commits and
@@ -106,45 +167,37 @@ export async function listChanges(cwd: string, base: ChangesBase): Promise<GitCh
   if (base === 'branch') {
     const from = baseName ? await mergeBase(root, baseName) : null;
     if (!from) return { root, branch, baseBranch: baseName, base, files: [], error: baseName ? `No common history with ${baseName}` : 'No base branch found' };
-    const names = await git(root, ['diff', '--name-status', '-z', '-M', from]);
+    const names = await git(root, [...DIFF, '--name-status', '-z', '-M', from]);
     const parts = names.split('\0').filter(Boolean);
     for (let i = 0; i < parts.length; i++) {
       const code = parts[i]!;
       const path = code.startsWith('R') || code.startsWith('C') ? parts[(i += 2)]! : parts[++i]!;
       files.set(path, { path, status: STATUS[code[0]!] ?? 'modified', additions: 0, deletions: 0, staged: false });
     }
-    for (const [path, stat] of parseNumstat(await git(root, ['diff', '--numstat', '-z', '-M', from]))) {
+    for (const [path, stat] of parseNumstat(await git(root, [...DIFF, '--numstat', '-z', '-M', from]))) {
       const file = files.get(path);
       if (file) Object.assign(file, stat);
     }
   } else {
-    // porcelain v1 with -z: "XY path", renames followed by the old path.
-    const status = await git(root, ['status', '--porcelain=v1', '-z', '--untracked-files=all']);
-    const parts = status.split('\0').filter(Boolean);
-    for (let i = 0; i < parts.length; i++) {
-      const entry = parts[i]!;
-      const x = entry[0]!;
-      const y = entry[1]!;
-      const path = entry.slice(3);
-      if (x === 'R' || x === 'C') i++;
+    for (const { x, y, path } of parsePorcelain(await git(root, ['status', '--porcelain=v1', '-z', '--untracked-files=all']))) {
       const kind = x === '?' ? 'untracked' : x === 'U' || y === 'U' ? 'conflicted' : (STATUS[x !== ' ' ? x : y] ?? 'modified');
       files.set(path, { path, status: kind, additions: 0, deletions: 0, staged: x !== ' ' && x !== '?' && y === ' ' });
     }
-    const hasHead = (await git(root, ['rev-parse', '--verify', '--quiet', 'HEAD'], { allowExitCodes: [1] })).trim() !== '';
-    if (hasHead) {
-      for (const [path, stat] of parseNumstat(await git(root, ['diff', 'HEAD', '--numstat', '-z', '-M']))) {
+    if (await hasHead(root)) {
+      for (const [path, stat] of parseNumstat(await git(root, [...DIFF, 'HEAD', '--numstat', '-z', '-M']))) {
         const file = files.get(path);
         if (file) Object.assign(file, stat);
       }
     }
-    // Untracked files count as all-new lines (only for text files of a sensible size).
+    // Untracked files count as all-new lines (only text files of a sensible size). Counted here rather than
+    // with one git process per file, which with thousands of new files ran past the request's timeout.
+    let budget = MAX_UNTRACKED_COUNT_BYTES;
     for (const file of files.values()) {
-      if (file.status !== 'untracked') continue;
+      if (file.status !== 'untracked' || budget <= 0) continue;
       try {
-        const stat = statSync(join(root, file.path));
-        if (stat.size >= MAX_DIFF_BYTES) continue;
-        const added = (await git(root, ['diff', '--no-index', '--numstat', '--', '/dev/null', file.path], { allowExitCodes: [1] })).split('\t')[0];
-        file.additions = added && added !== '-' ? Number(added) : 0;
+        const { lines, bytes } = countNewLines(join(root, file.path));
+        file.additions = lines;
+        budget -= bytes;
       } catch {
         // Unreadable; leave the count at 0.
       }
@@ -170,11 +223,16 @@ export async function fileDiff(cwd: string, base: ChangesBase, path: string): Pr
     const name = await baseBranch(root);
     const from = name ? await mergeBase(root, name) : null;
     if (!from) return { diff: '', truncated: false };
-    diff = await git(root, ['diff', '-M', from, '--', rel]);
+    diff = await git(root, [...DIFF, '-M', from, '--', rel]);
+  } else if (await inHead(root, rel)) {
+    // Also a file whose deletion is staged: it is no longer in the index, but HEAD still has it.
+    diff = await git(root, [...DIFF, 'HEAD', '-M', '--', rel]);
+  } else if ((await hasHead(root)) && (await inIndex(root, rel))) {
+    // Added, or the new name of a rename: diff it with its old path so a rename shows as one.
+    const from = (await renames(root)).get(rel);
+    diff = await git(root, [...DIFF, 'HEAD', '-M', '--', ...(from ? [from] : []), rel]);
   } else {
-    const tracked = (await git(root, ['ls-files', '--error-unmatch', '--', rel], { allowExitCodes: [1] })).trim() !== '';
-    const hasHead = (await git(root, ['rev-parse', '--verify', '--quiet', 'HEAD'], { allowExitCodes: [1] })).trim() !== '';
-    diff = tracked && hasHead ? await git(root, ['diff', 'HEAD', '-M', '--', rel]) : await git(root, ['diff', '--no-index', '--', '/dev/null', rel], { allowExitCodes: [1] });
+    diff = await git(root, [...DIFF, '--no-index', '--', '/dev/null', rel], { allowExitCodes: [1] });
   }
   const truncated = diff.length > MAX_DIFF_BYTES;
   return { diff: truncated ? diff.slice(0, MAX_DIFF_BYTES) : diff, truncated };
@@ -185,30 +243,34 @@ export async function stage(cwd: string, paths: string[], staged: boolean): Prom
   const rels = paths.map((p) => insideRepo(root, p));
   if (rels.length === 0) return;
   if (staged) await git(root, ['add', '--', ...rels]);
-  else await git(root, ['restore', '--staged', '--', ...rels]);
+  else if (await hasHead(root)) await git(root, ['restore', '--staged', '--', ...rels]);
+  // Without a first commit there is nothing to restore from: unstaging means taking the files out of the index.
+  else await git(root, ['rm', '--cached', '--quiet', '--', ...rels]);
 }
 
 /**
- * Puts tracked files back to HEAD (index and working tree). Untracked files are
- * returned for the caller to move to the Trash, so nothing is deleted outright.
+ * Puts files HEAD has back as they are there (index and working tree), deleted ones included. Files HEAD
+ * doesn't have are taken out of the index and returned for the caller to move to the Trash, so nothing is
+ * deleted outright. Reverting the new name of a rename also brings back the old one.
  */
 export async function revert(cwd: string, paths: string[]): Promise<{ root: string; untracked: string[] }> {
   const root = (await git(cwd, ['rev-parse', '--show-toplevel'])).trim();
   const rels = paths.map((p) => insideRepo(root, p));
-  const tracked: string[] = [];
+  const renamed = await renames(root);
+  const tracked = new Set<string>();
   const untracked: string[] = [];
   for (const rel of rels) {
-    const known = (await git(root, ['ls-files', '--error-unmatch', '--', rel], { allowExitCodes: [1] })).trim() !== '';
-    // `cat-file -e` exits 0 only when HEAD has the file.
-    const inHead = known && (await git(root, ['cat-file', '-e', `HEAD:${rel}`]).then(() => true, () => false));
-    if (inHead) tracked.push(rel);
+    const from = renamed.get(rel);
+    if (from && (await inHead(root, from))) tracked.add(from);
+    // HEAD decides, not the index: a staged deletion is no longer in the index but must come back.
+    if (await inHead(root, rel)) tracked.add(rel);
     else {
       // Added but never committed: unstage it, then it's an untracked file.
-      if (known) await git(root, ['rm', '--cached', '--quiet', '--', rel]);
+      if (await inIndex(root, rel)) await git(root, ['rm', '--cached', '--quiet', '--', rel]);
       untracked.push(join(root, rel));
     }
   }
-  if (tracked.length) await git(root, ['restore', '--source=HEAD', '--staged', '--worktree', '--', ...tracked]);
+  if (tracked.size) await git(root, ['restore', '--source=HEAD', '--staged', '--worktree', '--', ...tracked]);
   return { root, untracked };
 }
 

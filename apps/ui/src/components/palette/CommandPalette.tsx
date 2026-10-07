@@ -205,7 +205,7 @@ export function CommandPalette() {
         value={query}
         onChange={(e) => setQuery(e.target.value)}
         onKeyDown={(e) => {
-          if (e.key === 'ArrowDown') (e.preventDefault(), setActive((i) => Math.min(results.length - 1, i + 1)));
+          if (e.key === 'ArrowDown') (e.preventDefault(), setActive((i) => Math.max(0, Math.min(results.length - 1, i + 1))));
           else if (e.key === 'ArrowUp') (e.preventDefault(), setActive((i) => Math.max(0, i - 1)));
           else if (e.key === 'Enter') (e.preventDefault(), choose(results[active], e.altKey));
         }}
@@ -214,7 +214,7 @@ export function CommandPalette() {
         className="h-12 shrink-0 border-b border-edge bg-transparent px-4 text-[14px] text-text outline-none placeholder:text-faint"
       />
       {results.length === 0 && (
-        <div className="grid gap-1 px-4 py-6 text-center text-[12px]">
+        <div className="grid gap-1 px-4 py-6 text-center text-ui">
           <p className="text-text">No commands or sessions match “{typed}”.</p>
           <p className="text-muted">Try fewer letters, or search inside conversations with ⌘⇧F.</p>
         </div>
@@ -223,7 +223,7 @@ export function CommandPalette() {
         {results.map((item, index) => (
           <div key={item.id} role="none">
             {(index === 0 || results[index - 1]!.group !== item.group) && (
-              <p aria-hidden className="px-4 pt-2 pb-1 text-[11px] tracking-wide text-muted uppercase">
+              <p aria-hidden className="px-4 pt-2 pb-1 text-meta tracking-wide text-muted uppercase">
                 {item.group}
               </p>
             )}
@@ -242,7 +242,7 @@ export function CommandPalette() {
               </span>
               <span className="min-w-0 flex-1 truncate">{item.label}</span>
               {item.group === 'Sessions' && item.keywords && <span className="max-w-[35%] shrink-0 truncate text-[11.5px] text-muted">{item.keywords}</span>}
-              {item.hint && <span className="shrink-0 text-[11px] text-faint">{item.hint}</span>}
+              {item.hint && <span className="shrink-0 text-meta text-faint">{item.hint}</span>}
             </div>
           </div>
         ))}

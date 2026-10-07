@@ -74,7 +74,7 @@ export function AddProjectDialog({ onClose: close }: { onClose(): void }) {
             onMouseMove={() => setActive(folders.length)}
             onClick={() => void choose(folders.length)}
             // The keyboard highlight, like the folder rows above it.
-            className={active === folders.length ? 'bg-accent/15' : ''}
+            selected={active === folders.length}
           >
             Choose folder…
           </Button>
@@ -108,7 +108,7 @@ export function AddProjectDialog({ onClose: close }: { onClose(): void }) {
       />
       <div ref={listRef} id={`${id}-list`} role="group" aria-label="Folders with Claude Code sessions" className="min-h-0 flex-1 overflow-y-auto py-1">
         {folders.length === 0 && (
-          <p className="px-4 py-3 text-[12px] text-muted">{query ? 'No folder matches.' : 'No Claude Code sessions found yet. Choose a folder instead.'}</p>
+          <p className="px-4 py-3 text-ui text-muted">{query ? 'No folder matches.' : 'No Claude Code sessions found yet. Choose a folder instead.'}</p>
         )}
         {folders.map((folder, index) => (
           <button
@@ -133,7 +133,7 @@ export function AddProjectDialog({ onClose: close }: { onClose(): void }) {
                 {!folder.exists && <span className="text-warn"> · folder not found</span>}
               </span>
             </span>
-            <span className="shrink-0 text-right text-[11px] text-muted tabular-nums">
+            <span className="shrink-0 text-right text-meta text-muted tabular-nums">
               {folder.sessionCount} {folder.sessionCount === 1 ? 'session' : 'sessions'}
               {folder.lastActivity !== null && <span className="block">{shortAge(folder.lastActivity)}</span>}
             </span>

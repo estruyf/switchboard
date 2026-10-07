@@ -30,6 +30,26 @@ export function startingChoices(globals: GlobalChoices, project: ProjectDefaults
 }
 
 /**
+ * Permission modes in which Claude never stops to ask (it decides itself, or skips the checks):
+ * a session started by a link never runs in one of them, since any web page can open a link.
+ */
+const NEVER_ASKS: readonly PermissionMode[] = ['bypassPermissions', 'auto', 'dontAsk'];
+
+/** The permission mode a session started by an `autostart` link runs in: `mode` (the project's default), unless it never asks. */
+export function linkPermissionMode(mode: PermissionMode | null | undefined): PermissionMode {
+  return mode && !NEVER_ASKS.includes(mode) ? mode : 'default';
+}
+
+/**
+ * The choices for a session an `autostart` link starts: as `startingChoices`, but the permission
+ * mode comes only from the project's own default (never from the mode you last picked), and is
+ * never one that skips permission prompts.
+ */
+export function linkStartingChoices(globals: GlobalChoices, project: ProjectDefaults | null | undefined): Choices {
+  return { ...startingChoices(globals, project), permissionMode: linkPermissionMode(project?.permissionMode) };
+}
+
+/**
  * The part of a change that updates the global defaults: fields the project decides apply to this
  * session only (until saved as the project's default).
  */

@@ -11,7 +11,7 @@
  */
 import { createReadStream, existsSync, statSync } from 'node:fs';
 import { createServer } from 'node:http';
-import { join, normalize, resolve } from 'node:path';
+import { resolve, sep } from 'node:path';
 import { parseArgs } from 'node:util';
 
 const { values } = parseArgs({
@@ -54,16 +54,29 @@ function fakeFeed(version: string): { name: string; body: string } {
 
 const fake = values.fake ? fakeFeed(values.fake) : null;
 
+/** The file `path` names inside `dir`, or null if it points anywhere else (`..`, an encoded `/`, a sibling folder). */
+function fileIn(dir: string, path: string): string | null {
+  const file = resolve(dir, path);
+  return file === dir || file.startsWith(dir + sep) ? file : null;
+}
+
 createServer((request, response) => {
-  const path = decodeURIComponent(new URL(request.url ?? '/', 'http://localhost').pathname).replace(/^\/+/, '');
+  let path: string;
+  try {
+    // Decoded before resolving, so %2e%2e and %2f are checked like the characters they stand for.
+    path = decodeURIComponent(new URL(request.url ?? '/', 'http://localhost').pathname).replace(/^\/+/, '');
+  } catch {
+    response.writeHead(400).end('Bad request');
+    return;
+  }
   console.log(`${request.method} /${path}`);
   if (fake && path === fake.name) {
     response.writeHead(200, { 'content-type': 'text/yaml' });
     response.end(fake.body);
     return;
   }
-  const file = dir ? normalize(join(dir, path)) : null;
-  if (!file || !file.startsWith(dir!) || !existsSync(file) || !statSync(file).isFile()) {
+  const file = dir ? fileIn(dir, path) : null;
+  if (!file || !existsSync(file) || !statSync(file).isFile()) {
     response.writeHead(404).end('Not found');
     return;
   }

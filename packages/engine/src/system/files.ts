@@ -1,10 +1,14 @@
 import { execFile } from 'node:child_process';
-import { readdirSync } from 'node:fs';
+import { readdir } from 'node:fs/promises';
+import { homedir } from 'node:os';
 import { join, relative } from 'node:path';
 
 const MAX_FILES = 50_000;
 const CACHE_MS = 30_000;
+/** How long a folder outside git may be walked for one listing. */
+const WALK_BUDGET_MS = 1_500;
 const SKIP_DIRS = new Set(['node_modules', '.git', 'dist', 'out', 'build', '.next', '.turbo', '.cache', 'coverage', '.venv', '__pycache__']);
+const HOME_SKIP_DIRS = new Set(['Library', 'Desktop', 'Documents', 'Downloads', 'Pictures', 'Movies', 'Music']);
 
 function gitFiles(cwd: string): Promise<string[] | null> {
   return new Promise((resolve) => {
@@ -17,27 +21,39 @@ function gitFiles(cwd: string): Promise<string[] | null> {
   });
 }
 
-function walk(root: string): string[] {
+/**
+ * Lists files under a folder that isn't a git checkout, shallow folders first, so a big folder (the home
+ * folder, Documents) gives its nearest files within the time budget instead of blocking the engine.
+ * In the home folder, Library and the folders macOS guards with a privacy prompt are skipped: they are
+ * huge or would ask for access, and are never what an @-mention there is after.
+ */
+export async function walk(root: string, options: { budgetMs?: number; home?: string } = {}): Promise<string[]> {
+  const deadline = Date.now() + (options.budgetMs ?? WALK_BUDGET_MS);
+  const home = options.home ?? homedir();
   const out: string[] = [];
-  const visit = (dir: string, depth: number) => {
-    if (depth > 8 || out.length >= MAX_FILES) return;
-    let entries;
-    try {
-      entries = readdirSync(dir, { withFileTypes: true });
-    } catch {
-      return;
-    }
-    for (const entry of entries) {
-      if (entry.name.startsWith('.') && entry.name !== '.github') continue;
-      const full = join(dir, entry.name);
-      if (entry.isDirectory()) {
-        if (!SKIP_DIRS.has(entry.name)) visit(full, depth + 1);
-      } else if (entry.isFile()) {
-        out.push(relative(root, full));
+  let level = [root];
+  for (let depth = 0; depth <= 8 && level.length && out.length < MAX_FILES; depth++) {
+    const next: string[] = [];
+    for (const dir of level) {
+      if (out.length >= MAX_FILES || Date.now() > deadline) return out;
+      let entries;
+      try {
+        entries = await readdir(dir, { withFileTypes: true });
+      } catch {
+        continue;
+      }
+      for (const entry of entries) {
+        if (entry.name.startsWith('.') && entry.name !== '.github') continue;
+        const full = join(dir, entry.name);
+        if (entry.isDirectory()) {
+          if (!SKIP_DIRS.has(entry.name) && !(dir === home && HOME_SKIP_DIRS.has(entry.name))) next.push(full);
+        } else if (entry.isFile() && out.length < MAX_FILES) {
+          out.push(relative(root, full));
+        }
       }
     }
-  };
-  visit(root, 0);
+    level = next;
+  }
   return out;
 }
 

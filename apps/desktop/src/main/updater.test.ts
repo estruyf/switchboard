@@ -1,12 +1,15 @@
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { UpdateState } from '@switchboard/protocol/bridge';
 import { readUpdateMarker, Updater, type UpdaterOptions } from './updater.ts';
 
 const dirs: string[] = [];
-afterEach(() => dirs.splice(0).forEach((d) => rmSync(d, { recursive: true, force: true })));
+afterEach(() => {
+  vi.useRealTimers();
+  dirs.splice(0).forEach((d) => rmSync(d, { recursive: true, force: true }));
+});
 const markerPath = () => {
   const dir = mkdtempSync(join(tmpdir(), 'switchboard-update-'));
   dirs.push(dir);
@@ -25,19 +28,31 @@ function fakeUpdater(offer: { version: string; releaseNotes?: unknown } | Error)
     logger: null as unknown,
     feed: null as unknown,
     installed: 0,
+    checks: 0,
+    /** Set to hold the download until it resolves. */
+    downloadGate: null as Promise<void> | null,
+    /** quitAndInstall throws, as when Squirrel refuses to update. */
+    failInstall: false,
     setFeedURL(options: unknown) {
       this.feed = options;
     },
     async checkForUpdates() {
+      this.checks++;
       if (offer instanceof Error) throw offer;
       return { updateInfo: offer, isUpdateAvailable: offer.version !== '0.0.3' };
     },
     async downloadUpdate() {
       progress.forEach((l) => l({ percent: 50 }));
+      if (this.downloadGate) await this.downloadGate;
       return [];
     },
     quitAndInstall() {
+      if (this.failInstall) throw new Error('Cannot update while running on a read-only volume.');
       this.installed++;
+    },
+    /** Reports download progress, which keeps a held download from counting as stalled. */
+    progress(percent: number) {
+      progress.forEach((l) => l({ percent }));
     },
     on(_event: 'download-progress', listener: (p: { percent: number }) => void) {
       progress.push(listener);
@@ -49,6 +64,7 @@ function fakeUpdater(offer: { version: string; releaseNotes?: unknown } | Error)
 function setup(fake: ReturnType<typeof fakeUpdater>, extra: Partial<UpdaterOptions> = {}) {
   const states: UpdateState[] = [];
   let stopped = 0;
+  let resumed = 0;
   const updater = new Updater({
     currentVersion: '0.0.3',
     channel: 'stable',
@@ -57,11 +73,12 @@ function setup(fake: ReturnType<typeof fakeUpdater>, extra: Partial<UpdaterOptio
     markerFile: markerPath(),
     onState: (s) => states.push(s),
     beforeInstall: () => void stopped++,
+    installFailed: () => void resumed++,
     log: () => {},
     load: async () => fake,
     ...extra,
   });
-  return { updater, states, stopped: () => stopped };
+  return { updater, states, stopped: () => stopped, resumed: () => resumed };
 }
 
 describe('Updater', () => {
@@ -108,6 +125,91 @@ describe('Updater', () => {
     expect(back.state.status).toBe('available');
   });
 
+  it('brings the engine back when the install fails or the app is not restarted', async () => {
+    const fake = fakeUpdater({ version: '0.0.4' });
+    fake.failInstall = true;
+    const { updater, stopped, resumed } = setup(fake);
+    const marker = (updater as unknown as { options: UpdaterOptions }).options.markerFile;
+    await updater.check();
+    await updater.download();
+    await updater.install();
+    expect([stopped(), resumed()]).toEqual([1, 1]);
+    expect(updater.state).toMatchObject({ status: 'error', downloadedVersion: '0.0.4', canRetry: true });
+    expect(existsSync(marker)).toBe(false);
+
+    vi.useFakeTimers();
+    fake.failInstall = false;
+    await updater.install();
+    expect(fake.installed).toBe(1);
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect([stopped(), resumed()]).toEqual([2, 2]);
+    expect(updater.state).toMatchObject({ status: 'error', error: 'Switchboard didn’t restart to install the update.' });
+
+    // Quitting (stop) during an install that works is not a failure.
+    await updater.install();
+    updater.stop();
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(resumed()).toBe(2);
+    expect(updater.state.status).toBe('installing');
+  });
+
+  it('switches channel only after a running download ends, so its version is not kept', async () => {
+    const fake = fakeUpdater({ version: '0.0.4' });
+    let finish = () => {};
+    fake.downloadGate = new Promise<void>((resolve) => (finish = resolve));
+    const { updater } = setup(fake);
+    await updater.check();
+    const download = updater.download();
+    await new Promise((r) => setTimeout(r, 0));
+    updater.setChannel('nightly');
+    expect(updater.state).toMatchObject({ status: 'downloading', channel: 'stable' });
+    finish();
+    await download;
+    // The stable download is forgotten and Nightly is checked (which offers a stable version, so nothing).
+    expect(updater.state).toMatchObject({ channel: 'nightly', downloadedVersion: null });
+    await new Promise((r) => setTimeout(r, 0));
+    expect(fake.channel).toBe('nightly');
+    expect(fake.checks).toBe(2);
+    expect(updater.state).toMatchObject({ channel: 'nightly', status: 'up-to-date', availableVersion: null });
+  });
+
+  it('switching back before a download ends keeps it', async () => {
+    const fake = fakeUpdater({ version: '0.0.4' });
+    let finish = () => {};
+    fake.downloadGate = new Promise<void>((resolve) => (finish = resolve));
+    const { updater } = setup(fake);
+    await updater.check();
+    const download = updater.download();
+    await new Promise((r) => setTimeout(r, 0));
+    updater.setChannel('nightly');
+    updater.setChannel('stable');
+    finish();
+    await download;
+    expect(updater.state).toMatchObject({ channel: 'stable', status: 'downloaded', downloadedVersion: '0.0.4' });
+    expect(fake.checks).toBe(1);
+  });
+
+  it('keeps checking automatically when a scheduled check finds the updater busy', async () => {
+    vi.useFakeTimers();
+    const fake = fakeUpdater({ version: '0.0.4' });
+    let finish = () => {};
+    fake.downloadGate = new Promise<void>((resolve) => (finish = resolve));
+    const { updater } = setup(fake, { autoCheck: true });
+    await updater.check();
+    void updater.download();
+    // The download runs past the next scheduled check, reporting progress every minute.
+    for (let minute = 0; minute < 4 * 60 + 1; minute++) {
+      await vi.advanceTimersByTimeAsync(60_000);
+      fake.progress(50);
+    }
+    expect(updater.state.status).toBe('downloading');
+    expect(fake.checks).toBe(1);
+    finish();
+    await vi.advanceTimersByTimeAsync(4 * 60 * 60_000);
+    expect(fake.checks).toBe(2);
+    updater.stop();
+  });
+
   it('points at the mock feed', async () => {
     const fake = fakeUpdater({ version: '0.0.3' });
     const { updater } = setup(fake, { mockFeedUrl: 'http://localhost:8484' });
@@ -127,6 +229,7 @@ describe('Updater', () => {
       markerFile: markerPath(),
       onState: () => {},
       beforeInstall: () => {},
+      installFailed: () => {},
       log: () => {},
       load: async () => ((loaded = true), fakeUpdater({ version: '9.9.9' })),
     });

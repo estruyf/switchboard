@@ -25,7 +25,7 @@ function SectionChoices({ available, selected, onChange, attr }: { available: re
           dataAttrs={{ [attr]: section }}
         >
           <span className="block text-[12.5px] text-text">{SECTION_INFO[section].label}</span>
-          <span className="block text-[12px] text-muted">{SECTION_INFO[section].detail}</span>
+          <span className="block text-ui text-muted">{SECTION_INFO[section].detail}</span>
         </Checkbox>
       ))}
     </div>
@@ -66,7 +66,7 @@ export function ExportDialog({ onClose }: { onClose(): void }) {
       footer={
         saved ? (
           <>
-            <span role="status" className="min-w-0 flex-1 truncate text-[12px] text-ok" data-export-saved={saved} data-tooltip={saved}>
+            <span role="status" className="min-w-0 flex-1 truncate text-ui text-ok" data-export-saved={saved} data-tooltip={saved}>
               Saved to {saved}
             </span>
             <Button variant="primary" onClick={onClose}>
@@ -76,11 +76,11 @@ export function ExportDialog({ onClose }: { onClose(): void }) {
         ) : (
           <>
             {error ? (
-              <span role="alert" className="min-w-0 flex-1 truncate text-[12px] text-error" data-tooltip={error}>
+              <span role="alert" className="min-w-0 flex-1 truncate text-ui text-error" data-tooltip={error}>
                 Couldn't export: {error}
               </span>
             ) : (
-              sections.length === 0 && <span className="min-w-0 flex-1 text-[12px] text-muted">Choose at least one thing to include.</span>
+              sections.length === 0 && <span className="min-w-0 flex-1 text-ui text-muted">Choose at least one thing to include.</span>
             )}
             <Button onClick={onClose}>Cancel</Button>
             <Button variant="primary" onClick={() => void save()} disabled={busy || sections.length === 0 || !client} data-export-settings>
@@ -208,7 +208,7 @@ export function ImportDialog({ onClose }: { onClose(): void }) {
           </Button>
         ) : (
           <>
-            <span role={error ? 'alert' : 'status'} className={`min-w-0 flex-1 truncate text-[12px] ${error ? 'text-error' : 'text-muted'}`} data-tooltip={error ?? undefined} data-import-summary>
+            <span role={error ? 'alert' : 'status'} className={`min-w-0 flex-1 truncate text-ui ${error ? 'text-error' : 'text-muted'}`} data-tooltip={error ?? undefined} data-import-summary>
               {error ?? (preview ? summarizeChanges(preview.changes, preview.unchanged) : '')}
             </span>
             <Button onClick={onClose}>Cancel</Button>
@@ -230,36 +230,36 @@ export function ImportDialog({ onClose }: { onClose(): void }) {
           )}
         </div>
       ) : !preview ? (
-        <p className="text-[12px] text-muted">{error ? 'This file could not be read. Check that it is a settings file exported from Switchboard, then try again.' : 'Reading the file…'}</p>
+        <p className="text-ui text-muted">{error ? 'This file could not be read. Check that it is a settings file exported from Switchboard, then try again.' : 'Reading the file…'}</p>
       ) : (
         <div className="grid gap-5">
           <div className="grid gap-2">
-            <h3 className="text-[12px] font-semibold text-muted">Include</h3>
+            <h3 className="text-ui font-semibold text-muted">Include</h3>
             {preview.sections.length === 0 ? (
-              <p className="text-[12px] text-muted">This file has nothing to import.</p>
+              <p className="text-ui text-muted">This file has nothing to import.</p>
             ) : (
               <SectionChoices available={preview.sections} selected={sections ?? []} onChange={setSections} attr="data-import-section" />
             )}
           </div>
           <div className="grid gap-2">
-            <h3 className="text-[12px] font-semibold text-muted">When something is already set here</h3>
+            <h3 className="text-ui font-semibold text-muted">When something is already set here</h3>
             <RadioGroup label="Import mode" className="grid gap-2">
               <Radio checked={mode === 'merge'} onSelect={() => setMode('merge')} dataAttrs={{ 'data-import-mode': 'merge' }}>
                 <span className="block text-[12.5px] text-text">Merge</span>
-                <span className="block text-[12px] text-muted">Add what is missing and keep your own values.</span>
+                <span className="block text-ui text-muted">Add what is missing and keep your own values.</span>
               </Radio>
               <Radio checked={mode === 'replace'} onSelect={() => setMode('replace')} dataAttrs={{ 'data-import-mode': 'replace' }}>
                 <span className="block text-[12.5px] text-text">Replace</span>
-                <span className="block text-[12px] text-muted">Make projects, actions and preferences match the file. Sessions are only ever added.</span>
+                <span className="block text-ui text-muted">Make projects, actions and preferences match the file. Sessions are only ever added.</span>
               </Radio>
             </RadioGroup>
           </div>
           {(preview.missingFolders.length > 0 || relocate.length > 0) && (
             <div className="grid gap-2" data-import-folders>
-              <h3 className="text-[12px] font-semibold text-muted">Folders</h3>
-              <p className="text-[12px] text-muted">These folders aren’t on this Mac. Point them at another folder, or leave them to skip their project and actions.</p>
+              <h3 className="text-ui font-semibold text-muted">Folders</h3>
+              <p className="text-ui text-muted">These folders aren’t on this Mac. Point them at another folder, or leave them to skip their project and actions.</p>
               {preview.missingFolders.map((folder) => (
-                <div key={folder} className="flex items-center gap-2 text-[12px]" data-missing-folder={folder}>
+                <div key={folder} className="flex items-center gap-2 text-ui" data-missing-folder={folder}>
                   <span className="min-w-0 flex-1 truncate font-mono text-[11.5px] text-text" data-tooltip={folder}>
                     {tildify(folder, home)}
                   </span>
@@ -270,7 +270,7 @@ export function ImportDialog({ onClose }: { onClose(): void }) {
                 </div>
               ))}
               {relocate.map((m) => (
-                <div key={m.from} className="flex items-center gap-2 text-[12px]">
+                <div key={m.from} className="flex items-center gap-2 text-ui">
                   <span className="min-w-0 flex-1 truncate font-mono text-[11.5px] text-muted" data-tooltip={m.from}>
                     {tildify(m.from, home)}
                   </span>
@@ -293,14 +293,14 @@ export function ImportDialog({ onClose }: { onClose(): void }) {
             </div>
           )}
           <div className="grid gap-3" data-import-preview>
-            <h3 className="text-[12px] font-semibold text-muted">What changes</h3>
-            {groups.length === 0 && <p className="text-[12px] text-muted">{preview.unchanged > 0 ? 'Everything in this file is already set up here.' : 'Nothing to import.'}</p>}
+            <h3 className="text-ui font-semibold text-muted">What changes</h3>
+            {groups.length === 0 && <p className="text-ui text-muted">{preview.unchanged > 0 ? 'Everything in this file is already set up here.' : 'Nothing to import.'}</p>}
             {groups.map((group) => (
               <div key={group.section} className="grid gap-1">
-                <h4 className="text-[12px] font-medium text-text">{SECTION_INFO[group.section].label}</h4>
+                <h4 className="text-ui font-medium text-text">{SECTION_INFO[group.section].label}</h4>
                 <ul className="grid gap-0.5">
                   {group.changes.map((c, i) => (
-                    <li key={`${c.label}:${i}`} className="flex items-center gap-2 text-[12px]" data-import-change={c.change}>
+                    <li key={`${c.label}:${i}`} className="flex items-center gap-2 text-ui" data-import-change={c.change}>
                       <span className={`w-[70px] shrink-0 rounded px-1.5 py-px text-center text-[10.5px] font-medium ${CHANGE_STYLE[c.change].className}`}>{CHANGE_STYLE[c.change].label}</span>
                       <span className="min-w-0 truncate text-text" data-tooltip={c.label}>
                         {group.section === 'projects' ? tildify(c.label, home) : c.label}

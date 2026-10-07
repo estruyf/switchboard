@@ -177,6 +177,8 @@ export function FolderPicker({
               value={filter}
               onChange={(e) => setFilter(e.target.value)}
               onKeyDown={(e) => {
+                // Keys that confirm an IME composition (Enter picking a candidate) belong to the input method.
+                if (e.nativeEvent.isComposing) return;
                 const move = (delta: number) => (e.preventDefault(), setActive((i) => Math.min(count - 1, Math.max(0, i + delta))));
                 if (e.key === 'Escape') (e.preventDefault(), e.stopPropagation(), close(true));
                 else if (e.key === 'ArrowDown') move(COLUMNS);

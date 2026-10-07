@@ -1,6 +1,6 @@
-import { readFileSync, writeFileSync } from 'node:fs';
 import { nativeTheme } from 'electron';
 import { DEFAULT_PREFERENCES, sanitizePreferences, type ColorScheme, type Preferences } from '@switchboard/protocol/bridge';
+import { readJsonFile, writeFileAtomic } from './jsonFile.ts';
 
 /** Window background before the page paints, matching the Demo Time theme. */
 export const windowBackground = () => (nativeTheme.shouldUseDarkColors ? '#15181f' : '#ffffff');
@@ -17,13 +17,8 @@ export class PreferencesStore {
     private readonly file: string,
     private readonly forcedScheme?: ColorScheme,
   ) {
-    let saved: Partial<Preferences> = {};
-    try {
-      saved = sanitizePreferences(JSON.parse(readFileSync(file, 'utf8')));
-    } catch {
-      // No preferences yet.
-    }
-    this.#prefs = { ...DEFAULT_PREFERENCES, ...saved };
+    // No preferences yet, or a damaged file (kept as preferences.json.bak): the defaults.
+    this.#prefs = { ...DEFAULT_PREFERENCES, ...sanitizePreferences(readJsonFile(file)) };
     nativeTheme.themeSource = forcedScheme ?? this.#prefs.colorScheme;
   }
 
@@ -36,7 +31,8 @@ export class PreferencesStore {
     this.#prefs = { ...this.#prefs, ...sanitizePreferences(patch) };
     nativeTheme.themeSource = this.#prefs.colorScheme;
     try {
-      writeFileSync(this.file, `${JSON.stringify(this.#prefs, null, 2)}\n`);
+      // Written in one step, so a crash mid-write can't reset every preference.
+      writeFileAtomic(this.file, `${JSON.stringify(this.#prefs, null, 2)}\n`);
     } catch {
       // Still applied for this run.
     }

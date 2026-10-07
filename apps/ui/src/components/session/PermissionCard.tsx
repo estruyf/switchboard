@@ -9,7 +9,8 @@ import { RadioGroup } from '../ui/Radio.tsx';
 import { toolSummary } from '../transcript/toolSummary.ts';
 import { cardKeyAction, OVERLAY_SELECTOR, waitingLabel, type CardKind, type KeyTarget } from './permissionKeys.ts';
 
-type Respond = (decision: PermissionDecision) => Promise<void>;
+/** Sends the answer; resolves to whether the engine took it (a failure shows under the card). */
+type Respond = (decision: PermissionDecision) => Promise<boolean>;
 
 const DECLINED = 'The user declined this action.';
 
@@ -18,13 +19,15 @@ function useRespond(request: PermissionRequest): { respond: Respond; busy: boole
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const respond: Respond = async (decision) => {
-    if (connection.status !== 'connected') return;
+    if (connection.status !== 'connected') return false;
     setBusy(true);
     try {
       await connection.client.call('session.respond', { requestId: request.requestId, decision });
+      return true;
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
       setBusy(false);
+      return false;
     }
   };
   return { respond, busy, error };
@@ -34,11 +37,13 @@ function useRespond(request: PermissionRequest): { respond: Respond; busy: boole
 /** What the focused element is, for the shortcut rules in `permissionKeys.ts`. */
 function keyTarget(el: Element | null, card: HTMLElement): KeyTarget {
   if (!el || el === document.body || el === document.documentElement) return 'body';
-  if (el.closest('[data-composer]')) return 'composer';
+  const session = card.closest('[data-current-session]');
+  // Only this session's own message box counts: the other pane's is just a field somewhere else.
+  const composer = el.closest('[data-composer]');
+  if (composer) return !session || session.contains(composer) ? 'composer' : 'field';
   const field = el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement || (el instanceof HTMLElement && el.isContentEditable);
   if (card.contains(el)) return field ? 'card-field' : el.matches('[role=radio], [role=checkbox]') ? 'card-option' : 'card';
   // Keys pressed outside this session's view (the sidebar, where Escape clears picks) are never an answer.
-  const session = card.closest('[data-current-session]');
   if (session && !session.contains(el)) return 'field';
   return field ? 'field' : 'other';
 }
@@ -48,6 +53,8 @@ function keyTarget(el: Element | null, card: HTMLElement): KeyTarget {
  * the other pane's cards stay quiet, and with several requests only the top one answers.
  */
 function ownsShortcuts(card: HTMLElement): boolean {
+  // A session hidden behind another view (Settings makes it inert) can't be answered from the keyboard.
+  if (card.closest('[inert]')) return false;
   if (card.closest('[data-pane-active="false"]')) return false;
   const session = card.closest('[data-current-session]');
   if (session?.querySelector('[data-pane-active="false"]')) return false;
@@ -420,7 +427,8 @@ function PlanApproval({ request, titleId, cardRef }: CardProps) {
   const [feedback, setFeedback] = useState('');
   const plan = (request.input as { plan?: string }).plan ?? '';
   const approveWithEdits = async () => {
-    await respond({ behavior: 'allow' });
+    // Only switch modes once the plan is really approved: a failed answer leaves the card up.
+    if (!(await respond({ behavior: 'allow' }))) return;
     if (connection.status === 'connected') {
       await connection.client.call('session.setPermissionMode', { sessionId: request.sessionId, mode: 'acceptEdits' }).catch(() => {});
     }

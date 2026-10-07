@@ -1,5 +1,5 @@
-import { readdirSync, readFileSync, statSync } from 'node:fs';
-import { extname, join } from 'node:path';
+import { readdirSync, readFileSync, realpathSync, statSync } from 'node:fs';
+import { extname, isAbsolute, join, relative } from 'node:path';
 import type { ProjectIcon } from '@switchboard/protocol';
 
 /** Icons travel to the renderer as data URLs, so keep them small. */
@@ -65,8 +65,28 @@ function usable(path: string): boolean {
   return !!stat?.isFile() && stat.size > 0 && stat.size <= MAX_ICON_BYTES && extname(path).toLowerCase() in MIME;
 }
 
-/** An icon declared by the package itself: package.json `icon` (VS Code extensions) or `iconPath` in t3.json / .switchboard.json. */
-function declaredIcon(dir: string): string | null {
+/**
+ * Whether `path` is inside `root`, also after following symbolic links. A repository's settings file picks
+ * the icon path, and its contents are sent to the window, so it must not reach files elsewhere on the disk.
+ */
+function within(root: string, path: string): boolean {
+  const inside = (base: string, target: string) => {
+    const rel = relative(base, target);
+    return rel !== '' && !rel.startsWith('..') && !isAbsolute(rel);
+  };
+  if (!inside(root, path)) return false;
+  try {
+    return inside(realpathSync(root), realpathSync(path));
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * An icon declared by the package itself: package.json `icon` (VS Code extensions) or `iconPath` in t3.json / .switchboard.json.
+ * It must be inside `root`, the project folder (a workspace package may point at the monorepo's shared icon).
+ */
+function declaredIcon(dir: string, root: string): string | null {
   for (const [file, key] of [
     ['.switchboard.json', 'iconPath'],
     ['t3.json', 'iconPath'],
@@ -75,14 +95,14 @@ function declaredIcon(dir: string): string | null {
     const value = readJson(join(dir, file))?.[key];
     if (typeof value === 'string' && value && !value.startsWith('http')) {
       const path = join(dir, value);
-      if (usable(path)) return path;
+      if (within(root, path) && usable(path)) return path;
     }
   }
   return null;
 }
 
-function conventionalIcon(dir: string): string | null {
-  return PACKAGE_CANDIDATES.map((c) => join(dir, c)).find(usable) ?? null;
+function conventionalIcon(dir: string, root: string): string | null {
+  return PACKAGE_CANDIDATES.map((c) => join(dir, c)).find((path) => usable(path) && within(root, path)) ?? null;
 }
 
 /**
@@ -90,7 +110,7 @@ function conventionalIcon(dir: string): string | null {
  * root, then the same in workspace packages (apps/*, packages/*) for monorepos.
  */
 export function detectIconPath(root: string): string | null {
-  const atRoot = declaredIcon(root) ?? conventionalIcon(root);
+  const atRoot = declaredIcon(root, root) ?? conventionalIcon(root, root);
   if (atRoot) return atRoot;
   for (const workspace of WORKSPACE_DIRS) {
     let names: string[];
@@ -101,7 +121,7 @@ export function detectIconPath(root: string): string | null {
     }
     for (const name of names) {
       const dir = join(root, workspace, name);
-      const found = declaredIcon(dir) ?? conventionalIcon(dir);
+      const found = declaredIcon(dir, root) ?? conventionalIcon(dir, root);
       if (found) return found;
     }
   }

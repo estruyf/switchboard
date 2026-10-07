@@ -3,17 +3,16 @@ import { useEffect, useId, useMemo, useRef, useState, type MouseEvent } from 're
 import type { ProjectDefaults, ProjectInfo } from '@switchboard/protocol/client';
 import { useEngineConnection } from '../../engine/useEngine.ts';
 import { guessHome, shortAge, tildify } from '../../lib/format.ts';
-import { addedProjects, moveRoot } from '../../state/projectList.ts';
+import { addedProjects, baseOrder, moveRoot } from '../../state/projectList.ts';
 import { useProfiles } from '../../state/profilesStore.ts';
 import { useProjects } from '../../state/projectsStore.ts';
 import { useSessions } from '../../state/sessionsStore.ts';
 import { ActionEditor } from '../actions/ActionEditor.tsx';
 import { useProjectActionList } from '../actions/useActions.ts';
-import { ConfirmDialog } from '../ConfirmDialog.tsx';
 import { Menu, type MenuEntry } from '../Menu.tsx';
 import { ProfileBadge } from '../profiles/ProfileBadge.tsx';
 import { ProjectIcon } from '../ProjectIcon.tsx';
-import { useProjectActions, useProjectIconEntries } from '../sidebar/ProjectMenu.tsx';
+import { RemoveProjectDialog, useProjectActions, useProjectIconEntries } from '../sidebar/ProjectMenu.tsx';
 import { Button } from '../ui/Button.tsx';
 import { Select } from '../ui/Select.tsx';
 import { ProjectDefaultsEditor } from './ProjectDefaultsEditor.tsx';
@@ -44,11 +43,11 @@ function ProfilePicker({ project }: { project: ProjectInfo }) {
   const fallback = profiles.find((p) => p.isDefault);
   return (
     <div className="grid grid-cols-[110px_minmax(0,1fr)] items-center gap-3 @max-[560px]:grid-cols-1 @max-[560px]:gap-1">
-      <span className="text-[12px] text-muted">Claude profile</span>
+      <span className="text-ui text-muted">Claude profile</span>
       <span className="flex min-w-0 items-center gap-2">
         <Select
           label="Claude profile"
-          className="h-7 min-w-0 rounded-md border border-border bg-bg px-2 text-[12px] text-text outline-none focus:border-accent-ink/60"
+          className="h-7 min-w-0 rounded-md border border-border bg-bg px-2 text-ui text-text outline-none focus:border-accent-ink/60"
           value={project.profileId ?? ''}
           onChange={(value) => void actions.setProfile(project.root, value || null)}
           options={[{ value: '', label: `Default${fallback ? ` (${fallback.name})` : ''}` }, ...profiles.map((p) => ({ value: p.id, label: p.name, hint: p.account?.email ?? undefined }))]}
@@ -203,11 +202,11 @@ function ProjectRow({
       </div>
       {open && (
         <div id={panelId} className="grid gap-3 border-t border-border px-3 py-3">
-          <p className="text-[12px] text-muted">New sessions in {project.name} start with these. The New session view can still change them for one session.</p>
+          <p className="text-ui text-muted">New sessions in {project.name} start with these. The New session view can still change them for one session.</p>
           <ProfilePicker project={project} />
           <ProjectDefaultsEditor root={project.root} defaults={project.defaults} isGitRepo={isGitRepo} onSave={(d) => void save(d)} />
           {error && (
-            <p role="alert" className="text-[12px] text-error">
+            <p role="alert" className="text-ui text-error">
               Couldn't save the defaults: {error}
             </p>
           )}
@@ -230,7 +229,6 @@ export function ProjectManagerView() {
   const connection = useEngineConnection();
   const client = connection.status === 'connected' ? connection.client : null;
   const reload = useProjects((s) => s.reload);
-  const actions = useProjectActions();
   const icons = useProjectIconEntries();
   const list = useMemo(() => addedProjects(projects), [projects]);
   const home = useMemo(() => guessHome(projects.keys()), [projects]);
@@ -248,9 +246,21 @@ export function ProjectManagerView() {
     requestAnimationFrame(() => listRef.current?.querySelector(`[data-project-row="${CSS.escape(focus)}"]`)?.scrollIntoView({ block: 'nearest' }));
   }, [focus]);
 
+  // The order last sent, until the list catches up with it: two quick clicks must not both start from the old list.
+  const pendingOrder = useRef<string[] | null>(null);
+  useEffect(() => {
+    const shown = list.map((p) => p.root);
+    if (pendingOrder.current?.join('\n') === shown.join('\n')) pendingOrder.current = null;
+  }, [list]);
   const move = async (root: string, delta: -1 | 1) => {
     if (!client) return;
-    await client.call('projects.reorder', { roots: moveRoot(list.map((p) => p.root), root, delta) });
+    const roots = moveRoot(baseOrder(pendingOrder.current, list.map((p) => p.root)), root, delta);
+    pendingOrder.current = roots;
+    try {
+      await client.call('projects.reorder', { roots });
+    } catch {
+      pendingOrder.current = null;
+    }
     reload();
   };
 
@@ -259,7 +269,7 @@ export function ProjectManagerView() {
   return (
     <div className="@container flex h-full min-h-0 flex-col" data-project-manager>
       <header className="drag flex h-13 shrink-0 items-center gap-3 border-b border-border px-6">
-        <h1 className="flex-1 text-[13px] font-semibold">Projects</h1>
+        <h1 className="flex-1 text-title font-semibold">Projects</h1>
         <Button icon={<FolderPlus size={13} aria-hidden />} onClick={() => showAdd(true)} className="no-drag" data-manager-add>
           Add project
         </Button>
@@ -273,7 +283,7 @@ export function ProjectManagerView() {
           {list.length === 0 ? (
             <div className="grid justify-items-start gap-2 rounded-lg border border-dashed border-border px-4 py-5" data-no-projects>
               <p className="text-[13px] font-medium">No projects yet</p>
-              <p className="text-[12px] text-muted">Add the folders you want to start Claude Code sessions in. Folders you have used Claude Code in are suggested.</p>
+              <p className="text-ui text-muted">Add the folders you want to start Claude Code sessions in. Folders you have used Claude Code in are suggested.</p>
               <Button variant="primary" onClick={() => showAdd(true)} className="mt-1">
                 Add a project
               </Button>
@@ -304,20 +314,9 @@ export function ProjectManagerView() {
         </div>
       </div>
       {iconMenu && <Menu x={iconMenu.x} y={iconMenu.y} entries={iconEntries} label="Project icon" onClose={() => setIconMenu(null)} />}
-      {icons.picker}
+      {icons.overlays}
       {actionsFor && <ProjectActions root={actionsFor} onClose={() => setActionsFor(null)} />}
-      {removing && (
-        <ConfirmDialog
-          title={`Remove ${removing.name} from Switchboard?`}
-          confirmLabel="Remove"
-          body={<>It disappears from the sidebar and the New session view. The folder, its files and its sessions are not touched, and you can add it again later.</>}
-          onConfirm={async () => {
-            await actions.remove(removing.root);
-            if (useProjects.getState().filter === removing.root) useProjects.getState().setFilter(null);
-          }}
-          onClose={() => setRemoving(null)}
-        />
-      )}
+      {removing && <RemoveProjectDialog root={removing.root} name={removing.name} onClose={() => setRemoving(null)} />}
     </div>
   );
 }

@@ -30,7 +30,7 @@ export function ClaudeUpdatePill() {
         onClick={act}
         disabled={!notice.action}
         data-tooltip={notice.action === 'update' ? `Update with ${state.command}` : notice.action === 'about' ? 'Show in Settings' : undefined}
-        className={`flex h-6 min-w-0 items-center gap-1.5 rounded-full border px-2 text-[11px] font-medium disabled:cursor-default ${TONE[notice.tone]}`}
+        className={`flex h-6 min-w-0 items-center gap-1.5 rounded-full border px-2 text-meta font-medium disabled:cursor-default ${TONE[notice.tone]}`}
       >
         <Icon size={12} aria-hidden className={`shrink-0 ${state.status === 'updating' ? 'animate-spin' : state.status === 'updated' ? 'text-ok' : 'text-accent-ink'}`} />
         <span className="truncate">{notice.label}</span>

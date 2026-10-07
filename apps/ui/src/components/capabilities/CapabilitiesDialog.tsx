@@ -23,7 +23,7 @@ function Row({ title, meta, children, detail }: { title: ReactNode; meta?: React
     <div className="border-b border-edge px-4 py-2 last:border-b-0">
       <div className="flex min-h-6 items-center gap-2">
         <div className="min-w-0 flex-1 truncate text-[12.5px]">{title}</div>
-        {meta && <span className="shrink-0 text-[11px] text-muted">{meta}</span>}
+        {meta && <span className="shrink-0 text-meta text-muted">{meta}</span>}
         {children}
       </div>
       {detail && <div className="mt-0.5 line-clamp-2 text-[11.5px] text-muted">{detail}</div>}
@@ -133,7 +133,7 @@ export function CapabilitiesDialog({ sessionId, cwd, profileId, onClose }: { ses
               tabIndex={tab === t.id ? 0 : -1}
               data-capabilities-tab={t.id}
               onClick={() => setTab(t.id)}
-              className={`rounded-md px-2.5 py-1 text-[12px] ${tab === t.id ? 'bg-accent/15 text-text' : 'text-muted hover:text-text'}`}
+              className={`rounded-md px-2.5 py-1 text-ui ${tab === t.id ? 'bg-selected text-text' : 'text-muted hover:bg-border/45 hover:text-text'}`}
             >
               {t.label}
               {/* The smoke test reads the count from the tab's first span. */}
@@ -161,11 +161,11 @@ export function CapabilitiesDialog({ sessionId, cwd, profileId, onClose }: { ses
 
       <div id={`${ids}-panel`} role="tabpanel" aria-labelledby={`${ids}-tab-${tab}`} tabIndex={0} className="min-h-0 flex-1 overflow-y-auto outline-none" data-capabilities-list={tab}>
         {caps === null && !error && (
-          <p role="status" className="p-4 text-[12px] text-muted">
+          <p role="status" className="p-4 text-ui text-muted">
             Loading…
           </p>
         )}
-        {caps && tab === 'mcp' && (lists.mcp.length === 0 ? <p className="p-4 text-[12px] text-muted">No MCP servers{needle ? ' match' : ' configured'}.</p> : lists.mcp.map((server) => {
+        {caps && tab === 'mcp' && (lists.mcp.length === 0 ? <p className="p-4 text-ui text-muted">No MCP servers{needle ? ' match' : ' configured'}.</p> : lists.mcp.map((server) => {
           const tone = MCP_TONE[server.status];
           return (
             <Row
@@ -200,13 +200,13 @@ export function CapabilitiesDialog({ sessionId, cwd, profileId, onClose }: { ses
             </Row>
           );
         }))}
-        {caps && tab === 'commands' && (lists.commands.length === 0 ? <p className="p-4 text-[12px] text-muted">No skills or custom commands{needle ? ' match' : ''}.</p> : lists.commands.map((c) => (
+        {caps && tab === 'commands' && (lists.commands.length === 0 ? <p className="p-4 text-ui text-muted">No skills or custom commands{needle ? ' match' : ''}.</p> : lists.commands.map((c) => (
           <Row key={c.name} title={<span className="font-mono">/{c.name}</span>} meta={c.argumentHint || undefined} detail={c.description} />
         )))}
-        {caps && tab === 'agents' && (lists.agents.length === 0 ? <p className="p-4 text-[12px] text-muted">No agents{needle ? ' match' : ''}.</p> : lists.agents.map((a) => (
+        {caps && tab === 'agents' && (lists.agents.length === 0 ? <p className="p-4 text-ui text-muted">No agents{needle ? ' match' : ''}.</p> : lists.agents.map((a) => (
           <Row key={a.name} title={<span className="font-medium">{a.name}</span>} meta={a.model ?? undefined} detail={a.description} />
         )))}
-        {caps && tab === 'plugins' && (lists.plugins.length === 0 ? <p className="p-4 text-[12px] text-muted">No plugins installed{needle ? ' that match' : ''}.</p> : lists.plugins.map((p) => (
+        {caps && tab === 'plugins' && (lists.plugins.length === 0 ? <p className="p-4 text-ui text-muted">No plugins installed{needle ? ' that match' : ''}.</p> : lists.plugins.map((p) => (
           <Row key={p.name} title={<span className="font-medium">{p.name}</span>} meta={[p.version && `v${p.version}`, p.scope].filter(Boolean).join(' · ') || undefined} detail={p.path} />
         )))}
       </div>

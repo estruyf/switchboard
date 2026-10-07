@@ -444,7 +444,7 @@ export function Sidebar() {
   };
 
   // ↑/↓ moves through visible sessions, like a native source list (⇧ extends the selection); ⌘A picks the
-  // focused row's group; ⌘⌫ deletes the picked sessions, or the selected one.
+  // focused row's group; ⌘⌫ deletes the picked sessions, or the focused (else the selected) one.
   const onKeyDown = (event: KeyboardEvent) => {
     if (event.key === 'Escape' && picked.size > 0) {
       event.preventDefault();
@@ -462,7 +462,9 @@ export function Sidebar() {
       return;
     }
     if (event.key === 'Backspace' && event.metaKey) {
-      const selected = rows.find((r) => r.kind === 'session' && r.data.id === selectedId);
+      // Like ⌘A, the focused row wins over the open one.
+      const focused = (event.target as HTMLElement).closest<HTMLElement>('[data-session-id]')?.dataset.sessionId ?? selectedId;
+      const selected = rows.find((r) => r.kind === 'session' && r.data.id === focused);
       const targets = multi ? pickedRows.filter((row) => row.summary) : selected?.kind === 'session' && selected.data.summary ? [selected.data] : [];
       if (targets.length) {
         event.preventDefault();
@@ -831,13 +833,14 @@ export function Sidebar() {
             const current = useSessions.getState().selectedId;
             if (current === null ? selectedId !== null && gone.has(selectedId) : gone.has(current)) {
               if (next) select(next);
-              else setView('session');
+              // Nothing left to show: close the trashed session rather than keep it on screen.
+              else useSessions.getState().closeSession();
             }
           }}
           onClose={() => setDeleting(null)}
         />
       )}
-      {projectIcons.picker}
+      {projectIcons.overlays}
       <SidebarResizeHandle />
     </aside>
   );

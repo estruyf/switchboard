@@ -28,7 +28,7 @@ function Card({ title, children, aside }: { title: string; children: ReactNode; 
   return (
     <section className="rounded-lg border border-border bg-card">
       <header className="flex items-center justify-between border-b border-border px-4 py-2.5">
-        <h3 className="text-[12px] font-medium text-muted">{title}</h3>
+        <h3 className="text-ui font-medium text-muted">{title}</h3>
         {aside}
       </header>
       <dl className="divide-y divide-border">{children}</dl>
@@ -45,7 +45,7 @@ function Row({ label, children }: { label: string; children: ReactNode }) {
   );
 }
 
-const Mono = ({ children }: { children: ReactNode }) => <span className="font-mono text-[12px]">{children}</span>;
+const Mono = ({ children }: { children: ReactNode }) => <span className="font-mono text-ui">{children}</span>;
 
 const logTone: Record<LogLevel, string> = {
   debug: 'text-faint',
@@ -89,14 +89,14 @@ export function EngineDiagnostics() {
         }
       >
         <Row label="Status">{connectionRow}</Row>
-        <Row label="Round trip">{pingMs === null ? '—' : <Mono>{pingMs.toFixed(2)} ms (median of 20)</Mono>}</Row>
-        <Row label="Engine version">{info ? <Mono>{info.engineVersion}</Mono> : '—'}</Row>
+        <Row label="Round trip">{pingMs === null ? 'Not measured' : <Mono>{pingMs.toFixed(2)} ms (median of 20)</Mono>}</Row>
+        <Row label="Engine version">{info ? <Mono>{info.engineVersion}</Mono> : 'Unknown'}</Row>
       </Card>
 
       <Card title="Claude Code">
         <Row label="Binary">
           {!info ? (
-            '—'
+            'Unknown'
           ) : info.claude ? (
             <span className="flex items-center gap-2">
               <Dot tone="ok" />
@@ -111,7 +111,7 @@ export function EngineDiagnostics() {
             </span>
           )}
         </Row>
-        <Row label="Config dir">{info ? <Mono>{info.paths.claudeConfigDir}</Mono> : '—'}</Row>
+        <Row label="Config dir">{info ? <Mono>{info.paths.claudeConfigDir}</Mono> : 'Unknown'}</Row>
         <Row label="Shell environment">
           {info ? (
             <span className="flex items-center gap-2">
@@ -120,16 +120,16 @@ export function EngineDiagnostics() {
               <span className="text-muted">· {info.shell.durationMs} ms</span>
             </span>
           ) : (
-            '—'
+            'Unknown'
           )}
         </Row>
       </Card>
 
       <Card title="Runtime">
-        <Row label="Electron">{info ? <Mono>{info.versions.electron ?? 'n/a'}</Mono> : '—'}</Row>
-        <Row label="Node">{info ? <Mono>{info.versions.node}</Mono> : '—'}</Row>
-        <Row label="SQLite">{info ? <Mono>{info.versions.sqlite}</Mono> : '—'}</Row>
-        <Row label="Cache database">{info ? <Mono>{info.paths.database}</Mono> : '—'}</Row>
+        <Row label="Electron">{info ? <Mono>{info.versions.electron ?? 'n/a'}</Mono> : 'Unknown'}</Row>
+        <Row label="Node">{info ? <Mono>{info.versions.node}</Mono> : 'Unknown'}</Row>
+        <Row label="SQLite">{info ? <Mono>{info.versions.sqlite}</Mono> : 'Unknown'}</Row>
+        <Row label="Cache database">{info ? <Mono>{info.paths.database}</Mono> : 'Unknown'}</Row>
       </Card>
 
       <Card title="Rendering">
@@ -139,7 +139,7 @@ export function EngineDiagnostics() {
       </Card>
 
       <Card title="Engine log">
-        <div role="log" aria-label="Engine log" tabIndex={0} className="max-h-48 overflow-y-auto px-4 py-2 font-mono text-[12px] select-text">
+        <div role="log" aria-label="Engine log" tabIndex={0} className="max-h-48 overflow-y-auto px-4 py-2 font-mono text-ui select-text">
           {logs.length === 0 ? (
             <p className="text-muted">No messages since this window connected.</p>
           ) : (

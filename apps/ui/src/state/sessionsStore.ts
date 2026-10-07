@@ -43,7 +43,6 @@ interface SessionsState {
   openBeside(id: string): void;
   /** Closes one pane (default: the right one); the other takes the full width. */
   closePane(pane?: Pane): void;
-  /** Closes the session on screen (both panes) and lands on New session. Nothing stops: a running session keeps running. */
   /** Closes the open session(s) and shows Home. A working session keeps running. */
   closeSession(): void;
   /** Shows Home: what needs you, what is working, and your projects. */

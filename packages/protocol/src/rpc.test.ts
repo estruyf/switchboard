@@ -116,6 +116,18 @@ describe('rpc', () => {
     await expect(client.call('slow', {})).rejects.toMatchObject({ code: 'TIMEOUT' });
   });
 
+  it('fails a call at once when the transport cannot send it', async () => {
+    const client = createRpcClient<TestContract>({
+      send: () => {
+        throw new Error('port closed');
+      },
+      onMessage: () => () => {},
+    });
+    cleanups.push(() => client.dispose());
+    // With the default 30 s timeout, a leaked pending entry would make this test time out instead.
+    await expect(client.call('add', { a: 1, b: 2 })).rejects.toMatchObject({ code: 'DISCONNECTED', message: expect.stringContaining('port closed') });
+  });
+
   it('rejects pending calls on dispose', async () => {
     const { client } = setup();
     const call = client.call('slow', {});

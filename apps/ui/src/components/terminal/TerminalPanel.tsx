@@ -137,7 +137,7 @@ export function TerminalPanel({ sessionId, cwd }: { sessionId: string; cwd: stri
                 return (
                   <div
                     key={t.id}
-                    className={`group flex h-6 shrink-0 items-center gap-1.5 rounded-md pr-1 pl-2 text-[12px] ${selected ? 'bg-card text-text' : 'text-muted hover:text-text'}`}
+                    className={`group flex h-6 shrink-0 items-center gap-1.5 rounded-md pr-1 pl-2 text-ui ${selected ? 'bg-card text-text' : 'text-muted hover:text-text'}`}
                   >
                     <button
                       type="button"
@@ -220,7 +220,7 @@ export function TerminalPanel({ sessionId, cwd }: { sessionId: string; cwd: stri
             <div key={t.id} id={panelId(t)} role="tabpanel" aria-labelledby={tabId(t)} className={t.id === active?.id ? 'absolute inset-0' : 'hidden'}>
               <XTerm id={t.id} active={t.id === active?.id} />
               {t.exitCode !== null && t.id === active?.id && (
-                <div role="status" className="absolute right-3 bottom-2 flex items-center gap-2 rounded-md border border-border bg-card px-2 py-1 text-[11px] text-muted shadow" data-terminal-exited>
+                <div role="status" className="absolute right-3 bottom-2 flex items-center gap-2 rounded-md border border-border bg-card px-2 py-1 text-meta text-muted shadow" data-terminal-exited>
                   Exited with code {t.exitCode}
                   <button type="button" onClick={() => void restart(t)} className="text-accent-ink hover:underline" data-terminal-restart>
                     Restart
@@ -233,7 +233,7 @@ export function TerminalPanel({ sessionId, cwd }: { sessionId: string; cwd: stri
                   onClick={() => stop(t)}
                   data-terminal-stop
                   data-tooltip="Stop the command (⌃C)"
-                  className="absolute right-3 bottom-2 flex items-center gap-1.5 rounded-md border border-border bg-card px-2 py-1 text-[11px] text-muted shadow hover:text-text"
+                  className="absolute right-3 bottom-2 flex items-center gap-1.5 rounded-md border border-border bg-card px-2 py-1 text-meta text-muted shadow hover:text-text"
                 >
                   <Square size={10} className="fill-current" /> Stop
                 </button>

@@ -26,7 +26,7 @@ All parameters are optional. When a link gives more than one of `cwd`, `project`
 
 ### Starting automatically
 
-With `autostart=1`, the session starts as soon as its folder is found, with the project's usual model, effort, permission mode and worktree choice. Permission prompts work as always: Claude still asks before it edits files or runs commands (unless the project's default permission mode says otherwise). A session started from a link doesn't add its folder to your projects.
+With `autostart=1`, the session starts as soon as its folder is found, with the project's usual model, effort and worktree choice. The permission mode is the one saved as the project's default. Without a saved default, it is the default mode (Ask before edits), never the mode you picked last. Auto mode, Don't ask and Bypass permissions never apply to a session started from a link: it uses the default mode instead. So Claude still asks before it edits files or runs commands, unless the project's default is Accept edits or Plan mode. A session started from a link doesn't add its folder to your projects.
 
 It only starts when the link has a prompt and names its folder (`cwd`, `project`, or a `repo` that Switchboard finds). Otherwise it waits like any other link: without a folder you pick one first, then press Enter. If the folder doesn't exist, nothing starts and the prompt stays filled in.
 
@@ -34,7 +34,7 @@ Only use `autostart` in links you write for yourself or your team. Clicking an `
 
 When a link fills in the prompt (and doesn't start the session), a line under the message box says **Prompt from an external link** until you send it or clear it. For a long prompt it also gives the number of characters, since part of it may be scrolled out of view. **Clear** empties the message box.
 
-Model, effort, permission mode and the worktree choice come from the project's defaults (or your last choices), as they do when you press ⌘N. A link can't set them, so it can never turn off permission prompts.
+Model, effort, permission mode and the worktree choice come from the project's defaults (or your last choices), as they do when you press ⌘N. You see them before you press Enter. A link can't set them. A link that starts the session itself takes the permission mode only from the project's default, and never a mode that skips permission prompts (see [Starting automatically](#starting-automatically)).
 
 ## Open a session
 

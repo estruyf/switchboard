@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { appStateFake } from './testing.ts';
 import { openCommand } from './editors.ts';
-import { FileIndex, fuzzyScore } from './files.ts';
+import { FileIndex, fuzzyScore, walk } from './files.ts';
 import { ShellEnvironment } from './shellEnvironment.ts';
 
 const dirs: string[] = [];
@@ -51,6 +51,20 @@ describe('file search', () => {
     writeFileSync(join(dir, 'src', 'main.ts'), '');
     writeFileSync(join(dir, 'node_modules', 'pkg', 'main.ts'), '');
     await expect(new FileIndex().search(dir, 'main', 10)).resolves.toEqual(['src/main.ts']);
+  });
+
+  it('walks shallow folders first, skips the home folder\'s Library and stops at its time budget', async () => {
+    const home = tempDir();
+    mkdirSync(join(home, 'Library', 'Caches'), { recursive: true });
+    mkdirSync(join(home, 'code', 'deep'), { recursive: true });
+    writeFileSync(join(home, 'Library', 'Caches', 'x.ts'), '');
+    writeFileSync(join(home, 'notes.md'), '');
+    writeFileSync(join(home, 'code', 'deep', 'a.ts'), '');
+    expect((await walk(home, { home })).sort()).toEqual(['code/deep/a.ts', 'notes.md']);
+    // Library is only skipped in the home folder itself.
+    expect(await walk(join(home, 'Library'), { home })).toEqual(['Caches/x.ts']);
+    // With no time left, the walk returns what it has instead of going on.
+    expect(await walk(home, { home, budgetMs: -1 })).toEqual([]);
   });
 });
 

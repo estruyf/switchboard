@@ -17,7 +17,7 @@ import { TranscriptView } from './components/transcript/TranscriptView.tsx';
 import { useReadyReport } from './engine/useReadyReport.ts';
 import { isActiveHost, useHosts } from './state/hostsStore.ts';
 import { useLinksSync } from './state/linksStore.ts';
-import { useSessions } from './state/sessionsStore.ts';
+import { useSessions, type Pane } from './state/sessionsStore.ts';
 import { useOverlay } from './state/overlayStore.ts';
 import { usePreferencesSync } from './state/preferencesStore.ts';
 import { useProfilesSync } from './state/profilesStore.ts';
@@ -124,6 +124,14 @@ export function App() {
   const activePane = useSessions((s) => s.activePane);
   const overlay = useOverlay((s) => s.open);
   const adding = useProjects((s) => s.adding);
+  const panes: { id: string; pane: Pane | null }[] = !mainId
+    ? []
+    : splitId && splitId !== mainId
+      ? [
+          { id: mainId, pane: 'main' },
+          { id: splitId, pane: 'split' },
+        ]
+      : [{ id: mainId, pane: null }];
 
   return (
     <div className="flex h-full">
@@ -135,25 +143,22 @@ export function App() {
           <ProjectManagerView />
         ) : behind === 'new' ? (
           <NewSessionView />
-        ) : mainId && splitId ? (
-          // Two sessions side by side; clicking in a pane makes it the active one.
-          <div className="flex min-h-0 flex-1" data-split>
-            {/* The inactive pane dims as a whole, and brightens a little on hover to say a click makes it active. */}
-            <div
-              className={`flex min-w-0 flex-1 flex-col transition-opacity duration-150 ${activePane === 'main' ? '' : 'opacity-60 hover:opacity-85'}`}
-              onMouseDownCapture={() => useSessions.getState().focusPane('main')}
-            >
-              <TranscriptView key={`main:${mainId}`} sessionId={mainId} pane="main" active={activePane === 'main'} />
-            </div>
-            <div
-              className={`flex min-w-0 flex-1 flex-col border-l border-border transition-opacity duration-150 ${activePane === 'split' ? '' : 'opacity-60 hover:opacity-85'}`}
-              onMouseDownCapture={() => useSessions.getState().focusPane('split')}
-            >
-              <TranscriptView key={`split:${splitId}`} sessionId={splitId} pane="split" active={activePane === 'split'} />
-            </div>
-          </div>
         ) : mainId ? (
-          <TranscriptView key={mainId} sessionId={mainId} />
+          // One session, or two side by side. Both cases share this tree and each pane is keyed by its
+          // session, so opening or closing a split never remounts the session that stays (its unsent
+          // message, scroll and Find). Clicking in a pane makes it the active one.
+          <div className="flex min-h-0 flex-1" data-split={splitId ? true : undefined}>
+            {panes.map(({ id, pane }) => (
+              // The inactive pane dims as a whole, and brightens a little on hover to say a click makes it active.
+              <div
+                key={id}
+                className={`flex min-w-0 flex-1 flex-col transition-opacity duration-150 ${pane === 'split' ? 'border-l border-border' : ''} ${pane && activePane !== pane ? 'opacity-60 hover:opacity-85' : ''}`}
+                onMouseDownCapture={pane ? () => useSessions.getState().focusPane(pane) : undefined}
+              >
+                <TranscriptView sessionId={id} pane={pane} active={pane ? activePane === pane : true} />
+              </div>
+            ))}
+          </div>
         ) : (
           <HomeView />
         )}

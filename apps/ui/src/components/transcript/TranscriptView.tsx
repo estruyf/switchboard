@@ -48,8 +48,11 @@ import { useTranscript } from './useTranscript.ts';
 
 const ORIGIN_LABEL = { cli: 'Terminal', desktop: 'Claude desktop', ide: 'IDE', sdk: 'SDK', app: 'Switchboard', unknown: '' } as const;
 
-/** The status word in the header's meta line takes the colour of its dot. */
-const STATUS_TONE = { running: 'text-accent-ink', 'needs-you': 'text-warn', idle: 'text-ok' } as const;
+/**
+ * The status word in the header's meta line takes the colour of its state: yellow while working,
+ * pink when it needs you, green only while background tasks run. Idle is quiet, like the rest of the line.
+ */
+const STATUS_TONE = { running: 'text-accent-ink', 'needs-you': 'text-warn', idle: 'text-muted' } as const;
 
 
 /** The dot between the parts of the header's meta line (a narrow pane shows only the status dot and the branch, no separators). */
@@ -223,7 +226,7 @@ export function TranscriptView({ sessionId, pane = null, active = true }: { sess
   const profileId = activeHost?.profileId ?? summary?.profileId ?? registryLive?.profileId ?? null;
   // Project actions: called once here (it listens for their shortcuts and owns their dialogs), then
   // shared by the pills above the message box and the header's ⋯ menu.
-  const actionsMenu = useActionsMenu({ sessionId, projectRoot, cwd });
+  const actionsMenu = useActionsMenu({ sessionId, projectRoot, cwd, active });
 
   // The Changes panel (⌘⇧D): the checkout's git diff, with stage and revert.
   const changesOpen = useOverlay((s) => s.changesOpen);
@@ -242,6 +245,8 @@ export function TranscriptView({ sessionId, pane = null, active = true }: { sess
     const onKey = (event: KeyboardEvent) => {
       // Behind the Settings sheet the session stays mounted (inert); its shortcuts wait until Settings closes.
       if (useSessions.getState().view !== 'session') return;
+      // A key something else already took (a shortcut recorder), or one pressed while a dialog is open, isn't for this view.
+      if (event.defaultPrevented || document.querySelector('[aria-modal="true"]')) return;
       if (active && event.metaKey && event.shiftKey && !event.altKey && event.key.toLowerCase() === 'd') {
         event.preventDefault();
         toggleChanges();
@@ -277,7 +282,15 @@ export function TranscriptView({ sessionId, pane = null, active = true }: { sess
 
   useEffect(() => {
     if (!client) return;
-    void client.call('session.commands', { sessionId, ...(cwd ? { cwd } : {}) }).then((r) => setCommands(r.commands));
+    // A slower, older answer must not replace the list for the current folder; a failure keeps the last list.
+    let cancelled = false;
+    client.call('session.commands', { sessionId, ...(cwd ? { cwd } : {}) }).then(
+      (r) => !cancelled && setCommands(r.commands),
+      () => {},
+    );
+    return () => {
+      cancelled = true;
+    };
   }, [client, sessionId, cwd, activeHost?.state === 'idle']);
 
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -338,9 +351,13 @@ export function TranscriptView({ sessionId, pane = null, active = true }: { sess
     requestAnimationFrame(() => virtualizer.scrollToIndex(index, { align: 'center' }));
     setHighlightKey(renderItems[index]!.key);
     useOverlay.getState().focus(null);
+  }, [focusMessage, renderItems, virtualizer]);
+  // The highlight fades on its own timer: clearing focusMessage above re-runs that effect, which must not cancel it.
+  useEffect(() => {
+    if (!highlightKey) return;
     const timer = setTimeout(() => setHighlightKey(null), 2_500);
     return () => clearTimeout(timer);
-  }, [focusMessage, renderItems, virtualizer]);
+  }, [highlightKey]);
 
   // Find in the conversation (⌘F). Matches come from the messages' text, so rows that aren't
   // mounted count too; the highlights are drawn on the rows that are.
@@ -426,6 +443,17 @@ export function TranscriptView({ sessionId, pane = null, active = true }: { sess
   });
   const [actionError, setActionError] = useState<string | null>(null);
   const [rewinding, setRewinding] = useState<{ uuid: string; preview: RewindResult | null; error: string | null } | null>(null);
+  // The undo dialog opens while it is still checking, before its confirm button exists: give the
+  // button focus when it appears, so Enter confirms as in every other confirmation.
+  const rewindReady = Boolean(rewinding && !rewinding.error && rewinding.preview?.canRewind && rewinding.preview.files.length > 0);
+  useEffect(() => {
+    if (!rewindReady) return;
+    const frame = requestAnimationFrame(() => {
+      const dialog = document.activeElement?.closest('[role="alertdialog"]') ?? null;
+      dialog?.querySelector<HTMLButtonElement>('[data-confirm]')?.focus();
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [rewindReady]);
   const messageActions = useMemo<MessageActions | null>(() => {
     if (!client) return null;
     // The message before each one (by uuid), for forking just before a prompt.
@@ -486,7 +514,7 @@ export function TranscriptView({ sessionId, pane = null, active = true }: { sess
   const projectName = project?.name ?? (projectRoot ? projectRoot.slice(projectRoot.lastIndexOf('/') + 1) : null);
   const failed = !activeHost && host?.state === 'error';
   const statusLabel = live ? liveLabel(live) : failed ? 'Failed' : 'Not running';
-  const statusTone = live ? STATUS_TONE[live.status] : failed ? 'text-error' : 'text-muted';
+  const statusTone = live ? (live.status === 'idle' && live.background?.length ? 'text-ok' : STATUS_TONE[live.status]) : failed ? 'text-error' : 'text-muted';
   const gitActivity = `${items.length}:${live?.status ?? ''}:${branchSwitches}`;
 
   return (

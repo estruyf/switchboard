@@ -1,5 +1,5 @@
 import { ChevronRight, ExternalLink, Maximize2, Minimize2, RefreshCw, Undo2, WrapText, X } from 'lucide-react';
-import { memo, useEffect, useMemo, useState, type KeyboardEvent, type PointerEvent } from 'react';
+import { memo, useEffect, useId, useMemo, useState, type KeyboardEvent, type PointerEvent } from 'react';
 import { create } from 'zustand';
 import type { ChangedFile, ChangesBase, GitChanges } from '@switchboard/protocol/client';
 import { useEngineConnection } from '../../engine/useEngine.ts';
@@ -57,6 +57,9 @@ const STATUS: Record<ChangedFile['status'], { letter: string; tone: string; labe
 };
 
 /** "3 lines added, 1 removed", for screen readers in place of the coloured "+3 −1". */
+/** Counts the change lists the panel has been given, so an open diff reloads whenever git was checked again. */
+let changesLoads = 0;
+
 const lineCounts = (added: number, removed: number) => `${added} ${added === 1 ? 'line' : 'lines'} added, ${removed} removed`;
 
 /** One file's diff, loaded when it's opened. */
@@ -74,7 +77,7 @@ const FileDiff = memo(function FileDiff({ id, cwd, base, path, version }: { id: 
     return () => {
       cancelled = true;
     };
-    // `version` changes when the file's counts do, so an open diff follows new edits.
+    // `version` changes whenever git is checked again, so an open diff follows new edits.
   }, [client, cwd, base, path, version]);
   const rows = useMemo(() => (state && 'diff' in state ? parseUnifiedDiff(state.diff) : []), [state]);
   const wrap = useOverlay((s) => s.diffWrap);
@@ -169,6 +172,10 @@ export function ChangesPanel({
   const removed = files.reduce((n, f) => n + f.deletions, 0);
   const editable = base === 'uncommitted';
   const allStaged = files.length > 0 && files.every((f) => f.staged);
+  // Each check of git gives a new list: open diffs reload then, even when a file's +/− counts stay the same.
+  const load = useMemo(() => ++changesLoads, [changes]);
+  // File paths have spaces and slashes, which don't make good ids for aria-controls.
+  const idBase = useId();
 
   /** Runs a git call, then refreshes; `what` finishes "Couldn't …" when it fails. */
   const run = (call: Promise<unknown>, what: string) =>
@@ -294,12 +301,12 @@ export function ChangesPanel({
         ) : files.length === 0 ? (
           <p className="p-4 text-ui text-muted">{base === 'uncommitted' ? 'No uncommitted changes.' : `Nothing on ${changes.branch ?? 'this branch'} that isn't on ${changes.baseBranch ?? 'its base'}.`}</p>
         ) : (
-          files.map((file) => {
+          files.map((file, index) => {
             const status = STATUS[file.status];
             const slash = file.path.lastIndexOf('/');
             const isOpen = open.has(file.path);
             const name = file.path.slice(slash + 1);
-            const diffId = `diff-${file.path}`;
+            const diffId = `${idBase}-diff-${index}`;
             return (
               <div key={file.path} className="border-b border-border" data-changed-file={file.path}>
                 <div className="group flex h-8 items-center gap-2 pr-2 pl-1.5 text-ui hover:bg-border/30">
@@ -355,7 +362,7 @@ export function ChangesPanel({
                     )}
                   </span>
                 </div>
-                {isOpen && <FileDiff id={diffId} cwd={cwd} base={base} path={file.path} version={`${file.additions}:${file.deletions}:${file.staged}`} />}
+                {isOpen && <FileDiff id={diffId} cwd={cwd} base={base} path={file.path} version={`${load}:${file.additions}:${file.deletions}:${file.staged}`} />}
               </div>
             );
           })
