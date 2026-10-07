@@ -63,6 +63,12 @@ export class MultiProfileSource implements SessionSource {
     return forked;
   }
 
+  async rename(sessionId: string, title: string): Promise<void> {
+    const owner = this.ordered(sessionId)[0];
+    if (!owner?.source.rename) throw new Error('Renaming is not available');
+    await owner.source.rename(sessionId, title);
+  }
+
   /** The owning profile's source first, then the others. */
   private ordered(sessionId: string): ProfileSource[] {
     const owner = this.owners.get(sessionId);

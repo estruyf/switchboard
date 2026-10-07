@@ -1,4 +1,4 @@
-import { Bot, Ellipsis, Sparkles, Square } from 'lucide-react';
+import { Bot, Ellipsis, Pencil, Sparkles, Square } from 'lucide-react';
 import { useCallback, useRef, useState } from 'react';
 import { useEngineConnection } from '../../engine/useEngine.ts';
 import { useMultipleProfiles, useProfile } from '../../state/profilesStore.ts';
@@ -8,6 +8,7 @@ import type { ActionsMenu } from '../actions/useActionsMenu.tsx';
 import { Menu, useMenu, type MenuEntry } from '../Menu.tsx';
 import { useOpenInEntries } from '../OpenInButton.tsx';
 import { ProfileDot } from '../profiles/ProfileBadge.tsx';
+import { RenameSessionDialog } from '../RenameSessionDialog.tsx';
 import { Button } from '../ui/Button.tsx';
 import type { DisplayItem } from '../transcript/displayItems.ts';
 import { AgentsDialog, useAgentRuns } from '../transcript/AgentsDialog.tsx';
@@ -17,7 +18,7 @@ const MENU_WIDTH = 260;
 /**
  * The session header's "⋯" menu: opening the folder in an editor, terminal or Finder (⌘O opens the
  * default one), opening the session in Claude Code's terminal interface, the project's actions (and "Edit actions…"), the agents Claude
- * started, the Claude profile the session bills to, and stopping the session's Claude Code process.
+ * started, the Claude profile the session bills to, renaming the session, and stopping its Claude Code process.
  * A dot on the button says agents are running. The project actions come from the session view's
  * single `useActionsMenu` (it also feeds the pills above the message box and renders the dialogs).
  */
@@ -28,6 +29,7 @@ export function MoreMenu({
   items,
   sessionOpen,
   profileId,
+  title,
   onStop,
 }: {
   sessionId: string;
@@ -37,6 +39,8 @@ export function MoreMenu({
   /** The session is open somewhere (here or another Claude Code window), so agents can still be running. */
   sessionOpen: boolean;
   profileId: string | null;
+  /** The session's title; null while it has no transcript to keep a new one in. */
+  title: string | null;
   /** Stops the Claude Code process for this session; null when it isn't running here. */
   onStop: (() => void) | null;
 }) {
@@ -45,6 +49,7 @@ export function MoreMenu({
   const { agents, running } = useAgentRuns(items, sessionOpen);
   const [agentsOpen, setAgentsOpen] = useState(false);
   const closeAgents = useCallback(() => setAgentsOpen(false), []);
+  const [renaming, setRenaming] = useState(false);
   const multipleProfiles = useMultipleProfiles();
   const profile = useProfile(profileId);
   const connection = useEngineConnection();
@@ -78,6 +83,13 @@ export function MoreMenu({
     });
   }
   entries.push(
+    {
+      label: 'Rename…',
+      icon: <Pencil size={13} />,
+      disabled: title === null,
+      onSelect: () => setRenaming(true),
+      data: { 'data-rename-session': true },
+    },
     {
       label: 'Agents',
       icon: <Bot size={13} />,
@@ -130,6 +142,7 @@ export function MoreMenu({
         {running > 0 && <span className="absolute top-0.5 right-0.5 size-1.5 animate-pulse rounded-full bg-accent-ink" aria-hidden />}
       </Button>
       {menu.at && <Menu x={menu.at.x} y={menu.at.y} width={MENU_WIDTH} entries={entries} onClose={menu.close} label="More" />}
+      {renaming && title !== null && <RenameSessionDialog sessionId={sessionId} title={title} onClose={() => setRenaming(false)} />}
       {agentsOpen && <AgentsDialog agents={agents} running={running} sessionId={sessionId} cwd={cwd} onClose={closeAgents} />}
     </div>
   );

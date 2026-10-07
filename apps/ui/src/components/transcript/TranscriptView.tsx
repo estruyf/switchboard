@@ -687,6 +687,7 @@ export function TranscriptView({ sessionId, pane = null, active = true }: { sess
           items={items}
           sessionOpen={live !== null}
           profileId={profileId}
+          title={summary ? title : null}
           onStop={activeHost ? () => void client?.call('session.close', { sessionId }) : null}
         />
         {!pane && (

@@ -124,6 +124,11 @@ export const contract = {
      * Stops it first when it runs in this app; refuses (SESSION_BUSY_ELSEWHERE) when another window has it open.
      */
     'session.delete': { params: z.object({ sessionId: SessionId }), result: z.object({}) },
+    /**
+     * Gives a session a title of your own, stored in its transcript like Claude Code's `/rename`,
+     * so `claude --resume` shows it too. The new title arrives with `sessions.changed`.
+     */
+    'session.rename': { params: z.object({ sessionId: SessionId, title: z.string().trim().min(1).max(200) }), result: z.object({}) },
     /** The user is looking at this session now; clears its unread state. */
     'sessions.markViewed': { params: z.object({ sessionId: SessionId }), result: z.object({}) },
     /**

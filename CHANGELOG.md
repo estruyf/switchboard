@@ -8,6 +8,7 @@ All notable changes to Switchboard are listed here. Each release is also on the 
 
 - **Prompt history.** Press ↑ on the first line of the message box to bring back an earlier message, edit it and send it again, as in Claude Code. ↓ goes forward again, and past the newest message (or with Esc) what you were typing comes back. In a session it's your messages there; in New session, the first prompts of your sessions in the picked project.
 - **See what runs in the background.** Click the green background pill above the message box to list what Claude keeps running after its turn: shell commands, agents and workflows, with how long each has run. **Stop** ends one without stopping Claude.
+- **Rename a session.** Right-click it in the sidebar and choose **Rename…** (or press F2), or use **Rename…** in the session's ⋯ menu. Claude Code shows the new name too, in `claude --resume`.
 
 ## [0.0.8] - 2026-10-07
 

@@ -551,6 +551,14 @@ export function createEngine(options: EngineOptions): Engine {
       log('info', `Moved session ${sessionId} to the Trash`);
       return {};
     },
+    'session.rename': async ({ sessionId, title }) => {
+      if (!source.rename) throw new RpcError('UNSUPPORTED', 'Renaming is not available');
+      if (!sessions.pathFor(sessionId)) throw new RpcError('NOT_FOUND', 'No transcript found for this session');
+      // One line, like the titles Claude Code makes itself.
+      await source.rename(sessionId, title.replace(/\s+/g, ' ').trim());
+      await sessions.reread(sessionId);
+      return {};
+    },
     'sessions.markViewed': ({ sessionId }) => {
       sessions.markViewed(sessionId);
       return {};

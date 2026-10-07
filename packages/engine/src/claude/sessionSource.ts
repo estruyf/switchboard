@@ -24,6 +24,8 @@ export interface SessionSource {
   subagentMessages?(sessionId: string, agentId: string): Promise<RawSessionMessage[]>;
   /** Copies a session up to and including `upToMessageId` into a new one; returns its id. */
   fork?(sessionId: string, upToMessageId: string): Promise<string>;
+  /** Sets the session's title the way Claude Code's `/rename` does, so the CLI shows it too. */
+  rename?(sessionId: string, title: string): Promise<void>;
 }
 
 type Sdk = typeof import('@anthropic-ai/claude-agent-sdk');
@@ -45,5 +47,6 @@ export function sdkSessionSource(scope: ConfigDirScope = (fn) => fn()): SessionS
     messages: (id) => scope(async () => (await (await load()).getSessionMessages(id)) as RawSessionMessage[]),
     subagentMessages: (id, agentId) => scope(async () => (await (await load()).getSubagentMessages(id, agentId)) as RawSessionMessage[]),
     fork: (id, upToMessageId) => scope(async () => (await (await load()).forkSession(id, { upToMessageId })).sessionId),
+    rename: (id, title) => scope(async () => (await load()).renameSession(id, title)),
   };
 }

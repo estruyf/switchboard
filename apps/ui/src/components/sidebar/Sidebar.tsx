@@ -18,6 +18,7 @@ import { SIDEBAR_DEFAULT_WIDTH } from '../../state/sidebarWidth.ts';
 import { buildListRows, buildSessionList, GROUP_LABEL, inScope, isActive, laterInList, rowStatus, sessionsByHeader, waitingLabel, type HeaderKey, type RowStatus, type SessionGroup, type SidebarListRow } from '../../state/sidebarRows.ts';
 import { NO_PICKS, pickGroup, rangePick, stepPick, togglePick, visiblePicks, type Picks } from '../../state/sessionPicks.ts';
 import { ConfirmDialog } from '../ConfirmDialog.tsx';
+import { RenameSessionDialog } from '../RenameSessionDialog.tsx';
 import { FocusCounter } from '../focus/FocusCounter.tsx';
 import { Menu, type MenuEntry } from '../Menu.tsx';
 import { useOpenIn } from '../OpenInButton.tsx';
@@ -414,6 +415,7 @@ export function Sidebar() {
   const projectIcons = useProjectIconEntries();
   const [menu, setMenu] = useState<{ x: number; y: number; entries: MenuEntry[]; label: string } | null>(null);
   const [deleting, setDeleting] = useState<SessionRowData[] | null>(null);
+  const [renaming, setRenaming] = useState<SessionRowData | null>(null);
   const [picks, setPicks] = useState<Picks>(NO_PICKS);
   const now = useNow();
   const sidebarStyle = usePreferences((s) => s.prefs.sidebarStyle);
@@ -505,7 +507,7 @@ export function Sidebar() {
   };
 
   // ↑/↓ moves through visible sessions, like a native source list (⇧ extends the selection); ⌘A picks the
-  // focused row's group; ⌘⌫ deletes the picked sessions, or the focused (else the selected) one.
+  // focused row's group; ⌘⌫ deletes the picked sessions, or the focused (else the selected) one; F2 renames it.
   const onKeyDown = (event: KeyboardEvent) => {
     if (event.key === 'Escape' && picked.size > 0) {
       event.preventDefault();
@@ -530,6 +532,15 @@ export function Sidebar() {
       if (targets.length) {
         event.preventDefault();
         setDeleting(targets);
+      }
+      return;
+    }
+    if (event.key === 'F2' && !multi) {
+      const focused = (event.target as HTMLElement).closest<HTMLElement>('[data-session-id]')?.dataset.sessionId ?? selectedId;
+      const target = rows.find((r) => r.kind === 'session' && r.data.id === focused);
+      if (target?.kind === 'session' && target.data.summary) {
+        event.preventDefault();
+        setRenaming(target.data);
       }
       return;
     }
@@ -593,6 +604,7 @@ export function Sidebar() {
       ...at,
       label: `Session “${data.title}”`,
       entries: [
+        { label: 'Rename…', hint: 'F2', onSelect: () => setRenaming(data), disabled: !data.summary, data: { 'data-rename-session': true } },
         { label: data.pinned ? 'Unpin' : 'Pin to top', onSelect: () => flag({ pinned: !data.pinned }), disabled: !data.summary },
         archivedNow
           ? { label: 'Unarchive', onSelect: () => flag({ archived: false }), disabled: !data.summary }
@@ -936,6 +948,7 @@ export function Sidebar() {
           onClose={() => setDeleting(null)}
         />
       )}
+      {renaming && <RenameSessionDialog sessionId={renaming.id} title={renaming.title} onClose={() => setRenaming(null)} />}
       {projectIcons.overlays}
       <SidebarResizeHandle />
     </aside>

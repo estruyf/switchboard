@@ -24,7 +24,7 @@ const asDomPort = (port: MessagePort) => port as unknown as DomLikePort;
 const cleanups: Array<() => void> = [];
 afterEach(() => cleanups.splice(0).forEach((fn) => fn()));
 
-function connect(extra: { trashed?: string[][] } = {}) {
+function connect(extra: { trashed?: string[][]; source?: SessionSource } = {}) {
   const dataDir = mkdtempSync(join(tmpdir(), 'switchboard-engine-'));
   // A real transcript file, so the index knows where the session lives.
   const projectDir = join(dataDir, 'claude', 'projects', '-work-parser');
@@ -38,7 +38,7 @@ function connect(extra: { trashed?: string[][] } = {}) {
     // No login shell and an empty PATH, so the test never depends on the machine.
     shellEnv: Promise.resolve({ shell: '/bin/zsh', env: { PATH: '' }, resolved: false, durationMs: 0 }),
     claudeBinary: '/nonexistent/claude',
-    sessionSource: fakeSource,
+    sessionSource: extra.source ?? fakeSource,
   });
   const { port1, port2 } = new MessageChannel();
   const detach = engine.attach(messagePortTransport(asDomPort(port1)));
@@ -141,6 +141,34 @@ describe('engine over a MessagePort', () => {
       { type: 'text', text: 'Done.' },
     ]);
     await client.call('transcript.unwatch', { sessionId: SESSION_ID });
+  });
+
+  it('renames a session through Claude Code and sends the new title at once', async () => {
+    let customTitle: string | undefined;
+    const renamed: string[] = [];
+    const current = () => ({ sessionId: SESSION_ID, summary: 'Refactor parser', lastModified: 42, cwd: '/work/parser', ...(customTitle ? { customTitle } : {}) });
+    const source: SessionSource = {
+      ...fakeSource,
+      list: async () => [current()],
+      info: async (id) => (id === SESSION_ID ? current() : undefined),
+      rename: async (_id, title) => {
+        renamed.push(title);
+        customTitle = title;
+      },
+    };
+    const { client } = connect({ source });
+    await new Promise((resolve) => client.on('sessions.changed', resolve));
+    const titles: string[] = [];
+    client.on('sessions.changed', ({ upserted }) => upserted.forEach((s) => titles.push(s.title)));
+    await client.call('session.rename', { sessionId: SESSION_ID, title: '  Parser\n  cleanup ' });
+    // Kept on one line, like the titles Claude Code makes.
+    expect(renamed).toEqual(['Parser cleanup']);
+    await client.call('system.ping', { sentAt: 0 });
+    expect(titles).toContain('Parser cleanup');
+    expect((await client.call('sessions.list', {})).sessions[0]).toMatchObject({ title: 'Parser cleanup', customTitle: 'Parser cleanup' });
+    await expect(client.call('session.rename', { sessionId: SESSION_ID, title: '   ' })).rejects.toThrow();
+    await expect(client.call('session.rename', { sessionId: '44444444-4444-4444-8444-444444444444', title: 'Nope' })).rejects.toThrow(/No transcript/);
+    expect(renamed).toHaveLength(1);
   });
 
   it('moves a deleted session and its subagent folder to the Trash and forgets it', async () => {

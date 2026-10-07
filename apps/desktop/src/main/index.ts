@@ -645,6 +645,7 @@ let paletteResult = 'not run';
 let toolsResult = 'not run';
 let splitResult = 'not run';
 let archiveResult = 'not run';
+let renameResult = 'not run';
 let archiveManyResult = 'not run';
 let dropResult = 'not run';
 let historyResult = 'not run';
@@ -2201,6 +2202,38 @@ async function runArchiveStep(win: BrowserWindow): Promise<string> {
 }
 
 /**
+ * Rename… in a row's context menu, and F2 on the focused row, open the rename dialog with the title selected; Rename
+ * stays off until the name changes. Read-only: it never renames, because the title lives in the real transcript.
+ */
+async function runRenameStep(win: BrowserWindow): Promise<string> {
+  const js = (code: string) => win.webContents.executeJavaScript(code);
+  await js("document.querySelector('[data-session-list]').scrollTop = 0");
+  const id = (await js("document.querySelector('[data-session-id]')?.dataset.sessionId ?? null")) as string | null;
+  if (!id) return 'no session to rename';
+  const row = `document.querySelector('[data-session-id="${id}"]')`;
+  const dialog = "document.querySelector('[data-rename-session-dialog]')";
+  const input = "document.querySelector('[data-rename-session-input]')";
+  const save = "document.querySelector('[data-rename-session-save]')";
+  await js(`(() => { const r = ${row}.getBoundingClientRect(); ${row}.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, clientX: r.left + 40, clientY: r.top + 20 })); })()`);
+  if (!(await waitInPage(win, "document.querySelector('[role=menuitem][data-rename-session]')", 3_000))) return 'no Rename… item in the context menu';
+  await js("document.querySelector('[role=menuitem][data-rename-session]').click()");
+  if (!(await waitInPage(win, `${dialog} && document.activeElement === ${input}`, 3_000))) return 'Rename… did not open the dialog with the field focused';
+  const prefilled = (await js(`(() => { const el = ${input}; return el.value.length > 0 && el.selectionStart === 0 && el.selectionEnd === el.value.length && ${row}.innerText.includes(el.value); })()`)) as boolean;
+  if (!prefilled) return "the field doesn't hold the session's title, selected";
+  if (!(await js(`${save}.disabled`))) return 'Rename is on before the name changed';
+  await setFieldValue(win, '[data-rename-session-input]', 'Smoke rename (never saved)');
+  if (!(await waitInPage(win, `!${save}.disabled`, 2_000))) return 'Rename stayed off after typing a new name';
+  await js("document.activeElement.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))");
+  if (!(await waitInPage(win, `!${dialog}`, 2_000))) return 'Escape did not close the dialog';
+  if ((await js(`${row}.innerText`)).includes('Smoke rename')) return 'the title changed without Rename';
+  await js(`${row}.focus(); ${row}.dispatchEvent(new KeyboardEvent('keydown', { key: 'F2', bubbles: true }))`);
+  if (!(await waitInPage(win, dialog, 2_000))) return 'F2 on the focused row did not open the dialog';
+  await js(`[...${dialog}.querySelectorAll('button')].find((b) => b.innerText === 'Cancel').click()`);
+  if (!(await waitInPage(win, `!${dialog}`, 2_000))) return 'Cancel did not close the dialog';
+  return 'ok: Rename… and F2 open the dialog with the title selected; Rename waits for a new name; Escape and Cancel keep the title';
+}
+
+/**
  * ⌘-click picks a second session, right-click → "Archive 2 sessions" moves both under "Archived", and the selection bar
  * there brings them back. Flags live in the throwaway profile.
  */
@@ -2340,6 +2373,7 @@ async function runSmokeStep(win: BrowserWindow | null): Promise<void> {
     toolsResult = await runToolsStep(win).catch((error: Error) => `failed: ${error.message}`);
     splitResult = await runSplitStep(win).catch((error: Error) => `failed: ${error.message}`);
     archiveResult = await runArchiveStep(win).catch((error: Error) => `failed: ${error.message}`);
+    renameResult = await runRenameStep(win).catch((error: Error) => `failed: ${error.message}`);
     archiveManyResult = await runArchiveManyStep(win).catch((error: Error) => `failed: ${error.message}`);
     dropResult = await runDropStep(win).catch((error: Error) => `failed: ${error.message}`);
     historyResult = await runHistoryStep(win).catch((error: Error) => `failed: ${error.message}`);
@@ -2402,6 +2436,7 @@ async function runSmokeStep(win: BrowserWindow | null): Promise<void> {
         toolsResult,
         splitResult,
         archiveResult,
+        renameResult,
         archiveManyResult,
         dropResult,
         historyResult,

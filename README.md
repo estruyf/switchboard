@@ -152,6 +152,7 @@ To stop the checks, turn off *Check for Claude Code updates automatically* in Se
 | ⌘⇧F | Search all conversations |
 | ↑ ↓ | Move through sessions in the sidebar |
 | ⌘-click, ⇧-click, ⇧↑ ↓ | Select several sessions (Esc clears the selection) |
+| F2 | Rename the selected session |
 | ⌘⌫ | Delete the selected session (to the Trash) |
 | ⌘O | Open the session's folder in your editor |
 | ⌘J | Show or hide the terminal |
@@ -166,7 +167,7 @@ To stop the checks, turn off *Check for Claude Code updates automatically* in Se
 | ↑ ↓ | Bring back an earlier message in the message box (from the first line; Esc goes back to what you were typing) |
 | ⌘Q | Quit (Switchboard asks first; press ⌘Q again to quit) |
 
-Right-click a session for more: open it beside, pin, archive, open its folder, copy its ID, or delete it. With several sessions selected, right-click one of them to archive or unarchive them all at once.
+Right-click a session for more: rename it, open it beside, pin, archive, open its folder, copy its ID, or delete it. With several sessions selected, right-click one of them to archive or unarchive them all at once.
 
 Drag the sidebar's right edge to make it wider or narrower; double-click the edge to reset it. Switchboard remembers the width.
 

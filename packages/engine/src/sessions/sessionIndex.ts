@@ -204,6 +204,12 @@ export class SessionIndex {
     this.republish(sessionId);
   }
 
+  /** Reads one session again now, rather than when the file watcher notices (after a rename). */
+  async reread(sessionId: string): Promise<void> {
+    const entry = this.entries.get(sessionId);
+    if (entry?.path) await this.updateOne(sessionId, entry.path, entry.summary.profileId);
+  }
+
   /** Sends a session again after something `decorate` reads changed (flags, continued). */
   republish(sessionId: string): void {
     const entry = this.entries.get(sessionId);
