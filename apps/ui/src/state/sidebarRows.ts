@@ -1,4 +1,5 @@
 import type { SessionScope, StartupView } from '@switchboard/protocol/bridge';
+import type { LaterItem } from '@switchboard/protocol/client';
 import type { SessionRowData } from './sessionsStore.ts';
 
 /** What the status icon on a row shows, most urgent first. */
@@ -132,22 +133,32 @@ export function groupSessions(active: readonly SessionRowData[], now: number): {
   });
 }
 
-/** One row of the virtualised sidebar list: a session, a section header, or the Archived toggle. */
+/** One row of the virtualised sidebar list: a session, a section header, a prompt saved for later, or a collapsible header. */
 export type SidebarListRow =
   | { kind: 'session'; data: SessionRowData; archived: boolean }
   | { kind: 'group'; group: SessionGroup; count: number; first: boolean }
+  | { kind: 'later-header'; count: number; open: boolean; first: boolean }
+  | { kind: 'later'; item: LaterItem }
   | { kind: 'archived'; count: number; open: boolean };
 
-/** The flat row list the sidebar virtualises: each non-empty section under its header, then Archived. */
+/**
+ * The flat row list the sidebar virtualises: each non-empty section under its header, then the Later
+ * list (prompts saved for later, when there are any), then Archived.
+ */
 export function buildListRows(
   active: readonly SessionRowData[],
   archived: readonly SessionRowData[],
-  options: { now: number; archivedOpen: boolean },
+  options: { now: number; archivedOpen: boolean; later?: { items: readonly LaterItem[]; open: boolean } },
 ): SidebarListRow[] {
   const list: SidebarListRow[] = [];
   for (const { group, rows } of groupSessions(active, options.now)) {
     list.push({ kind: 'group', group, count: rows.length, first: list.length === 0 });
     for (const data of rows) list.push({ kind: 'session', data, archived: false });
+  }
+  const later = options.later;
+  if (later && later.items.length) {
+    list.push({ kind: 'later-header', count: later.items.length, open: later.open, first: list.length === 0 });
+    if (later.open) for (const item of later.items) list.push({ kind: 'later', item });
   }
   if (archived.length) list.push({ kind: 'archived', count: archived.length, open: options.archivedOpen });
   if (options.archivedOpen) for (const data of archived) list.push({ kind: 'session', data, archived: true });
@@ -162,6 +173,14 @@ export function waitingLabel(toolName: string | null): string {
   return `Permission: ${toolName}`;
 }
 
+/** Prompts saved for later that the sidebar lists: the project filter applies, and search looks at the prompt and the folder. */
+export function laterInList(items: readonly LaterItem[], options: { search: string; project: string | null }): LaterItem[] {
+  const needle = options.search.trim().toLowerCase();
+  return items.filter(
+    (item) => (!options.project || item.cwd === options.project) && (!needle || item.prompt.toLowerCase().includes(needle) || item.cwd.toLowerCase().includes(needle)),
+  );
+}
+
 /** The key of a header row in the list: its group, or 'archived'. */
 export type HeaderKey = SessionGroup | 'archived';
 
@@ -171,7 +190,9 @@ export function sessionsByHeader(rows: readonly SidebarListRow[]): Map<HeaderKey
   let ids: string[] | null = null;
   for (const row of rows) {
     if (row.kind === 'session') ids?.push(row.data.id);
-    else map.set(row.kind === 'group' ? row.group : 'archived', (ids = []));
+    else if (row.kind === 'group' || row.kind === 'archived') map.set(row.kind === 'group' ? row.group : 'archived', (ids = []));
+    // Saved prompts aren't sessions: nothing under the Later header can be picked.
+    else if (row.kind === 'later-header') ids = null;
   }
   return map;
 }

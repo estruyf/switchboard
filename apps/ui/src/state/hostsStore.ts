@@ -79,7 +79,8 @@ export const useHosts = create<HostsState>()((set) => ({
   setEditors: (editors, defaultEditorId) => set({ editors, defaultEditorId }),
 }));
 
-const HOST_TO_LIVE: Partial<Record<HostState, LiveStatus>> = { running: 'running', starting: 'running', 'needs-you': 'needs-you', idle: 'idle' };
+/** How a host's state reads as a status dot (closed and failed hosts have none). */
+export const HOST_TO_LIVE: Partial<Record<HostState, LiveStatus>> = { running: 'running', starting: 'running', 'needs-you': 'needs-you', idle: 'idle' };
 
 /** Shapes a running host like a registry entry, so the sidebar and dots treat both the same. */
 export function hostAsLive(host: SessionHostInfo): LiveSession | null {

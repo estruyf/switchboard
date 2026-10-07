@@ -5,6 +5,7 @@ import type { EngineClient } from '../engine/connection.ts';
 import { useEngineConnection } from '../engine/useEngine.ts';
 import { clampPanelHeight, clampPanelWidth, PANEL_DEFAULT_HEIGHT, PANEL_DEFAULT_WIDTH, parseDock, type TerminalDock } from '../components/terminal/terminalLayout.ts';
 import { trackRuns, type RunTimes } from '../components/terminal/terminalStatus.ts';
+import { passFocusGate } from './focusGate.ts';
 
 const PANEL_KEY = 'ui.terminalPanel';
 
@@ -87,6 +88,8 @@ export const useTerminals = create<TerminalsState>()((set) => ({
  * Claude Code), the reason goes to the panel, which offers to stop it or open a fork.
  */
 export async function openTerminal(client: EngineClient, sessionId: string, cwd: string, kind: TerminalKind, fork = false): Promise<void> {
+  // Claude in the terminal starts work too: the focus limit's gate, as for a message (a fork is a new session).
+  if (kind === 'claude' && (await passFocusGate({ target: fork ? null : sessionId })) !== 'start') return;
   const state = useTerminals.getState();
   state.setNotice(sessionId, null);
   state.togglePanel(true);

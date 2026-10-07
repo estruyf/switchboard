@@ -1,6 +1,6 @@
-import { Folder, FolderGit2, GitBranch, Link2, PencilLine } from 'lucide-react';
+import { Bookmark, Folder, FolderGit2, GitBranch, Link2, PencilLine } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import type { ImageAttachment, ProjectInspection, SlashCommand } from '@switchboard/protocol/client';
+import type { ImageAttachment, LaterDraft, LaterItem, ProjectInspection, SlashCommand } from '@switchboard/protocol/client';
 import { useEngineConnection } from '../../engine/useEngine.ts';
 import { ChoiceMenu } from './ChoiceMenu.tsx';
 import { FolderPicker } from './FolderPicker.tsx';
@@ -8,7 +8,9 @@ import { routeHint } from './route.ts';
 import { filterBranches } from '../worktree/branchMenu.ts';
 import { basename, guessHome, shortAge } from '../../lib/format.ts';
 import { nextMode, worktreeSlug } from '../../lib/modes.ts';
+import { passFocusGate, useFocus } from '../../state/focusGate.ts';
 import { useHosts } from '../../state/hostsStore.ts';
+import { removeFromLater, saveForLater, useLater } from '../../state/laterStore.ts';
 import { useLinks } from '../../state/linksStore.ts';
 import { usePreferences } from '../../state/preferencesStore.ts';
 import { useProfiles } from '../../state/profilesStore.ts';
@@ -17,6 +19,9 @@ import { useProjects } from '../../state/projectsStore.ts';
 import { toRows, useSessions } from '../../state/sessionsStore.ts';
 import { inScope, rowStatus } from '../../state/sidebarRows.ts';
 import { Composer } from '../composer/Composer.tsx';
+import { FocusNote } from '../focus/FocusNote.tsx';
+import { LaterSection } from '../focus/LaterSection.tsx';
+import { useMinute } from '../focus/useMinute.ts';
 import { ComposerChipRow } from '../composer/ComposerChips.tsx';
 import { Checkbox } from '../ui/Checkbox.tsx';
 import { Button } from '../ui/Button.tsx';
@@ -97,6 +102,14 @@ export function NewSessionView() {
   const choicesFor = autostarting ? linkStartingChoices : startingChoices;
   /** Why the folder couldn't be checked (the engine call failed). */
   const [inspectError, setInspectError] = useState<string | null>(null);
+  /** The prompt came from the Later list: starting it (or saving it again) takes it off. */
+  const [fromLater, setFromLater] = useState<LaterItem | null>(null);
+  /** Start anyway in the focus note sends what is in the box, without asking again. */
+  const [submitRequest, setSubmitRequest] = useState(0);
+  const focus = useFocus();
+  const atLimit = focus.limit !== null && focus.count >= focus.limit;
+  const now = useMinute();
+  const laterRequest = useLater((s) => s.request);
 
   const projects = useProjects((s) => s.projects);
   const projectFilter = useProjects((s) => s.filter);
@@ -181,6 +194,28 @@ export function NewSessionView() {
       setLinkPrompt(link.prompt.length);
     }
   }, [linkRequest]);
+  // A prompt from the Later list: its folder, choices and prompt, to check before starting.
+  useEffect(() => {
+    if (!laterRequest) return;
+    const item = useLater.getState().take();
+    if (!item) return;
+    // Like a link, it chose the folder; its own choices must not be replaced by the project's defaults.
+    folderFromLink.current = true;
+    touchedFor.current = item.cwd;
+    worktreeFor.current = null;
+    setLinkRepo(null);
+    setLinkNoFolder(false);
+    setPendingStart(null);
+    setLinkPrompt(null);
+    setAddAsProject(true);
+    setProfileOverride(item.profileId);
+    setCwd(item.cwd);
+    setD({ model: item.model ?? '', permissionMode: item.permissionMode, effort: item.effort ?? '', workspace: item.workspace, baseRef: item.baseRef, branch: item.branch ?? '' });
+    setRestored(false);
+    setPreset({ text: item.prompt, seq: ++presets.current });
+    setDraftPrompt(item.prompt);
+    setFromLater(item);
+  }, [laterRequest]);
   // Find a checkout of the link's repository among your projects and folders with sessions.
   const lookingFor = linkRepo?.state === 'looking' ? linkRepo.repo : null;
   useEffect(() => {
@@ -213,6 +248,7 @@ export function NewSessionView() {
     if (draftPrompt) return;
     if (linkPrompt !== null) setLinkPrompt(null);
     setRestored(false);
+    setFromLater(null);
   }, [draftPrompt, linkPrompt]);
   const clearPrompt = () => {
     setPendingStart(null);
@@ -327,9 +363,44 @@ export function NewSessionView() {
 
   const pickUp = useMemo(() => (cwd ? pickUpRows(rows, cwd, Date.now()) : []), [rows, cwd]);
 
-  /** `fromLink`: started by an `autostart` link, which never adds the folder to your projects. */
-  const create = async (text: string, attachments: ImageAttachment[], fromLink = false) => {
+  /** The prompt with this folder and these choices, for the Later list. Images stay behind. */
+  const laterDraft = (text: string): LaterDraft | null =>
+    cwd
+      ? {
+          cwd,
+          prompt: text,
+          model: d.model || null,
+          effort: d.effort || null,
+          permissionMode: d.permissionMode,
+          workspace: useWorktree ? 'worktree' : 'current',
+          baseRef: d.baseRef,
+          branch: !useWorktree && d.branch ? d.branch : null,
+          profileId: profileOverride,
+        }
+      : null;
+  /** Parks the prompt on the Later list and empties the box. One taken from Later replaces itself. */
+  const parkForLater = async (text: string) => {
+    const draft = laterDraft(text);
+    if (!draft) throw new Error('Choose a folder first');
+    await saveForLater(draft);
+    if (fromLater) void removeFromLater(fromLater, true).catch(() => {});
+    unsentPrompt = '';
+    clearPrompt();
+  };
+
+  /**
+   * Starts the session, after the focus limit's gate (which may ask, or save the prompt for later instead).
+   * `fromLink`: started by an `autostart` link, which never adds the folder to your projects.
+   * `skipGate`: Start anyway in the focus note, which already is the answer to the question.
+   * Returns false when nothing started and the prompt should stay.
+   */
+  const create = async (text: string, attachments: ImageAttachment[], { fromLink = false, skipGate = false } = {}): Promise<void | false> => {
     if (!client || !cwd) throw new Error('Choose a folder first');
+    if (!skipGate) {
+      const outcome = await passFocusGate({ saveForLater: () => parkForLater(text) });
+      if (outcome === 'stop') return false;
+      if (outcome === 'saved') return;
+    }
     const { sessionId } = await client.call('session.create', {
       cwd,
       prompt: text,
@@ -344,6 +415,10 @@ export function NewSessionView() {
     });
     // The view goes away before the composer empties itself, so forget the prompt here.
     unsentPrompt = '';
+    if (fromLater) {
+      void removeFromLater(fromLater, true).catch(() => {});
+      setFromLater(null);
+    }
     if (!isProject && addAsProject && !fromLink && inspection?.exists) {
       await client.call('projects.add', { path: cwd }).then(reloadProjects, () => {});
     }
@@ -361,7 +436,7 @@ export function NewSessionView() {
     setPendingStart(null);
     // A folder that is gone can't start; the prompt stays filled in to start elsewhere.
     if (!inspection.exists) return;
-    create(text, [], true).catch((error: Error) => useLinks.getState().fail(`Couldn't start the session: ${error.message}`));
+    create(text, [], { fromLink: true }).catch((error: Error) => useLinks.getState().fail(`Couldn't start the session: ${error.message}`));
   }, [pendingStart, client, cwd, loaded, projectsLoaded, settled, lookingFor, inspection]);
 
   const modelLabel = d.model ? (models.find((m) => m.value === d.model)?.displayName ?? d.model) : 'Default model';
@@ -421,6 +496,10 @@ export function NewSessionView() {
       <Notice inline icon={<Link2 size={13} className="text-accent-ink" aria-hidden />} actions={clearButton('data-clear-link-prompt')} data-link-notice>
         {pendingStart !== null ? 'Starting a session with the prompt from an external link…' : linkNoticeText(linkPrompt)}
       </Notice>
+    ) : fromLater ? (
+      <Notice inline icon={<Bookmark size={13} className="text-accent-ink" aria-hidden />} actions={clearButton('data-clear-draft')} data-later-notice>
+        From your Later list. Starting it takes it off the list.
+      </Notice>
     ) : savedNote ? (
       <span role="status" className="min-w-0 truncate text-accent-ink" data-saved-note>
         {savedNote}
@@ -460,6 +539,17 @@ export function NewSessionView() {
             shortcuts={view === 'new'}
             openRequest={pickerRequest}
           />
+
+          {/* At the focus limit: what is going, with Open, and a way to park this idea. Start stays and asks first. */}
+          {atLimit && (
+            <FocusNote
+              focus={focus}
+              now={now}
+              canSave={!!cwd && draftPrompt.trim() !== '' && !!client}
+              onSaveForLater={() => void parkForLater(draftPrompt.trim()).catch(() => {})}
+              onStartAnyway={() => setSubmitRequest((n) => n + 1)}
+            />
+          )}
 
           {/* The message box with its route strip on top: the strip's bottom edge is the card's top border.
               With a folder picked, the whole card takes its project's colour, with a faint ring around it. */}
@@ -614,11 +704,12 @@ export function NewSessionView() {
               frameColor={projectColor}
               autoFocus
               focusRequest={focusRequest}
+              submitRequest={submitRequest}
               preset={preset}
               controls={controls}
               onCycleMode={() => update({ permissionMode: nextMode(d.permissionMode) })}
               disabledReason={!client ? 'Connecting to the engine…' : !cwd ? 'Choose a folder first' : inspection && !inspection.exists ? 'That folder no longer exists' : null}
-              onSubmit={create}
+              onSubmit={(text, attachments, requested) => create(text, attachments, { skipGate: requested === true })}
             />
           </div>
 
@@ -665,6 +756,8 @@ export function NewSessionView() {
               </ul>
             </section>
           )}
+
+          {cwd && projectName && <LaterSection cwd={cwd} projectName={projectName} now={now} />}
         </div>
       </div>
     </div>

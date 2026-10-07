@@ -2,18 +2,21 @@ import { X } from 'lucide-react';
 import type { HTMLAttributes, ReactNode, Ref } from 'react';
 import { Button } from './Button.tsx';
 
-export type NoticeTone = 'info' | 'warn' | 'error' | 'success';
+export type NoticeTone = 'info' | 'accent' | 'warn' | 'error' | 'success';
 
 // The edge colour for info, so the box stays visible on dialogs as well as on the app's background.
 const BOX: Record<NoticeTone, string> = {
   info: 'border-edge bg-card text-muted',
+  // A limit reached (the focus limit in New session): the readable yellow frame, not a warning.
+  accent: 'border-accent-ink/45 bg-accent/6 text-text',
   warn: 'border-warn/40 bg-warn/10 text-text',
   error: 'border-error/40 bg-error/10 text-error',
   success: 'border-ok/40 bg-ok/10 text-text',
 };
-const ICON: Record<NoticeTone, string> = { info: 'text-muted', warn: 'text-warn', error: 'text-error', success: 'text-ok' };
+const ICON: Record<NoticeTone, string> = { info: 'text-muted', accent: 'text-accent-ink', warn: 'text-warn', error: 'text-error', success: 'text-ok' };
 
 interface NoticeProps extends Omit<HTMLAttributes<HTMLDivElement>, 'role'> {
+  /** `accent` is for a limit you reached (the focus limit); `warn` for something that needs you. */
   tone?: NoticeTone;
   /** Before the message, in the tone's colour (a class on the icon itself wins). */
   icon?: ReactNode;

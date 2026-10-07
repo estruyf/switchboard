@@ -236,6 +236,14 @@ Personal overrides shared, which overrides global. **Safety:** commands from a r
 - **Registration:** `protocols` in `electron-builder.yml` (Info.plist) plus `setAsDefaultProtocolClient` in packaged builds only; development and smoke builds don't touch the system's handlers.
 - Later: `model` and `permissionMode` from a link, limited to safe values (never `bypassPermissions`).
 
+### 5.7 Focus limit ✅ ([#24](https://github.com/estruyf/switchboard/issues/24))
+
+- **Preferences** (main): `focusLimit` (1–10, null is off), `focusMode` (`nudge` | `strict`), `focusCountExternal`. They travel with settings backups like every preference.
+- **Counting** is a pure module (`apps/ui/src/state/focus.ts`): active hosts that are working, need you, or are idle with an unread turn, minus sessions archived since (needs you always counts); with `focusCountExternal`, live registry entries from the terminal and IDEs too (never SDK processes, which are Switchboard's own). `focusVerdict` answers `allowed`, `ask` (Nudge) or `blocked` (Strict); a message to a session that already counts is always allowed.
+- **One gate** (`passFocusGate` in `focusGate.ts`) in front of every start: New session (and `autostart` links), messages to a session that doesn't count, forks, prompt actions, and Claude in the terminal. It shows one `alertdialog`; committing and compacting skip it.
+- **Later list:** `later_prompts` (migration v14, a user choice) with `later.list` / `later.add` / `later.remove` and a `later.changed` event. Undo re-adds an item with its id and time. A minimal toast with Undo stands in until #14.
+- Later: a reminder when a session has needed you for a while, waiting sessions in the quit prompt, a "hard stop" time, and the Later list in settings backups.
+
 ### v0.2: power features
 - ✅ **Embedded terminal** per session (xterm.js on node-pty), plus a raw `claude` TUI tab for anything the GUI doesn't cover (including mods). Built ahead of schedule; project actions will reuse it.
 - **Diff panel:** the session's git diff against its starting point, with stage, revert and **rewind to message** (`rewindFiles`).

@@ -2,6 +2,7 @@ import { Settings2 } from 'lucide-react';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import type { ListedAction } from '@switchboard/protocol/client';
 import { useEngineConnection } from '../../engine/useEngine.ts';
+import { passFocusGate } from '../../state/focusGate.ts';
 import { useOverlay } from '../../state/overlayStore.ts';
 import { useSessions } from '../../state/sessionsStore.ts';
 import { useTerminals } from '../../state/terminalsStore.ts';
@@ -69,6 +70,8 @@ export function useActionsMenu({
   const execute = async (action: ListedAction) => {
     if (!client || !projectRoot || !cwd) return;
     setError(null);
+    // A prompt action messages Claude: through the focus limit's gate, like a message typed in the box. Shell actions don't start Claude.
+    if (action.type === 'prompt' && (await passFocusGate({ target: sessionId })) !== 'start') return;
     try {
       const result = await client.call('actions.run', { sessionId, projectRoot, cwd, id: action.id });
       if (result.kind === 'terminal') {

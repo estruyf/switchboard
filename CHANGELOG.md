@@ -4,6 +4,11 @@ All notable changes to Switchboard are listed here. Each release is also on the 
 
 ## [Unreleased]
 
+### New
+
+- **Focus limit.** Set how many sessions you want going at the same time in **Settings → Focus** (off by default). A counter in the sidebar shows where you stand, and a click lists what is going, with what needs you first. At the limit, New session lists those sessions and asks before you start another: **Nudge** lets you go ahead, **Strict** waits until you finish, read or archive one. Resuming, forking, prompt actions and Claude in the terminal ask the same way; answering a session that already counts never does.
+- **Save for later.** At the focus limit, park a prompt with its project and settings instead of starting it. Saved prompts are in a **Later** group in the sidebar and under **Later in <project>** in New session; pick one to fill in New session again. Saving and removing can be undone.
+
 ### Improved
 
 - **New session shows where you are working.** Each project tile is one row with its icon, name, status and ⌘ shortcut. The project you pick, and the message box around your prompt, take that project's colour.

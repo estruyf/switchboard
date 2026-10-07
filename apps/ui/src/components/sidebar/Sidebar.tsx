@@ -1,20 +1,24 @@
 import { useVirtualizer } from '@tanstack/react-virtual';
-import { Archive, ArchiveRestore, Check, FolderCog, GitBranch, House, Pin, PinOff, Plus, Search, Settings, Trash2 } from 'lucide-react';
+import { Archive, ArchiveRestore, Bookmark, Check, FolderCog, GitBranch, House, Pin, PinOff, Plus, Search, Settings, Trash2 } from 'lucide-react';
 import type { SidebarStyle } from '@switchboard/protocol/bridge';
+import type { LaterItem } from '@switchboard/protocol/client';
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type MouseEvent, type PointerEvent, type ReactNode } from 'react';
 import { useEngineConnection } from '../../engine/useEngine.ts';
-import { shortAge } from '../../lib/format.ts';
+import { basename, shortAge } from '../../lib/format.ts';
 import { useCheckoutBranches } from '../../state/checkoutBranchesStore.ts';
+import { savedAgo } from '../../state/focus.ts';
 import { isActiveHost, useHosts } from '../../state/hostsStore.ts';
+import { removeFromLater, useLater } from '../../state/laterStore.ts';
 import { addedProjects } from '../../state/projectList.ts';
 import { useProjects } from '../../state/projectsStore.ts';
 import { toRows, useSessions, type SessionRowData } from '../../state/sessionsStore.ts';
 import { usePreferences } from '../../state/preferencesStore.ts';
 import { useSidebar } from '../../state/sidebarStore.ts';
 import { SIDEBAR_DEFAULT_WIDTH } from '../../state/sidebarWidth.ts';
-import { buildListRows, buildSessionList, GROUP_LABEL, inScope, isActive, rowStatus, sessionsByHeader, waitingLabel, type HeaderKey, type RowStatus, type SessionGroup, type SidebarListRow } from '../../state/sidebarRows.ts';
+import { buildListRows, buildSessionList, GROUP_LABEL, inScope, isActive, laterInList, rowStatus, sessionsByHeader, waitingLabel, type HeaderKey, type RowStatus, type SessionGroup, type SidebarListRow } from '../../state/sidebarRows.ts';
 import { NO_PICKS, pickGroup, rangePick, stepPick, togglePick, visiblePicks, type Picks } from '../../state/sessionPicks.ts';
 import { ConfirmDialog } from '../ConfirmDialog.tsx';
+import { FocusCounter } from '../focus/FocusCounter.tsx';
 import { Menu, type MenuEntry } from '../Menu.tsx';
 import { useOpenIn } from '../OpenInButton.tsx';
 import { PROFILE_DOT } from '../profiles/ProfileBadge.tsx';
@@ -75,7 +79,11 @@ const GROUP_HEADER_HEIGHT = 34;
 const SESSION_ROW_GAP: Record<SidebarStyle, number> = { large: 4, standard: 4, compact: 2 };
 
 const rowHeight = (row: SidebarListRow, style: SidebarStyle) =>
-  row.kind === 'session' ? SESSION_ROW_HEIGHT[style] : row.kind === 'group' ? GROUP_HEADER_HEIGHT - (row.first ? 6 : 0) : ARCHIVED_HEADER_HEIGHT;
+  row.kind === 'session' || row.kind === 'later'
+    ? SESSION_ROW_HEIGHT[style]
+    : row.kind === 'group'
+      ? GROUP_HEADER_HEIGHT - (row.first ? 6 : 0)
+      : ARCHIVED_HEADER_HEIGHT - (row.kind === 'later-header' && row.first ? 6 : 0);
 
 /** The 3px rail at a row's left edge: only the states that ask for a look get one. */
 const RAIL_TONE: Partial<Record<Exclude<RowStatus, null>, string>> = { 'needs-you': 'bg-warn', running: 'bg-accent-ink', unread: 'bg-unread' };
@@ -303,6 +311,55 @@ const SessionRow = memo(function SessionRow({
   );
 });
 
+/** A prompt saved for later: its project, the prompt on one line, and when it was saved. A click fills New session with it. */
+const LaterRow = memo(function LaterRow({ item, now, onMenu }: { item: LaterItem; now: number; onMenu(at: { x: number; y: number }, item: LaterItem): void }) {
+  const project = useProjects((s) => s.projects.get(item.cwd));
+  const style = usePreferences((s) => s.prefs.sidebarStyle);
+  const filtered = useProjects((s) => s.filter !== null);
+  const projectName = project?.name ?? basename(item.cwd);
+  const saved = `saved ${savedAgo(item.createdAt, now)}`;
+  const menuAt = (el: HTMLElement) => {
+    const rect = el.getBoundingClientRect();
+    return { x: rect.left + 24, y: rect.top + Math.min(rect.height, 40) };
+  };
+  const common = {
+    type: 'button' as const,
+    'data-later-row': item.id,
+    'aria-label': `Saved for later in ${projectName}: ${item.prompt.slice(0, 200)}, ${saved}`,
+    'data-tooltip': [item.prompt.length > 300 ? `${item.prompt.slice(0, 299)}…` : item.prompt, `${projectName} · ${saved}`].join('\n'),
+    onClick: () => useLater.getState().use(item),
+    onContextMenu: (e: MouseEvent<HTMLElement>) => {
+      e.preventDefault();
+      onMenu(e.clientX === 0 && e.clientY === 0 ? menuAt(e.currentTarget) : { x: e.clientX, y: e.clientY }, item);
+    },
+    onKeyDown: (e: KeyboardEvent<HTMLElement>) => {
+      if ((e.key === 'F10' && e.shiftKey) || e.key === 'ContextMenu') {
+        e.preventDefault();
+        onMenu(menuAt(e.currentTarget), item);
+      }
+    },
+  };
+  const icon = (size: number) => <ProjectIcon project={project} root={item.cwd} size={size} />;
+  if (style === 'compact') {
+    return (
+      <button {...common} className="relative flex h-8 w-full items-center gap-2 rounded-md px-2.5 text-left hover:bg-border/45">
+        {icon(16)}
+        <span className="min-w-0 flex-1 truncate text-body text-text/85">{item.prompt}</span>
+        <span className="shrink-0 text-meta text-faint tabular-nums">{shortAge(item.createdAt, now)}</span>
+      </button>
+    );
+  }
+  return (
+    <button {...common} className={`relative flex w-full items-center gap-2.5 rounded-lg pr-2.5 pl-3 text-left hover:bg-border/45 ${style === 'large' ? 'h-12' : 'h-11'}`}>
+      {icon(style === 'large' ? 24 : 18)}
+      <span className="grid min-w-0 flex-1 gap-px">
+        <span className="min-w-0 truncate text-body leading-5 text-text/85">{item.prompt}</span>
+        <span className="min-w-0 truncate text-meta text-faint">{[filtered ? null : projectName, saved].filter(Boolean).join(' · ')}</span>
+      </span>
+    </button>
+  );
+});
+
 /**
  * A sentence for the sidebar's polite live region when a session starts waiting for you (a permission
  * or a question). Only new arrivals count, not the ones already waiting when the list loaded, and the
@@ -348,6 +405,9 @@ export function Sidebar() {
   const { setFilter: setSearch, select, setView } = useSessions.getState();
   const projectFilter = useProjects((s) => s.filter);
   const archivedOpen = useProjects((s) => s.archivedOpen);
+  const laterItems = useLater((s) => s.items);
+  const laterOpen = useLater((s) => s.open);
+  const later = useMemo(() => laterInList(laterItems, { search, project: projectFilter }), [laterItems, search, projectFilter]);
   const { toggleArchived } = useProjects.getState();
   const noProjects = useProjects((s) => s.loaded && addedProjects(s.projects).length === 0);
   const openIn = useOpenIn();
@@ -374,10 +434,11 @@ export function Sidebar() {
     return map;
   }, [all, now]);
 
-  // Sections (Needs you, Working, Today, Yesterday, Earlier), then Archived. While searching, archived matches are shown too.
+  // Sections (Needs you, Working, Today, Yesterday, Earlier), then prompts saved for later, then Archived.
+  // While searching, archived matches are shown too.
   const rows = useMemo(
-    () => buildListRows(active, archived, { now, archivedOpen: archivedOpen || search.trim() !== '' }),
-    [active, archived, archivedOpen, search, now],
+    () => buildListRows(active, archived, { now, archivedOpen: archivedOpen || search.trim() !== '', later: { items: later, open: laterOpen || search.trim() !== '' } }),
+    [active, archived, archivedOpen, search, now, later, laterOpen],
   );
   // What each waiting session asks for, from its oldest open request. Sessions waiting in another app have none.
   const permissions = useHosts((s) => s.permissions);
@@ -414,7 +475,7 @@ export function Sidebar() {
     // and the virtualiser only recomputes positions when the count or this function changes.
     getItemKey: useCallback((i: number) => {
       const row = rows[i]!;
-      return row.kind === 'session' ? row.data.id : row.kind === 'group' ? `group-${row.group}` : 'archived-header';
+      return row.kind === 'session' ? row.data.id : row.kind === 'group' ? `group-${row.group}` : row.kind === 'later' ? `later-${row.item.id}` : row.kind === 'later-header' ? 'later-header' : 'archived-header';
     }, [rows]),
     overscan: 10,
   });
@@ -548,6 +609,20 @@ export function Sidebar() {
     });
   };
 
+  const laterMenu = (at: { x: number; y: number }, item: LaterItem) => {
+    setPicks(NO_PICKS);
+    setMenu({
+      ...at,
+      label: 'Saved for later',
+      entries: [
+        { label: 'Open in New session', onSelect: () => useLater.getState().use(item) },
+        { label: 'Copy prompt', onSelect: () => void navigator.clipboard.writeText(item.prompt) },
+        'separator',
+        { label: 'Remove from Later', onSelect: () => void removeFromLater(item).catch(() => {}) },
+      ],
+    });
+  };
+
   // Only open sessions the main list shows: a process idling elsewhere sits under Archived and
   // would make the count disagree with what's visible.
   const liveCount = all.filter((row) => row.live !== null && isActive(row, now)).length;
@@ -667,6 +742,24 @@ export function Sidebar() {
                   )}
                   {row.kind === 'group' ? (
                     <GroupHeader group={row.group} count={row.count} first={row.first} selectAll={selectAll(row.group)} />
+                  ) : row.kind === 'later-header' ? (
+                    <div className={`flex h-full items-end ${row.first ? 'pb-1' : 'pb-1.5'}`}>
+                      <SectionHeader
+                        count={row.count}
+                        toggle={{
+                          expanded: row.open,
+                          onToggle: () => useLater.getState().toggleOpen(),
+                          tooltip: 'Prompts you saved for later. Click one to start from it.',
+                          data: { 'data-later-toggle': true, 'data-open': row.open },
+                        }}
+                        className="h-[26px] flex-1 pr-1 pl-2.5"
+                      >
+                        <Bookmark size={12} className="shrink-0" aria-hidden />
+                        Later
+                      </SectionHeader>
+                    </div>
+                  ) : row.kind === 'later' ? (
+                    <LaterRow item={row.item} now={now} onMenu={laterMenu} />
                   ) : row.kind === 'session' ? (
                     <SessionRow
                       data={row.data}
@@ -750,6 +843,8 @@ export function Sidebar() {
       </div>
 
       <footer className="flex h-10 shrink-0 items-center gap-2 border-t border-border px-3 text-meta text-muted">
+        {/* The focus limit, while it's on: how many sessions are going, out of how many. */}
+        <FocusCounter />
         {/* An update to act on takes the footer's place (Switchboard's first); the session count is the lesser news. */}
         {hasUpdatePill ? (
           <div className="flex min-w-0 flex-1">

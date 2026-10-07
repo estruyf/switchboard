@@ -78,6 +78,24 @@ describe('engine over a MessagePort', () => {
     await expect(client.call('appState.get', { key: 'ui.sidebarWidth' })).resolves.toEqual({ value: 280 });
   });
 
+  it('keeps the Later list and tells every window when it changes', async () => {
+    const { client } = connect();
+    const changes: number[] = [];
+    client.on('later.changed', ({ items }) => void changes.push(items.length));
+    const { item } = await client.call('later.add', { draft: { cwd: '/work/parser', prompt: 'Speed up the tokenizer', model: 'opus' } });
+    await client.call('later.add', { draft: { cwd: '/work/other', prompt: 'Something else' } });
+    expect((await client.call('later.list', { cwd: '/work/parser' })).items).toEqual([item]);
+    expect((await client.call('later.list', {})).items).toHaveLength(2);
+    await client.call('later.remove', { id: item.id });
+    expect((await client.call('later.list', { cwd: '/work/parser' })).items).toEqual([]);
+    const { id, createdAt, ...draft } = item;
+    await client.call('later.add', { draft, id, createdAt });
+    expect((await client.call('later.list', { cwd: '/work/parser' })).items).toEqual([item]);
+    await expect(client.call('later.add', { draft: { cwd: '/work/parser', prompt: '' } })).rejects.toThrow();
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(changes).toEqual([1, 2, 1, 2]);
+  });
+
   it('pushes log events to attached clients', async () => {
     const { client, engine } = connect();
     const seen: LogEntry[] = [];

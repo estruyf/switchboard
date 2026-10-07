@@ -43,11 +43,13 @@ export function buttonClass({ variant, size, iconOnly, filled, selected }: Butto
   return `inline-flex items-center justify-center gap-1.5 rounded-md text-ui whitespace-nowrap disabled:opacity-50 ${box} ${tone}`;
 }
 
-export type PillTone = 'default' | 'muted' | 'ok' | 'warn' | 'count';
+export type PillTone = 'default' | 'muted' | 'accent' | 'ok' | 'warn' | 'count';
 
 const PILL_TONE: Record<Exclude<PillTone, 'count'>, string> = {
   default: 'border-border text-text',
   muted: 'border-border bg-card text-muted',
+  // At a limit (the focus counter): the readable yellow, never a status.
+  accent: 'border-accent-ink/45 bg-accent/12 text-accent-ink',
   // Running in the background (green), as in the status colours.
   ok: 'border-ok/40 bg-ok/10 text-ok',
   warn: 'border-warn/40 bg-warn/10 text-warn',
