@@ -12,6 +12,7 @@ All notable changes to Switchboard are listed here. Each release is also on the 
 ### Fixed
 
 - You can select text in a command you ran (such as `/review …`) in the conversation, as in your other messages.
+- The usage bars under the message box no longer disappear in a narrower window or with two sessions side by side; they only make way when the line under the message box is really short of room.
 
 ## [0.0.8] - 2026-10-07
 

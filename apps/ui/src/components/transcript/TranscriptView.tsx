@@ -982,7 +982,8 @@ export function TranscriptView({ sessionId, pane = null, active = true }: { sess
               {/* One quiet line: plan usage (of the session's profile, which is a chip in the box) and how full the context is. */}
               {!foldFooter && (
                 <div className="flex min-h-6 items-center gap-3 px-1 text-meta text-muted" data-session-footer>
-                  <div className="flex min-w-0 flex-1 items-center gap-3 overflow-hidden">
+                  {/* Its own container: the bars hide when this row is short of room, not when the pane is narrow. */}
+                  <div className="@container/meters flex min-w-0 flex-1 items-center gap-3 overflow-hidden">
                     <UsageBand profileId={profileId} footer />
                   </div>
                   <ContextMeter sessionId={sessionId} live={contextLive} messages={messages} onCompact={compact} />

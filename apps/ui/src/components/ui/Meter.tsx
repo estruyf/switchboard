@@ -13,8 +13,9 @@ interface MeterProps extends Omit<HTMLAttributes<HTMLElement>, 'children'> {
   /** Show the percentage after the graphic (`md`: at the end of the caption line). */
   showValue?: boolean;
   /**
-   * Drop the graphic when its container is narrow and keep the number: `true` below 860px (a session
-   * pane), `'tight'` below 480px (a small container of its own, such as New session's footer).
+   * Drop the graphic when there is no room for it and keep the number: `true` when the row of meters
+   * it sits in (an `@container/meters`, such as a session's footer) is under 240px, `'tight'` below
+   * 480px of the nearest container (a small one of its own, such as New session's footer).
    */
   hideTrackNarrow?: boolean | 'tight';
   /** A caption before the graphic (`md`: the line above the bar). */
@@ -31,7 +32,7 @@ export function Meter({ percent, kind = 'bar', size = 'sm', label, showValue = f
   const a11y = label
     ? { role: 'meter', 'aria-label': label, 'aria-valuenow': Math.round(clampPercent(percent)), 'aria-valuemin': 0, 'aria-valuemax': 100 }
     : { 'aria-hidden': true };
-  const narrow = hideTrackNarrow === 'tight' ? '@max-[480px]:hidden' : hideTrackNarrow ? '@max-[860px]:hidden' : '';
+  const narrow = hideTrackNarrow === 'tight' ? '@max-[480px]:hidden' : hideTrackNarrow ? '@max-[240px]/meters:hidden' : '';
   const value = showValue && <span className={`tabular-nums ${size === 'md' ? 'font-semibold' : ''} ${valueTone(percent)}`}>{formatPercent(percent)}</span>;
 
   if (kind === 'ring') {
