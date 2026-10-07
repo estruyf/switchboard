@@ -1,7 +1,10 @@
-import { ChevronDown, Plus, Settings2 } from 'lucide-react';
+import { Check, ChevronDown, Pencil, Play, Plus, Settings2, Trash2 } from 'lucide-react';
+import { useState, type KeyboardEvent, type MouseEvent } from 'react';
 import type { ListedAction } from '@switchboard/protocol/client';
+import { contextMenuPoint, isContextMenuKey, type ContextMenuPoint } from '../../lib/contextMenu.ts';
 import { Menu, useMenu, type MenuEntry } from '../Menu.tsx';
-import { splitActionPills } from './actionPills.ts';
+import { actionContextItems, splitActionPills, type ActionCommand } from './actionPills.ts';
+import { Notice } from '../ui/Notice.tsx';
 import { Pill } from '../ui/Pill.tsx';
 import { ACTION_ICON, formatShortcut } from './useActions.ts';
 import type { ActionsMenu } from './useActionsMenu.tsx';
@@ -11,17 +14,56 @@ const MENU_WIDTH = 240;
 /** What an action runs, for its tooltip. */
 const whatItRuns = (action: ListedAction) => `${action.type === 'prompt' ? 'Ask Claude: ' : ''}${action.command}`;
 
+const COMMAND_ICON: Record<ActionCommand, typeof Play> = { run: Play, edit: Pencil, delete: Trash2 };
+
 /**
  * The project's actions as small pills above the message box, one click away: up to three, then
  * "N more ▾" for the rest. With none yet, an "Add action" pill opens the editor. The same actions
  * are in the session header's ⋯ menu. In a narrow pane the pills show only their icon.
+ * Right-click (or Shift+F10) on a pill, or on an action in "N more", opens Run, Edit… and Delete….
  */
 export function ActionPills({ actions: menu }: { actions: ActionsMenu }) {
   const more = useMenu();
+  /** The action whose context menu is open, and where. */
+  const [context, setContext] = useState<{ action: ListedAction; at: ContextMenuPoint } | null>(null);
   const { openEditor } = menu;
   // A session without a known project folder can't keep actions.
   if (!openEditor) return null;
   const { pills, more: rest } = splitActionPills(menu.actions);
+
+  const openContext = (action: ListedAction, at: ContextMenuPoint) => {
+    more.close();
+    setContext({ action, at });
+  };
+  const onPillContextMenu = (action: ListedAction) => (event: MouseEvent<HTMLElement>) => {
+    event.preventDefault();
+    // A context menu opened from the keyboard reports no pointer position: open it at the pill.
+    const pointer = event.clientX || event.clientY ? { x: event.clientX, y: event.clientY } : null;
+    openContext(action, contextMenuPoint(pointer, event.currentTarget.getBoundingClientRect(), window.innerHeight));
+  };
+  const onPillKey = (action: ListedAction) => (event: KeyboardEvent<HTMLElement>) => {
+    if (!isContextMenuKey(event)) return;
+    event.preventDefault();
+    openContext(action, contextMenuPoint(null, event.currentTarget.getBoundingClientRect(), window.innerHeight));
+  };
+
+  const contextEntries = (action: ListedAction): MenuEntry[] => {
+    const handlers: Record<ActionCommand, () => void> = { run: () => menu.run(action), edit: () => menu.edit(action), delete: () => menu.askDelete(action) };
+    return [
+      { title: action.name, detail: whatItRuns(action) },
+      ...actionContextItems(action).map((item) => {
+        const Icon = COMMAND_ICON[item.command];
+        return {
+          label: item.label,
+          icon: <Icon size={13} />,
+          ...(item.danger ? { danger: true } : {}),
+          ...(item.disabledReason ? { disabled: true } : {}),
+          onSelect: handlers[item.command],
+          data: { 'data-action-menu-item': item.command, ...(item.disabledReason ? { 'data-tooltip': item.disabledReason } : {}) },
+        } satisfies MenuEntry;
+      }),
+    ];
+  };
 
   const moreEntries: MenuEntry[] = [
     ...rest.map((a) => {
@@ -31,6 +73,7 @@ export function ActionPills({ actions: menu }: { actions: ActionsMenu }) {
         icon: <Icon size={13} />,
         ...(a.shortcut ? { hint: formatShortcut(a.shortcut) } : {}),
         onSelect: () => menu.run(a),
+        contextMenu: (at) => openContext(a, at),
         data: { 'data-action': a.id, 'data-tooltip': whatItRuns(a) },
       } satisfies MenuEntry;
     }),
@@ -55,6 +98,8 @@ export function ActionPills({ actions: menu }: { actions: ActionsMenu }) {
             icon={<Icon size={12} className="shrink-0" aria-hidden />}
             kbd={action.shortcut ?? undefined}
             onClick={() => menu.run(action)}
+            onContextMenu={onPillContextMenu(action)}
+            onKeyDown={onPillKey(action)}
             data-action-pill={action.id}
             data-tooltip={`${whatItRuns(action)}${shortcut ? ` (${shortcut})` : ''}`}
             aria-label={action.name}
@@ -85,7 +130,23 @@ export function ActionPills({ actions: menu }: { actions: ActionsMenu }) {
           </Pill>
         )
       )}
+      {menu.status && (
+        <Notice inline tone="success" icon={<Check size={12} aria-hidden />} data-action-status>
+          {menu.status}
+        </Notice>
+      )}
       {more.at && <Menu x={more.at.x} y={more.at.y} width={MENU_WIDTH} above entries={moreEntries} onClose={more.close} label="More project actions" />}
+      {context && (
+        <Menu
+          x={context.at.x}
+          y={context.at.y}
+          above={context.at.above}
+          width={MENU_WIDTH}
+          entries={contextEntries(context.action)}
+          onClose={() => setContext(null)}
+          label={context.action.name}
+        />
+      )}
     </div>
   );
 }

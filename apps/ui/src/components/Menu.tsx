@@ -1,4 +1,5 @@
-import { useEffect, useId, useState, type KeyboardEvent, type ReactNode } from 'react';
+import { useEffect, useId, useState, type KeyboardEvent, type MouseEvent, type ReactNode } from 'react';
+import { contextMenuPoint, isContextMenuKey, type ContextMenuPoint } from '../lib/contextMenu.ts';
 import { Popover } from './ui/Popover.tsx';
 
 export interface MenuItem {
@@ -10,6 +11,8 @@ export interface MenuItem {
   /** `data-*` attributes for the item's button (test hooks). */
   data?: Record<`data-${string}`, string | boolean>;
   onSelect(): void;
+  /** The item's own context menu (right-click, Shift+F10): this menu closes and the caller opens that one at `at`. */
+  contextMenu?(at: ContextMenuPoint): void;
 }
 /**
  * `heading`: a small label over a group of items. `title`: the menu's subject in bold, with a line
@@ -59,6 +62,15 @@ export function Menu({ x, y, entries, onClose, width = 220, above = false, label
     items[next]!.focus();
   };
 
+  /** Hands over to an item's own context menu, at the pointer or (from the keyboard, `pointer` null) at the item. */
+  const openItemMenu = (item: MenuItem, el: HTMLElement, pointer: { x: number; y: number } | null) => {
+    const at = contextMenuPoint(pointer, el.getBoundingClientRect(), window.innerHeight);
+    onClose();
+    item.contextMenu?.(at);
+  };
+  // A context menu opened from the keyboard reports no pointer position.
+  const pointerOf = (event: MouseEvent) => (event.clientX || event.clientY ? { x: event.clientX, y: event.clientY } : null);
+
   return (
     <Popover id={id} x={x} y={y} width={width} above={above} onClose={onClose} role="menu" aria-label={label} onKeyDown={onKeyDown}>
       {entries.map((entry, i) =>
@@ -93,6 +105,22 @@ export function Menu({ x, y, entries, onClose, width = 220, above = false, label
               onClose();
               entry.onSelect();
             }}
+            onContextMenu={
+              entry.contextMenu &&
+              ((event) => {
+                event.preventDefault();
+                openItemMenu(entry, event.currentTarget, pointerOf(event));
+              })
+            }
+            onKeyDown={
+              entry.contextMenu &&
+              ((event) => {
+                if (!isContextMenuKey(event)) return;
+                event.preventDefault();
+                event.stopPropagation();
+                openItemMenu(entry, event.currentTarget, null);
+              })
+            }
             className={`flex w-full items-center gap-2 px-3 py-1 text-left text-ui hover:bg-accent/15 focus-visible:bg-accent/15 disabled:opacity-40 ${entry.danger ? 'text-error' : 'text-text'}`}
           >
             {entry.icon && (

@@ -629,6 +629,8 @@ let smokeSessionId: string | null = null;
 let liveSession: string | null = null;
 let terminalOpened = false;
 let actionRan = false;
+let actionTerminalResult = 'not run';
+let actionMenuResult = 'not run';
 let highlighted = false;
 let usageBand: string | null = null;
 let quitGuarded = false;
@@ -658,7 +660,10 @@ let newSessionResult = 'not run';
 let deepLinkResult = 'not run';
 let rendering: Record<string, number> = {};
 
-/** Adds a project action through the editor, runs it from the header and checks it opened a terminal tab. */
+/**
+ * Adds a project action through the editor (saving closes it, says "Action saved" and adds its pill),
+ * runs it from the header and checks it opened a terminal tab.
+ */
 async function runActionStep(win: BrowserWindow): Promise<boolean> {
   const js = (code: string) => win.webContents.executeJavaScript(code);
   // Actions live in the header's More menu.
@@ -673,12 +678,11 @@ async function runActionStep(win: BrowserWindow): Promise<boolean> {
   await new Promise((resolve) => setTimeout(resolve, 200));
   await shot(win, 'action-editor.png');
   await js("document.querySelector('[data-save-action]').click()");
-  if (!(await waitInPage(win, "[...document.querySelectorAll('[role=dialog] li')].some((li) => li.innerText.includes('Smoke action'))", 3_000))) return false;
-  win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Escape' });
-  win.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Escape' });
+  // Saving closes the editor and confirms it; the new action gets a pill above the message box.
   if (!(await waitInPage(win, "!document.querySelector('[role=dialog]')", 3_000))) return false;
-  // The new action also gets a pill above the message box.
+  if (!(await waitInPage(win, "document.querySelector('[data-current-session] [data-action-status]')?.innerText.includes('Action saved')", 2_000))) return false;
   if (!(await waitInPage(win, "document.querySelector('[data-current-session] [data-action-pills] [data-action-pill=\"smoke-action\"]')", 3_000))) return false;
+  await shot(win, 'action-saved.png');
   await js("document.querySelector('[data-current-session] [data-actions-menu]').click()");
   if (!(await waitInPage(win, "document.querySelector('[role=menuitem][data-action=\"smoke-action\"]')", 3_000))) return false;
   await js("document.querySelector('[role=menuitem][data-action=\"smoke-action\"]').click()");
@@ -687,6 +691,142 @@ async function runActionStep(win: BrowserWindow): Promise<boolean> {
   await shot(win, 'action.png');
   await js("document.querySelector('[data-toggle-terminal]')?.click()");
   return true;
+}
+
+/**
+ * Clicks the element like a person would: real mouse events at its centre, so whatever is painted on
+ * top there gets the click (a `.click()` from script would skip that). `right` opens its context menu.
+ * Returns what was hit, for the report.
+ */
+async function clickLikeAUser(win: BrowserWindow, selector: string, button: 'left' | 'right' = 'left'): Promise<{ hit: boolean; at: string }> {
+  const probe = (await win.webContents.executeJavaScript(`(() => {
+    const el = document.querySelector(${JSON.stringify(selector)});
+    if (!el) return null;
+    const r = el.getBoundingClientRect();
+    const x = Math.round(r.left + r.width / 2), y = Math.round(r.top + r.height / 2);
+    const top = document.elementFromPoint(x, y);
+    return { x, y, hit: !!top && el.contains(top), at: top ? top.tagName.toLowerCase() + (top.className && typeof top.className === 'string' ? '.' + top.className.trim().split(/\\s+/).join('.') : '') : 'nothing' };
+  })()`)) as { x: number; y: number; hit: boolean; at: string } | null;
+  if (!probe) return { hit: false, at: 'element not found' };
+  win.webContents.sendInputEvent({ type: 'mouseMove', x: probe.x, y: probe.y });
+  win.webContents.sendInputEvent({ type: 'mouseDown', x: probe.x, y: probe.y, button, clickCount: 1 });
+  win.webContents.sendInputEvent({ type: 'mouseUp', x: probe.x, y: probe.y, button, clickCount: 1 });
+  return { hit: probe.hit, at: probe.at };
+}
+
+/**
+ * Runs a long project action from its pill, then stops it with the terminal's Stop button and runs it
+ * again with Restart, clicking both with real mouse events. The command only sleeps.
+ */
+async function runActionTerminalStep(win: BrowserWindow): Promise<string> {
+  const js = (code: string) => win.webContents.executeJavaScript(code);
+  const scheme = preferences.get().colorScheme;
+  try {
+    return await actionTerminalChecks(win, js);
+  } finally {
+    updatePreferences({ colorScheme: scheme });
+  }
+}
+
+async function actionTerminalChecks(win: BrowserWindow, js: (code: string) => Promise<unknown>): Promise<string> {
+  updatePreferences({ colorScheme: 'light' });
+  if (!(await addAction(win, 'Smoke wait', 'sleep 60'))) return 'failed: could not add the action, or saving did not close the editor';
+  // Run it from the header menu, wherever its pill ended up.
+  await js("document.querySelector('[data-current-session] [data-actions-menu]').click()");
+  if (!(await waitInPage(win, "document.querySelector('[role=menuitem][data-action=\"smoke-wait\"]')", 3_000))) return 'failed: action not in the menu';
+  await js("document.querySelector('[role=menuitem][data-action=\"smoke-wait\"]').click()");
+  if (!(await waitInPage(win, "document.querySelector('[data-terminal-stop]')", 8_000))) return 'failed: no Stop button on the running action';
+  // Let the terminal draw and the shell start, as when someone looks before clicking.
+  await new Promise((resolve) => setTimeout(resolve, 800));
+  const stop = await clickLikeAUser(win, '[data-terminal-stop]');
+  if (!(await waitInPage(win, "document.querySelector('[data-terminal-exited]')", 8_000))) return `failed: Stop did not end the command (the click landed on ${stop.at})`;
+  const exited = (await js("document.querySelector('[data-terminal-exited]').innerText")) as string;
+  await shot(win, 'action-stopped.png');
+  const restart = await clickLikeAUser(win, '[data-terminal-restart]');
+  if (!(await waitInPage(win, "document.querySelector('[data-terminal-stop]')", 5_000))) return `failed: Restart did not run it again (the click landed on ${restart.at})`;
+  // The same in the dark theme, which also leaves nothing running; then close the tab.
+  updatePreferences({ colorScheme: 'dark' });
+  await new Promise((resolve) => setTimeout(resolve, 800));
+  const stopDark = await clickLikeAUser(win, '[data-terminal-stop]');
+  if (!(await waitInPage(win, "document.querySelector('[data-terminal-exited]')", 8_000))) return `failed: Stop did not end the restarted command in the dark theme (the click landed on ${stopDark.at})`;
+  await shot(win, 'action-stopped-dark.png');
+  await js("document.querySelector('[data-terminal-panel] [role=tab][aria-selected=true]')?.parentElement?.querySelector('button[aria-label^=\"Close\"]')?.click()");
+  return `ok: Stop ended the command ("${exited.replace(/\s+/g, ' ').trim()}") and Restart ran it again, clicked with the mouse in light and dark`;
+}
+
+/** Adds a project action through the editor, opened from the header's More menu; saving closes the editor. */
+async function addAction(win: BrowserWindow, name: string, command: string): Promise<boolean> {
+  const js = (code: string) => win.webContents.executeJavaScript(code);
+  await js("document.querySelector('[data-current-session] [data-actions-menu]')?.click()");
+  if (!(await waitInPage(win, "document.querySelector('[role=menuitem][data-edit-actions]')", 3_000))) return false;
+  await js("document.querySelector('[role=menuitem][data-edit-actions]').click()");
+  if (!(await waitInPage(win, "document.querySelector('[data-add-action]')", 3_000))) return false;
+  await js("document.querySelector('[data-add-action]').click()");
+  await setFieldValue(win, '[data-action-name]', name);
+  await setFieldValue(win, '[data-action-command]', command);
+  await js("document.querySelector('[data-save-action]').click()");
+  return waitInPage(win, "!document.querySelector('[role=dialog]')", 3_000);
+}
+
+/**
+ * The context menu on project actions: a right-click on a pill offers Run, Edit… and Delete…; Edit…
+ * opens the editor on that action and a rename shows on the pill as the editor closes; Shift+F10 opens
+ * the menu from the keyboard and Escape hands focus back; an action behind "N more" has the same menu,
+ * and Delete… asks first. Light theme, then dark. The added commands only print or sleep.
+ */
+async function runActionMenuStep(win: BrowserWindow): Promise<string> {
+  const scheme = preferences.get().colorScheme;
+  try {
+    return await actionMenuChecks(win);
+  } finally {
+    updatePreferences({ colorScheme: scheme });
+  }
+}
+
+async function actionMenuChecks(win: BrowserWindow): Promise<string> {
+  const js = (code: string) => win.webContents.executeJavaScript(code);
+  const pill = (id: string) => `document.querySelector('[data-current-session] [data-action-pill="${id}"]')`;
+  const items = "[...document.querySelectorAll('[role=menu] [data-action-menu-item]')].map((b) => b.dataset.actionMenuItem).join(',')";
+  const status = "document.querySelector('[data-current-session] [data-action-status]')?.innerText ?? ''";
+  updatePreferences({ colorScheme: 'light' });
+  if (!(await waitInPage(win, pill('smoke-action'), 3_000))) return 'failed: no pill for Smoke action';
+  await new Promise((resolve) => setTimeout(resolve, 300));
+
+  const right = await clickLikeAUser(win, '[data-current-session] [data-action-pill="smoke-action"]', 'right');
+  if (!(await waitInPage(win, `${items} === 'run,edit,delete'`, 2_000))) return `failed: a right-click on the pill (landed on ${right.at}) showed "${await js(items)}"`;
+  await shot(win, 'action-menu-light.png');
+  await js("document.querySelector('[role=menu] [data-action-menu-item=\"edit\"]').click()");
+  if (!(await waitInPage(win, "document.querySelector('[data-action-name]')?.value === 'Smoke action'", 3_000))) return 'failed: Edit… did not open the editor on that action';
+  await setFieldValue(win, '[data-action-name]', 'Smoke renamed');
+  await js("document.querySelector('[data-save-action]').click()");
+  if (!(await waitInPage(win, `!document.querySelector('[role=dialog]') && ${pill('smoke-action')}?.innerText.includes('Smoke renamed')`, 3_000))) return 'failed: the pill did not show the new name after saving';
+  if (!(await js(status)).includes('Action saved')) return 'failed: no "Action saved" after the rename';
+
+  updatePreferences({ colorScheme: 'dark' });
+  await js(`${pill('smoke-action')}.focus()`);
+  win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'F10', modifiers: ['shift'] });
+  win.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'F10', modifiers: ['shift'] });
+  if (!(await waitInPage(win, `${items} === 'run,edit,delete' && document.activeElement?.closest('[role=menu]')`, 2_000))) return 'failed: Shift+F10 on a focused pill did not open its menu';
+  await shot(win, 'action-menu-dark.png');
+  win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Escape' });
+  win.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Escape' });
+  if (!(await waitInPage(win, `!document.querySelector('[role=menu]') && document.activeElement === ${pill('smoke-action')}`, 2_000))) return 'failed: Escape did not close the menu and return to the pill';
+
+  // Two more actions put one behind "N more"; its menu item has the same context menu.
+  for (const name of ['Smoke two', 'Smoke three']) if (!(await addAction(win, name, 'echo smoke'))) return `failed: could not add ${name}`;
+  if (!(await waitInPage(win, "document.querySelector('[data-current-session] [data-more-actions]')", 3_000))) return 'failed: no "N more" pill with four actions';
+  await js("document.querySelector('[data-current-session] [data-more-actions]').click()");
+  if (!(await waitInPage(win, "document.querySelector('[role=menu] [role=menuitem][data-action]')", 2_000))) return 'failed: "N more" did not open';
+  const hidden = (await js("document.querySelector('[role=menu] [role=menuitem][data-action]').dataset.action")) as string;
+  const overflow = await clickLikeAUser(win, `[role=menu] [role=menuitem][data-action="${hidden}"]`, 'right');
+  if (!(await waitInPage(win, `${items} === 'run,edit,delete'`, 2_000))) return `failed: a right-click in "N more" (landed on ${overflow.at}) showed "${await js(items)}"`;
+  await js("document.querySelector('[role=menu] [data-action-menu-item=\"delete\"]').click()");
+  if (!(await waitInPage(win, "document.querySelector('[role=alertdialog] [data-confirm]')", 2_000))) return 'failed: Delete… did not ask first';
+  await js("document.querySelector('[role=alertdialog] [data-confirm]').click()");
+  if (!(await waitInPage(win, `!document.querySelector('[role=alertdialog]') && !document.querySelector('[data-current-session] [data-more-actions]') && (${status}).includes('Action deleted')`, 3_000))) {
+    return `failed: deleting ${hidden} did not remove it`;
+  }
+  return `ok: right-click and Shift+F10 open Run, Edit…, Delete…; Edit… renamed the pill at once with "Action saved"; Delete… from "N more" asked, then removed ${hidden}`;
 }
 
 async function shot(win: BrowserWindow, name: string): Promise<void> {
@@ -1845,6 +1985,8 @@ async function runSmokeStep(win: BrowserWindow | null): Promise<void> {
     settingsResult = await runSettingsStep(win).catch((error: Error) => `failed: ${error.message}`);
     terminalOpened = await runTerminalStep(win);
     actionRan = await runActionStep(win);
+    actionTerminalResult = await runActionTerminalStep(win).catch((error: Error) => `failed: ${error.message}`);
+    actionMenuResult = await runActionMenuStep(win).catch((error: Error) => `failed: ${error.message}`);
     projectsResult = await runProjectsStep(win).catch((error: Error) => `failed: ${error.message}`);
     profilesResult = await runProfilesStep(win).catch((error: Error) => `failed: ${error.message}`);
     aboutResult = await runAboutStep(win).catch((error: Error) => `failed: ${error.message}`);
@@ -1899,6 +2041,8 @@ async function runSmokeStep(win: BrowserWindow | null): Promise<void> {
         quitGuarded,
         settingsResult,
         actionRan,
+        actionTerminalResult,
+        actionMenuResult,
         projectsResult,
         profilesResult,
         aboutResult,
@@ -1957,7 +2101,7 @@ app.whenReady().then(() => {
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });
-  if (smokeOutDir) setTimeout(() => exitApp(2), process.env.SWITCHBOARD_SMOKE_LIVE_CWD ? 180_000 : 45_000).unref();
+  if (smokeOutDir) setTimeout(() => exitApp(2), process.env.SWITCHBOARD_SMOKE_LIVE_CWD ? 180_000 : 60_000).unref();
 });
 
 // macOS delivers links here, also the one that launched the app (before 'ready', so it waits in pendingMessages).

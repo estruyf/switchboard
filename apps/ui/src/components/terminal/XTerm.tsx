@@ -135,5 +135,7 @@ export function XTerm({ id, active }: { id: string; active: boolean }) {
     });
   }, [active]);
 
-  return <div ref={hostRef} className="h-full w-full px-2 pt-1" data-terminal={id} />;
+  // `isolate`: xterm stacks its own layers with z-index (the WebGL addon's full-size link canvas is z-index 2). Kept
+  // inside the terminal, they can't cover the Stop and Restart buttons the panel floats over it.
+  return <div ref={hostRef} className="isolate h-full w-full px-2 pt-1" data-terminal={id} />;
 }

@@ -47,5 +47,10 @@ export function useProjectActionList(projectRoot: string | null) {
   // An import (in any window) can add, change or remove actions.
   useEffect(() => client?.on('settings.imported', () => setVersion((v) => v + 1)), [client]);
 
-  return { ...state, reload: useCallback(() => setVersion((v) => v + 1), []) };
+  return {
+    ...state,
+    reload: useCallback(() => setVersion((v) => v + 1), []),
+    /** Changes the list at once (a save or delete), before the reload confirms it. */
+    update: useCallback((change: (actions: ListedAction[]) => ListedAction[]) => setState((s) => ({ ...s, actions: change(s.actions) })), []),
+  };
 }

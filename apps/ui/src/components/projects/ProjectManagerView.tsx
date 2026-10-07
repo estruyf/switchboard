@@ -1,4 +1,4 @@
-import { AlertTriangle, ArrowDown, ArrowUp, ChevronRight, FolderPlus, Play, SquarePen, X, Zap } from 'lucide-react';
+import { AlertTriangle, ArrowDown, ArrowUp, Check, ChevronRight, FolderPlus, Play, SquarePen, X, Zap } from 'lucide-react';
 import { useEffect, useId, useMemo, useRef, useState, type MouseEvent } from 'react';
 import type { ProjectDefaults, ProjectInfo } from '@switchboard/protocol/client';
 import { useEngineConnection } from '../../engine/useEngine.ts';
@@ -14,7 +14,9 @@ import { ProfileBadge } from '../profiles/ProfileBadge.tsx';
 import { ProjectIcon } from '../ProjectIcon.tsx';
 import { RemoveProjectDialog, useProjectActions, useProjectIconEntries } from '../sidebar/ProjectMenu.tsx';
 import { Button } from '../ui/Button.tsx';
+import { Notice } from '../ui/Notice.tsx';
 import { Select } from '../ui/Select.tsx';
+import { useFlash } from '../ui/useFlash.ts';
 import { ProjectDefaultsEditor } from './ProjectDefaultsEditor.tsx';
 
 
@@ -59,10 +61,10 @@ function ProfilePicker({ project }: { project: ProjectInfo }) {
   );
 }
 
-/** The project's actions editor, opened from its row. */
-function ProjectActions({ root, onClose }: { root: string; onClose(): void }) {
+/** The project's actions editor, opened from its row. A save closes it (`onSaved`). */
+function ProjectActions({ root, onSaved, onClose }: { root: string; onSaved(): void; onClose(): void }) {
   const { actions, sharedFile, errors, reload } = useProjectActionList(root);
-  return <ActionEditor projectRoot={root} actions={actions} sharedFile={sharedFile} errors={errors} onChanged={reload} onClose={onClose} />;
+  return <ActionEditor projectRoot={root} actions={actions} sharedFile={sharedFile} errors={errors} onChanged={reload} onSaved={onSaved} onClose={onClose} />;
 }
 
 function ProjectRow({
@@ -76,6 +78,7 @@ function ProjectRow({
   onRemove,
   onActions,
   onIconMenu,
+  status,
 }: {
   project: ProjectInfo;
   index: number;
@@ -87,6 +90,8 @@ function ProjectRow({
   onRemove(): void;
   onActions(): void;
   onIconMenu(event: MouseEvent): void;
+  /** A confirmation next to the Actions button, such as "Action saved". */
+  status: string | null;
 }) {
   const connection = useEngineConnection();
   const client = connection.status === 'connected' ? connection.client : null;
@@ -157,6 +162,11 @@ function ProjectRow({
           </span>
         </button>
         <div className="flex shrink-0 items-center gap-0.5">
+          {status && (
+            <Notice inline tone="success" icon={<Check size={12} aria-hidden />} className="mr-1.5" data-action-status>
+              {status}
+            </Notice>
+          )}
           {/* Names include the project: a screen reader hears "Move Website up", not five rows of "Move up". */}
           <Button
             variant="quiet"
@@ -235,6 +245,9 @@ export function ProjectManagerView() {
   const [openRoot, setOpenRoot] = useState<string | null>(focus);
   const [removing, setRemoving] = useState<ProjectInfo | null>(null);
   const [actionsFor, setActionsFor] = useState<string | null>(null);
+  /** The project whose actions were just saved, for its confirmation. */
+  const [savedFor, setSavedFor] = useState<string | null>(null);
+  const [actionStatus, flashAction] = useFlash();
   const [iconMenu, setIconMenu] = useState<{ root: string; x: number; y: number } | null>(null);
   const listRef = useRef<HTMLUListElement>(null);
 
@@ -302,6 +315,7 @@ export function ProjectManagerView() {
                   onMove={(delta) => void move(project.root, delta)}
                   onRemove={() => setRemoving(project)}
                   onActions={() => setActionsFor(project.root)}
+                  status={savedFor === project.root ? actionStatus : null}
                   onIconMenu={(e) => {
                     // From the keyboard there is no pointer position (detail 0): open under the icon instead.
                     const rect = e.currentTarget.getBoundingClientRect();
@@ -315,7 +329,17 @@ export function ProjectManagerView() {
       </div>
       {iconMenu && <Menu x={iconMenu.x} y={iconMenu.y} entries={iconEntries} label="Project icon" onClose={() => setIconMenu(null)} />}
       {icons.overlays}
-      {actionsFor && <ProjectActions root={actionsFor} onClose={() => setActionsFor(null)} />}
+      {actionsFor && (
+        <ProjectActions
+          root={actionsFor}
+          onSaved={() => {
+            setSavedFor(actionsFor);
+            setActionsFor(null);
+            flashAction('Action saved');
+          }}
+          onClose={() => setActionsFor(null)}
+        />
+      )}
       {removing && <RemoveProjectDialog root={removing.root} name={removing.name} onClose={() => setRemoving(null)} />}
     </div>
   );

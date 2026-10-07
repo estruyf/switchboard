@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { ActionSuggestion, ListedAction } from '@switchboard/protocol/client';
-import { EMPTY_DRAFT, friendlySaveError, groupActions, insertVariable, projectName, slug, validateDraft, visibleSuggestions } from './actionForm.ts';
+import { applySavedAction, EMPTY_DRAFT, friendlySaveError, groupActions, insertVariable, projectName, slug, validateDraft, visibleSuggestions, withoutAction } from './actionForm.ts';
 
 const action = (over: Partial<ListedAction>): ListedAction => ({
   ...EMPTY_DRAFT,
@@ -125,5 +125,40 @@ describe('insertVariable', () => {
 describe('projectName', () => {
   it('takes the last folder', () => {
     expect(projectName('/Users/me/code/switchboard/')).toBe('switchboard');
+  });
+});
+
+describe('applySavedAction', () => {
+  const dev = action({ id: 'dev', name: 'Dev' });
+  const build = action({ id: 'build', name: 'Build' });
+  const shared = action({ id: 'dev', name: 'Dev', scope: 'shared' });
+  const names = (list: ListedAction[]) => list.map((a) => `${a.scope}:${a.id}:${a.name}`);
+
+  it('replaces an edited action where it was', () => {
+    expect(names(applySavedAction([dev, build], { ...dev, name: 'Develop' }, dev))).toEqual(['project:dev:Develop', 'project:build:Build']);
+  });
+
+  it('keeps the place of an action whose id changed with its name', () => {
+    expect(names(applySavedAction([dev, build, shared], { ...dev, id: 'serve', name: 'Serve' }, dev))).toEqual(['project:serve:Serve', 'project:build:Build', 'shared:dev:Dev']);
+  });
+
+  it('moves an action to another scope without leaving the old copy', () => {
+    expect(names(applySavedAction([build, dev], { ...dev, scope: 'global' }, dev))).toEqual(['project:build:Build', 'global:dev:Dev']);
+  });
+
+  it('adds a new action at the end', () => {
+    expect(names(applySavedAction([dev], build, null))).toEqual(['project:dev:Dev', 'project:build:Build']);
+  });
+
+  it('leaves a shared action with the same id alone', () => {
+    expect(names(applySavedAction([shared, dev], { ...dev, name: 'Develop' }, dev))).toEqual(['shared:dev:Dev', 'project:dev:Develop']);
+  });
+});
+
+describe('withoutAction', () => {
+  it('removes only the action in that scope', () => {
+    const dev = action({ id: 'dev' });
+    const shared = action({ id: 'dev', scope: 'shared' });
+    expect(withoutAction([dev, shared], dev)).toEqual([shared]);
   });
 });

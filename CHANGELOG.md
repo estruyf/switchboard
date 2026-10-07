@@ -4,6 +4,10 @@ All notable changes to Switchboard are listed here. Each release is also on the 
 
 ## [Unreleased]
 
+### New
+
+- **Right-click a project action** above the message box, or one in its **N more** menu, to run, edit or delete it. Shift+F10 opens the same menu from the keyboard. Delete asks first.
+
 ### Safer
 
 - **A link can't start Claude without permission prompts any more.** A `switchboard://` link with `autostart` now uses the project's own permission mode, or Ask before edits when the project has none. It never uses the mode you last picked, and never Auto, Don't ask or Bypass permissions.
@@ -15,6 +19,8 @@ All notable changes to Switchboard are listed here. Each release is also on the 
 
 ### Fixes
 
+- **Stop** and **Restart** on a project action's terminal tab work again. The terminal was catching the clicks.
+- Saving a project action closes the editor, updates its pill straight away and says **Action saved**. If the save fails, the editor stays open with the error at the top, so nothing you typed is lost.
 - With two sessions side by side, a project action's shortcut or **Run** from the command palette runs it once, in the active session, not in both.
 - Opening or closing a second pane keeps the message you were typing in the other one.
 - Recording a shortcut for a project action no longer runs the action that already uses those keys. A shortcut Switchboard already uses (such as ⌘K or ⌘F), or one another action has, is refused with a message. ⌘⇧+ and ⌘Space can be recorded and are shown properly.

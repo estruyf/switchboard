@@ -37,6 +37,22 @@ export function slug(name: string): string {
 /** A stable key for an action in the list (ids are only unique within a scope). */
 export const actionKey = (a: { scope: ActionScope; id: string }) => `${a.scope}:${a.id}`;
 
+/**
+ * The list with `saved` in place of the action it was edited from (`previous`), or added at the end
+ * when it is new, so pills and menus show a save at once instead of after the list reloads.
+ */
+export function applySavedAction(actions: ListedAction[], saved: ListedAction, previous: { scope: ActionScope; id: string } | null): ListedAction[] {
+  const keys = new Set([actionKey(saved), ...(previous ? [actionKey(previous)] : [])]);
+  const at = actions.findIndex((a) => keys.has(actionKey(a)));
+  const rest = actions.filter((a) => !keys.has(actionKey(a)));
+  // Nothing before `at` was removed (it is the first match), so the index still holds in `rest`.
+  if (at < 0) return [...rest, saved];
+  return [...rest.slice(0, at), saved, ...rest.slice(at)];
+}
+
+/** The list without one action, for a delete that shows before the list reloads. */
+export const withoutAction = (actions: ListedAction[], removed: { scope: ActionScope; id: string }) => actions.filter((a) => actionKey(a) !== actionKey(removed));
+
 /** Splits the list into the actions you can edit and the read-only ones from .switchboard.json. */
 export function groupActions(actions: ListedAction[]): {
   yours: ListedAction[];

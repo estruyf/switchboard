@@ -7,7 +7,9 @@ import { useSessions } from '../../state/sessionsStore.ts';
 import { useTerminals } from '../../state/terminalsStore.ts';
 import { ConfirmDialog } from '../ConfirmDialog.tsx';
 import type { MenuEntry } from '../Menu.tsx';
-import { ActionEditor } from './ActionEditor.tsx';
+import { useFlash } from '../ui/useFlash.ts';
+import { ActionEditor, DeleteActionDialog } from './ActionEditor.tsx';
+import { applySavedAction, withoutAction } from './actionForm.ts';
 import { sameShortcut } from '../../lib/shortcuts.ts';
 import { ACTION_ICON, formatShortcut, shortcutFromEvent, useProjectActionList } from './useActions.ts';
 
@@ -21,6 +23,12 @@ export interface ActionsMenu {
   run: (action: ListedAction) => void;
   /** Opens the action editor; null when the session has no project to keep actions for. */
   openEditor: (() => void) | null;
+  /** Opens the editor on one action (Edit… in its context menu). */
+  edit: (action: ListedAction) => void;
+  /** Asks, then deletes the action (Delete… in its context menu). */
+  askDelete: (action: ListedAction) => void;
+  /** A short confirmation after a save or delete ("Action saved"), cleared after a moment. */
+  status: string | null;
 }
 
 /**
@@ -48,10 +56,13 @@ export function useActionsMenu({
   const projectRoot = root?.startsWith('/') ? root : null;
   const connection = useEngineConnection();
   const client = connection.status === 'connected' ? connection.client : null;
-  const { actions, sharedFile, errors, reload } = useProjectActionList(projectRoot);
+  const { actions, sharedFile, errors, reload, update } = useProjectActionList(projectRoot);
   const togglePanel = useTerminals((s) => s.togglePanel);
   const setActive = useTerminals((s) => s.setActive);
-  const [editor, setEditor] = useState(false);
+  /** The open editor, and the action it starts on. */
+  const [editor, setEditor] = useState<{ action: ListedAction | null } | null>(null);
+  const [deleting, setDeleting] = useState<ListedAction | null>(null);
+  const [status, flash] = useFlash();
   const [pending, setPending] = useState<{ action: ListedAction; reason: 'confirm' | 'trust' } | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -107,8 +118,10 @@ export function useActionsMenu({
     return () => window.removeEventListener('keydown', onKey);
   }, [actions, active]);
 
-  if (!projectRoot) return { entries: [], overlays: null, error: null, actions: [], run, openEditor: null };
-  const openEditor = () => setEditor(true);
+  const edit = (action: ListedAction) => setEditor({ action });
+  const askDelete = (action: ListedAction) => action.scope !== 'shared' && setDeleting(action);
+  if (!projectRoot) return { entries: [], overlays: null, error: null, actions: [], run, openEditor: null, edit, askDelete, status: null };
+  const openEditor = () => setEditor({ action: null });
   const entries: MenuEntry[] = [
     { heading: 'Project actions' },
     ...actions.map((a) => {
@@ -133,8 +146,28 @@ export function useActionsMenu({
           actions={actions}
           sharedFile={sharedFile}
           errors={errors}
+          initialAction={editor.action}
           onChanged={reload}
-          onClose={() => setEditor(false)}
+          onSaved={(saved, previous) => {
+            // The pill changes now; the reload that follows confirms it.
+            update((list) => applySavedAction(list, saved, previous));
+            setEditor(null);
+            flash('Action saved');
+          }}
+          onClose={() => setEditor(null)}
+        />
+      )}
+      {deleting && (
+        <DeleteActionDialog
+          action={deleting}
+          onConfirm={async () => {
+            if (!client) throw new Error('Not connected to the engine');
+            await client.call('actions.delete', { projectRoot: deleting.scope === 'global' ? null : projectRoot, id: deleting.id });
+            update((list) => withoutAction(list, deleting));
+            reload();
+            flash('Action deleted');
+          }}
+          onClose={() => setDeleting(null)}
         />
       )}
       {pending && (
@@ -170,5 +203,5 @@ export function useActionsMenu({
       )}
     </>
   );
-  return { entries, overlays, error, actions, run, openEditor };
+  return { entries, overlays, error, actions, run, openEditor, edit, askDelete, status };
 }

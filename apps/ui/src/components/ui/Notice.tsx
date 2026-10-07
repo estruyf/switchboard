@@ -1,5 +1,5 @@
 import { X } from 'lucide-react';
-import type { HTMLAttributes, ReactNode } from 'react';
+import type { HTMLAttributes, ReactNode, Ref } from 'react';
 import { Button } from './Button.tsx';
 
 export type NoticeTone = 'info' | 'warn' | 'error' | 'success';
@@ -25,6 +25,7 @@ interface NoticeProps extends Omit<HTMLAttributes<HTMLDivElement>, 'role'> {
   inline?: boolean;
   /** Defaults to `alert` for errors (read out at once) and `status` otherwise. */
   role?: 'alert' | 'status' | 'note';
+  ref?: Ref<HTMLDivElement>;
   children: ReactNode;
 }
 

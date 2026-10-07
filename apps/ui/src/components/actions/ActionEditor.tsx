@@ -239,9 +239,25 @@ function IconPicker({ value, onChange }: { value: ActionIcon; onChange(icon: Act
   );
 }
 
+/** Asks before deleting one of your actions (from the editor or a pill's context menu). */
+export function DeleteActionDialog({ action, onConfirm, onClose }: { action: ListedAction; onConfirm(): Promise<void>; onClose(): void }) {
+  return (
+    <ConfirmDialog
+      title={`Delete ${action.name}?`}
+      body={<>The action is removed from {action.scope === 'global' ? 'all your projects' : 'this project'}. Its command is not run.</>}
+      confirmLabel="Delete"
+      danger
+      onConfirm={onConfirm}
+      onClose={onClose}
+    />
+  );
+}
+
 /**
  * Add, edit and remove project actions: the list on the left, the selected action's form on the
  * right. Shared ones (from .switchboard.json) show read-only, since they are edited in that file.
+ * A successful save hands the action to `onSaved` (the caller closes the editor and confirms it); a
+ * failed one keeps the editor open with the error above the form, so nothing typed is lost.
  */
 export function ActionEditor({
   projectRoot,
@@ -249,7 +265,9 @@ export function ActionEditor({
   sharedFile,
   errors,
   initial,
+  initialAction,
   onChanged,
+  onSaved,
   onClose,
 }: {
   projectRoot: string;
@@ -257,14 +275,18 @@ export function ActionEditor({
   sharedFile: string | null;
   errors: string[];
   initial?: Partial<ActionDraft> | null;
+  /** The action to start on (Edit… on a pill). */
+  initialAction?: ListedAction | null;
   onChanged(): void;
+  /** After a successful save: the action as saved, and the one it was edited from (null for a new one). */
+  onSaved(saved: ListedAction, previous: { scope: ListedAction['scope']; id: string } | null): void;
   onClose(): void;
 }) {
   const connection = useEngineConnection();
   const client = connection.status === 'connected' ? connection.client : null;
   const openIn = useOpenIn();
   // Opened with a prefilled draft, it starts on a new action; otherwise on the first action, if any.
-  const [first] = useState(() => (initial ? undefined : (groupActions(actions).yours[0] ?? actions[0])));
+  const [first] = useState(() => initialAction ?? (initial ? undefined : (groupActions(actions).yours[0] ?? actions[0])));
   /** The listed action the form shows, or null for a new one. */
   const [selected, setSelected] = useState<ListedAction | null>(first ?? null);
   const [draft, setDraft] = useState<ActionDraft>(() => (first ? draftOf(first) : { ...EMPTY_DRAFT, ...initial }));
@@ -272,6 +294,8 @@ export function ActionEditor({
   const [showAll, setShowAll] = useState(false);
   const [fieldErrors, setFieldErrors] = useState<DraftErrors>({});
   const [error, setError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const errorRef = useRef<HTMLDivElement>(null);
   /** The action waiting for "Delete?" to be confirmed. */
   const [deleting, setDeleting] = useState<ListedAction | null>(null);
   const nameRef = useRef<HTMLInputElement>(null);
@@ -292,6 +316,11 @@ export function ActionEditor({
     if (!selected) nameRef.current?.focus();
   }, [selected]);
 
+  // A failed save shows its message at the top of the form, which may be scrolled out of view.
+  useEffect(() => {
+    if (error) errorRef.current?.scrollIntoView({ block: 'nearest' });
+  }, [error]);
+
   const edit = (next: Partial<ActionDraft>) => {
     setDraft((d) => ({ ...d, ...next }));
     // A field that changes no longer needs its message.
@@ -309,7 +338,7 @@ export function ActionEditor({
   };
 
   const save = async () => {
-    if (!client || readOnly) return;
+    if (!client || readOnly || saving) return;
     const editing = selected && selected.scope !== 'shared' ? selected : null;
     const invalid = validateDraft(draft, actions, editing);
     setFieldErrors(invalid);
@@ -322,6 +351,8 @@ export function ActionEditor({
     // An edit within the same scope keeps its id (so its shortcut and menu hook stay); a move or a new action gets one from the name.
     const sameScope = editing?.scope === scope;
     const newId = editing && sameScope ? editing.id : slug(name);
+    setSaving(true);
+    setError(null);
     try {
       await client.call('actions.save', {
         projectRoot: scope === 'global' ? null : projectRoot,
@@ -340,7 +371,6 @@ export function ActionEditor({
           projectRoot: editing.scope === 'global' ? null : projectRoot,
           id: editing.id,
         });
-      // Stay on the saved action, so its row is highlighted once the list reloads.
       const saved: ListedAction = {
         ...draft,
         name,
@@ -348,12 +378,11 @@ export function ActionEditor({
         scope,
         trusted: true,
       };
-      setSelected(saved);
-      setDraft(draftOf(saved));
-      setError(null);
       onChanged();
+      onSaved(saved, editing && { scope: editing.scope, id: editing.id });
     } catch (e) {
       setError(friendlySaveError(e));
+      setSaving(false);
     }
   };
 
@@ -477,6 +506,11 @@ export function ActionEditor({
             }}
           >
             <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5">
+              {error && (
+                <Notice ref={errorRef} tone="error" className="mb-3" data-action-save-error>
+                  {error}
+                </Notice>
+              )}
               {errors.map((e) => (
                 <Notice key={e} tone="error" className="mb-3">
                   {e}
@@ -663,9 +697,6 @@ export function ActionEditor({
                   )}
                 </div>
 
-                {error && (
-                  <Notice tone="error">{error}</Notice>
-                )}
               </fieldset>
             </div>
 
@@ -686,8 +717,8 @@ export function ActionEditor({
               <span className="mx-1 h-5 w-px shrink-0 bg-edge" aria-hidden />
               <Button onClick={onClose}>{readOnly ? 'Close' : 'Cancel'}</Button>
               {!readOnly && (
-                <Button type="submit" variant="primary" kbd="⌘↵" data-save-action>
-                  Save
+                <Button type="submit" variant="primary" kbd="⌘↵" disabled={saving} data-save-action>
+                  {saving ? 'Saving…' : 'Save'}
                 </Button>
               )}
             </footer>
@@ -701,16 +732,7 @@ export function ActionEditor({
           </span>
         </p>
       </Dialog>
-      {deleting && (
-        <ConfirmDialog
-          title={`Delete ${deleting.name}?`}
-          body={<>The action is removed from {deleting.scope === 'global' ? 'all your projects' : 'this project'}. Its command is not run.</>}
-          confirmLabel="Delete"
-          danger
-          onConfirm={() => remove(deleting)}
-          onClose={() => setDeleting(null)}
-        />
-      )}
+      {deleting && <DeleteActionDialog action={deleting} onConfirm={() => remove(deleting)} onClose={() => setDeleting(null)} />}
     </>
   );
 }

@@ -1,4 +1,4 @@
-import { Plus, Sparkles, Square, SquareTerminal, X } from 'lucide-react';
+import { Plus, RotateCcw, Sparkles, Square, SquareTerminal, X } from 'lucide-react';
 import { useEffect, useId, useMemo, type KeyboardEvent, type PointerEvent } from 'react';
 import type { TerminalInfo, TerminalKind } from '@switchboard/protocol/client';
 import { useEngineConnection } from '../../engine/useEngine.ts';
@@ -220,23 +220,19 @@ export function TerminalPanel({ sessionId, cwd }: { sessionId: string; cwd: stri
             <div key={t.id} id={panelId(t)} role="tabpanel" aria-labelledby={tabId(t)} className={t.id === active?.id ? 'absolute inset-0' : 'hidden'}>
               <XTerm id={t.id} active={t.id === active?.id} />
               {t.exitCode !== null && t.id === active?.id && (
-                <div role="status" className="absolute right-3 bottom-2 flex items-center gap-2 rounded-md border border-border bg-card px-2 py-1 text-meta text-muted shadow" data-terminal-exited>
+                <div role="status" className="absolute right-3 bottom-2 flex items-center gap-2 rounded-md border border-border bg-card py-1 pr-1 pl-2.5 text-meta text-muted shadow" data-terminal-exited>
                   Exited with code {t.exitCode}
-                  <button type="button" onClick={() => void restart(t)} className="text-accent-ink hover:underline" data-terminal-restart>
+                  <Button size="sm" icon={<RotateCcw size={11} aria-hidden />} onClick={() => void restart(t)} data-terminal-restart>
                     Restart
-                  </button>
+                  </Button>
                 </div>
               )}
               {t.exitCode === null && t.kind === 'action' && t.id === active?.id && (
-                <button
-                  type="button"
-                  onClick={() => stop(t)}
-                  data-terminal-stop
-                  data-tooltip="Stop the command (⌃C)"
-                  className="absolute right-3 bottom-2 flex items-center gap-1.5 rounded-md border border-border bg-card px-2 py-1 text-meta text-muted shadow hover:text-text"
-                >
-                  <Square size={10} className="fill-current" /> Stop
-                </button>
+                <div className="absolute right-3 bottom-2 rounded-md border border-border bg-card p-1 shadow">
+                  <Button size="sm" icon={<Square size={10} className="fill-current" aria-hidden />} onClick={() => stop(t)} data-terminal-stop data-tooltip="Stop the command (⌃C)">
+                    Stop
+                  </Button>
+                </div>
               )}
             </div>
           ))

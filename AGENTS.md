@@ -98,6 +98,8 @@ With more than one Claude profile, the rail on a session row shows the profile's
 
 **Layout.** Group lists by what needs attention first (Needs you, Working), then by time (Today, Yesterday, Earlier). Centre focused views (New session, Home) in the window with a `max-w-3xl` column. Side panels that show content (Changes, terminal) can be resized by dragging, and from the keyboard. The terminal panel is always dark (`theme-dark` on its root, which swaps every token to the dark theme), in light mode too.
 
+**Context menus and confirmations.** Right-click and Shift+F10 open the same `Menu` (`isContextMenuKey` and `contextMenuPoint` in `lib/contextMenu.ts`); an item in another menu that has its own context menu sets `contextMenu` on its `MenuEntry`. After a save or delete that closes a dialog, confirm it with an inline `Notice tone="success"` next to what changed, cleared by `useFlash` (`components/ui/useFlash.ts`); there are no toasts. Anything floated over a terminal sits outside the xterm host, which is `isolate` so xterm's own z-indexed layers can't cover it.
+
 **Copy.** Plain, short sentences. Say what something does ("Allow", "Start session"), not how. No em dashes.
 
 The design mockups these rules come from are in the Switchboard UI suggestions canvas; when a new view needs a pattern that isn't here, add it to this section in the same change.
