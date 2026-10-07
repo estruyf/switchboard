@@ -10,6 +10,7 @@
     "build": "electron-vite build",
     "start": "electron-vite preview",
     "smoke": "electron-vite build && node scripts/smoke.ts",
+    "screenshots": "electron-vite build && node scripts/screenshots.ts",
     "typecheck": "tsc -p tsconfig.json",
     "icon": "node scripts/icon/build.mjs",
     "dist": "electron-vite build && electron-builder --mac --arm64 --publish never",

@@ -10,6 +10,11 @@ Switchboard puts all your Claude Code sessions in one window: the ones you start
 
 It uses the Claude Code you already have installed, with your login, settings, commands and skills. Nothing extra to sign in to.
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/session-dark.png">
+  <img src="docs/screenshots/session-light.png" alt="Switchboard with a finished session open: the session list on the left, the conversation in the middle and its git changes on the right">
+</picture>
+
 ## What you can do
 
 **Keep track of every session**
@@ -58,6 +63,29 @@ It uses the Claude Code you already have installed, with your login, settings, c
 - **Open in** your editor, terminal or Finder (⌘O), or on GitHub, and click any file path in the conversation to open it at that line.
 - **Links** that open Switchboard: `switchboard://new-session?project=payments&prompt=…` (or `cwd=/path`, or `repo=owner/name`) opens New session with the project and prompt filled in, and `switchboard://session/<id>` opens a session. Put them in runbooks, alerts, READMEs or Raycast and Alfred scripts. By default you read the prompt and press Enter; add `autostart=1` to start right away. See [Links](docs/deep-links.md).
 - Delete sessions you don't need. They go to the Trash, so you can get them back.
+
+<table>
+  <tr>
+    <td width="50%"><picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/home-dark.png">
+  <img src="docs/screenshots/home-light.png" alt="Home: a session that needs you, one that is working, and your projects">
+</picture><br><b>Home</b>: what needs you, what is working, and your projects.</td>
+    <td width="50%"><picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/new-session-dark.png">
+  <img src="docs/screenshots/new-session-light.png" alt="New session: pick a project, a branch or a worktree, and write the first prompt">
+</picture><br><b>New session</b> (⌘N): pick a project, then work on a branch or in a new worktree.</td>
+  </tr>
+  <tr>
+    <td width="50%"><picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/split-dark.png">
+  <img src="docs/screenshots/split-light.png" alt="Two sessions side by side, one finished and one still working">
+</picture><br><b>Side by side</b>: ⌥-click a session to open it next to the current one.</td>
+    <td width="50%"><picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/search-dark.png">
+  <img src="docs/screenshots/search-light.png" alt="Search across every conversation, with the matching words highlighted">
+</picture><br><b>Search every conversation</b> (⌘⇧F) and jump straight to the message.</td>
+  </tr>
+</table>
 
 ## Requirements
 

@@ -8,16 +8,21 @@ import { EngineProcess } from './engineProcess.ts';
 import type { AttentionEvent } from './attention.ts';
 import { DEEP_LINK_SCHEME, linkFromArgv, parseDeepLink } from './deepLink.ts';
 import { Notifier } from './notifier.ts';
+import { setFieldValue, waitInPage } from './pageDriver.ts';
 import { PreferencesStore, windowBackground } from './preferences.ts';
 import { QuitGuard } from './quitGuard.ts';
 import { ReloadLimiter } from './reloadLimiter.ts';
 import { RendererQueue } from './rendererQueue.ts';
+import { runScreenshotTour } from './screenshotTour.ts';
 import { isConfigDir, isTrashableRepoFile, isTrashableSessionPath } from './trashGuard.ts';
 import { Updater } from './updater.ts';
 import { updatesDisabledReason } from './updateState.ts';
 
 const here = import.meta.dirname;
 const smokeOutDir = process.env.SWITCHBOARD_SMOKE_OUT;
+// npm run screenshots: a tour through the app in a made-up home folder, for the README.
+const screenshotOutDir = process.env.SWITCHBOARD_SCREENSHOTS_OUT;
+const scripted = Boolean(smokeOutDir || screenshotOutDir);
 
 // `Switchboard --version` prints the version for scripts and support, before any window opens.
 if (process.argv.includes('--version')) {
@@ -31,11 +36,11 @@ ipcMain.on(IpcChannel.getAppInfo, (event) => {
   event.returnValue = appInfo;
 });
 
-// The smoke test runs against a throwaway profile so it never touches real app data.
-if (smokeOutDir) app.setPath('userData', mkdtempSync(join(tmpdir(), 'switchboard-smoke-')));
+// The smoke test and the screenshots run against a throwaway profile so they never touch real app data.
+if (scripted) app.setPath('userData', mkdtempSync(join(tmpdir(), 'switchboard-smoke-')));
 // The engine inherits these: the Claude Code check reads a mock registry that offers a newer version, and an
 // update is refused even if one were clicked, so the user's real `claude` is never touched.
-if (smokeOutDir) {
+if (scripted) {
   process.env.SWITCHBOARD_CLAUDE_REGISTRY ??= `data:application/json,${encodeURIComponent(JSON.stringify({ latest: '999.0.0', stable: '999.0.0' }))}`;
   process.env.SWITCHBOARD_NO_CLAUDE_UPDATE = '1';
 }
@@ -49,7 +54,7 @@ if (!app.requestSingleInstanceLock()) app.exit(0);
 const forcedScheme = process.env.SWITCHBOARD_COLOR_SCHEME;
 const preferences = new PreferencesStore(join(app.getPath('userData'), 'preferences.json'), sanitizePreferences({ colorScheme: forcedScheme }).colorScheme);
 // The smoke steps need sessions to click; on the real ~/.claude most were started elsewhere.
-if (smokeOutDir) preferences.update({ sessionScope: 'all' });
+if (scripted) preferences.update({ sessionScope: 'all' });
 
 // SWITCHBOARD_MOCK_UPDATES=1 points the updater at a local feed (scripts/mock-update-server.ts).
 const mockFeedUrl = process.env.SWITCHBOARD_MOCK_UPDATES === '1' ? (process.env.SWITCHBOARD_MOCK_UPDATES_URL ?? 'http://localhost:8484') : undefined;
@@ -406,27 +411,16 @@ ipcMain.on(IpcChannel.rendererReady, (event, report: RendererReadyReport) => {
     console.log(`[main] engine connected ${timed.connectedMs}ms, diagnostics loaded ${timed.loadedMs}ms after process start`);
   }
   if (smokeOutDir) void runSmokeStep(BrowserWindow.fromWebContents(event.sender));
-});
-
-/** Polls a condition in the renderer (smoke test only). */
-async function waitInPage(win: BrowserWindow, expression: string, timeoutMs = 10_000): Promise<boolean> {
-  const started = performance.now();
-  while (performance.now() - started < timeoutMs) {
-    if (await win.webContents.executeJavaScript(`Boolean(${expression})`)) return true;
-    await new Promise((resolve) => setTimeout(resolve, 100));
+  const win = BrowserWindow.fromWebContents(event.sender);
+  if (screenshotOutDir && win && readyReports.length === 1) {
+    void runScreenshotTour(win, screenshotOutDir, { setColorScheme: (colorScheme) => updatePreferences({ colorScheme }) })
+      .then(() => exitApp(0))
+      .catch((error: Error) => {
+        console.error(`[screenshots] ${error.message}`);
+        exitApp(1);
+      });
   }
-  return false;
-}
-
-/** Sets a React-controlled field the way a user would, so onChange fires (smoke test only). */
-function setFieldValue(win: BrowserWindow, selector: string, value: string): Promise<unknown> {
-  return win.webContents.executeJavaScript(`(() => {
-    const el = document.querySelector(${JSON.stringify(selector)});
-    const setter = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(el), 'value').set;
-    setter.call(el, ${JSON.stringify(value)});
-    el.dispatchEvent(new Event(el.tagName === 'SELECT' ? 'change' : 'input', { bubbles: true }));
-  })()`);
-}
+});
 
 /** Picks an option in one of the app's `Select` dropdowns by clicking, like a user (smoke test only). */
 async function chooseOption(win: BrowserWindow, selector: string, value: string): Promise<boolean> {
@@ -750,8 +744,12 @@ async function actionTerminalChecks(win: BrowserWindow, js: (code: string) => Pr
   const stopDark = await clickLikeAUser(win, '[data-terminal-stop]');
   if (!(await waitInPage(win, "document.querySelector('[data-terminal-exited]')", 8_000))) return `failed: Stop did not end the restarted command in the dark theme (the click landed on ${stopDark.at})`;
   await shot(win, 'action-stopped-dark.png');
-  await js("document.querySelector('[data-terminal-panel] [role=tab][aria-selected=true]')?.parentElement?.querySelector('button[aria-label^=\"Close\"]')?.click()");
-  return `ok: Stop ended the command ("${exited.replace(/\s+/g, ' ').trim()}") and Restart ran it again, clicked with the mouse in light and dark`;
+  // The exited tab offers Close next to Restart, and Close removes the tab.
+  const tabs = () => js("document.querySelectorAll('[data-terminal-panel] [role=tab]').length") as Promise<number>;
+  const before = await tabs();
+  const close = await clickLikeAUser(win, '[data-terminal-close]');
+  if (!(await waitInPage(win, `document.querySelectorAll('[data-terminal-panel] [role=tab]').length < ${before}`, 3_000))) return `failed: Close did not close the exited tab (the click landed on ${close.at})`;
+  return `ok: Stop ended the command ("${exited.replace(/\s+/g, ' ').trim()}"), Restart ran it again and Close closed the tab, clicked with the mouse in light and dark`;
 }
 
 /** Adds a project action through the editor, opened from the header's More menu; saving closes the editor. */
@@ -2094,7 +2092,7 @@ app.whenReady().then(() => {
   updater.start();
   // The packaged app declares the scheme in Info.plist; this also takes it back if another app claimed it.
   // Development and smoke builds leave the system's link handlers alone.
-  if (app.isPackaged && !smokeOutDir && !app.isDefaultProtocolClient(DEEP_LINK_SCHEME)) app.setAsDefaultProtocolClient(DEEP_LINK_SCHEME);
+  if (app.isPackaged && !scripted && !app.isDefaultProtocolClient(DEEP_LINK_SCHEME)) app.setAsDefaultProtocolClient(DEEP_LINK_SCHEME);
   const launchLink = linkFromArgv(process.argv);
   if (launchLink) openDeepLink(launchLink);
 
@@ -2102,6 +2100,7 @@ app.whenReady().then(() => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });
   if (smokeOutDir) setTimeout(() => exitApp(2), process.env.SWITCHBOARD_SMOKE_LIVE_CWD ? 180_000 : 60_000).unref();
+  if (screenshotOutDir) setTimeout(() => exitApp(2), 240_000).unref();
 });
 
 // macOS delivers links here, also the one that launched the app (before 'ready', so it waits in pendingMessages).

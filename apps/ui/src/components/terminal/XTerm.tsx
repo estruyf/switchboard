@@ -11,6 +11,9 @@ const FALLBACK_FONTS = '"SF Mono", ui-monospace, Menlo, "Symbols Nerd Font Mono"
 
 let userFont: Promise<string | null> | undefined;
 
+const HIDE_CURSOR = '\x1b[?25l';
+const SHOW_CURSOR = '\x1b[?25h';
+
 /** The Demo Time theme's terminal colours (github.com/estruyf/vscode-demo-time-theme). */
 const ANSI = {
   dark: {
@@ -40,12 +43,17 @@ function themeFromCss(el: Element = document.documentElement): ITheme {
  * One terminal view. Attaching replays the terminal's recent output, so
  * switching tabs or sessions (or an engine reconnect) never loses history.
  */
-export function XTerm({ id, active }: { id: string; active: boolean }) {
+export function XTerm({ id, active, exited, onClose }: { id: string; active: boolean; exited: boolean; onClose: () => void }) {
   const connection = useEngineConnection();
   const client = connection.status === 'connected' ? connection.client : null;
   const hostRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<Terminal | null>(null);
   const fitRef = useRef<FitAddon | null>(null);
+  // Read from xterm's handlers, which are set up once per terminal.
+  const exitedRef = useRef(exited);
+  exitedRef.current = exited;
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
 
   useEffect(() => {
     const host = hostRef.current;
@@ -83,7 +91,14 @@ export function XTerm({ id, active }: { id: string; active: boolean }) {
     });
 
     // App shortcuts (⌘J, ⌘N, ⌘O…) must reach the window instead of the shell.
-    term.attachCustomKeyEventHandler((event) => !(event.metaKey && !['c', 'v', 'a', 'k'].includes(event.key.toLowerCase())));
+    term.attachCustomKeyEventHandler((event) => {
+      // Nothing runs any more, so Escape closes the tab (the panel's Close button shows it).
+      if (exitedRef.current && event.key === 'Escape') {
+        if (event.type === 'keydown') onCloseRef.current();
+        return false;
+      }
+      return !(event.metaKey && !['c', 'v', 'a', 'k'].includes(event.key.toLowerCase()));
+    });
 
     let disposed = false;
     const offData = client.on('terminal.data', (message) => {
@@ -94,6 +109,8 @@ export function XTerm({ id, active }: { id: string; active: boolean }) {
       .then(({ replay }) => {
         if (disposed) return;
         term.write(replay);
+        // The replay may show the cursor again (a shell prompt does).
+        if (exitedRef.current) term.write(HIDE_CURSOR);
         fit.fit();
         void client.call('terminal.resize', { id, cols: term.cols, rows: term.rows }).catch(() => {});
       })
@@ -126,6 +143,14 @@ export function XTerm({ id, active }: { id: string; active: boolean }) {
       termRef.current = null;
     };
   }, [client, id]);
+
+  // An exited terminal takes no input: hide the cursor so it doesn't look like it does. Restart shows it again.
+  useEffect(() => {
+    const term = termRef.current;
+    if (!term) return;
+    term.options.disableStdin = exited;
+    term.write(exited ? HIDE_CURSOR : SHOW_CURSOR);
+  }, [exited, client, id]);
 
   useEffect(() => {
     if (!active) return;

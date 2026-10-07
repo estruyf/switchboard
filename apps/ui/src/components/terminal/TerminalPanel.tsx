@@ -218,12 +218,18 @@ export function TerminalPanel({ sessionId, cwd }: { sessionId: string; cwd: stri
         ) : (
           terminals.map((t) => (
             <div key={t.id} id={panelId(t)} role="tabpanel" aria-labelledby={tabId(t)} className={t.id === active?.id ? 'absolute inset-0' : 'hidden'}>
-              <XTerm id={t.id} active={t.id === active?.id} />
+              <XTerm id={t.id} active={t.id === active?.id} exited={t.exitCode !== null} onClose={() => closeTab(t)} />
               {t.exitCode !== null && t.id === active?.id && (
                 <div role="status" className="absolute right-3 bottom-2 flex items-center gap-2 rounded-md border border-border bg-card py-1 pr-1 pl-2.5 text-meta text-muted shadow" data-terminal-exited>
-                  Exited with code {t.exitCode}
+                  <span>
+                    <span className={t.exitCode === 0 ? '' : 'text-error'}>{t.exitCode === 0 ? 'Finished' : `Exited with code ${t.exitCode}`}</span>
+                    <span className="@max-[860px]:hidden">. Nothing more runs in this tab.</span>
+                  </span>
                   <Button size="sm" icon={<RotateCcw size={11} aria-hidden />} onClick={() => void restart(t)} data-terminal-restart>
                     Restart
+                  </Button>
+                  <Button size="sm" icon={<X size={11} aria-hidden />} kbd="Esc" onClick={() => closeTab(t)} data-terminal-close>
+                    Close
                   </Button>
                 </div>
               )}

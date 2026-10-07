@@ -6,7 +6,10 @@ All notable changes to Switchboard are listed here. Each release is also on the 
 
 ### Fixes
 
+- **Fetch, Pull, Push and project actions show what they run.** Their terminal tab starts with the command and ends with a **Done** line (or the exit code), so a command that prints nothing, like a fetch with nothing new, no longer looks like it never ran.
+- **A finished terminal tab says so.** The cursor no longer blinks as if you could type, and next to **Restart** there is a **Close** button (or press Esc).
 - The right-click menu of a session no longer offers **Remove from Switchboard**, which removed the project and was easy to mistake for deleting the session. It is still in the project menus and in Projects.
+- With **Show sessions from other apps** on, opening New session no longer adds a session named after the project that runs in the background for a couple of minutes.
 
 ## [0.0.7] - 2026-10-07
 

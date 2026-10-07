@@ -140,6 +140,7 @@ function setup(
   const resolved: string[] = [];
   const created: string[] = [];
   const warmups: Array<{ options: Options; closed: boolean }> = [];
+  const ephemeral = new Set<string>();
   const sdk: SdkRuntime = {
     query: ({ prompt, options }) => {
       const q = new FakeQuery(prompt, options);
@@ -176,9 +177,10 @@ function setup(
     onCreated: (id) => created.push(id),
     sessionSettings: opts.settings,
     onModels: (m) => models.push(m),
+    ephemeral,
     log: () => {},
   });
-  return { manager, queries, infos, streams, messages, permissions, resolved, created, models, warmups };
+  return { manager, queries, infos, streams, messages, permissions, resolved, created, models, warmups, ephemeral };
 }
 
 const base = { attachments: [], model: null, permissionMode: 'default' as const, effort: null, worktree: null, profileId: 'default' };
@@ -300,6 +302,19 @@ describe('HostManager', () => {
     expect(t.queries).toHaveLength(1);
     expect(t.queries[0]!.mode).toBe('plan');
     t.manager.closeAll();
+  });
+
+  it('keeps a pre-warmed process out of the session list until a session adopts it', async () => {
+    const t = setup();
+    await t.manager.prewarm('/work/app', 'default');
+    const warmId = t.warmups[0]!.options.sessionId!;
+    expect(t.ephemeral.has(warmId)).toBe(true);
+    await t.manager.create({ ...base, cwd: '/work/app', prompt: 'Say hi' });
+    expect(t.ephemeral.has(warmId)).toBe(false);
+    // A discarded one stays hidden while its process exits.
+    await t.manager.prewarm('/work/other', 'default');
+    t.manager.closeAll();
+    expect(t.ephemeral.has(t.warmups[1]!.options.sessionId!)).toBe(true);
   });
 
   it('keeps one pre-warmed process when pre-warms overlap, and none after a shutdown', async () => {

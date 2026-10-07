@@ -61,7 +61,8 @@ describe('TerminalManager with a real pty', () => {
     const cwd = tempDir();
     const { manager, output } = setup();
     const info = await manager.open({ sessionId: 's1', cwd, kind: 'action', command: 'echo started; sleep 30', title: 'Dev', cols: 80, rows: 24, fork: false });
-    await until(() => (output.get(info.id) ?? '').includes('started'));
+    // The command is shown first, so wait for its output, not the echo of it.
+    await until(() => (output.get(info.id) ?? '').includes('started\r\n'));
     manager.stop(info.id);
     await until(() => manager.list()[0]?.exitCode !== null);
     expect(manager.list()[0]!.exitCode).toBe(130);
@@ -69,7 +70,16 @@ describe('TerminalManager with a real pty', () => {
     const restarted = await manager.restart(info.id, { command: 'echo again' });
     expect(restarted).toMatchObject({ id: info.id, exitCode: null });
     await until(() => manager.list()[0]?.exitCode === 0);
-    expect(manager.replay(info.id).replay).toMatch(/started[\s\S]*Restarted[\s\S]*again/);
+    expect(manager.replay(info.id).replay).toMatch(/\$ echo started; sleep 30[\s\S]*Exited with code 130[\s\S]*Restarted[\s\S]*\$ echo again[\s\S]*again\r\n[\s\S]*Done/);
+  });
+
+  it('shows the command and that it finished when an action prints nothing', async () => {
+    const cwd = tempDir();
+    const { manager } = setup();
+    const info = await manager.open({ sessionId: 's1', cwd, kind: 'action', command: 'true', title: 'Fetch', cols: 80, rows: 24, fork: false });
+    expect(await manager.waitForExit(info.id)).toBe(0);
+    // The login shell's rc files may print in between.
+    expect(manager.replay(info.id).replay).toMatch(/^\x1b\[2m\$ true\x1b\[0m\r\n[\s\S]*\x1b\[2m── Done ──\x1b\[0m\r\n$/);
   });
 });
 

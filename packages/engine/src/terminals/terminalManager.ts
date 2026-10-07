@@ -216,6 +216,9 @@ export class TerminalManager {
   private async start(terminal: Terminal): Promise<void> {
     this.spawnPty ??= this.options.spawn ? this.options.spawn() : loadNodePty();
     const { file, args, cwd, env } = terminal.spawn;
+    const action = terminal.info.kind === 'action';
+    // Show what runs: a quiet command like `git fetch` with nothing new prints nothing, and the tab would look like it never ran.
+    if (action) this.buffer(terminal, `\x1b[2m$ ${args[1]!.replace(/\r?\n/g, '\r\n')}\x1b[0m\r\n`);
     const pty = (await this.spawnPty)(file, args, { name: 'xterm-256color', cols: terminal.info.cols, rows: terminal.info.rows, cwd, env });
     let resolveExit!: (code: number) => void;
     terminal.exited = new Promise<number>((resolve) => (resolveExit = resolve));
@@ -226,10 +229,14 @@ export class TerminalManager {
     });
     pty.onExit(({ exitCode, signal }) => {
       if (terminal.pty !== pty) return;
-      this.flush(terminal);
       terminal.stopTimers.splice(0).forEach(clearTimeout);
       // Killed by a signal: report it the way shells do (Ctrl+C is 130), not as a clean 0.
       const code = signal ? 128 + signal : exitCode;
+      if (action) {
+        const last = (terminal.pending || terminal.replay.at(-1) || '\n').at(-1);
+        this.buffer(terminal, `${last === '\n' ? '' : '\r\n'}\x1b[2m── ${code === 0 ? 'Done' : `Exited with code ${code}`} ──\x1b[0m\r\n`);
+      }
+      this.flush(terminal);
       terminal.info = { ...terminal.info, exitCode: code };
       resolveExit(code);
       this.changed();

@@ -470,6 +470,8 @@ export class HostManager {
     // Another pre-warm (or a shutdown) took over while this one waited: start nothing, or its process would leak.
     if (generation !== this.warmGeneration) return;
     const sessionId = randomUUID();
+    // Until a new session takes it over, the waiting process is no session: keep its registry entry out of the list.
+    this.deps.ephemeral?.add(sessionId);
     const route: Warm['route'] = { canUseTool: null };
     const options = buildOptions(
       {
@@ -530,6 +532,7 @@ export class HostManager {
     if (!warm || warm.cwd !== params.cwd || warm.profileId !== params.profileId || params.worktree || params.effort) return undefined;
     clearTimeout(warm.timer);
     this.warm = undefined;
+    this.deps.ephemeral?.delete(warm.sessionId);
     return warm;
   }
 
@@ -541,6 +544,8 @@ export class HostManager {
     this.warm = undefined;
     clearTimeout(warm.timer);
     void warm.warm.then((w) => w.close()).catch(() => {});
+    // Its registry entry stays until the process has exited.
+    setTimeout(() => this.deps.ephemeral?.delete(warm.sessionId), 30_000).unref?.();
   }
 
   private async spawn(config: Omit<HostConfig, 'env' | 'claudePath' | 'canUseTool'>, warm?: Warm): Promise<SessionHost> {

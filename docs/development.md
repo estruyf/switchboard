@@ -42,6 +42,16 @@ Packaging and signing are covered in [Building, signing and notarisation](buildi
 
 Screenshots and `result.json` go to `apps/desktop/.smoke`. Set `SWITCHBOARD_COLOR_SCHEME=light` or `dark` to force a colour scheme for a run without saving it.
 
+### README screenshots
+
+```bash
+npm run screenshots
+```
+
+Builds the app and takes the screenshots in the README, in light and dark mode, into `docs/screenshots`. It runs against a made-up home folder (`apps/desktop/scripts/screenshot-demo.ts`): a few small git projects, their Claude Code sessions, and two sleeping processes in the live registry that stand in for sessions working and waiting in a terminal. `HOME` and `CLAUDE_CONFIG_DIR` both point there, so your own projects and transcripts never show up, and Claude Code finds no login, so nothing is sent. `apps/desktop/src/main/screenshotTour.ts` walks through the views; `scripts/screenshot-frame.mjs` puts each one in a window frame on a backdrop. The unframed captures stay in `apps/desktop/.screenshots`.
+
+Run it again after a visible UI change. To add a view, add a step to the tour and the image to the README.
+
 Tests that call the real Claude Code (a few cents of Haiku each) are opt-in and need a throwaway git repo:
 
 ```bash

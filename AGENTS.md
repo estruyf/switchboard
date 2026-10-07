@@ -30,6 +30,7 @@ npm install
 npm run dev          # Electron + Vite with hot reload
 npm run check        # typecheck every package + unit tests (Vitest)
 npm run smoke        # build, launch the real app with a throwaway profile, drive the UI
+npm run screenshots  # retake the README screenshots in a made-up demo home folder
 npm run dist         # package Switchboard.app and a .dmg
 ```
 

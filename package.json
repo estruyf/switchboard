@@ -13,6 +13,7 @@
     "dev": "npm run dev -w @switchboard/desktop",
     "build": "npm run build -w @switchboard/desktop",
     "smoke": "npm run smoke -w @switchboard/desktop",
+    "screenshots": "npm run screenshots -w @switchboard/desktop",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "test": "vitest run",
     "check": "npm run typecheck && npm run test",
