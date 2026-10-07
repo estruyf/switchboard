@@ -2,27 +2,16 @@
 
 All notable changes to Switchboard are listed here. Each release is also on the [releases page](https://github.com/estruyf/switchboard/releases), with the `.dmg` to download.
 
-## [Unreleased]
-
-### New
-
-- **Prompt history.** Press ↑ on the first line of the message box to bring back an earlier message, edit it and send it again, as in Claude Code. ↓ goes forward again, and past the newest message (or with Esc) what you were typing comes back. In a session it's your messages there; in New session, the first prompts of your sessions in the picked project.
-- **See what runs in the background.** Click the green background pill above the message box to list what Claude keeps running after its turn: shell commands, agents and workflows, with how long each has run. **Stop** ends one without stopping Claude.
-- **Rename a session.** Right-click it in the sidebar and choose **Rename…** (or press F2), or use **Rename…** in the session's ⋯ menu. Claude Code shows the new name too, in `claude --resume`.
-- **Long messages take less room.** Your messages and commands in the conversation show their first two lines. **Show more** opens the whole message and **Show less** shortens it again. Find in session opens a message when a match is in the hidden part.
-
-### Fixed
-
-- **Project menus close together.** Clicking outside the project filter now also closes the ⋯ menu of a project you opened from it.
-- **New skills show up in the / menu right away.** A skill you add while Switchboard runs, or one a session writes for you, is listed in the message box once Claude's turn ends, in that session, in other sessions of the same Claude profile and in New session. Before, it only appeared after a restart.
-- **Skills no longer fill the conversation.** When Claude uses a skill, you see one "Use the … skill" step. The skill's full instructions, which are meant for Claude only, no longer show up as a message from you.
-
 ## [0.0.8] - 2026-10-07
 
 ### New
 
 - **Focus limit.** Set how many sessions you want going at the same time in **Settings → Focus** (off by default). A counter in the sidebar shows where you stand, and a click lists what is going, with what needs you first. At the limit, New session lists those sessions and asks before you start another: **Nudge** lets you go ahead, **Strict** waits until you finish, read or archive one. Resuming, forking, prompt actions and Claude in the terminal ask the same way; answering a session that already counts never does.
 - **Save for later.** At the focus limit, park a prompt with its project and settings instead of starting it. Saved prompts are in a **Later** group in the sidebar and under **Later in <project>** in New session; pick one to fill in New session again. Saving and removing can be undone.
+- **Prompt history.** Press ↑ on the first line of the message box to bring back an earlier message, edit it and send it again, as in Claude Code. ↓ goes forward again, and past the newest message (or with Esc) what you were typing comes back. In a session it's your messages there; in New session, the first prompts of your sessions in the picked project.
+- **See what runs in the background.** Click the green background pill above the message box to list what Claude keeps running after its turn: shell commands, agents and workflows, with how long each has run. **Stop** ends one without stopping Claude.
+- **Rename a session.** Right-click it in the sidebar and choose **Rename…** (or press F2), or use **Rename…** in the session's ⋯ menu. Claude Code shows the new name too, in `claude --resume`.
+- **Long messages take less room.** Your messages and commands in the conversation show their first two lines. **Show more** opens the whole message and **Show less** shortens it again. Find in session opens a message when a match is in the hidden part.
 
 ### Improved
 
@@ -35,6 +24,9 @@ All notable changes to Switchboard are listed here. Each release is also on the 
 
 ### Fixes
 
+- **Project menus close together.** Clicking outside the project filter now also closes the ⋯ menu of a project you opened from it.
+- **New skills show up in the / menu right away.** A skill you add while Switchboard runs, or one a session writes for you, is listed in the message box once Claude's turn ends, in that session, in other sessions of the same Claude profile and in New session. Before, it only appeared after a restart.
+- **Skills no longer fill the conversation.** When Claude uses a skill, you see one "Use the … skill" step. The skill's full instructions, which are meant for Claude only, no longer show up as a message from you.
 - **Fetch, Pull, Push and project actions show what they run.** Their terminal tab starts with the command and ends with a **Done** line (or the exit code), so a command that prints nothing, like a fetch with nothing new, no longer looks like it never ran.
 - **A finished terminal tab says so.** The cursor no longer blinks as if you could type, and Esc closes the tab.
 - **Stop and Restart for actions always respond.** They moved into a strip above the terminal that shows the command, how long it has run and where. You can reach them with Tab, and Restart also works while the command is still running.
