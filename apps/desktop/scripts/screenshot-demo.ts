@@ -1,7 +1,8 @@
 /**
  * Builds the made-up world the README screenshots are taken in: a home folder with a few small git
- * projects and a Claude Code config folder holding their sessions. Nothing here is real data; the app
- * runs with HOME pointed at this folder, so it never sees the user's own projects or transcripts.
+ * projects and two Claude Code config folders holding their sessions, a personal login (~/.claude) and a
+ * work one (~/.claude-work) that the tour adds as a second Claude profile. Nothing here is real data; the
+ * app runs with HOME pointed at this folder, so it never sees the user's own projects or transcripts.
  */
 import { execFileSync, spawn, type ChildProcess } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
@@ -131,6 +132,13 @@ class Transcript {
     // The file's time is when the conversation last moved, as it would be for a real one.
     utimesSync(file, new Date(this.last), new Date(this.last));
   }
+}
+
+/** A config folder as Claude Code leaves it after `/login`: the account it signed in with (no credentials). */
+function configFolder(dir: string, email: string, organization: string): void {
+  mkdirSync(join(dir, 'sessions'), { recursive: true });
+  writeFileSync(join(dir, 'settings.json'), '{}\n');
+  writeFileSync(join(dir, '.claude.json'), `${JSON.stringify({ oauthAccount: { emailAddress: email, organizationName: organization } }, null, 2)}\n`);
 }
 
 const numbered = (text: string) =>
@@ -276,11 +284,13 @@ export function invoiceTotal(items: LineItem[], taxRate: number): number {
 
 export function createDemoWorld(): DemoWorld {
   const home = realpathSync(mkdtempSync(join(tmpdir(), 'switchboard-demo-')));
+  // Personal projects run on the personal login, payments-api on the work one.
   const configDir = join(home, '.claude');
+  const workConfigDir = join(home, '.claude-work');
   const dev = join(home, 'Developer');
   const now = Date.now();
-  mkdirSync(join(configDir, 'sessions'), { recursive: true });
-  writeFileSync(join(configDir, 'settings.json'), '{}\n');
+  configFolder(configDir, 'you@example.com', 'Personal');
+  configFolder(workConfigDir, 'you@company.example', 'Company');
 
   const acme = join(dev, 'acme-store');
   repo(
@@ -378,14 +388,14 @@ export function createDemoWorld(): DemoWorld {
     .say('Found it: tax is added to the subtotal as a fraction of a cent and never rounded, so `59.97 × 1.21` ends up as `7256.37` cents. I\'ll round the tax per invoice, half up, and add the PAY-212 case as a test.')
     .tool('Edit', { file_path: `${payments}/src/invoice.ts`, old_string: '  return subtotal + subtotal * taxRate;', new_string: '  const tax = Math.round(subtotal * taxRate);\n  return subtotal + tax;' }, `The file ${payments}/src/invoice.ts has been updated.`)
     .pending('Bash', { command: 'npx vitest run src/invoice.test.ts', description: 'Run the invoice tests' });
-  working.write(configDir, 'Fix rounding in invoice totals');
+  working.write(workConfigDir, 'Fix rounding in invoice totals');
 
   // Also in a terminal: waiting for permission to install a package.
   const needsYou = new Transcript(payments, 'chore/stripe-18', now - 14 * MINUTE)
     .user('Upgrade the Stripe SDK to v18 and fix whatever breaks.')
     .tool('Read', { file_path: `${payments}/package.json` }, numbered('{\n  "name": "payments-api",\n  "dependencies": {\n    "stripe": "^17.4.0"\n  }\n}'))
     .pending('Bash', { command: 'npm install stripe@^18.0.0', description: 'Install Stripe SDK v18' }, "v18 changes how API versions are pinned. I'll install it first, then go through the type errors.");
-  needsYou.write(configDir, 'Upgrade Stripe SDK to v18');
+  needsYou.write(workConfigDir, 'Upgrade Stripe SDK to v18');
 
   // Older, finished sessions across the projects, so the list has some history.
   const history: Array<[string, string, string, number, string, string]> = [
@@ -401,19 +411,19 @@ export function createDemoWorld(): DemoWorld {
       .user(prompt)
       .tool('Grep', { pattern: title.split(' ').at(-1)!.toLowerCase(), path: `${cwd}/src` }, 'Found 3 files')
       .say(answer);
-    t.write(configDir, title);
+    t.write(cwd === payments ? workConfigDir : configDir, title);
   }
 
   // Claude Code's live registry: one entry per running process. A sleeping process stands in for each.
   const sleepers: ChildProcess[] = [];
-  const live = (sessionId: string, cwd: string, status: string, startedAt: number) => {
+  const live = (sessionId: string, cwd: string, status: string, startedAt: number, registry = configDir) => {
     const child = spawn('sleep', ['600'], { stdio: 'ignore' });
     sleepers.push(child);
     const entry = { pid: child.pid, sessionId, cwd, startedAt, version: VERSION, kind: 'interactive', entrypoint: 'cli', status, statusUpdatedAt: now, updatedAt: now };
-    writeFileSync(join(configDir, 'sessions', `${child.pid}.json`), JSON.stringify(entry));
+    writeFileSync(join(registry, 'sessions', `${child.pid}.json`), JSON.stringify(entry));
   };
-  live(working.id, payments, 'busy', now - 9 * MINUTE);
-  live(needsYou.id, payments, 'waiting_for_permission', now - 14 * MINUTE);
+  live(working.id, payments, 'busy', now - 9 * MINUTE, workConfigDir);
+  live(needsYou.id, payments, 'waiting_for_permission', now - 14 * MINUTE, workConfigDir);
 
   return {
     home,

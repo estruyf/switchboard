@@ -1,4 +1,5 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
+import { homedir } from 'node:os';
 import { join } from 'node:path';
 import type { BrowserWindow } from 'electron';
 import { setFieldValue, waitInPage } from './pageDriver.ts';
@@ -52,6 +53,25 @@ export async function runScreenshotTour(win: BrowserWindow, outDir: string, hook
   win.center();
   await need("document.querySelector('[data-session-id]')", 'the sidebar listed no sessions', 15_000);
 
+  // Add the work login as a second Claude profile (the demo world's ~/.claude-work), as someone would in
+  // Settings. Its sessions join the list, and every session shows which account it runs on.
+  await click('[data-open-settings]');
+  await need("document.querySelector('[data-settings-section=\"profiles\"]')", 'Settings did not open');
+  await click('[data-settings-section="profiles"]');
+  await need("document.querySelector('[data-add-profile]')", 'no Add profile button');
+  await click('[data-add-profile]');
+  await need("document.querySelector('[data-new-profile-folder]')", 'the add profile form did not open');
+  await setFieldValue(win, '[data-new-profile-name]', 'Work');
+  await setFieldValue(win, '[data-new-profile-folder]', join(homedir(), '.claude-work'));
+  await click('[data-add-profile-submit]');
+  await need("document.querySelectorAll('[data-profiles] [data-profile]').length === 2", 'the Work profile was not added');
+  await click('[data-close-settings]');
+  await need(
+    "[...document.querySelectorAll('[data-session-id]')].some((el) => el.innerText.includes('Fix rounding') && el.querySelector('[data-profile-badge]'))",
+    'the Work profile’s sessions did not show up',
+    15_000,
+  );
+
   // Add the demo projects, as someone would on first launch.
   await click('[data-open-projects]');
   await click('[data-manager-add]');
@@ -72,8 +92,9 @@ export async function runScreenshotTour(win: BrowserWindow, outDir: string, hook
     // Home: what needs you, what is working, and the projects.
     await click('[data-go-home]');
     await need("document.querySelector('[data-home]')", 'Home did not open');
-    // The demo home has no Claude login, so its usage card could only say it has no numbers.
-    await js("document.querySelector('[data-home-profiles]')?.style.setProperty('display', 'none')");
+    // The demo logins have no credentials, so the profile cards could only say their usage is unavailable.
+    await need("document.querySelectorAll('[data-home-profile]').length === 2", 'Home did not show both profiles');
+    await js("document.querySelectorAll('[data-home-profile] [data-usage-status]').forEach((el) => el.style.setProperty('display', 'none'))");
     await shot(`home-${scheme}`);
 
     // A finished session with its Changes panel and the first diff open.
