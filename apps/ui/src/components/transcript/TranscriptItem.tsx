@@ -3,6 +3,7 @@ import { memo, useId, useState, type ReactNode } from 'react';
 import { useOpenIn } from '../OpenInButton.tsx';
 import { DiffView } from './DiffView.tsx';
 import { ActivityGroupView } from './ActivityGroup.tsx';
+import { ClampedPrompt } from './ClampedPrompt.tsx';
 import type { RenderItem } from './displayItems.ts';
 import { Markdown } from './Markdown.tsx';
 import { MessageToolbar } from './messageActions.tsx';
@@ -227,9 +228,9 @@ export const TranscriptItem = memo(function TranscriptItem({
             {!item.subagent && <MessageToolbar itemKey={item.key} kind="user" text={item.text} />}
             {/* Your prompts render as Markdown too, so code and code blocks are styled. */}
             {item.text && (
-              <div className="text-body [&_p]:whitespace-pre-wrap [&_p:first-child]:mt-0 [&_p:last-child]:mb-0">
+              <ClampedPrompt itemKey={item.key} className="text-body [&_p]:whitespace-pre-wrap [&_p:first-child]:mt-0 [&_p:last-child]:mb-0">
                 <Markdown text={item.text} />
-              </div>
+              </ClampedPrompt>
             )}
             {item.images.length > 0 && (
               <div className={`flex flex-wrap justify-end gap-2 ${item.text ? 'mt-2' : ''}`}>
@@ -245,10 +246,12 @@ export const TranscriptItem = memo(function TranscriptItem({
       return (
         // A prompt card like your other messages: the command as a chip, then everything you wrote after it.
         <div className="flex justify-end" data-command-item>
-          <div className="max-w-[80%] min-w-0 rounded-xl border border-border bg-card px-3.5 py-2.5 text-body whitespace-pre-wrap [overflow-wrap:anywhere]">
+          <div className="max-w-[80%] min-w-0 rounded-xl border border-border bg-card px-3.5 py-2.5">
             <Speaker name="You ran a command" />
-            <span className="mr-1.5 rounded bg-accent/15 px-1.5 py-0.5 font-mono text-ui text-accent-ink [box-decoration-break:clone]">{item.name}</span>
-            {item.args}
+            <ClampedPrompt itemKey={item.key} className="text-body whitespace-pre-wrap [overflow-wrap:anywhere]">
+              <span className="mr-1.5 rounded bg-accent/15 px-1.5 py-0.5 font-mono text-ui text-accent-ink [box-decoration-break:clone]">{item.name}</span>
+              {item.args}
+            </ClampedPrompt>
           </div>
         </div>
       );

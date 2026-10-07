@@ -641,6 +641,7 @@ let openInResult: string = 'not run';
 let gitResult: string = 'not run';
 let searchResult = 'not run';
 let findResult = 'not run';
+let longPromptResult = 'not run';
 let paletteResult = 'not run';
 let toolsResult = 'not run';
 let splitResult = 'not run';
@@ -1761,6 +1762,28 @@ async function runFindStep(win: BrowserWindow): Promise<string> {
   return `ok: "${word}" found ${total}× (started at ${at}), highlighted, Enter stepped to the next, Escape closed it`;
 }
 
+/** A long prompt shows two lines, Show more opens it and Show less closes it again. Read-only. */
+async function runLongPromptStep(win: BrowserWindow): Promise<string> {
+  const js = (code: string) => win.webContents.executeJavaScript(code);
+  const row = "document.querySelector('[data-transcript-item]:has([data-prompt-toggle])')";
+  const found = (await js(`(() => { const row = ${row}; if (!row) return null; row.dataset.smokeLongPrompt = '1'; return true; })()`)) as boolean | null;
+  if (!found) return 'ok: no long prompt on screen';
+  const target = "document.querySelector('[data-smoke-long-prompt]')";
+  // A prompt that mounts open (Show less) is closed first, so the check starts from the cut.
+  if (await js(`${target}.querySelector('[data-prompt-toggle]').getAttribute('aria-expanded') === 'true'`)) await js(`${target}.querySelector('[data-prompt-toggle]').click()`);
+  if (!(await waitInPage(win, `!!${target}?.querySelector('[data-prompt-clamped]')`, 3_000))) return 'the long prompt is not cut';
+  const lines = (await js(
+    `(() => { const el = ${target}.querySelector('[data-prompt-clamped]'); return Math.round(el.clientHeight / parseFloat(getComputedStyle(el).lineHeight)); })()`,
+  )) as number;
+  if (lines !== 2) return `the cut prompt shows ${lines} lines, expected 2`;
+  await js(`${target}.querySelector('[data-prompt-toggle]').click()`);
+  if (!(await waitInPage(win, `!${target}?.querySelector('[data-prompt-clamped]') && ${target}?.querySelector('[data-prompt-toggle]')?.innerText.trim() === 'Show less'`, 3_000))) return 'Show more did not open the prompt';
+  await js(`${target}.querySelector('[data-prompt-toggle]').click()`);
+  if (!(await waitInPage(win, `!!${target}?.querySelector('[data-prompt-clamped]')`, 3_000))) return 'Show less did not cut the prompt again';
+  await js(`delete ${target}.dataset.smokeLongPrompt`);
+  return 'ok: a long prompt shows 2 lines, Show more opens it, Show less cuts it again';
+}
+
 async function runSearchStep(win: BrowserWindow): Promise<string> {
   const js = (code: string) => win.webContents.executeJavaScript(code);
   win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'F', modifiers: ['meta', 'shift'] });
@@ -2379,6 +2402,7 @@ async function runSmokeStep(win: BrowserWindow | null): Promise<void> {
     openInResult = await runOpenInStep(win).catch((error: Error) => `failed: ${error.message}`);
     gitResult = await runGitStep(win).catch((error: Error) => `failed: ${error.message}`);
     findResult = await runFindStep(win).catch((error: Error) => `failed: ${error.message}`);
+    longPromptResult = await runLongPromptStep(win).catch((error: Error) => `failed: ${error.message}`);
     searchResult = await runSearchStep(win).catch((error: Error) => `failed: ${error.message}`);
     paletteResult = await runPaletteStep(win).catch((error: Error) => `failed: ${error.message}`);
     toolsResult = await runToolsStep(win).catch((error: Error) => `failed: ${error.message}`);
@@ -2443,6 +2467,7 @@ async function runSmokeStep(win: BrowserWindow | null): Promise<void> {
         gitResult,
         searchResult,
         findResult,
+        longPromptResult,
         paletteResult,
         toolsResult,
         splitResult,

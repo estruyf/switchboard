@@ -42,6 +42,7 @@ import { liveLabel, StatusDot } from '../StatusDot.tsx';
 import { formatDuration, useTicker, WorkingDots } from './ActivityGroup.tsx';
 import { BackgroundTaskList } from './BackgroundTaskList.tsx';
 import { backgroundSummary } from './backgroundTasks.ts';
+import { PromptExpansionContext, type PromptExpansion } from './ClampedPrompt.tsx';
 import { buildDisplayItems, groupActivity, type RenderItem } from './displayItems.ts';
 import { FindBar } from './FindBar.tsx';
 import { findMatches, searchableText, startMatch } from './findInSession.ts';
@@ -452,6 +453,24 @@ export function TranscriptView({ sessionId, pane = null, active = true }: { sess
     setFindCurrent((current) => (current + direction + matches.length) % matches.length);
     revealCurrent.current = true;
   };
+  // Long prompts show two lines until you open them; find opens the one its current match is in.
+  const [openPrompts, setOpenPrompts] = useState<ReadonlySet<string>>(() => new Set());
+  const promptExpansion = useMemo<PromptExpansion>(
+    () => ({
+      isOpen: (key) => openPrompts.has(key),
+      toggle: (key) =>
+        setOpenPrompts((open) => {
+          const next = new Set(open);
+          if (!next.delete(key)) next.add(key);
+          return next;
+        }),
+    }),
+    [openPrompts],
+  );
+  const findKey = findCurrent >= 0 ? (renderItems[matches[findCurrent]?.index ?? -1]?.key ?? null) : null;
+  useEffect(() => {
+    if (findKey && !openPrompts.has(findKey)) setOpenPrompts((open) => new Set(open).add(findKey));
+  }, [findKey]);
   useEffect(() => {
     const match = matches[findCurrent];
     if (match && revealCurrent.current) {
@@ -473,7 +492,10 @@ export function TranscriptView({ sessionId, pane = null, active = true }: { sess
   };
   useEffect(() => () => clearFindHighlights(findOwner), [findOwner]);
   // Another session in this pane starts without a search.
-  useEffect(() => closeFind(), [sessionId]);
+  useEffect(() => {
+    closeFind();
+    setOpenPrompts(new Set());
+  }, [sessionId]);
 
   // Fork, edit and rewind from a message.
   const [initialText] = useState(() => {
@@ -732,6 +754,7 @@ export function TranscriptView({ sessionId, pane = null, active = true }: { sess
             />
           )}
           <MessageActionsContext.Provider value={messageActions}>
+          <PromptExpansionContext.Provider value={promptExpansion}>
             <div
               ref={scrollRef}
               onScroll={onScroll}
@@ -775,6 +798,7 @@ export function TranscriptView({ sessionId, pane = null, active = true }: { sess
               )}
               <StreamingBlock sessionId={sessionId} since={turnStart} showIndicator={activeGroupKey === null} />
             </div>
+          </PromptExpansionContext.Provider>
           </MessageActionsContext.Provider>
           <Announcer sessionId={sessionId} working={working} failed={host?.state === 'error'} permissions={permissions} cwd={cwd} />
 
