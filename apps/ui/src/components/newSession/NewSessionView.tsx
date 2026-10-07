@@ -23,6 +23,7 @@ import { FocusNote } from '../focus/FocusNote.tsx';
 import { LaterSection } from '../focus/LaterSection.tsx';
 import { useMinute } from '../focus/useMinute.ts';
 import { ComposerChipRow } from '../composer/ComposerChips.tsx';
+import { projectHistory } from '../composer/promptHistory.ts';
 import { Checkbox } from '../ui/Checkbox.tsx';
 import { Button } from '../ui/Button.tsx';
 import { Kbd } from '../ui/Kbd.tsx';
@@ -362,6 +363,8 @@ export function NewSessionView() {
   };
 
   const pickUp = useMemo(() => (cwd ? pickUpRows(rows, cwd, Date.now()) : []), [rows, cwd]);
+  /** The first prompts of your sessions in this project, for ↑ in the message box. */
+  const promptHistory = useMemo(() => (cwd ? projectHistory(sessions.values(), cwd) : []), [sessions, cwd]);
 
   /** The prompt with this folder and these choices, for the Later list. Images stay behind. */
   const laterDraft = (text: string): LaterDraft | null =>
@@ -694,6 +697,7 @@ export function NewSessionView() {
 
             <Composer
               initialText={initialText}
+              history={promptHistory}
               onTextChange={setDraftPrompt}
               cwd={cwd}
               commands={commands}

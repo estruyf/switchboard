@@ -17,6 +17,7 @@ import { useTerminals } from '../../state/terminalsStore.ts';
 // xterm.js is large; it loads the first time a terminal panel opens, not at startup.
 const TerminalPanel = lazy(() => import('../terminal/TerminalPanel.tsx').then((m) => ({ default: m.TerminalPanel })));
 import { Composer } from '../composer/Composer.tsx';
+import { sessionHistory } from '../composer/promptHistory.ts';
 import { ActionPills } from '../actions/ActionPills.tsx';
 import { useActionsMenu } from '../actions/useActionsMenu.tsx';
 import { CapabilitiesDialog } from '../capabilities/CapabilitiesDialog.tsx';
@@ -204,6 +205,8 @@ export function TranscriptView({ sessionId, pane = null, active = true }: { sess
     }
   }, [actionTerminals, sessionId]);
   const items = useMemo(() => buildDisplayItems(messages), [messages]);
+  /** Your earlier messages here, for ↑ in the message box. */
+  const promptHistory = useMemo(() => sessionHistory(items), [items]);
   const toolActivity = usePreferences((s) => s.prefs.toolActivity);
   const renderItems = useMemo<RenderItem[]>(() => (toolActivity === 'summary' ? groupActivity(items) : items), [items, toolActivity]);
   const [commands, setCommands] = useState<SlashCommand[]>([]);
@@ -880,6 +883,7 @@ export function TranscriptView({ sessionId, pane = null, active = true }: { sess
               {actionsMenu.overlays}
               <Composer
                 initialText={initialText}
+                history={promptHistory}
                 cwd={cwd}
                 commands={commands}
                 running={running}
