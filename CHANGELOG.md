@@ -14,6 +14,7 @@ All notable changes to Switchboard are listed here. Each release is also on the 
 
 - **Project menus close together.** Clicking outside the project filter now also closes the ⋯ menu of a project you opened from it.
 - **New skills show up in the / menu right away.** A skill you add while Switchboard runs, or one a session writes for you, is listed in the message box once Claude's turn ends, in that session, in other sessions of the same Claude profile and in New session. Before, it only appeared after a restart.
+- **Skills no longer fill the conversation.** When Claude uses a skill, you see one "Use the … skill" step. The skill's full instructions, which are meant for Claude only, no longer show up as a message from you.
 
 ## [0.0.8] - 2026-10-07
 

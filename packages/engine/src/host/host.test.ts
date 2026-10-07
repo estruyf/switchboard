@@ -83,6 +83,11 @@ class FakeQuery {
         state('running');
         assistant(`${result.behavior}${'updatedPermissions' in result && result.updatedPermissions ? '+always' : ''}`);
       } else {
+        if (text === 'skill') {
+          // Claude Code answers the Skill tool, then adds the skill's instructions as a synthetic message.
+          this.out.push({ type: 'user', uuid: 'u-launch', parent_tool_use_id: null, session_id: sessionId, message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'skill-1', content: 'Launching skill: deploy' }] } });
+          this.out.push({ type: 'user', uuid: 'u-skill-body', parent_tool_use_id: null, isSynthetic: true, session_id: sessionId, message: { role: 'user', content: [{ type: 'text', text: 'Base directory for this skill: /skills/deploy' }] } });
+        }
         this.out.push({ type: 'stream_event', parent_tool_use_id: null, event: { type: 'content_block_start', content_block: { type: 'text' } } });
         for (const chunk of ['Hel', 'lo']) {
           this.out.push({ type: 'stream_event', parent_tool_use_id: null, event: { type: 'content_block_delta', delta: { type: 'text_delta', text: chunk } } });
@@ -212,6 +217,16 @@ describe('HostManager', () => {
     expect(t.messages.flatMap((m) => m.messages.map((x) => x.uuid))).toContain('a-Hello');
     expect(t.infos.at(-1)).toMatchObject({ model: 'fake-model', costUsd: 0.01, contextPercent: 12 });
     await expect(t.manager.commands(id, undefined, 'default')).resolves.toEqual([{ name: 'review', description: 'Review the diff', argumentHint: '' }]);
+    t.manager.closeAll();
+  });
+
+  it('keeps a loaded skill\'s instructions out of the conversation', async () => {
+    const t = setup();
+    const id = await t.manager.create({ ...base, cwd: '/w', prompt: 'skill' });
+    await until(() => lastState(t.infos, id) === 'idle');
+    const uuids = t.messages.flatMap((m) => m.messages.map((x) => x.uuid));
+    expect(uuids).toContain('u-launch');
+    expect(uuids).not.toContain('u-skill-body');
     t.manager.closeAll();
   });
 

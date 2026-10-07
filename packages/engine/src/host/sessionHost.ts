@@ -359,8 +359,10 @@ export class SessionHost {
         this.events.messages(this.sessionId, [toRaw(message)]);
         this.pushStream('clear', '');
         return;
+      // Synthetic messages are what Claude Code adds for the model only (a loaded skill's
+      // instructions, compact summaries). The transcript readers leave them out, so live does too.
       case 'user':
-        if (message.parent_tool_use_id !== null || ('isReplay' in message && message.isReplay)) return;
+        if (message.parent_tool_use_id !== null || ('isReplay' in message && message.isReplay) || message.isSynthetic) return;
         this.events.messages(this.sessionId, [toRaw(message)]);
         return;
       case 'result':
