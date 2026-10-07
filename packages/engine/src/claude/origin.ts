@@ -1,4 +1,5 @@
 import { closeSync, fstatSync, openSync, readSync } from 'node:fs';
+import { StringDecoder } from 'node:string_decoder';
 import type { SessionOrigin } from '@switchboard/protocol';
 
 /** Maps Claude Code's `entrypoint` value to a coarse origin for badges. */
@@ -12,21 +13,51 @@ export function originFromEntrypoint(entrypoint: string | null | undefined): Ses
   return 'unknown';
 }
 
-const HEAD_BYTES = 64 * 1024;
+const HEAD_CHUNK = 64 * 1024;
+/** Images pasted into the first prompt can make its record megabytes long; give up past this. */
+const HEAD_MAX = 32 * 1024 * 1024;
+
+export interface TranscriptHead {
+  entrypoint: string | null;
+  cwd: string | null;
+}
 
 /**
- * Reads the `entrypoint` recorded in a transcript's first records. Only the
- * head of the file is read, so this stays cheap for very large transcripts.
+ * Reads the `entrypoint` and `cwd` recorded in a transcript's first records.
+ * Claude Code writes them after the message, so a first prompt with a pasted
+ * image pushes them past the 64 KB the SDK's `listSessions` looks at (it then
+ * reports no `cwd`). This reads whole lines until it has both, in chunks, so it
+ * stays cheap for ordinary transcripts.
  */
-export function readEntrypoint(path: string): string | null {
+export function readHead(path: string): TranscriptHead {
+  const head: TranscriptHead = { entrypoint: null, cwd: null };
   let fd: number | undefined;
   try {
     fd = openSync(path, 'r');
-    const buffer = Buffer.alloc(HEAD_BYTES);
-    const bytes = readSync(fd, buffer, 0, HEAD_BYTES, 0);
-    return /"entrypoint":"([^"]+)"/.exec(buffer.toString('utf8', 0, bytes))?.[1] ?? null;
+    const decoder = new StringDecoder('utf8');
+    const buffer = Buffer.alloc(HEAD_CHUNK);
+    let pending = '';
+    for (let offset = 0; offset < HEAD_MAX; ) {
+      const bytes = readSync(fd, buffer, 0, HEAD_CHUNK, offset);
+      if (bytes === 0) break;
+      offset += bytes;
+      const lines = (pending + decoder.write(buffer.subarray(0, bytes))).split('\n');
+      pending = lines.pop()!;
+      for (const line of lines) {
+        if (!line.includes('"cwd"') && !line.includes('"entrypoint"')) continue;
+        try {
+          const record = JSON.parse(line) as { cwd?: unknown; entrypoint?: unknown };
+          if (!head.cwd && typeof record.cwd === 'string' && record.cwd) head.cwd = record.cwd;
+          if (!head.entrypoint && typeof record.entrypoint === 'string' && record.entrypoint) head.entrypoint = record.entrypoint;
+        } catch {
+          // A foreign or partial line; keep looking.
+        }
+        if (head.cwd && head.entrypoint) return head;
+      }
+    }
+    return head;
   } catch {
-    return null;
+    return head;
   } finally {
     if (fd !== undefined) closeSync(fd);
   }

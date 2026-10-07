@@ -19,6 +19,7 @@ All notable changes to Switchboard are listed here. Each release is also on the 
 - **Stop and Restart for actions always respond.** They moved into a strip above the terminal that shows the command, how long it has run and where. You can reach them with Tab, and Restart also works while the command is still running.
 - The right-click menu of a session no longer offers **Remove from Switchboard**, which removed the project and was easy to mistake for deleting the session. It is still in the project menus and in Projects.
 - With **Show sessions from other apps** on, opening New session no longer adds a session named after the project that runs in the background for a couple of minutes.
+- A session whose first prompt has a pasted image is listed under its project, with the project's icon, instead of under **Unknown folder**.
 
 ## [0.0.7] - 2026-10-07
 

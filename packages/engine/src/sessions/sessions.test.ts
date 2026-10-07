@@ -82,6 +82,15 @@ describe('SessionIndex', () => {
     expect(sessions[0]!.origin).toBe('unknown');
   });
 
+  it('reads the folder from the transcript when the SDK reports none', async () => {
+    // A first prompt with a pasted image pushes `cwd` past the head the SDK reads.
+    const { index, projectsDir } = setup([info(ID_A, { cwd: undefined })]);
+    const user = { type: 'user', message: { content: 'x'.repeat(200_000) }, entrypoint: 'sdk-ts', cwd: '/work/app' };
+    writeFileSync(join(projectsDir, '-repo', `${ID_A}.jsonl`), `${JSON.stringify(user)}\n`);
+    await index.refresh();
+    expect(index.get(ID_A)).toMatchObject({ cwd: '/work/app', projectRoot: '/work/app', origin: 'sdk' });
+  });
+
   it('only emits what changed on later refreshes', async () => {
     const { index, changes, infos } = setup([info(ID_A), info(ID_B)]);
     await index.refresh();

@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, readdirSync, statSync, watch, type FSWatcher } f
 import { dirname, join } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 import { BUILTIN_PROFILE_ID, type LogLevel, type SessionsChanged, type SessionSummary } from '@switchboard/protocol';
-import { originFromEntrypoint, readEntrypoint, readLastActivity } from '../claude/origin.ts';
+import { originFromEntrypoint, readHead, readLastActivity, type TranscriptHead } from '../claude/origin.ts';
 import type { ProjectResolver } from '../claude/projectResolver.ts';
 import type { RawSessionInfo, SessionSource } from '../claude/sessionSource.ts';
 import { coalesce } from '../util/coalesce.ts';
@@ -340,8 +340,12 @@ export class SessionIndex {
   }
 
   private build(info: RawSessionInfo, file: TranscriptFile | null, previous: Entry | undefined): Entry {
-    const entrypoint = previous?.entrypoint ?? (file ? readEntrypoint(file.path) : null);
-    const cwd = info.cwd ?? null;
+    // Read the head ourselves only when needed: the SDK misses the folder when the first prompt is
+    // huge (a pasted image), and the session would then be filed under "Unknown folder".
+    let head: TranscriptHead | undefined;
+    const readOnce = () => (head ??= file ? readHead(file.path) : { entrypoint: null, cwd: null });
+    const entrypoint = previous?.entrypoint ?? readOnce().entrypoint;
+    const cwd = info.cwd ?? previous?.summary.cwd ?? readOnce().cwd;
     const location = cwd ? this.options.resolver.resolve(cwd) : null;
     const title = oneLine(info.customTitle || info.summary || info.firstPrompt || 'Untitled session', TITLE_MAX);
     // The SDK's lastModified is the file's mtime, which moves when Claude Code merely exits or

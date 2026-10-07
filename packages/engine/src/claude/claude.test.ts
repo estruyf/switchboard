@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { LiveRegistry, normaliseStatus, parseRegistryEntry } from './liveRegistry.ts';
-import { originFromEntrypoint, readEntrypoint, readLastActivity } from './origin.ts';
+import { originFromEntrypoint, readHead, readLastActivity } from './origin.ts';
 import { createProjectResolver } from './projectResolver.ts';
 import { clipJson, LIMITS, normaliseMessage } from './transcript.ts';
 
@@ -142,11 +142,20 @@ describe('origin', () => {
     expect(originFromEntrypoint(null)).toBe('unknown');
   });
 
-  it('reads the entrypoint from the head of a transcript', () => {
+  it('reads the entrypoint and folder from the head of a transcript', () => {
     const file = join(tempDir(), 's.jsonl');
     writeFileSync(file, '{"type":"queue-operation"}\n{"type":"user","entrypoint":"cli","cwd":"/x"}\n');
-    expect(readEntrypoint(file)).toBe('cli');
-    expect(readEntrypoint(join(tempDir(), 'missing.jsonl'))).toBeNull();
+    expect(readHead(file)).toEqual({ entrypoint: 'cli', cwd: '/x' });
+    expect(readHead(join(tempDir(), 'missing.jsonl'))).toEqual({ entrypoint: null, cwd: null });
+  });
+
+  it('finds the folder after a first prompt with a pasted image', () => {
+    // Claude Code writes `cwd` after the message, far past the first 64 KB here.
+    const file = join(tempDir(), 's.jsonl');
+    const image = { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'A'.repeat(300_000) } };
+    const user = { type: 'user', message: { role: 'user', content: [{ type: 'text', text: 'é' }, image] }, entrypoint: 'sdk-ts', cwd: '/work/app' };
+    writeFileSync(file, `{"type":"queue-operation"}\n${JSON.stringify(user)}\n`);
+    expect(readHead(file)).toEqual({ entrypoint: 'sdk-ts', cwd: '/work/app' });
   });
 
   it('reads the last message time, ignoring what Claude Code appends on exit', () => {
