@@ -540,7 +540,8 @@ export function Sidebar() {
         { label: 'Open folder in editor', onSelect: () => cwd && void openIn(cwd).catch(() => {}), disabled: !cwd },
         { label: 'Copy session ID', onSelect: () => void navigator.clipboard.writeText(data.id) },
         'separator',
-        ...projectIcons.entries(data.projectRoot, at),
+        // Removing the project from here read as removing the session; that lives in the project menus.
+        ...projectIcons.entries(data.projectRoot, at, { remove: false }),
         'separator',
         { label: 'Delete session…', hint: '⌘⌫', danger: true, disabled: !data.summary, onSelect: () => setDeleting([data]) },
       ],

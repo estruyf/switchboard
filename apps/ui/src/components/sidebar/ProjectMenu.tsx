@@ -126,7 +126,10 @@ export function manage(root: string | null = null): void {
   useSessions.getState().setView('projects');
 }
 
-/** Menu entries to change a project's icon or remove it, and the emoji picker and remove confirmation they open (`overlays`). */
+/**
+ * Menu entries to change a project's icon or remove it, and the emoji picker and remove confirmation they open (`overlays`).
+ * `remove: false` leaves out "Remove from Switchboard…", for menus about something else (a session).
+ */
 export function useProjectIconEntries() {
   const actions = useProjectActions();
   const projects = useProjects((s) => s.projects);
@@ -136,7 +139,7 @@ export function useProjectIconEntries() {
   const [emojiFor, setEmojiFor] = useState<{ root: string; x: number; y: number } | null>(null);
   const [removing, setRemoving] = useState<string | null>(null);
 
-  const entries = (root: string, at: { x: number; y: number }): MenuEntry[] => {
+  const entries = (root: string, at: { x: number; y: number }, { remove = true }: { remove?: boolean } = {}): MenuEntry[] => {
     const project = projects.get(root);
     const linked = project?.profileId ?? null;
     // Which account new sessions here use; only worth asking once there is more than one.
@@ -172,7 +175,7 @@ export function useProjectIconEntries() {
       ...(project?.added
         ? ([
             { label: 'Project settings…', icon: <FolderCog size={13} />, onSelect: () => manage(root) },
-            { label: 'Remove from Switchboard…', icon: <X size={13} />, danger: true, onSelect: () => setRemoving(root) },
+            ...(remove ? [{ label: 'Remove from Switchboard…', icon: <X size={13} />, danger: true, onSelect: () => setRemoving(root) }] : []),
           ] satisfies MenuEntry[])
         : root.startsWith('/')
           ? [{ label: 'Add to projects', icon: <FolderPlus size={13} />, disabled: !project?.exists, onSelect: () => void actions.add(root) } satisfies MenuEntry]
