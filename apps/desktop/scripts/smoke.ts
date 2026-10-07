@@ -52,6 +52,8 @@ console.log(`${String(result.longPromptResult).startsWith('ok') ? '✓' : '✗'}
 if (!String(result.longPromptResult).startsWith('ok')) process.exitCode = 1;
 console.log(`${String(result.copyMessageResult).startsWith('ok') ? '✓' : '✗'} copy messages: ${result.copyMessageResult}`);
 if (!String(result.copyMessageResult).startsWith('ok')) process.exitCode = 1;
+console.log(`${String(result.draftResult).startsWith('ok') ? '✓' : '✗'} unsent drafts: ${result.draftResult}`);
+if (!String(result.draftResult).startsWith('ok')) process.exitCode = 1;
 console.log(`${String(result.searchResult).startsWith('ok') ? '✓' : '✗'} search: ${result.searchResult}`);
 if (!String(result.searchResult).startsWith('ok')) process.exitCode = 1;
 console.log(`${String(result.paletteResult).startsWith('ok') ? '✓' : '✗'} command palette: ${result.paletteResult}`);

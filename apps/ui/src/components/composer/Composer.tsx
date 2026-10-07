@@ -4,6 +4,7 @@ import type { ImageAttachment, SlashCommand } from '@switchboard/protocol/client
 import { useEngineConnection } from '../../engine/useEngine.ts';
 import { Button } from '../ui/Button.tsx';
 import { attachmentsAfterSend, textAfterSend } from './afterSend.ts';
+import { DraftStore } from './drafts.ts';
 import { dropMessage, dropVerdict, MAX_ATTACHMENTS, mergeAttachments, planDrop, readImage } from './images.ts';
 import { onFirstLine, onLastLine, textareaRows } from './caretLine.ts';
 import { insertMentions, mentionFor } from './mentions.ts';
@@ -23,6 +24,8 @@ interface Palette {
 export interface ComposerProps {
   /** Text to start with (Edit and resend). */
   initialText?: string;
+  /** Keeps what is typed and attached under this key (a session's id), so it's still there after you open another session and come back. */
+  draftKey?: string;
   /** Earlier messages, newest first, that ↑ on the first line brings back. */
   history?: readonly string[];
   /** Replaces the text whenever `seq` changes (a prompt from a `switchboard://` link, or clearing it). */
@@ -68,11 +71,14 @@ function isTypingElsewhere(prompt: HTMLElement): boolean {
   return active.matches('input, textarea, select, [contenteditable]') || !!active.closest('[role=menu], [role=dialog], [role=alertdialog], [role=listbox]');
 }
 
+const drafts = new DraftStore<ImageAttachment>();
+
 export function Composer(props: ComposerProps) {
   const connection = useEngineConnection();
   const client = connection.status === 'connected' ? connection.client : null;
-  const [text, setText] = useState(props.initialText ?? '');
-  const [attachments, setAttachments] = useState<ImageAttachment[]>([]);
+  const [saved] = useState(() => (props.draftKey === undefined ? undefined : drafts.get(props.draftKey)));
+  const [text, setText] = useState(props.initialText ?? saved?.text ?? '');
+  const [attachments, setAttachments] = useState<ImageAttachment[]>(saved?.attachments ?? []);
   const [palette, setPalette] = useState<Palette | null>(null);
   const [sending, setSending] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
@@ -112,6 +118,11 @@ export function Composer(props: ComposerProps) {
 
   const onTextChange = props.onTextChange;
   useEffect(() => onTextChange?.(text), [text, onTextChange]);
+
+  const draftKey = props.draftKey;
+  useEffect(() => {
+    if (draftKey !== undefined) drafts.set(draftKey, { text, attachments });
+  }, [draftKey, text, attachments]);
 
   // Grow with the content up to a limit, then scroll.
   useLayoutEffect(() => {

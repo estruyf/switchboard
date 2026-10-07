@@ -933,6 +933,7 @@ export function TranscriptView({ sessionId, pane = null, active = true }: { sess
               {actionsMenu.overlays}
               <Composer
                 initialText={initialText}
+                draftKey={sessionId}
                 history={promptHistory}
                 cwd={cwd}
                 commands={commands}

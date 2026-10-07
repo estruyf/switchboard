@@ -643,6 +643,7 @@ let searchResult = 'not run';
 let findResult = 'not run';
 let longPromptResult = 'not run';
 let copyMessageResult = 'not run';
+let draftResult = 'not run';
 let paletteResult = 'not run';
 let toolsResult = 'not run';
 let splitResult = 'not run';
@@ -1816,6 +1817,31 @@ async function runCopyMessageStep(win: BrowserWindow): Promise<string> {
   return `ok: Copy and selectable text on ${kinds.map(([kind, { rows }]) => `${rows} ${kind}`).join(', ')} messages`;
 }
 
+/**
+ * An unsent message survives opening another session and coming back. Read-only: nothing is sent, and
+ * the box is emptied again at the end.
+ */
+async function runDraftStep(win: BrowserWindow): Promise<string> {
+  const js = (code: string) => win.webContents.executeJavaScript(code);
+  const draft = 'Smoke draft, not sent';
+  const composer = `document.querySelector('[data-current-session="${smokeSessionId}"] [data-composer]')`;
+  if (!(await waitInPage(win, `!!${composer}`, 3_000))) return 'no message box in the session under test';
+  await setFieldValue(win, `[data-current-session="${smokeSessionId}"] [data-composer]`, draft);
+  const other = (await js(
+    `(() => { const row = [...document.querySelectorAll('[data-session-id]')].find((row) => row.dataset.sessionId !== '${smokeSessionId}'); row?.click(); return row?.dataset.sessionId ?? null; })()`,
+  )) as string | null;
+  if (!other) {
+    await setFieldValue(win, `[data-current-session="${smokeSessionId}"] [data-composer]`, '');
+    return 'ok: only one session, nothing to switch to';
+  }
+  if (!(await waitInPage(win, `document.querySelector('[data-current-session="${other}"] [data-composer]')?.value === ''`, 5_000))) return 'the other session did not open with an empty message box';
+  await js(`document.querySelector('[data-session-id="${smokeSessionId}"]').click()`);
+  if (!(await waitInPage(win, `${composer}?.value === ${JSON.stringify(draft)}`, 5_000))) return `the draft was not kept (${JSON.stringify(await js(`${composer}?.value ?? null`))})`;
+  await setFieldValue(win, `[data-current-session="${smokeSessionId}"] [data-composer]`, '');
+  await waitInPage(win, "document.querySelector('[data-transcript-item]')", 5_000);
+  return 'ok: the unsent message was still there after opening another session and coming back';
+}
+
 async function runSearchStep(win: BrowserWindow): Promise<string> {
   const js = (code: string) => win.webContents.executeJavaScript(code);
   win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'F', modifiers: ['meta', 'shift'] });
@@ -2436,6 +2462,7 @@ async function runSmokeStep(win: BrowserWindow | null): Promise<void> {
     findResult = await runFindStep(win).catch((error: Error) => `failed: ${error.message}`);
     longPromptResult = await runLongPromptStep(win).catch((error: Error) => `failed: ${error.message}`);
     copyMessageResult = await runCopyMessageStep(win).catch((error: Error) => `failed: ${error.message}`);
+    draftResult = await runDraftStep(win).catch((error: Error) => `failed: ${error.message}`);
     searchResult = await runSearchStep(win).catch((error: Error) => `failed: ${error.message}`);
     paletteResult = await runPaletteStep(win).catch((error: Error) => `failed: ${error.message}`);
     toolsResult = await runToolsStep(win).catch((error: Error) => `failed: ${error.message}`);
@@ -2502,6 +2529,7 @@ async function runSmokeStep(win: BrowserWindow | null): Promise<void> {
         findResult,
         longPromptResult,
         copyMessageResult,
+        draftResult,
         paletteResult,
         toolsResult,
         splitResult,

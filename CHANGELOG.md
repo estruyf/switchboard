@@ -6,6 +6,7 @@ All notable changes to Switchboard are listed here. Each release is also on the 
 
 ### New
 
+- **Unsent messages stay.** Start typing in a session, open another one and come back: what you typed, and any images you attached, are still in the message box.
 - **Copy a message.** Hover over a message and click **Copy**: your prompts and commands are copied as you typed them, Claude's replies as Markdown, even when a long prompt is cut to two lines.
 
 ### Fixed
