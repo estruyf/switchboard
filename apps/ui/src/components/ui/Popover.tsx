@@ -31,22 +31,32 @@ export function Popover({ x, y, width, above = false, onClose, closeOnEscape = t
     setPosition({ left: Math.max(8, Math.min(x, innerWidth - el.offsetWidth - 8)), top: Math.max(8, Math.min(top, innerHeight - el.offsetHeight - 8)) });
   }, [x, y, above]);
 
+  // The listeners read the latest props through a ref so they're added once. If they were re-added
+  // whenever `onClose` changed, a popover that closes on a click (the project filter) would re-render
+  // a nested one (its project menu) mid-dispatch, and the browser would skip the nested one's
+  // replaced listener, leaving it open.
+  const latest = useRef({ onClose, closeOnEscape });
+  useLayoutEffect(() => {
+    latest.current = { onClose, closeOnEscape };
+  });
+
   useEffect(() => {
+    const close = () => latest.current.onClose();
     const onDown = (event: MouseEvent) => {
       const target = event.target as Node;
       if (ref.current?.contains(target) || anchor?.current?.contains(target)) return;
-      onClose();
+      close();
     };
-    const onKey = (event: KeyboardEvent) => closeOnEscape && event.key === 'Escape' && onClose();
+    const onKey = (event: KeyboardEvent) => latest.current.closeOnEscape && event.key === 'Escape' && close();
     window.addEventListener('mousedown', onDown);
     window.addEventListener('keydown', onKey);
-    window.addEventListener('blur', onClose);
+    window.addEventListener('blur', close);
     return () => {
       window.removeEventListener('mousedown', onDown);
       window.removeEventListener('keydown', onKey);
-      window.removeEventListener('blur', onClose);
+      window.removeEventListener('blur', close);
     };
-  }, [onClose, closeOnEscape, anchor]);
+  }, [anchor]);
 
   return (
     <div

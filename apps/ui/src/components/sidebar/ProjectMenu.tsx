@@ -354,7 +354,7 @@ function FilterPopover({
   }, [id, anchor]);
 
   return (
-    <Popover id={id} x={x} y={y} width={256} anchor={anchor} onClose={onClose} closeOnEscape={closeOnEscape} role="menu" aria-label="Show sessions from" onKeyDown={onKeyDown}>
+    <Popover id={id} x={x} y={y} width={256} anchor={anchor} onClose={onClose} closeOnEscape={closeOnEscape} role="menu" aria-label="Show sessions from" onKeyDown={onKeyDown} data-project-filter-menu>
       {children}
     </Popover>
   );
@@ -402,6 +402,7 @@ function FilterRow(props: { selected?: boolean; root?: string; onSelect(): void;
           className="flex size-6 shrink-0 items-center justify-center rounded text-faint opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 hover:text-text"
           aria-label={`Options for ${props.label}`}
           data-tooltip="Icon and options (→)"
+          data-project-more={props.root}
         >
           <Ellipsis size={14} aria-hidden />
         </button>

@@ -1305,6 +1305,17 @@ async function runProjectsStep(win: BrowserWindow): Promise<string> {
   await new Promise((resolve) => setTimeout(resolve, 300));
   await shot(win, 'projects.png');
 
+  // A project's ⋯ menu in the sidebar filter: one real click outside closes the filter and the menu.
+  const more = `[data-project-filter-menu] [data-project-more=${JSON.stringify(root)}]`;
+  await click('[data-project-filter]');
+  if (!(await waitInPage(win, `document.querySelector(${JSON.stringify(more)})`, 2_000))) return 'the project is not in the sidebar filter';
+  await click(more);
+  if (!(await waitInPage(win, "document.querySelectorAll('[role=menu]').length === 2", 2_000))) return 'the project options menu did not open from the filter';
+  const outside = (await js("(() => { const r = document.querySelector('[data-project-manager]').getBoundingClientRect(); return { x: Math.round(r.right - 24), y: Math.round(r.bottom - 24) }; })()")) as { x: number; y: number };
+  win.webContents.sendInputEvent({ type: 'mouseDown', x: outside.x, y: outside.y, button: 'left', clickCount: 1 });
+  win.webContents.sendInputEvent({ type: 'mouseUp', x: outside.x, y: outside.y, button: 'left', clickCount: 1 });
+  if (!(await waitInPage(win, "!document.querySelector('[role=menu]')", 2_000))) return 'a click outside left the project options menu open';
+
   // A new session in the project starts from its defaults; a change there can be saved back.
   await click('[data-new-session]');
   const pickedEffort = "document.querySelector('[data-new-session-view] [data-effort-select]')?.dataset.value";
@@ -1335,7 +1346,7 @@ async function runProjectsStep(win: BrowserWindow): Promise<string> {
   await click('[data-confirm]');
   if (!(await waitInPage(win, "document.querySelector('[data-no-projects]')", 3_000))) return 'the project was not removed';
   await click('[data-open-projects]');
-  return `ok: ${known} folders offered; added one and it opened, dropdown keyboard and Escape, its defaults reached New session, saved a change back, removed it`;
+  return `ok: ${known} folders offered; added one and it opened, dropdown keyboard and Escape, an outside click closed its filter menus, its defaults reached New session, saved a change back, removed it`;
 }
 
 /**
