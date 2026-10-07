@@ -695,6 +695,10 @@ export function createEngine(options: EngineOptions): Engine {
       await hosts.interrupt(sessionId);
       return {};
     },
+    'session.stopTask': async ({ sessionId, taskId }) => {
+      await hosts.stopTask(sessionId, taskId);
+      return {};
+    },
     'session.setPermissionMode': async ({ sessionId, mode }) => {
       await hosts.setPermissionMode(sessionId, mode);
       return {};

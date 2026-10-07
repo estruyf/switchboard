@@ -40,6 +40,8 @@ import { SessionControls } from '../session/StatusBar.tsx';
 import { UsageBand, useUsageLines } from '../UsageBand.tsx';
 import { liveLabel, StatusDot } from '../StatusDot.tsx';
 import { formatDuration, useTicker, WorkingDots } from './ActivityGroup.tsx';
+import { BackgroundTaskList } from './BackgroundTaskList.tsx';
+import { backgroundSummary } from './backgroundTasks.ts';
 import { buildDisplayItems, groupActivity, type RenderItem } from './displayItems.ts';
 import { FindBar } from './FindBar.tsx';
 import { findMatches, searchableText, startMatch } from './findInSession.ts';
@@ -230,9 +232,12 @@ export function TranscriptView({ sessionId, pane = null, active = true }: { sess
     }
     return [];
   }, [items]);
-  // The task list starts folded into its pill; the pill says how far along it is.
-  const [todosOpen, setTodosOpen] = useState(false);
+  // The task list and the background tasks start folded into their pills (the pills say how far
+  // along, and how many); one opens below them at a time.
+  const [openStrip, setOpenStrip] = useState<'todos' | 'background' | null>(null);
+  const todosOpen = openStrip === 'todos';
   const todosId = useId();
+  const backgroundId = useId();
 
   const activeHost = isActiveHost(host) ? host : null;
   const live = activeHost ? hostAsLive(activeHost) : registryLive;
@@ -241,6 +246,7 @@ export function TranscriptView({ sessionId, pane = null, active = true }: { sess
   const running = activeHost?.state === 'running' || activeHost?.state === 'needs-you';
   const showTodos = todos.some((t) => t.status !== 'completed') && (live !== null || activeHost !== null);
   const backgroundTasks = activeHost?.backgroundTasks ?? [];
+  const backgroundOpen = openStrip === 'background' && backgroundTasks.length > 0;
   /** The Claude profile (account) the session bills to. */
   const profileId = activeHost?.profileId ?? summary?.profileId ?? registryLive?.profileId ?? null;
   // Project actions: called once here (it listens for their shortcuts and owns their dialogs), then
@@ -828,7 +834,7 @@ export function TranscriptView({ sessionId, pane = null, active = true }: { sess
                           tone="muted"
                           selected={todosOpen}
                           icon={<ListTodo size={12} aria-hidden />}
-                          onClick={() => setTodosOpen((o) => !o)}
+                          onClick={() => setOpenStrip((o) => (o === 'todos' ? null : 'todos'))}
                           aria-expanded={todosOpen}
                           aria-controls={todosOpen ? todosId : undefined}
                           data-tooltip={todosOpen ? 'Hide Claude’s task list' : 'Show Claude’s task list'}
@@ -844,11 +850,16 @@ export function TranscriptView({ sessionId, pane = null, active = true }: { sess
                         <Pill
                           tone="ok"
                           shrink
+                          selected={backgroundOpen}
                           icon={<LoaderCircle size={11} className="shrink-0 animate-[spin_2s_linear_infinite]" aria-hidden />}
-                          data-tooltip={backgroundTasks.map((t) => t.description).join('\n')}
+                          onClick={() => setOpenStrip((o) => (o === 'background' ? null : 'background'))}
+                          aria-expanded={backgroundOpen}
+                          aria-controls={backgroundOpen ? backgroundId : undefined}
+                          data-tooltip={backgroundOpen ? 'Hide what runs in the background' : 'Show what runs in the background'}
                           data-status-background
                         >
-                          <span className="truncate">{backgroundTasks.length === 1 ? '1 background task' : `${backgroundTasks.length} background tasks`}</span>
+                          <span className="truncate">{backgroundSummary(backgroundTasks.map((t) => t.type))}</span>
+                          <ChevronDown size={11} className={`shrink-0 transition-transform ${backgroundOpen ? 'rotate-180' : ''}`} aria-hidden />
                         </Pill>
                       )}
                     </div>
@@ -857,6 +868,20 @@ export function TranscriptView({ sessionId, pane = null, active = true }: { sess
                     <div id={todosId} className="max-h-40 overflow-y-auto px-1" data-todo-list>
                       <TodoList todos={todos} compact />
                     </div>
+                  )}
+                  {backgroundOpen && (
+                    <BackgroundTaskList
+                      id={backgroundId}
+                      tasks={backgroundTasks}
+                      onStop={async (taskId) => {
+                        try {
+                          await client!.call('session.stopTask', { sessionId, taskId });
+                        } catch (error) {
+                          setActionError(`Could not stop the task: ${(error as Error).message}`);
+                          throw error;
+                        }
+                      }}
+                    />
                   )}
                 </div>
               )}

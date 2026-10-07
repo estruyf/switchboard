@@ -269,6 +269,10 @@ export class HostManager {
     await this.require(sessionId).interrupt();
   }
 
+  stopTask(sessionId: string, taskId: string): Promise<void> {
+    return this.require(sessionId).stopTask(taskId);
+  }
+
   setPermissionMode(sessionId: string, mode: PermissionMode): Promise<void> {
     return this.require(sessionId).setPermissionMode(mode);
   }

@@ -37,6 +37,8 @@ export const BackgroundTask = z.object({
   /** Claude Code's task type, e.g. `local_bash` or `local_agent`. */
   type: z.string(),
   description: z.string(),
+  /** When this app first saw it running (Claude Code doesn't report the start of tasks begun before a restart). */
+  startedAt: z.number(),
 });
 export type BackgroundTask = z.infer<typeof BackgroundTask>;
 

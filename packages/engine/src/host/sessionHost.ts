@@ -243,6 +243,11 @@ export class SessionHost {
     await (await this.query)?.interrupt();
   }
 
+  /** Stops one background task; the next `background_tasks_changed` drops it from the list. */
+  async stopTask(taskId: string): Promise<void> {
+    await (await this.query)?.stopTask(taskId);
+  }
+
   async setPermissionMode(mode: PermissionMode): Promise<void> {
     await (await this.query)?.setPermissionMode(mode);
     this.update({ permissionMode: mode });
@@ -401,7 +406,14 @@ export class SessionHost {
       // live-update watchers aren't activity, so they don't count as background work.
       const tasks = (message as { tasks?: Array<{ task_id: string; task_type: string; description: string; ambient?: boolean }> }).tasks ?? [];
       if (this.closing) return;
-      this.update({ backgroundTasks: tasks.filter((t) => !t.ambient).map((t) => ({ taskId: t.task_id, type: t.task_type, description: t.description })) });
+      // Keep the time a task was first seen, so its running time doesn't restart with every change.
+      const seen = new Map(this.info.backgroundTasks.map((t) => [t.taskId, t.startedAt]));
+      const now = Date.now();
+      this.update({
+        backgroundTasks: tasks
+          .filter((t) => !t.ambient)
+          .map((t) => ({ taskId: t.task_id, type: t.task_type, description: t.description, startedAt: seen.get(t.task_id) ?? now })),
+      });
       return;
     }
     if (message.subtype === 'session_state_changed') {

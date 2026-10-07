@@ -223,6 +223,8 @@ export const contract = {
       result: z.object({ sessionId: z.string(), messageUuid: z.string() }),
     },
     'session.interrupt': { params: z.object({ sessionId: SessionId }), result: z.object({}) },
+    /** Stops one of the session's background tasks (a shell command, subagent or workflow); Claude is told it was stopped. */
+    'session.stopTask': { params: z.object({ sessionId: SessionId, taskId: z.string() }), result: z.object({}) },
     /** A new session with this one's conversation up to and including `messageUuid`. */
     'session.forkAt': { params: z.object({ sessionId: SessionId, messageUuid: z.string() }), result: z.object({ sessionId: z.string() }) },
     /**

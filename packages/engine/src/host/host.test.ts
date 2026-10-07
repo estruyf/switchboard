@@ -43,6 +43,7 @@ const SUGGESTION = [{ type: 'addRules', rules: [{ toolName: 'Bash', ruleContent:
 class FakeQuery {
   readonly out = new Channel<unknown>();
   interrupts = 0;
+  stoppedTasks: string[] = [];
   closed = false;
   /** The host ended its input (it lets go of the process once it has stopped). */
   inputEnded = false;
@@ -95,6 +96,9 @@ class FakeQuery {
   }
   async interrupt() {
     this.interrupts++;
+  }
+  async stopTask(taskId: string) {
+    this.stoppedTasks.push(taskId);
   }
   async setPermissionMode(mode: string) {
     this.mode = mode;
@@ -506,6 +510,21 @@ describe('HostManager', () => {
     ]);
     await until(() => t.infos.at(-1)!.backgroundTasks.length > 0);
     expect(t.infos.at(-1)).toMatchObject({ state: 'idle', backgroundTasks: [{ taskId: 'b1', type: 'local_bash', description: 'npm run test:links' }] });
+    const startedAt = t.infos.at(-1)!.backgroundTasks[0]!.startedAt;
+
+    // A second task joins: the first one keeps the time it was first seen.
+    await new Promise((r) => setTimeout(r, 5));
+    tasks([
+      { task_id: 'b1', task_type: 'local_bash', description: 'npm run test:links' },
+      { task_id: 'a1', task_type: 'local_agent', description: 'Review the diff' },
+    ]);
+    await until(() => t.infos.at(-1)!.backgroundTasks.length === 2);
+    const [first, second] = t.infos.at(-1)!.backgroundTasks;
+    expect(first!.startedAt).toBe(startedAt);
+    expect(second!.startedAt).toBeGreaterThan(startedAt);
+
+    await t.manager.stopTask(id, 'a1');
+    expect(t.queries[0]!.stoppedTasks).toEqual(['a1']);
 
     // Long idle, but a task is still running: the reaper leaves it alone.
     t.manager.reapIdle(Date.now() + 2 * 60 * 60_000);
