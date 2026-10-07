@@ -10,6 +10,7 @@ import {
   Moon,
   PanelLeft,
   Play,
+  RefreshCw,
   Search,
   Settings,
   SquarePen,
@@ -102,6 +103,7 @@ export function CommandPalette() {
           useClaudeUpdate.getState().check();
         },
       },
+      ...(client ? [{ id: 'reload-skills', group: 'Commands' as const, label: 'Reload skills', keywords: 'refresh slash commands plugins', icon: icon(RefreshCw), run: () => void client.call('skills.reload', {}).catch(() => {}) }] : []),
       { id: 'export-settings', group: 'Commands', label: 'Export settings…', keywords: 'backup save move mac projects actions preferences', icon: icon(Upload), run: () => useBackup.getState().show('export') },
       { id: 'import-settings', group: 'Commands', label: 'Import settings…', keywords: 'backup restore move mac projects actions preferences', icon: icon(Download), run: () => useBackup.getState().show('import') },
       { id: 'diagnostics', group: 'Commands', label: 'Engine diagnostics', keywords: 'settings log version', icon: icon(Activity), run: () => useSessions.getState().openSettings('diagnostics') },

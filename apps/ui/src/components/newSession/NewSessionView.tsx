@@ -55,6 +55,7 @@ export function NewSessionView() {
   const sessions = useSessions((s) => s.sessions);
   const select = useSessions((s) => s.select);
   const models = useHosts((s) => s.models);
+  const commandsVersion = useHosts((s) => s.commandsVersion);
   const focusRequest = useSessions((s) => s.newSessionRequest);
   const hosts = useHosts((s) => s.hosts);
   const live = useSessions((s) => s.live);
@@ -266,7 +267,7 @@ export function NewSessionView() {
     setD(worktreeFor.current === cwd ? { ...choices, workspace: 'worktree' } : choices);
   }, [loaded, cwd, defaultsKey, globals, autostarting]);
 
-  // Inspect the folder (git? branch?), load its commands and branches, and pre-warm Claude Code there.
+  // Inspect the folder (git? branch?), load its branches, and pre-warm Claude Code there.
   useEffect(() => {
     if (!client || !cwd) return;
     let cancelled = false;
@@ -284,10 +285,6 @@ export function NewSessionView() {
         setPendingStart(null);
       },
     );
-    client.call('session.commands', { cwd, profileId }).then(
-      (r) => !cancelled && setCommands(r.commands),
-      () => {},
-    );
     client.call('git.branches', { cwd }).then(
       (r) => !cancelled && setGitBranches(r),
       () => {},
@@ -300,6 +297,18 @@ export function NewSessionView() {
       cancelled = true;
     };
   }, [client, cwd, profileId]);
+  // Its commands, again after skills were reloaded.
+  useEffect(() => {
+    if (!client || !cwd) return;
+    let cancelled = false;
+    client.call('session.commands', { cwd, profileId }).then(
+      (r) => !cancelled && setCommands(r.commands),
+      () => {},
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, [client, cwd, profileId, commandsVersion]);
   useEffect(() => {
     if (client && cwd && d.workspace === 'current' && !d.branch) void client.call('session.prewarm', { cwd, profileId });
   }, [client, cwd, d.workspace, d.branch, profileId]);

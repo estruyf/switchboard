@@ -24,6 +24,8 @@ interface HostsState {
   models: ModelOption[];
   editors: EditorInfo[];
   defaultEditorId: string | null;
+  /** Goes up when skills were reloaded, so views that show slash commands ask for them again. */
+  commandsVersion: number;
 
   reset(hosts: SessionHostInfo[], permissions: PermissionRequest[]): void;
   upsertHost(info: SessionHostInfo): void;
@@ -32,6 +34,7 @@ interface HostsState {
   removePermission(requestId: string): void;
   setModels(models: ModelOption[]): void;
   setEditors(editors: EditorInfo[], defaultId: string | null): void;
+  bumpCommands(): void;
 }
 
 export const useHosts = create<HostsState>()((set) => ({
@@ -41,6 +44,7 @@ export const useHosts = create<HostsState>()((set) => ({
   models: [],
   editors: [],
   defaultEditorId: null,
+  commandsVersion: 0,
 
   reset: (hosts, permissions) =>
     set({
@@ -77,6 +81,7 @@ export const useHosts = create<HostsState>()((set) => ({
     }),
   setModels: (models) => set({ models }),
   setEditors: (editors, defaultEditorId) => set({ editors, defaultEditorId }),
+  bumpCommands: () => set((state) => ({ commandsVersion: state.commandsVersion + 1 })),
 }));
 
 /** How a host's state reads as a status dot (closed and failed hosts have none). */

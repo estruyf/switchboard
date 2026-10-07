@@ -259,6 +259,11 @@ export const contract = {
       params: z.object({ sessionId: SessionId.optional(), cwd: AbsolutePath, refresh: z.boolean().default(false), profileId: ProfileId.optional() }),
       result: Capabilities,
     },
+    /**
+     * Drops every cached list of skills and commands, so skills added or removed on disk show up.
+     * Running sessions re-read their skill folders when they next list them; windows get `commands.changed`.
+     */
+    'skills.reload': { params: z.object({}), result: z.object({}) },
     /** Turns an MCP server on or off, or reconnects it, in a session running in this app. */
     'session.mcp': {
       params: z.object({ sessionId: SessionId, server: z.string().max(200), action: z.enum(['enable', 'disable', 'reconnect']) }),
@@ -478,6 +483,8 @@ export const contract = {
     'claudeUpdate.changed': ClaudeUpdateState,
     /** The whole Later list, newest first, whenever an item is added or removed. */
     'later.changed': z.object({ items: z.array(LaterItem) }),
+    /** Skills were reloaded: ask for slash command lists again. */
+    'commands.changed': z.object({}),
     /** Settings were imported: reload projects and actions. */
     'settings.imported': z.object({}),
   },

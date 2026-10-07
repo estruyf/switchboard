@@ -736,6 +736,11 @@ export function createEngine(options: EngineOptions): Engine {
     }),
     'session.capabilities': ({ sessionId, cwd, refresh, profileId }) =>
       hosts.capabilities(sessionId, cwd, refresh, profileId ?? (sessionId ? sessionProfile(sessionId) : folderProfile(cwd))),
+    'skills.reload': () => {
+      hosts.reloadSkills(profiles.runtimes().map((p) => p.id));
+      broadcast('commands.changed', {});
+      return {};
+    },
     'session.mcp': async ({ sessionId, server, action }) => {
       await hosts.mcp(sessionId, server, action);
       return {};

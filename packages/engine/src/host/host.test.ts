@@ -464,6 +464,18 @@ describe('HostManager', () => {
     t.manager.closeAll();
   });
 
+  it('asks for every folder\'s commands again after skills are reloaded', async () => {
+    const t = setup();
+    await t.manager.commands(undefined, '/projects/web', 'default');
+    await t.manager.commands(undefined, '/projects/web', 'work');
+    expect(t.queries).toHaveLength(2);
+    t.manager.reloadSkills(['default', 'work']);
+    await t.manager.commands(undefined, '/projects/web', 'default');
+    await t.manager.commands(undefined, '/projects/web', 'work');
+    expect(t.queries).toHaveLength(4);
+    t.manager.closeAll();
+  });
+
   it('replaces the command list when Claude Code reports a change', async () => {
     const t = setup();
     const id = await t.manager.create({ ...base, cwd: '/work/app', prompt: 'Hi' });

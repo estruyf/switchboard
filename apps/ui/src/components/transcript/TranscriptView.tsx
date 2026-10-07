@@ -184,6 +184,7 @@ export function TranscriptView({ sessionId, pane = null, active = true }: { sess
   const select = useSessions((s) => s.select);
   const host = useHosts((s) => s.hosts.get(sessionId));
   const permissionMap = useHosts((s) => s.permissions);
+  const commandsVersion = useHosts((s) => s.commandsVersion);
   const permissions = useMemo(() => [...permissionMap.values()].filter((p) => p.sessionId === sessionId), [permissionMap, sessionId]);
   const home = useSessions((s) => guessHome([...s.sessions.values()].slice(0, 20).flatMap((x) => (x.cwd ? [x.cwd] : []))));
   const { status, messages } = useTranscript(sessionId);
@@ -332,7 +333,7 @@ export function TranscriptView({ sessionId, pane = null, active = true }: { sess
     return () => {
       cancelled = true;
     };
-  }, [client, sessionId, cwd, activeHost?.state === 'idle']);
+  }, [client, sessionId, cwd, activeHost?.state === 'idle', commandsVersion]);
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const virtualizer = useVirtualizer({

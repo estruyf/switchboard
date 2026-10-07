@@ -2,7 +2,7 @@ import { useEffect } from 'react';
 import { useEngineConnection } from '../engine/useEngine.ts';
 import { useHosts } from './hostsStore.ts';
 
-/** Mirrors the engine's running sessions, permission prompts, live output, models and editors. */
+/** Mirrors the engine's running sessions, permission prompts, live output, models, editors and skill reloads. */
 export function useHostsSync(): void {
   const connection = useEngineConnection();
   const client = connection.status === 'connected' ? connection.client : null;
@@ -16,6 +16,7 @@ export function useHostsSync(): void {
       client.on('session.permission', (request) => store().addPermission(request)),
       client.on('session.permissionResolved', ({ requestId }) => store().removePermission(requestId)),
       client.on('models.changed', ({ models }) => store().setModels(models)),
+      client.on('commands.changed', () => store().bumpCommands()),
     ];
     void client.call('hosts.list', {}).then(({ hosts, permissions }) => store().reset(hosts, permissions));
     void client.call('models.list', {}).then(({ models }) => store().setModels(models));

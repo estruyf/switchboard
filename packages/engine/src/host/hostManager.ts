@@ -354,6 +354,15 @@ export class HostManager {
     this.deps.commandCache?.forget(profileId);
   }
 
+  /**
+   * Forgets every cached command and capability list, so the next ask reads the skill folders again.
+   * A running session reloads its skills itself when it is next asked (`commands`).
+   */
+  reloadSkills(profileIds: readonly string[]): void {
+    for (const profileId of profileIds) this.forgetCommands(profileId);
+    this.capabilityCache.clear();
+  }
+
   private fetchCommands(key: CommandKey): Promise<SlashCommand[]> {
     const id = keyOf(key);
     const cached = this.deps.commandCache?.get(key);
