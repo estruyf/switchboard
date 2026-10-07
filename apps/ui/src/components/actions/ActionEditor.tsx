@@ -2,6 +2,7 @@ import { MoreHorizontal, Plus, Share2, X } from 'lucide-react';
 import { useEffect, useId, useRef, useState, type ReactNode, type RefObject } from 'react';
 import { ACTION_ICONS, type ActionIcon, type ActionSuggestion, type ListedAction } from '@switchboard/protocol/client';
 import { useEngineConnection } from '../../engine/useEngine.ts';
+import { useProjects } from '../../state/projectsStore.ts';
 import { ConfirmDialog } from '../ConfirmDialog.tsx';
 import { useOpenIn } from '../OpenInButton.tsx';
 import { Button } from '../ui/Button.tsx';
@@ -423,6 +424,9 @@ export function ActionEditor({
     );
   };
 
+  // A renamed project shows the name you gave it.
+  const shownName = useProjects((s) => s.projects.get(projectRoot)?.name) ?? projectName(projectRoot);
+
   return (
     <>
       {/*
@@ -434,7 +438,7 @@ export function ActionEditor({
         width="lg"
         flush
         title="Project actions"
-        subtitle={<span data-tooltip={projectRoot}>{projectName(projectRoot)}</span>}
+        subtitle={<span data-tooltip={projectRoot}>{shownName}</span>}
         onClose={onClose}
         onSubmit={readOnly ? undefined : () => void save()}
         className="h-[650px]"

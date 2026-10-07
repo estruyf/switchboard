@@ -64,6 +64,11 @@ export interface ExportOptions {
 }
 
 const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
+/** "name, icon and defaults": the parts that are set, joined for a sentence. */
+const listOf = (parts: Array<string | false>) => {
+  const set = parts.filter((p): p is string => Boolean(p));
+  return set.length < 2 ? (set[0] ?? '') : `${set.slice(0, -1).join(', ')} and ${set.at(-1)}`;
+};
 // A focus limit of null is the limit turned off.
 const showValue = (value: unknown) => (typeof value === 'boolean' ? (value ? 'on' : 'off') : value === null ? 'off' : String(value));
 
@@ -93,6 +98,7 @@ export function exportSettings(stores: SettingsStores, options: ExportOptions): 
   if (want.has('projects')) {
     file.projects = stores.projects.addedEntries().map((entry) => ({
       path: entry.root,
+      name: entry.name,
       icon: exportIcon(entry.icon),
       defaults: entry.defaults && Object.values(entry.defaults).some((v) => v !== null) ? entry.defaults : null,
     }));
@@ -259,33 +265,38 @@ export function planImport(stores: SettingsStores, file: SettingsFile, options: 
         } else stores.projects.setIcon(root, icon);
       };
       const setDefaults = () => stores.projects.setDefaults(root, usefulDefaults ?? parseDefaults({}));
+      const setName = () => stores.projects.rename(root, entry.name);
       const existing = current.get(root);
       if (!existing) {
         note('projects', root, 'add', relocatedNote(entry.path, root));
         writes.push(() => {
           stores.projects.add(root);
+          setName();
           setIcon();
           setDefaults();
         });
         continue;
       }
+      const nameDiffers = (existing.name ?? null) !== entry.name;
       const iconDiffers = !same(exportIcon(existing.icon), entry.icon);
       const defaultsDiffer = !same(existing.defaults, usefulDefaults);
-      if (!iconDiffers && !defaultsDiffer) {
+      if (!nameDiffers && !iconDiffers && !defaultsDiffer) {
         unchanged++;
         continue;
       }
-      const what = [iconDiffers && 'icon', defaultsDiffer && 'defaults for new sessions'].filter(Boolean).join(' and ');
+      const what = listOf([nameDiffers && 'name', iconDiffers && 'icon', defaultsDiffer && 'defaults for new sessions']);
       // Merge fills in only what isn't set here.
+      const takeName = nameDiffers && (replace || existing.name === null);
       const takeIcon = iconDiffers && (replace || existing.icon === null);
       const takeDefaults = defaultsDiffer && (replace || existing.defaults === null);
-      if (takeIcon || takeDefaults) {
+      if (takeName || takeIcon || takeDefaults) {
         note('projects', root, 'change', what);
         writes.push(() => {
+          if (takeName) setName();
           if (takeIcon) setIcon();
           if (takeDefaults) setDefaults();
         });
-      } else note('projects', root, 'keep', `your ${what} differ`);
+      } else note('projects', root, 'keep', `your ${what} ${what === 'name' || what === 'icon' ? 'differs' : 'differ'}`);
     }
     if (replace) {
       for (const root of current.keys()) {

@@ -10,6 +10,7 @@ export type StoredIcon = { kind: 'emoji'; value: string } | { kind: 'file'; path
 
 interface Row {
   root: string;
+  name: string | null;
   icon_json: string | null;
   added_at: number | null;
   sort: number | null;
@@ -22,6 +23,9 @@ export interface FolderActivity {
   count: number;
   lastActivity: number;
 }
+
+/** What a project is called until you rename it. */
+const folderName = (root: string) => basename(root) || root;
 
 const NO_DEFAULTS: ProjectDefaults = ProjectDefaults.parse({});
 
@@ -60,8 +64,8 @@ export class ProjectRegistry {
     private readonly iconDir: string,
   ) {
     this.statements = {
-      all: db.prepare('SELECT root, icon_json, added_at, sort, defaults_json, profile_id FROM project_settings'),
-      get: db.prepare('SELECT root, icon_json, added_at, sort, defaults_json, profile_id FROM project_settings WHERE root = ?'),
+      all: db.prepare('SELECT root, name, icon_json, added_at, sort, defaults_json, profile_id FROM project_settings'),
+      get: db.prepare('SELECT root, name, icon_json, added_at, sort, defaults_json, profile_id FROM project_settings WHERE root = ?'),
       upsertIcon: db.prepare(
         'INSERT INTO project_settings (root, icon_json) VALUES (?, ?) ON CONFLICT (root) DO UPDATE SET icon_json = excluded.icon_json',
       ),
@@ -73,6 +77,7 @@ export class ProjectRegistry {
           sort = CASE WHEN project_settings.added_at IS NULL THEN excluded.sort ELSE project_settings.sort END`),
       unadd: db.prepare('UPDATE project_settings SET added_at = NULL, sort = NULL WHERE root = ?'),
       setSort: db.prepare('UPDATE project_settings SET sort = ? WHERE root = ?'),
+      upsertName: db.prepare('INSERT INTO project_settings (root, name) VALUES (?, ?) ON CONFLICT (root) DO UPDATE SET name = excluded.name'),
       upsertDefaults: db.prepare(
         'INSERT INTO project_settings (root, defaults_json) VALUES (?, ?) ON CONFLICT (root) DO UPDATE SET defaults_json = excluded.defaults_json',
       ),
@@ -90,10 +95,11 @@ export class ProjectRegistry {
       .sort((a, b) => (a.sort ?? Infinity) - (b.sort ?? Infinity) || (a.added_at ?? 0) - (b.added_at ?? 0) || a.root.localeCompare(b.root));
   }
 
-  /** Added projects in order, with their stored icon (null: detected) and defaults (null: none), for a settings file. */
-  addedEntries(): Array<{ root: string; icon: StoredIcon | null; defaults: ProjectDefaults | null }> {
+  /** Added projects in order, with their own name (null: the folder's), stored icon (null: detected) and defaults (null: none), for a settings file. */
+  addedEntries(): Array<{ root: string; name: string | null; icon: StoredIcon | null; defaults: ProjectDefaults | null }> {
     return this.addedRows().map((row) => ({
       root: row.root,
+      name: row.name,
       icon: row.icon_json ? (JSON.parse(row.icon_json) as StoredIcon) : null,
       defaults: row.defaults_json ? readDefaults(row.defaults_json) : null,
     }));
@@ -143,6 +149,15 @@ export class ProjectRegistry {
     if (this.row(root)?.added_at == null) throw new RpcError('NOT_FOUND', 'Add this folder as a project first');
     const empty = Object.values(defaults).every((v) => v === null);
     this.statements.upsertDefaults.run(root, empty ? null : JSON.stringify(defaults));
+  }
+
+  /**
+   * Gives a project a name of its own. Spaces are tidied into one line; an empty name, or the folder's
+   * own name, goes back to following the folder. Nothing on disk changes.
+   */
+  rename(root: string, name: string | null): void {
+    const tidy = name?.replace(/\s+/g, ' ').trim() ?? '';
+    this.statements.upsertName.run(root, tidy && tidy !== folderName(root) ? tidy : null);
   }
 
   setIcon(root: string, choice: ProjectIconChoice): void {
@@ -206,7 +221,8 @@ export class ProjectRegistry {
     const added = row?.added_at != null;
     return {
       root,
-      name: basename(root) || root,
+      name: row?.name ?? folderName(root),
+      nameSource: row?.name ? 'custom' : 'folder',
       icon,
       iconSource,
       added,

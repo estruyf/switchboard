@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { BACKUP_SECTIONS, SETTINGS_FILE_FORMAT } from './backupConstants.ts';
+import { PROJECT_NAME_MAX } from './projectConstants.ts';
 
 export { BACKUP_SECTIONS, SETTINGS_FILE_FORMAT, settingsFileName, type BackupSection } from './backupConstants.ts';
 
@@ -19,9 +20,11 @@ export const ExportedIcon = z.discriminatedUnion('kind', [
 ]);
 export type ExportedIcon = z.infer<typeof ExportedIcon>;
 
-/** One added project, in the user's order. `icon: null` uses the detected icon. */
+/** One added project, in the user's order. `name: null` uses the folder's name, `icon: null` the detected icon. */
 export const ExportedProject = z.object({
   path: AbsolutePath,
+  /** A name that doesn't fit is dropped, not the whole project. */
+  name: z.string().min(1).max(PROJECT_NAME_MAX).nullable().default(null).catch(null),
   icon: ExportedIcon.nullable().default(null),
   /** Read field by field on import (see ProjectDefaults), so one outdated value doesn't drop the rest. */
   defaults: z.record(z.string(), z.unknown()).nullable().default(null),

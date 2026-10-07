@@ -57,6 +57,7 @@ const project = (root: string, extra: Partial<ProjectInfo>): ProjectInfo => ({
   root,
   name: root.split('/').pop()!,
   icon: null,
+  nameSource: 'folder',
   iconSource: null,
   added: false,
   exists: true,

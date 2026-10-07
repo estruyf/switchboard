@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode, type RefObject } from 'react';
-import { Check, ChevronDown, Ellipsis, FolderCog, FolderOpen, FolderPlus, Image, Layers, RotateCcw, Smile, Type, X } from 'lucide-react';
+import { Check, ChevronDown, Ellipsis, FolderCog, FolderOpen, FolderPlus, Image, Layers, Pencil, RotateCcw, Smile, Type, X } from 'lucide-react';
 import type { ProjectIconChoice } from '@switchboard/protocol/client';
 import { useEngineConnection } from '../../engine/useEngine.ts';
 import { useProfiles } from '../../state/profilesStore.ts';
@@ -11,6 +11,7 @@ import { Menu, type MenuEntry } from '../Menu.tsx';
 import { useOpenIn } from '../OpenInButton.tsx';
 import { ProfileDot } from '../profiles/ProfileBadge.tsx';
 import { ProjectIcon } from '../ProjectIcon.tsx';
+import { RenameProjectDialog } from '../projects/RenameProjectDialog.tsx';
 import { Button } from '../ui/Button.tsx';
 import { Popover } from '../ui/Popover.tsx';
 
@@ -127,7 +128,7 @@ export function manage(root: string | null = null): void {
 }
 
 /**
- * Menu entries to change a project's icon or remove it, and the emoji picker and remove confirmation they open (`overlays`).
+ * Menu entries to rename a project, change its icon or remove it, and the emoji picker, rename dialog and remove confirmation they open (`overlays`).
  * `remove: false` leaves out "Remove from Switchboard…", for menus about something else (a session).
  */
 export function useProjectIconEntries() {
@@ -138,6 +139,7 @@ export function useProjectIconEntries() {
   const openIn = useOpenIn();
   const [emojiFor, setEmojiFor] = useState<{ root: string; x: number; y: number } | null>(null);
   const [removing, setRemoving] = useState<string | null>(null);
+  const [renaming, setRenaming] = useState<string | null>(null);
 
   const entries = (root: string, at: { x: number; y: number }, { remove = true }: { remove?: boolean } = {}): MenuEntry[] => {
     const project = projects.get(root);
@@ -171,6 +173,7 @@ export function useProjectIconEntries() {
         onSelect: () => void actions.setIcon(root, { kind: 'auto' }),
       },
       'separator',
+      ...(root.startsWith('/') ? [{ label: 'Rename project…', icon: <Pencil size={13} />, onSelect: () => setRenaming(root), data: { 'data-rename-project': true } } satisfies MenuEntry] : []),
       { label: 'Open folder in editor', icon: <FolderOpen size={13} />, disabled: !project?.exists, onSelect: () => void openIn(root).catch(() => {}) },
       ...(project?.added
         ? ([
@@ -183,10 +186,11 @@ export function useProjectIconEntries() {
     ];
   };
 
-  // The emoji picker and the remove confirmation; the caller renders them.
+  // The emoji picker, the rename dialog and the remove confirmation; the caller renders them.
   const overlays = (
     <>
       {emojiFor && <EmojiPicker {...emojiFor} onClose={() => setEmojiFor(null)} />}
+      {renaming && <RenameProjectDialog root={renaming} onClose={() => setRenaming(null)} />}
       {removing && <RemoveProjectDialog root={removing} name={projects.get(removing)?.name ?? removing} onClose={() => setRemoving(null)} />}
     </>
   );
@@ -401,7 +405,7 @@ function FilterRow(props: { selected?: boolean; root?: string; onSelect(): void;
           onClick={(e) => props.onMore!(e.currentTarget)}
           className="flex size-6 shrink-0 items-center justify-center rounded text-faint opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 hover:text-text"
           aria-label={`Options for ${props.label}`}
-          data-tooltip="Icon and options (→)"
+          data-tooltip="Name, icon and options (→)"
           data-project-more={props.root}
         >
           <Ellipsis size={14} aria-hidden />

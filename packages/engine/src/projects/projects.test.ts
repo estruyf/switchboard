@@ -126,6 +126,34 @@ describe('project list', () => {
     cache.close();
   });
 
+  it('names a project, and goes back to the folder name when cleared', () => {
+    const data = tempDir();
+    const cache = openCacheDatabase(join(data, 'cache.sqlite'));
+    const registry = new ProjectRegistry(cache.db, join(data, 'icons'));
+    const root = tempDir();
+    const folder = root.split('/').pop()!;
+    registry.add(root);
+    const project = () => registry.list(new Map()).find((p) => p.root === root)!;
+    expect(project()).toMatchObject({ name: folder, nameSource: 'folder' });
+
+    registry.rename(root, '  Client\n  website ');
+    expect(project()).toMatchObject({ name: 'Client website', nameSource: 'custom' });
+    // The folder's own name, or an empty one, follows the folder again.
+    registry.rename(root, folder);
+    expect(project()).toMatchObject({ name: folder, nameSource: 'folder' });
+    registry.rename(root, 'Docs');
+    registry.rename(root, '   ');
+    expect(project()).toMatchObject({ name: folder, nameSource: 'folder' });
+
+    // Removing a project keeps its name for when it is added again.
+    registry.rename(root, 'Docs');
+    registry.remove(root);
+    registry.add(root);
+    expect(project().name).toBe('Docs');
+    expect(registry.addedEntries()).toEqual([expect.objectContaining({ root, name: 'Docs' })]);
+    cache.close();
+  });
+
   it('stores defaults for new sessions, and only for projects', () => {
     const data = tempDir();
     const cache = openCacheDatabase(join(data, 'cache.sqlite'));

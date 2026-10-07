@@ -233,4 +233,9 @@ export const migrations: readonly string[] = [
   );
   CREATE INDEX later_prompts_cwd ON later_prompts (cwd, created_at DESC);
   `,
+
+  // v15: a project's own name, shown instead of its folder's name. A user choice: keep it.
+  `
+  ALTER TABLE project_settings ADD COLUMN name TEXT;
+  `,
 ];

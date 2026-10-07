@@ -583,6 +583,10 @@ export function createEngine(options: EngineOptions): Engine {
       projects.setIcon(root, icon);
       return {};
     },
+    'projects.rename': ({ root, name }) => {
+      projects.rename(root, name);
+      return {};
+    },
     'projects.setProfile': ({ root, profileId }) => {
       profiles.linkProject(root, profileId);
       return {};

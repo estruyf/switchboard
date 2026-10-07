@@ -81,7 +81,10 @@ export type ProjectDefaults = z.infer<typeof ProjectDefaults>;
 
 export const ProjectInfo = z.object({
   root: z.string(),
+  /** The name you gave the project, else its folder's name. */
   name: z.string(),
+  /** `custom` when you renamed it. */
+  nameSource: z.enum(['custom', 'folder']),
   icon: ProjectIcon.nullable(),
   iconSource: z.enum(['custom', 'detected']).nullable(),
   /** Added to Switchboard by hand. Folders that only have Claude Code sessions are listed with `added: false`. */

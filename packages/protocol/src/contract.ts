@@ -36,6 +36,7 @@ import { ProfileColor, ProfilesSnapshot } from './profiles.ts';
 import { ClaudeUpdateState } from './claudeUpdate.ts';
 import { BackupSectionSchema, FolderMapping, ImportMode, ImportPreview } from './backup.ts';
 import { LaterDraft, LaterItem } from './later.ts';
+import { PROJECT_NAME_MAX } from './projectConstants.ts';
 
 export const ClaudeInstall = z.object({
   path: z.string(),
@@ -140,6 +141,8 @@ export const contract = {
     /** Removes a project from Switchboard's list. Nothing on disk changes; its sessions stay. */
     'projects.remove': { params: z.object({ root: AbsolutePath }), result: z.object({}) },
     'projects.setIcon': { params: z.object({ root: AbsolutePath, icon: ProjectIconChoice }), result: z.object({}) },
+    /** Names a project in Switchboard; null (or the folder's own name) goes back to the folder's name. The folder isn't touched. */
+    'projects.rename': { params: z.object({ root: AbsolutePath, name: z.string().max(PROJECT_NAME_MAX).nullable() }), result: z.object({}) },
     /** Links a project to a Claude profile; null uses the default profile. */
     'projects.setProfile': { params: z.object({ root: AbsolutePath, profileId: ProfileId.nullable() }), result: z.object({}) },
     /** Replaces a project's defaults for new sessions. */

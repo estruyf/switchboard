@@ -1,4 +1,4 @@
-import { AlertTriangle, ArrowDown, ArrowUp, Check, ChevronRight, FolderPlus, Play, SquarePen, X, Zap } from 'lucide-react';
+import { AlertTriangle, ArrowDown, ArrowUp, Check, ChevronRight, FolderPlus, Pencil, Play, SquarePen, X, Zap } from 'lucide-react';
 import { useEffect, useId, useMemo, useRef, useState, type MouseEvent } from 'react';
 import type { ProjectDefaults, ProjectInfo } from '@switchboard/protocol/client';
 import { useEngineConnection } from '../../engine/useEngine.ts';
@@ -18,6 +18,7 @@ import { Notice } from '../ui/Notice.tsx';
 import { Select } from '../ui/Select.tsx';
 import { useFlash } from '../ui/useFlash.ts';
 import { ProjectDefaultsEditor } from './ProjectDefaultsEditor.tsx';
+import { RenameProjectDialog } from './RenameProjectDialog.tsx';
 
 
 /** Shows a summary of the defaults a project sets, e.g. "Opus · high effort · worktree". */
@@ -98,6 +99,7 @@ function ProjectRow({
   const reload = useProjects((s) => s.reload);
   const [isGitRepo, setIsGitRepo] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [renaming, setRenaming] = useState(false);
   const panelId = useId();
 
   useEffect(() => {
@@ -128,7 +130,7 @@ function ProjectRow({
   return (
     <li className="rounded-lg border border-border bg-card" data-project-row={project.root}>
       <div className="flex items-center gap-3 px-3 py-2.5">
-        <button type="button" onClick={onIconMenu} data-tooltip="Change icon" aria-label={`Change the icon of ${project.name}`} aria-haspopup="menu" className="shrink-0 rounded-md hover:opacity-80">
+        <button type="button" onClick={onIconMenu} data-tooltip="Change icon or name" aria-label={`Change the icon or name of ${project.name}`} aria-haspopup="menu" className="shrink-0 rounded-md hover:opacity-80">
           <ProjectIcon project={project} root={project.root} size={30} />
         </button>
         <button
@@ -224,9 +226,13 @@ function ProjectRow({
             <Button icon={<Play size={12} aria-hidden />} onClick={onActions}>
               Edit actions…
             </Button>
+            <Button icon={<Pencil size={12} aria-hidden />} onClick={() => setRenaming(true)} data-project-rename>
+              Rename…
+            </Button>
           </div>
         </div>
       )}
+      {renaming && <RenameProjectDialog root={project.root} onClose={() => setRenaming(false)} />}
     </li>
   );
 }

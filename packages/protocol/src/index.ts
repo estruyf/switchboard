@@ -13,3 +13,4 @@ export * from './profiles.ts';
 export * from './claudeUpdate.ts';
 export * from './backup.ts';
 export * from './later.ts';
+export * from './projectConstants.ts';

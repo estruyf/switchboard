@@ -6,6 +6,7 @@ const project = (root: string, name: string, added: boolean, order: number | nul
   root,
   name,
   icon: null,
+  nameSource: 'folder',
   iconSource: null,
   added,
   exists: true,

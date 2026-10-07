@@ -57,6 +57,7 @@ describe('settings export and import', () => {
     before.stores.projects.reorder([api, web]);
     before.stores.projects.setIcon(web, { kind: 'file', path: iconFile });
     before.stores.projects.setIcon(api, { kind: 'emoji', value: '🚀' });
+    before.stores.projects.rename(api, 'Backend');
     before.stores.projects.setDefaults(api, { model: 'opus', effort: null, permissionMode: 'plan', workspace: null, baseRef: null, branch: null });
     before.stores.actions.save(null, action({ id: 'lint', command: 'npm run lint' }));
     before.stores.actions.save(null, action({ id: 'review', type: 'prompt', command: 'Review the diff' }));
@@ -81,7 +82,8 @@ describe('settings export and import', () => {
 
     const projects = after.stores.projects.list(new Map());
     expect(projects.map((p) => p.root)).toEqual([api, web]);
-    expect(projects[0]).toMatchObject({ icon: { kind: 'emoji', value: '🚀' }, defaults: { model: 'opus', permissionMode: 'plan' } });
+    expect(projects[0]).toMatchObject({ name: 'Backend', nameSource: 'custom', icon: { kind: 'emoji', value: '🚀' }, defaults: { model: 'opus', permissionMode: 'plan' } });
+    expect(projects[1]?.nameSource).toBe('folder');
     expect(projects[1]?.icon).toMatchObject({ kind: 'image' });
     expect(projects[1]?.iconSource).toBe('custom');
 
@@ -147,6 +149,7 @@ describe('settings export and import', () => {
     const [shared, onlyHere] = [tempDir(), tempDir()];
     source.stores.projects.add(shared);
     source.stores.projects.setIcon(shared, { kind: 'emoji', value: '🍋' });
+    source.stores.projects.rename(shared, 'Lemon');
     source.stores.actions.save(null, action({ id: 'test', command: 'npm test' }));
     source.stores.actions.save(null, action({ id: 'build', command: 'npm run build' }));
     source.stores.appState.set('editor.default', 'zed');
@@ -156,6 +159,7 @@ describe('settings export and import', () => {
     target.stores.projects.add(onlyHere);
     target.stores.projects.add(shared);
     target.stores.projects.setIcon(shared, { kind: 'emoji', value: '🍊' });
+    target.stores.projects.rename(shared, 'Orange');
     target.stores.actions.save(null, action({ id: 'test', command: 'vitest' }));
     target.stores.actions.save(null, action({ id: 'build', command: 'npm run build' }));
     target.stores.actions.save(null, action({ id: 'mine', command: 'echo mine' }));
@@ -164,20 +168,20 @@ describe('settings export and import', () => {
 
     const merge = planImport(target.stores, file, { ...ALL, preferences: prefs });
     const byLabel = Object.fromEntries(merge.preview.changes.map((c) => [c.label, c]));
-    expect(byLabel[shared]).toMatchObject({ change: 'keep' });
+    expect(byLabel[shared]).toMatchObject({ change: 'keep', detail: 'your name and icon differ' });
     expect(byLabel['test · all projects']).toMatchObject({ change: 'keep' });
     expect(byLabel['Default editor']).toMatchObject({ change: 'keep' });
     // Your theme is kept; the sidebar style was still the default, so the file's fills it in.
     expect(byLabel.Theme).toMatchObject({ change: 'keep' });
     expect(merge.apply().preferences).toEqual({ sidebarStyle: 'compact' });
-    expect(target.stores.projects.list(new Map()).find((p) => p.root === shared)?.icon).toEqual({ kind: 'emoji', value: '🍊' });
+    expect(target.stores.projects.list(new Map()).find((p) => p.root === shared)).toMatchObject({ name: 'Orange', icon: { kind: 'emoji', value: '🍊' } });
     expect(target.stores.actions.all().map((a) => a.action.id).sort()).toEqual(['build', 'mine', 'test']);
 
     const replace = planImport(target.stores, file, { ...ALL, mode: 'replace', preferences: prefs });
     expect(replace.preview.changes.filter((c) => c.change === 'remove').map((c) => c.label)).toEqual([onlyHere, 'mine · all projects']);
     expect(replace.apply().preferences).toEqual({ colorScheme: 'light', sidebarStyle: 'compact' });
     expect(target.stores.projects.addedRoots()).toEqual([shared]);
-    expect(target.stores.projects.list(new Map())[0]?.icon).toEqual({ kind: 'emoji', value: '🍋' });
+    expect(target.stores.projects.list(new Map())[0]).toMatchObject({ name: 'Lemon', icon: { kind: 'emoji', value: '🍋' } });
     const actions = Object.fromEntries(target.stores.actions.list(shared).actions.map((a) => [a.id, a]));
     expect(Object.keys(actions).sort()).toEqual(['build', 'test']);
     // A changed command needs approval; the identical one you already had stays approved.

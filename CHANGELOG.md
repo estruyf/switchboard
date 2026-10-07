@@ -10,6 +10,7 @@ All notable changes to Switchboard are listed here. Each release is also on the 
 - **Copy a message.** Hover over a message and click **Copy**: your prompts and commands are copied as you typed them, Claude's replies as Markdown, even when a long prompt is cut to two lines.
 - **Commands anywhere in a message.** Type `/` after a space or at the start of a line, not only at the very start, to pick a command or skill from the list.
 - **Reload skills.** Added or removed a skill outside Switchboard? Press ⌘K and choose **Reload skills**: the `/` list picks up the change without restarting the session.
+- **Rename projects.** Give a project a name of its own: right-click a session or open a project's **⋯** menu in the sidebar filter and choose **Rename project…**, or click **Rename…** under the project in the **Projects** view. The folder on disk keeps its name, and **Use folder name** goes back to it. Names are included when you export your settings.
 
 ### Fixed
 
