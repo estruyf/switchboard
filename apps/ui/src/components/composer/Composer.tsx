@@ -5,7 +5,9 @@ import { useEngineConnection } from '../../engine/useEngine.ts';
 import { Button } from '../ui/Button.tsx';
 import { attachmentsAfterSend, textAfterSend } from './afterSend.ts';
 import { dropMessage, dropVerdict, MAX_ATTACHMENTS, mergeAttachments, planDrop, readImage } from './images.ts';
+import { onFirstLine, onLastLine, textareaRows } from './caretLine.ts';
 import { insertMentions, mentionFor } from './mentions.ts';
+import { PromptHistory, recallAnnouncement, routeArrow, type Recall } from './promptHistory.ts';
 import { tokenAtCaret } from './tokens.ts';
 import { useDropTarget } from './useDropTarget.ts';
 
@@ -21,6 +23,8 @@ interface Palette {
 export interface ComposerProps {
   /** Text to start with (Edit and resend). */
   initialText?: string;
+  /** Earlier messages, newest first, that ↑ on the first line brings back. */
+  history?: readonly string[];
   /** Replaces the text whenever `seq` changes (a prompt from a `switchboard://` link, or clearing it). */
   preset?: { text: string; seq: number };
   cwd: string | null;
@@ -79,6 +83,10 @@ export function Composer(props: ComposerProps) {
   /** Bumped whenever the palette's input moves on: a file search that answers after that is dropped. */
   const searchSeq = useRef(0);
   const ids = useId();
+  const history = useRef<PromptHistory | null>(null);
+  history.current ??= new PromptHistory(props.history);
+  /** Read out after ↑ or ↓ brings back a message (screen readers only). */
+  const [announcement, setAnnouncement] = useState('');
   const closePalette = () => {
     ++searchSeq.current;
     setPalette(null);
@@ -89,6 +97,7 @@ export function Composer(props: ComposerProps) {
     if (presetSeq === undefined) return;
     const value = props.preset!.text;
     setText(value);
+    history.current!.reset();
     closePalette();
     requestAnimationFrame(() => {
       const el = ref.current;
@@ -98,6 +107,8 @@ export function Composer(props: ComposerProps) {
       }
     });
   }, [presetSeq]);
+
+  useEffect(() => history.current!.setEntries(props.history ?? []), [props.history]);
 
   const onTextChange = props.onTextChange;
   useEffect(() => onTextChange?.(text), [text, onTextChange]);
@@ -176,6 +187,7 @@ export function Composer(props: ComposerProps) {
       if ((await props.onSubmit(value, sentAttachments, requested)) === false) return;
       // The box stays editable while sending: keep whatever was typed or attached in the meantime.
       setText((current) => textAfterSend(current, sentText));
+      history.current!.reset();
       setAttachments((current) => attachmentsAfterSend(current, sentAttachments));
       closePalette();
     } catch (error) {
@@ -197,17 +209,38 @@ export function Composer(props: ComposerProps) {
     void submitRef.current(true);
   }, [props.submitRequest]);
 
+  /** Puts a recalled message (or the draft) in the box, caret where it says, and reads out where you are. */
+  const applyRecall = (recall: Recall) => {
+    const el = ref.current;
+    setText(recall.text);
+    // A trailing no-break space makes a repeated message a change, so it's read out again.
+    const said = recallAnnouncement(recall);
+    setAnnouncement((current) => (current.replace(/\u00a0$/, '') === said ? `${said}\u00a0` : said));
+    requestAnimationFrame(() => el?.setSelectionRange(recall.caret, recall.caret));
+  };
+
   const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
     if (event.nativeEvent.isComposing) return;
+    const el = event.currentTarget;
+    const route = routeArrow(
+      { key: event.key, shiftKey: event.shiftKey, altKey: event.altKey, ctrlKey: event.ctrlKey, metaKey: event.metaKey, isComposing: event.nativeEvent.isComposing },
+      palette && { active: palette.active, count: palette.items.length },
+      (direction) => (direction === 'older' ? onFirstLine : onLastLine)(el.value, el.selectionStart, el.selectionEnd, textareaRows(el)),
+    );
+    if (route?.kind === 'palette') {
+      event.preventDefault();
+      setPalette({ ...palette!, active: route.active });
+      requestAnimationFrame(() => listRef.current?.children[route.active]?.scrollIntoView({ block: 'nearest' }));
+      return;
+    }
+    if (route?.kind === 'history') {
+      const recall = history.current!.recall(route.direction, el.value, el.selectionStart);
+      // At the oldest message ↑ does nothing; with no history at all it moves the caret as usual.
+      if (recall || history.current!.browsing) event.preventDefault();
+      if (recall) applyRecall(recall);
+      return;
+    }
     if (palette) {
-      if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
-        event.preventDefault();
-        const step = event.key === 'ArrowDown' ? 1 : -1;
-        const active = (palette.active + step + palette.items.length) % palette.items.length;
-        setPalette({ ...palette, active });
-        requestAnimationFrame(() => listRef.current?.children[active]?.scrollIntoView({ block: 'nearest' }));
-        return;
-      }
       if (event.key === 'Enter' || event.key === 'Tab') {
         event.preventDefault();
         choose(palette.items[palette.active]!);
@@ -216,6 +249,15 @@ export function Composer(props: ComposerProps) {
       if (event.key === 'Escape') {
         event.preventDefault();
         closePalette();
+        return;
+      }
+    }
+    if (event.key === 'Escape' && history.current!.browsing) {
+      // Browsing earlier messages, Esc puts your draft back; only after that does it stop Claude.
+      const recall = history.current!.escape(el.value);
+      if (recall) {
+        event.preventDefault();
+        applyRecall(recall);
         return;
       }
     }
@@ -368,6 +410,7 @@ export function Composer(props: ComposerProps) {
         )}
         <textarea
           data-composer
+          data-history={props.history?.length ?? 0}
           ref={ref}
           value={text}
           rows={1}
@@ -400,6 +443,9 @@ export function Composer(props: ComposerProps) {
           </p>
         )}
         <div className="mt-1.5 flex items-center justify-between gap-2">
+          <span className="sr-only" role="status" aria-live="polite" data-history-announcer>
+            {announcement}
+          </span>
           {props.controls ? (
             <div className="-ml-1.5 flex min-w-0 flex-1 items-center">
               {props.controls}

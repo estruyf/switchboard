@@ -4,7 +4,7 @@
 
 <h1 align="center">Switchboard</h1>
 
-<p align="center">A fast Mac app for running and keeping track of your Claude Code sessions.</p>
+<p align="center">A fast Mac app for running and keeping track of your Claude Code sessions, across all your Claude accounts.</p>
 
 <p align="center">
   <a href="https://visitorbadge.io/status?path=https%3A%2F%2Fgithub.com%2Festruyf%2Fswitchboard"><img src="https://api.visitorbadge.io/api/visitors?path=https%3A%2F%2Fgithub.com%2Festruyf%2Fswitchboard&labelColor=%2315181f&countColor=%23ffd43b" alt="Visitors"></a>
@@ -12,11 +12,11 @@
 
 Switchboard puts all your Claude Code sessions in one window: the ones you start in the app, and the ones running in your terminal. Start new sessions, see at a glance which ones are working or waiting for you, approve permissions, and pick up any past conversation where you left off.
 
-It uses the Claude Code you already have installed, with your login, settings, commands and skills. Nothing extra to sign in to.
+It uses the Claude Code you already have installed, with your login, settings, commands and skills. Nothing extra to sign in to. Use more than one Claude account, like a personal plan and a work one? Add each as a profile and see all their sessions in the same list.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/session-dark.png">
-  <img src="docs/screenshots/session-light.png" alt="Switchboard with a finished session open: the session list on the left, the conversation in the middle and its git changes on the right">
+  <img src="docs/screenshots/session-light.png" alt="Switchboard with a finished session open: the session list on the left, its rails coloured by Claude profile (personal in yellow, work in blue), the conversation in the middle and its git changes on the right">
 </picture>
 
 ## What you can do
@@ -30,6 +30,7 @@ It uses the Claude Code you already have installed, with your login, settings, c
 - **Find in a conversation** (⌘F): every match in the session you're reading is highlighted; ↩ and ⇧↩ step through them.
 - Give each project an icon. Switchboard picks one up from the repo when it can (a logo or favicon).
 - Sessions running in your terminal show up too, live.
+- **Several Claude accounts** in one list: add a [Claude profile](#settings) for each login (a personal plan and a work one, say). Each session shows which account it runs on, and Home shows what each one is doing.
 
 **Work with Claude**
 - Start a session in a folder (⌘N): pick a project by typing a few letters, then work on the current branch (or check out another one first) or in a **new worktree**, just like `claude --worktree`.
@@ -73,8 +74,8 @@ It uses the Claude Code you already have installed, with your login, settings, c
   <tr>
     <td width="50%"><picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/home-dark.png">
-  <img src="docs/screenshots/home-light.png" alt="Home: a session that needs you, one that is working, and your projects">
-</picture><br><b>Home</b>: what needs you, what is working, and your projects.</td>
+  <img src="docs/screenshots/home-light.png" alt="Home: a session that needs you, one that is working, your projects, and your two Claude profiles">
+</picture><br><b>Home</b>: what needs you, what is working, your projects and your Claude profiles.</td>
     <td width="50%"><picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/new-session-dark.png">
   <img src="docs/screenshots/new-session-light.png" alt="New session: pick a project, a branch or a worktree, and write the first prompt">
@@ -83,7 +84,7 @@ It uses the Claude Code you already have installed, with your login, settings, c
   <tr>
     <td width="50%"><picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/split-dark.png">
-  <img src="docs/screenshots/split-light.png" alt="Two sessions side by side, one finished and one still working">
+  <img src="docs/screenshots/split-light.png" alt="Two sessions side by side, one finished on the personal profile and one still working on the work profile">
 </picture><br><b>Side by side</b>: ⌥-click a session to open it next to the current one.</td>
     <td width="50%"><picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/search-dark.png">
@@ -162,6 +163,7 @@ To stop the checks, turn off *Check for Claude Code updates automatically* in Se
 | Esc | Stop Claude while it's working |
 | ⇧Tab | Switch permission mode |
 | `/` and `@` | Commands and file mentions in the message box |
+| ↑ ↓ | Bring back an earlier message in the message box (from the first line; Esc goes back to what you were typing) |
 | ⌘Q | Quit (Switchboard asks first; press ⌘Q again to quit) |
 
 Right-click a session for more: open it beside, pin, archive, open its folder, copy its ID, or delete it. With several sessions selected, right-click one of them to archive or unarchive them all at once.

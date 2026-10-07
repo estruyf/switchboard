@@ -2,6 +2,12 @@
 
 All notable changes to Switchboard are listed here. Each release is also on the [releases page](https://github.com/estruyf/switchboard/releases), with the `.dmg` to download.
 
+## [Unreleased]
+
+### New
+
+- **Prompt history.** Press ↑ on the first line of the message box to bring back an earlier message, edit it and send it again, as in Claude Code. ↓ goes forward again, and past the newest message (or with Esc) what you were typing comes back. In a session it's your messages there; in New session, the first prompts of your sessions in the picked project.
+
 ## [0.0.8] - 2026-10-07
 
 ### New

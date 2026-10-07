@@ -62,6 +62,8 @@ console.log(`${String(result.archiveManyResult).startsWith('ok') ? '✓' : '✗'
 if (!String(result.archiveManyResult).startsWith('ok')) process.exitCode = 1;
 console.log(`${String(result.dropResult).startsWith('ok') ? '✓' : '✗'} drop target: ${result.dropResult}`);
 if (!String(result.dropResult).startsWith('ok')) process.exitCode = 1;
+console.log(`${String(result.historyResult).startsWith('ok') ? '✓' : '✗'} prompt history: ${result.historyResult}`);
+if (!String(result.historyResult).startsWith('ok')) process.exitCode = 1;
 console.log(`${String(result.controlsResult).startsWith('ok') ? '✓' : '✗'} controls: ${result.controlsResult}`);
 if (!String(result.controlsResult).startsWith('ok')) process.exitCode = 1;
 console.log(`${String(result.newSessionResult).startsWith('ok') ? '✓' : '✗'} new session view: ${result.newSessionResult}`);

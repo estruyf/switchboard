@@ -647,6 +647,7 @@ let splitResult = 'not run';
 let archiveResult = 'not run';
 let archiveManyResult = 'not run';
 let dropResult = 'not run';
+let historyResult = 'not run';
 let controlsResult = 'not run';
 let projectsResult = 'not run';
 let profilesResult = 'not run';
@@ -2091,6 +2092,64 @@ async function runDropStep(win: BrowserWindow): Promise<string> {
 }
 
 /**
+ * Prompt history: in a session with a message you sent, ↑ in the message box brings it back and ↓ puts
+ * the draft back. Only the box's text changes, and it is emptied again; nothing is sent.
+ */
+async function runHistoryStep(win: BrowserWindow): Promise<string> {
+  const js = (code: string) => win.webContents.executeJavaScript(code);
+  const pause = (ms = 150) => new Promise((resolve) => setTimeout(resolve, ms));
+  const box = "document.querySelector('[data-current-session] [data-composer]')";
+  const press = (keyCode: string) => {
+    win.webContents.sendInputEvent({ type: 'keyDown', keyCode });
+    win.webContents.sendInputEvent({ type: 'keyUp', keyCode });
+  };
+  const ready = `${box} && !${box}.disabled && Number(${box}.dataset.history) > 0`;
+  // The smoke session, or else one of the newest sessions with a message you sent.
+  const candidates = [smokeSessionId, ...((await js("[...document.querySelectorAll('[data-session-id]')].slice(0, 8).map((row) => row.dataset.sessionId)")) as string[])];
+  let found = false;
+  for (const id of candidates) {
+    if (!id) continue;
+    await js(`document.querySelector('[data-session-id="${id}"]')?.click()`);
+    if (await waitInPage(win, ready, 3_000)) {
+      found = true;
+      break;
+    }
+  }
+  if (!found) return 'no session with a sent message to recall';
+  if (((await js(`${box}.value`)) as string) !== '') return 'the message box was not empty to start with';
+
+  const draft = 'smoke draft, never sent';
+  await js(`${box}.focus()`);
+  await win.webContents.insertText(draft);
+  await pause();
+  press('Up');
+  const recalled = await waitInPage(win, `${box}.value !== ${JSON.stringify(draft)}`, 2_000);
+  const afterUp = (await js(`({ value: ${box}.value, said: document.querySelector('[data-current-session] [data-history-announcer]')?.textContent ?? '', total: Number(${box}.dataset.history) })`)) as {
+    value: string;
+    said: string;
+    total: number;
+  };
+  await pause();
+  press('Down');
+  const restored = await waitInPage(win, `${box}.value === ${JSON.stringify(draft)}`, 2_000);
+  const afterDown = (await js(`({ value: ${box}.value, said: document.querySelector('[data-current-session] [data-history-announcer]')?.textContent ?? '' })`)) as { value: string; said: string };
+  // Empty the box again, whatever happened above.
+  await js(`${box}.focus()`);
+  win.webContents.selectAll();
+  press('Backspace');
+  await pause();
+  const left = (await js(`${box}.value`)) as string;
+  if (smokeSessionId) await js(`document.querySelector('[data-session-id="${smokeSessionId}"]')?.click()`);
+
+  if (!recalled || !afterUp.value.trim()) return '↑ on the first line did not bring back the last message';
+  if (afterUp.said.trim() !== `Earlier message 1 of ${afterUp.total}`) return `↑ announced ${JSON.stringify(afterUp.said)}`;
+  if (!restored) return `↓ did not put the draft back (${JSON.stringify(afterDown.value.slice(0, 60))})`;
+  if (afterDown.said.trim() !== 'Back to your draft') return `↓ announced ${JSON.stringify(afterDown.said)}`;
+  if (left !== '') return 'could not empty the message box afterwards';
+  return `ok: ↑ brought back the last of ${afterUp.total} messages, ↓ put the draft back, nothing sent`;
+}
+
+/**
  * Right-click → Archive moves a session out of the main list, even one that's working (its updates
  * used to bring it straight back); "Unarchive" returns it. Flags live in the throwaway profile.
  */
@@ -2283,6 +2342,7 @@ async function runSmokeStep(win: BrowserWindow | null): Promise<void> {
     archiveResult = await runArchiveStep(win).catch((error: Error) => `failed: ${error.message}`);
     archiveManyResult = await runArchiveManyStep(win).catch((error: Error) => `failed: ${error.message}`);
     dropResult = await runDropStep(win).catch((error: Error) => `failed: ${error.message}`);
+    historyResult = await runHistoryStep(win).catch((error: Error) => `failed: ${error.message}`);
     controlsResult = await runControlsStep(win).catch((error: Error) => `failed: ${error.message}`);
     newSessionResult = await runNewSessionStep(win).catch((error: Error) => `failed: ${error.message}`);
     deepLinkResult = await runDeepLinkStep(win).catch((error: Error) => `failed: ${error.message}`);
@@ -2344,6 +2404,7 @@ async function runSmokeStep(win: BrowserWindow | null): Promise<void> {
         archiveResult,
         archiveManyResult,
         dropResult,
+        historyResult,
         controlsResult,
         newSessionResult,
         deepLinkResult,
