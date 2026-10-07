@@ -83,9 +83,12 @@ export function TerminalPanel({
   };
 
   // Opening the panel (Terminal button, ⌘J) on a session without terminals starts a shell right away.
+  // The flag is read from the store, not the render: StrictMode runs this effect twice before the reset re-renders, and the second run must not open another shell.
   useEffect(() => {
     if (!shellWanted || !loaded || !client) return;
-    useTerminals.getState().setShellWanted(false);
+    const store = useTerminals.getState();
+    if (!store.shellWanted) return;
+    store.setShellWanted(false);
     if (terminals.length === 0 && cwd) void openTerminal(client, sessionId, cwd, 'shell');
   }, [shellWanted, loaded, client, terminals.length, cwd, sessionId]);
 
