@@ -922,7 +922,10 @@ async function terminalLayoutChecks(win: BrowserWindow): Promise<string> {
   await new Promise((resolve) => setTimeout(resolve, 600));
   await shot(win, 'terminal-maximized.png');
   key('Escape');
-  if (!(await waitInPage(win, `!${PANEL_BOX}.maximized && !(${hidden})`, 2_000))) return 'failed: Esc did not restore the maximized terminal';
+  if (!(await waitInPage(win, `!${PANEL_BOX}.maximized && !(${hidden})`, 2_000))) {
+    const focused = await js("(() => { const el = document.activeElement; return el ? `${el.tagName.toLowerCase()}${el.closest('.xterm') ? ' in xterm' : ''}${el.closest('[data-terminal-panel]') ? ' in the panel' : ''}` : 'nothing'; })()");
+    return `failed: Esc did not restore the maximized terminal (focus on ${focused})`;
+  }
   key('J', ['meta', 'shift']);
   if (!(await waitInPage(win, `${PANEL_BOX}.maximized`, 2_000))) return 'failed: ⌘⇧J did not maximize the terminal';
   key('J', ['meta', 'shift']);
@@ -2002,8 +2005,29 @@ async function runControlsStep(win: BrowserWindow): Promise<string> {
   win.webContents.sendInputEvent({ type: 'mouseMove', x: tip.x + 400, y: tip.y + 300 });
   if (!tooltip) return 'no themed tooltip on the New session button';
 
+  // Tab that picks a slash command stays in the message box: it must not turn on the keyboard focus ring.
+  // Picking only fills in the text; the box is emptied again and nothing is sent.
+  let slashTab = '';
+  if (await js("!!document.querySelector('[data-composer]')")) {
+    await js("document.documentElement.removeAttribute('data-keyboard-nav'); document.querySelector('[data-composer]').focus()");
+    await win.webContents.insertText('/');
+    if (!(await waitInPage(win, "document.querySelector('[data-palette] [role=option]')", 15_000))) return 'slash palette did not open';
+    win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Tab' });
+    win.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Tab' });
+    await pause();
+    const after = (await js("({ value: document.querySelector('[data-composer]').value, ring: document.documentElement.hasAttribute('data-keyboard-nav'), focused: document.activeElement?.matches('[data-composer]') ?? false })")) as { value: string; ring: boolean; focused: boolean };
+    win.webContents.selectAll();
+    win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Backspace' });
+    win.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Backspace' });
+    await pause();
+    if (!after.value.startsWith('/') || after.value === '/') return `Tab did not pick a slash command (${JSON.stringify(after.value)})`;
+    if (!after.focused) return 'Tab on a slash command moved focus out of the message box';
+    if (after.ring) return 'Tab on a slash command turned on the keyboard focus ring';
+    slashTab = ', Tab picks a slash command without a focus ring';
+  }
+
   if (smokeSessionId) await js(`document.querySelector('[data-session-id="${smokeSessionId}"]')?.click()`);
-  return `ok: sidebar ${start} → ${widest} → ${narrowest} → ${reset}px, pointer cursors, themed tooltip`;
+  return `ok: sidebar ${start} → ${widest} → ${narrowest} → ${reset}px, pointer cursors, themed tooltip${slashTab}`;
 }
 
 /**

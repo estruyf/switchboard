@@ -4,8 +4,14 @@ import { App } from './App.tsx';
 import './styles.css';
 
 // Focus rings only while navigating with Tab; any pointer use hides them again (see styles.css).
+// Checked after the event has been handled: a Tab a control keeps for itself (picking a slash command,
+// Shift+Tab for the permission mode, the shell in the terminal) leaves focus where it was, so no ring.
 const root = document.documentElement;
-window.addEventListener('keydown', (event) => event.key === 'Tab' && root.setAttribute('data-keyboard-nav', ''), true);
+window.addEventListener('keydown', (event) => {
+  if (event.key !== 'Tab') return;
+  if (event.defaultPrevented && document.activeElement === event.target) return;
+  root.setAttribute('data-keyboard-nav', '');
+});
 window.addEventListener('pointerdown', () => root.removeAttribute('data-keyboard-nav'), true);
 
 createRoot(document.getElementById('root')!).render(
