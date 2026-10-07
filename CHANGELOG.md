@@ -2,7 +2,7 @@
 
 All notable changes to Switchboard are listed here. Each release is also on the [releases page](https://github.com/estruyf/switchboard/releases), with the `.dmg` to download.
 
-## [Unreleased]
+## [0.0.10] - 2026-10-07
 
 ### New
 
