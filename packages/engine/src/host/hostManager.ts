@@ -70,8 +70,11 @@ export interface HostManagerDeps {
   models?: ModelOption[] | null;
   /** Claude Code reported a (new) model list. */
   onModels?: (models: ModelOption[]) => void;
-  /** Persisted command lists per profile and folder, so the palette is instant after a restart. */
-  commandCache?: { get(key: CommandKey): SlashCommand[] | null; set(key: CommandKey, commands: SlashCommand[]): void };
+  /**
+   * Persisted command lists per profile and folder, so the palette is instant after a restart.
+   * `forget` drops every list of a profile (a skill was added or removed).
+   */
+  commandCache?: { get(key: CommandKey): SlashCommand[] | null; set(key: CommandKey, commands: SlashCommand[]): void; forget(profileId: string): void };
 }
 
 /** Command lists differ per folder (project commands) and per profile (user commands, skills, plugins). */
@@ -334,6 +337,7 @@ export class HostManager {
    */
   async commands(sessionId: string | undefined, cwd: string | undefined, profileId: string): Promise<SlashCommand[]> {
     const host = sessionId ? this.hosts.get(sessionId) : undefined;
+    if (host?.active) await host.refreshCommands();
     const folder = host?.info.cwd ?? cwd;
     const key = folder ? { profileId: host?.info.profileId ?? profileId, cwd: folder } : null;
     const list = host?.commands.length ? host.commands : key ? (this.commandsByCwd.get(keyOf(key)) ?? (await this.fetchCommands(key))) : [];
@@ -343,6 +347,12 @@ export class HostManager {
   }
 
   private readonly commandFetches = new Map<string, Promise<SlashCommand[]>>();
+
+  /** User skills and commands apply to every folder, so a change seen in one session makes the profile's other lists stale. */
+  private forgetCommands(profileId: string): void {
+    for (const id of this.commandsByCwd.keys()) if (id.startsWith(`${profileId}\0`)) this.commandsByCwd.delete(id);
+    this.deps.commandCache?.forget(profileId);
+  }
 
   private fetchCommands(key: CommandKey): Promise<SlashCommand[]> {
     const id = keyOf(key);
@@ -573,6 +583,8 @@ export class HostManager {
         log: this.deps.log,
         usageHint: () => this.deps.onUsageHint?.(config.profileId),
         knownCommands: () => this.commandsByCwd.get(keyOf({ profileId: config.profileId, cwd: config.cwd })) ?? [],
+        // onInfo stores this session's new list right after.
+        commandsChanged: () => this.forgetCommands(config.profileId),
       },
       startQuery,
     );

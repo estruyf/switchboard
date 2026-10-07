@@ -348,11 +348,14 @@ export function createEngine(options: EngineOptions): Engine {
     },
     commandCache: {
       // Persisted for an hour; Claude Code reports fresh lists from every running session anyway.
+      // A list saved before the profile's skills last changed is stale too.
       get: (key) => {
         const stored = appState.get(commandCacheKey(key)) as { at: number; commands: SlashCommand[] } | null;
-        return stored && Date.now() - stored.at < 3_600_000 ? stored.commands : null;
+        const changed = (appState.get(`commands-changed:${key.profileId}`) as number | null) ?? 0;
+        return stored && Date.now() - stored.at < 3_600_000 && stored.at >= changed ? stored.commands : null;
       },
       set: (key, commands) => appState.set(commandCacheKey(key), { at: Date.now(), commands }),
+      forget: (profileId) => appState.set(`commands-changed:${profileId}`, Date.now()),
     },
     log,
   });

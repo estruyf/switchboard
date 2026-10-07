@@ -34,6 +34,8 @@ export interface HostEvents {
   usageHint?(): void;
   /** Commands already listed for this folder, for a message sent before this session has listed its own. */
   knownCommands?(): readonly SlashCommand[];
+  /** The command list changed while running (a skill was added or removed), so lists cached for the profile are stale. */
+  commandsChanged?(): void;
 }
 
 export interface HostConfig {
@@ -416,6 +418,11 @@ export class SessionHost {
       });
       return;
     }
+    if (message.subtype === 'commands_changed') {
+      // The full list after a skill appeared or went away mid-session; it replaces ours.
+      if (this.setCommands((message as Extract<SDKMessage, { subtype: 'commands_changed' }>).commands)) this.events.info(this.info);
+      return;
+    }
     if (message.subtype === 'session_state_changed') {
       const state = STATE_FROM_SDK[(message as { state: string }).state];
       if (!state || this.closing) return;
@@ -462,13 +469,43 @@ export class SessionHost {
       const query = await this.query;
       if (!query) return;
       const [commands, models] = await Promise.all([query.supportedCommands(), query.supportedModels()]);
-      this.commands = commands.map((c) => ({ name: c.name, description: c.description, argumentHint: c.argumentHint }));
+      this.setCommands(commands);
       this.models = models.map(toModelOption);
       // Let the manager see the new lists (it passes the models on to the window).
       this.events.info(this.info);
     } catch (error) {
       this.events.log('debug', `Loading commands/models failed: ${(error as Error).message}`);
     }
+  }
+
+  /**
+   * Has Claude Code re-read the skill folders, so a skill written during the session (by Claude
+   * itself, or in another window) shows up without restarting it. Only while idle: the list is
+   * asked for when a turn ends, and a running turn is left alone.
+   */
+  async refreshCommands(): Promise<void> {
+    if (this.info.state !== 'idle') return;
+    try {
+      const query = await this.query;
+      if (!query) return;
+      // A Claude Code that doesn't know the request may never answer it; the list we have stays.
+      const reload = query.reloadSkills().then(() => query.supportedCommands());
+      const timeout = new Promise<null>((resolve) => setTimeout(() => resolve(null), 3_000).unref?.());
+      const commands = await Promise.race([reload, timeout]);
+      if (commands && this.setCommands(commands)) this.events.info(this.info);
+    } catch (error) {
+      this.events.log('debug', `Reloading skills failed: ${(error as Error).message}`);
+    }
+  }
+
+  /** Replaces the command list; true when it changed. A change after the first list is reported. */
+  private setCommands(commands: readonly SlashCommand[]): boolean {
+    const next = commands.map((c) => ({ name: c.name, description: c.description, argumentHint: c.argumentHint }));
+    if (JSON.stringify(next) === JSON.stringify(this.commands)) return false;
+    const first = this.commands.length === 0;
+    this.commands = next;
+    if (!first) this.events.commandsChanged?.();
+    return true;
   }
 
   private async refreshContext(): Promise<void> {

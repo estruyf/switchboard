@@ -106,12 +106,20 @@ class FakeQuery {
   async setModel(model?: string) {
     this.model = model ?? 'default';
   }
+  /** Skills written to disk after start, picked up by reloadSkills(). */
+  newSkills: Array<{ name: string; description: string; argumentHint: string }> = [];
+  private skills: Array<{ name: string; description: string; argumentHint: string }> = [];
   async supportedCommands() {
     return [
       { name: 'review', description: 'Review the diff', argumentHint: '' },
       { name: 'doctor', description: 'Terminal only', argumentHint: '' },
       { name: '__remote-workflow', description: 'Internal', argumentHint: '' },
+      ...this.skills,
     ];
+  }
+  async reloadSkills() {
+    this.skills = [...this.newSkills];
+    return { skills: this.skills };
   }
   async supportedModels() {
     return [{ value: 'fake', displayName: 'Fake', description: 'Test model', supportsEffort: false }];
@@ -422,6 +430,33 @@ describe('HostManager', () => {
     await t.manager.commands(undefined, '/projects/web', 'work');
     expect(t.queries).toHaveLength(2);
     expect(t.queries[1]!.options.env).toMatchObject({ CLAUDE_CONFIG_DIR: '/config/work' });
+    t.manager.closeAll();
+  });
+
+  it('picks up a skill written during a session, in that session and in other folders', async () => {
+    const t = setup();
+    // A folder listed earlier, before the skill existed.
+    await t.manager.commands(undefined, '/projects/web', 'default');
+    const id = await t.manager.create({ ...base, cwd: '/work/app', prompt: 'Make a skill' });
+    await until(() => lastState(t.infos, id) === 'idle');
+    await t.manager.commands(id, undefined, 'default');
+    t.queries.at(-1)!.newSkills = [{ name: 'timesheet', description: 'Log a day', argumentHint: '' }];
+    expect((await t.manager.commands(id, undefined, 'default')).map((c) => c.name)).toEqual(['review', 'timesheet']);
+    // The other folder's list is stale now, so it is asked for again.
+    const helpers = t.queries.length;
+    await t.manager.commands(undefined, '/projects/web', 'default');
+    expect(t.queries).toHaveLength(helpers + 1);
+    t.manager.closeAll();
+  });
+
+  it('replaces the command list when Claude Code reports a change', async () => {
+    const t = setup();
+    const id = await t.manager.create({ ...base, cwd: '/work/app', prompt: 'Hi' });
+    await until(() => lastState(t.infos, id) === 'idle');
+    await t.manager.commands(id, undefined, 'default');
+    t.queries.at(-1)!.out.push({ type: 'system', subtype: 'commands_changed', session_id: id, commands: [{ name: 'timesheet', description: 'Log a day', argumentHint: '' }] });
+    // The folder's list (used by New session) follows the running session's.
+    await vi.waitFor(async () => expect((await t.manager.commands(undefined, '/work/app', 'default')).map((c) => c.name)).toEqual(['timesheet']));
     t.manager.closeAll();
   });
 

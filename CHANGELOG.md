@@ -10,6 +10,10 @@ All notable changes to Switchboard are listed here. Each release is also on the 
 - **See what runs in the background.** Click the green background pill above the message box to list what Claude keeps running after its turn: shell commands, agents and workflows, with how long each has run. **Stop** ends one without stopping Claude.
 - **Rename a session.** Right-click it in the sidebar and choose **Rename…** (or press F2), or use **Rename…** in the session's ⋯ menu. Claude Code shows the new name too, in `claude --resume`.
 
+### Fixed
+
+- **New skills show up in the / menu right away.** A skill you add while Switchboard runs, or one a session writes for you, is listed in the message box once Claude's turn ends, in that session, in other sessions of the same Claude profile and in New session. Before, it only appeared after a restart.
+
 ## [0.0.8] - 2026-10-07
 
 ### New
