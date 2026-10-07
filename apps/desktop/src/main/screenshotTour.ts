@@ -132,6 +132,20 @@ export async function runScreenshotTour(win: BrowserWindow, outDir: string, hook
     key('Escape');
     await need("!document.querySelector('[data-search]')", 'search did not close');
 
+    // The command palette (⌘K): New session… asks for a project, recent first with its branch and
+    // status. The field keeps focus, as it has when you open it.
+    key('K', ['meta']);
+    await need("document.querySelector('[data-command-palette] [data-palette-input]')", '⌘K did not open the palette');
+    await setFieldValue(win, '[data-palette-input]', 'new session');
+    await need("document.querySelector('[data-command-palette] [data-palette-command]')?.dataset.paletteCommand === 'new-session'", '"new session" did not find New session…');
+    key('Return');
+    await need("document.querySelectorAll('[data-command-palette] [data-palette-project]').length >= 3", 'New session… did not list the projects');
+    // The demo home is a temp folder the app can't recognise as home; show the paths as they read for a real one.
+    await js(`document.querySelectorAll('[data-palette-project-path]').forEach((el) => (el.textContent = el.textContent.replace(${JSON.stringify(homedir())}, '~')))`);
+    await shot(`palette-${scheme}`, true);
+    key('Escape');
+    await need("!document.querySelector('[data-command-palette]')", 'the palette did not close');
+
     // New session in a project, with a prompt typed but not sent.
     key('N', ['meta']);
     await need("document.querySelector('[data-new-session-view]') && document.querySelector('[data-folder-select]')?.dataset.value", 'New session did not open with a project');

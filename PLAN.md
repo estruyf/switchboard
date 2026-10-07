@@ -172,7 +172,7 @@ Configurable buttons that run a command for the current project, like t3code's p
 
 **Where they appear**
 - **Session header toolbar:** the top 2–3 actions as buttons, with the rest in a ▾ menu.
-- **Command palette:** every action is listed as *"Run: Publish"*, and each one can have its own shortcut (for example ⌘⇧P for Publish).
+- **Command palette:** every action is listed as *"Run: Publish"*, and each one can have its own shortcut (for example ⌘⇧U for Publish).
 - A **"+ Add action"** entry in the menu opens the editor in place, so you never have to go to Settings to create one.
 
 **Definition**
@@ -185,7 +185,7 @@ Configurable buttons that run a command for the current project, like t3code's p
   "command": "npm run build && npm publish",
   "cwd": "session",                       // "session" (worktree if any) | "project-root"
   "confirm": true,                        // ask before running (good for publish/deploy)
-  "shortcut": "cmd+shift+p",
+  "shortcut": "cmd+shift+u",
   "runOnWorktreeCreate": false            // e.g. true for "npm install"
 }
 ```

@@ -154,7 +154,9 @@ export function ProjectRow({
             </span>
           )}
         </span>
-        <span className="truncate font-mono text-meta text-faint">{path}</span>
+        <span className="truncate font-mono text-meta text-faint" data-palette-project-path>
+          {path}
+        </span>
       </span>
       {status && (
         <span className={`flex shrink-0 items-center gap-1.5 text-meta ${TONE[status.tone].text}`}>

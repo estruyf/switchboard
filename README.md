@@ -92,6 +92,12 @@ It uses the Claude Code you already have installed, with your login, settings, c
   <img src="docs/screenshots/search-light.png" alt="Search across every conversation, with the matching words highlighted">
 </picture><br><b>Search every conversation</b> (⌘⇧F) and jump straight to the message.</td>
   </tr>
+  <tr>
+    <td colspan="2" align="center"><picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/palette-dark.png">
+  <img src="docs/screenshots/palette-light.png" width="70%" alt="The command palette on New session: recent projects with their branch, status and a ⌘1 to ⌘4 shortcut each">
+</picture><br><b>Command palette</b> (⌘K): the commands for where you are, and a new session without leaving the keyboard: pick a project, write the prompt, ⌘↵.</td>
+  </tr>
 </table>
 
 ## Requirements
