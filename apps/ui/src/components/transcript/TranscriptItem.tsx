@@ -225,7 +225,7 @@ export const TranscriptItem = memo(function TranscriptItem({
         <div className="flex justify-end">
           <div className="group/message relative max-w-[80%] min-w-0 rounded-xl border border-border bg-card px-3.5 py-2.5">
             <Speaker name={item.subagent ? 'Prompt to the subagent' : 'You'} />
-            {!item.subagent && <MessageToolbar itemKey={item.key} kind="user" text={item.text} />}
+            {(item.text || !item.subagent) && <MessageToolbar itemKey={item.key} kind="user" text={item.text} copyOnly={item.subagent} />}
             {/* Your prompts render as Markdown too, so code and code blocks are styled. */}
             {item.text && (
               <ClampedPrompt itemKey={item.key} className="text-body [&_p]:whitespace-pre-wrap [&_p:first-child]:mt-0 [&_p:last-child]:mb-0">
@@ -246,9 +246,10 @@ export const TranscriptItem = memo(function TranscriptItem({
       return (
         // A prompt card like your other messages: the command as a chip, then everything you wrote after it.
         <div className="flex justify-end" data-command-item>
-          <div className="max-w-[80%] min-w-0 rounded-xl border border-border bg-card px-3.5 py-2.5">
+          <div className="group/message relative max-w-[80%] min-w-0 rounded-xl border border-border bg-card px-3.5 py-2.5">
             <Speaker name="You ran a command" />
-            <ClampedPrompt itemKey={item.key} className="text-body whitespace-pre-wrap [overflow-wrap:anywhere]">
+            <MessageToolbar itemKey={item.key} kind="command" text={item.args ? `${item.name} ${item.args}` : item.name} />
+            <ClampedPrompt itemKey={item.key} className="text-body whitespace-pre-wrap select-text [overflow-wrap:anywhere]">
               <span className="mr-1.5 rounded bg-accent/15 px-1.5 py-0.5 font-mono text-ui text-accent-ink [box-decoration-break:clone]">{item.name}</span>
               {item.args}
             </ClampedPrompt>
@@ -259,7 +260,7 @@ export const TranscriptItem = memo(function TranscriptItem({
       return (
         <div className={`group/message relative text-body ${indent}`}>
           <Speaker name={item.subagent ? 'Subagent' : 'Claude'} />
-          {!item.subagent && <MessageToolbar itemKey={item.key} kind="text" text={item.text} />}
+          <MessageToolbar itemKey={item.key} kind="text" text={item.text} copyOnly={item.subagent} />
           <Markdown text={item.text} />
         </div>
       );

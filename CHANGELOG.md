@@ -2,6 +2,16 @@
 
 All notable changes to Switchboard are listed here. Each release is also on the [releases page](https://github.com/estruyf/switchboard/releases), with the `.dmg` to download.
 
+## [Unreleased]
+
+### New
+
+- **Copy a message.** Hover over a message and click **Copy**: your prompts and commands are copied as you typed them, Claude's replies as Markdown, even when a long prompt is cut to two lines.
+
+### Fixed
+
+- You can select text in a command you ran (such as `/review …`) in the conversation, as in your other messages.
+
 ## [0.0.8] - 2026-10-07
 
 ### New

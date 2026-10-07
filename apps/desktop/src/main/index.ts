@@ -567,7 +567,7 @@ async function runLiveSessionStep(win: BrowserWindow, cwd: string): Promise<stri
   await js("[...document.querySelectorAll('[role=alertdialog] button')].find((b) => b.innerText === 'Cancel').click()");
 
   // Fork from Claude's reply: a new session opens with the conversation up to there.
-  await js("[...document.querySelectorAll('[data-item-kind=\"text\"]')].find((el) => el.innerText.includes('SMOKE OK')).querySelector('[data-message-actions] button').click()");
+  await js("[...document.querySelectorAll('[data-item-kind=\"text\"]')].find((el) => el.innerText.includes('SMOKE OK')).querySelector('[data-message-actions] button[aria-label^=\"Fork\"]').click()");
   if (!(await waitInPage(win, `document.querySelector('[data-current-session]') && document.querySelector('[data-current-session]').dataset.currentSession !== '${liveId}' && [...document.querySelectorAll('[data-item-kind=\"text\"]')].some((el) => el.innerText.includes('SMOKE OK'))`, 20_000))) {
     return 'fork from the reply did not open a new session with the conversation';
   }
@@ -642,6 +642,7 @@ let gitResult: string = 'not run';
 let searchResult = 'not run';
 let findResult = 'not run';
 let longPromptResult = 'not run';
+let copyMessageResult = 'not run';
 let paletteResult = 'not run';
 let toolsResult = 'not run';
 let splitResult = 'not run';
@@ -1601,7 +1602,7 @@ async function runChangesStep(win: BrowserWindow): Promise<string> {
   await shot(win, 'changes.png');
   const messageActions = (await js("document.querySelectorAll('[data-message-actions]').length")) as number;
   if (!wasOpen) await js("document.querySelector('[data-toggle-changes]').click()");
-  return `ok: ${files} changed files${files ? ', first diff shown, rows full width, wraps on request' : ''}; ${messageActions} messages with fork/rewind actions`;
+  return `ok: ${files} changed files${files ? ', first diff shown, rows full width, wraps on request' : ''}; ${messageActions} messages with actions`;
 }
 
 /**
@@ -1782,6 +1783,37 @@ async function runLongPromptStep(win: BrowserWindow): Promise<string> {
   if (!(await waitInPage(win, `!!${target}?.querySelector('[data-prompt-clamped]')`, 3_000))) return 'Show less did not cut the prompt again';
   await js(`delete ${target}.dataset.smokeLongPrompt`);
   return 'ok: a long prompt shows 2 lines, Show more opens it, Show less cuts it again';
+}
+
+/**
+ * Every message has a Copy button (Markdown for Claude's replies), and the text of prompts, commands
+ * and replies can be selected. Read-only: it doesn't click Copy, which would replace the clipboard.
+ */
+async function runCopyMessageStep(win: BrowserWindow): Promise<string> {
+  const js = (code: string) => win.webContents.executeJavaScript(code);
+  const report = (await js(`(() => {
+    const kinds = {};
+    for (const row of document.querySelectorAll('[data-item-kind="user"], [data-item-kind="command"], [data-item-kind="text"]')) {
+      const kind = row.dataset.itemKind;
+      // Prompt text renders as Markdown; a command is plain text. An image-only prompt has nothing to copy.
+      const text = row.querySelector('.markdown') ?? row.querySelector('.select-text');
+      if (!text) continue;
+      const entry = (kinds[kind] ??= { rows: 0, copy: 0, selectable: 0 });
+      entry.rows++;
+      if (row.querySelector('[data-message-actions] button[aria-label^="Copy"]')) entry.copy++;
+      if (getComputedStyle(text).userSelect === 'text') entry.selectable++;
+    }
+    return kinds;
+  })()`)) as Record<string, { rows: number; copy: number; selectable: number }>;
+  const kinds = Object.entries(report);
+  if (kinds.length === 0) return 'ok: no messages on screen';
+  for (const [kind, { rows, copy, selectable }] of kinds) {
+    if (copy !== rows) return `${rows - copy} of ${rows} ${kind} messages have no Copy button`;
+    if (selectable !== rows) return `${rows - selectable} of ${rows} ${kind} messages can't be selected`;
+  }
+  const textCopy = (await js(`document.querySelector('[data-item-kind="text"] [data-message-actions] button[aria-label^="Copy"]')?.getAttribute('aria-label') ?? null`)) as string | null;
+  if (report.text && textCopy !== 'Copy as Markdown') return `Claude's Copy button is labelled ${JSON.stringify(textCopy)}`;
+  return `ok: Copy and selectable text on ${kinds.map(([kind, { rows }]) => `${rows} ${kind}`).join(', ')} messages`;
 }
 
 async function runSearchStep(win: BrowserWindow): Promise<string> {
@@ -2403,6 +2435,7 @@ async function runSmokeStep(win: BrowserWindow | null): Promise<void> {
     gitResult = await runGitStep(win).catch((error: Error) => `failed: ${error.message}`);
     findResult = await runFindStep(win).catch((error: Error) => `failed: ${error.message}`);
     longPromptResult = await runLongPromptStep(win).catch((error: Error) => `failed: ${error.message}`);
+    copyMessageResult = await runCopyMessageStep(win).catch((error: Error) => `failed: ${error.message}`);
     searchResult = await runSearchStep(win).catch((error: Error) => `failed: ${error.message}`);
     paletteResult = await runPaletteStep(win).catch((error: Error) => `failed: ${error.message}`);
     toolsResult = await runToolsStep(win).catch((error: Error) => `failed: ${error.message}`);
@@ -2468,6 +2501,7 @@ async function runSmokeStep(win: BrowserWindow | null): Promise<void> {
         searchResult,
         findResult,
         longPromptResult,
+        copyMessageResult,
         paletteResult,
         toolsResult,
         splitResult,

@@ -50,6 +50,8 @@ console.log(`${String(result.findResult).startsWith('ok') ? '✓' : '✗'} find 
 if (!String(result.findResult).startsWith('ok')) process.exitCode = 1;
 console.log(`${String(result.longPromptResult).startsWith('ok') ? '✓' : '✗'} long prompts: ${result.longPromptResult}`);
 if (!String(result.longPromptResult).startsWith('ok')) process.exitCode = 1;
+console.log(`${String(result.copyMessageResult).startsWith('ok') ? '✓' : '✗'} copy messages: ${result.copyMessageResult}`);
+if (!String(result.copyMessageResult).startsWith('ok')) process.exitCode = 1;
 console.log(`${String(result.searchResult).startsWith('ok') ? '✓' : '✗'} search: ${result.searchResult}`);
 if (!String(result.searchResult).startsWith('ok')) process.exitCode = 1;
 console.log(`${String(result.paletteResult).startsWith('ok') ? '✓' : '✗'} command palette: ${result.paletteResult}`);

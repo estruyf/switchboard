@@ -47,6 +47,7 @@ It uses the Claude Code you already have installed, with your login, settings, c
   - **Undo file changes** since one of your prompts. You see which files would change first.
   - **Edit and resend** a prompt, in a new session.
   - **Fork** from any of Claude's replies.
+- **Copy** any message from the same hover toolbar: your prompts and commands as you typed them, Claude's replies as Markdown. You can also select text in any message and press ⌘C.
 
 **Stay on top of things**
 - A notification and Dock badge when a session needs you or finishes, so you can leave it running in the background.

@@ -1,6 +1,7 @@
-import { GitFork, Pencil, Undo2 } from 'lucide-react';
+import { Check, Copy, GitFork, Pencil, Undo2 } from 'lucide-react';
 import { createContext, useContext, type ReactNode } from 'react';
 import { Button } from '../ui/Button.tsx';
+import { useFlash } from '../ui/useFlash.ts';
 
 /** What you can do with a message in the transcript; provided by the session view. */
 export interface MessageActions {
@@ -28,22 +29,33 @@ function Action({ title, onClick, children }: { title: string; onClick(): void; 
   );
 }
 
+/** Copies the message as it was written (Markdown for Claude's replies), then shows a check for a moment. */
+function CopyAction({ text, label }: { text: string; label: string }) {
+  const [copied, flash] = useFlash(1_500);
+  return (
+    <Action title={copied ? 'Copied' : label} onClick={() => void navigator.clipboard.writeText(text).then(() => flash('Copied'), () => {})}>
+      {copied ? <Check size={13} className="text-ok" /> : <Copy size={12} />}
+    </Action>
+  );
+}
+
 /**
  * Small toolbar that appears when you hover a message. It's invisible rather than removed the
  * rest of the time, so Tab still reaches its buttons and it shows up while one has focus.
+ * Copy is always there; fork, edit and rewind need the session view and a top-level message.
  */
-export function MessageToolbar({ itemKey, kind, text }: { itemKey: string; kind: 'user' | 'text'; text: string }) {
-  const actions = useContext(MessageActionsContext);
-  if (!actions) return null;
+export function MessageToolbar({ itemKey, kind, text, copyOnly = false }: { itemKey: string; kind: 'user' | 'command' | 'text'; text: string; copyOnly?: boolean }) {
+  const context = useContext(MessageActionsContext);
+  const actions = copyOnly ? null : context;
   const uuid = messageUuid(itemKey);
   return (
     <div
       role="toolbar"
-      aria-label={kind === 'user' ? 'Actions for your message' : 'Actions for Claude’s message'}
+      aria-label={kind === 'text' ? 'Actions for Claude’s message' : 'Actions for your message'}
       className="pointer-events-none absolute -top-3 right-2 z-10 flex items-center gap-0.5 rounded-md border border-border bg-card px-0.5 opacity-0 shadow-sm group-hover/message:pointer-events-auto group-hover/message:opacity-100 focus-within:pointer-events-auto focus-within:opacity-100"
       data-message-actions
     >
-      {kind === 'user' && (
+      {actions && kind === 'user' && (
         <>
           <Action title="Undo file changes since this message" onClick={() => actions.rewind(uuid)}>
             <Undo2 size={13} />
@@ -55,11 +67,12 @@ export function MessageToolbar({ itemKey, kind, text }: { itemKey: string; kind:
           )}
         </>
       )}
-      {kind === 'text' && (
+      {actions && kind === 'text' && (
         <Action title="Fork from here (a new session with the conversation up to this message)" onClick={() => actions.fork(uuid)}>
           <GitFork size={13} />
         </Action>
       )}
+      {text && <CopyAction text={text} label={kind === 'text' ? 'Copy as Markdown' : 'Copy message'} />}
     </div>
   );
 }
