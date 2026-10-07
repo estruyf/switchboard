@@ -2,6 +2,19 @@
 
 All notable changes to Switchboard are listed here. Each release is also on the [releases page](https://github.com/estruyf/switchboard/releases), with the `.dmg` to download.
 
+## [Unreleased]
+
+### New
+
+- **A new command palette.** ⌘K (or ⌘⇧P, as in VS Code) shows the commands for where you are first: with a session open, **This session** (rename, pin, archive, fork, rewind, compact, change model, effort or mode, copy the last reply, delete…), then **Git** (commit, pull request, sync, switch branch, stage or revert everything, finish a worktree), the project's actions and the terminal's, followed by what you used recently and everything else. Commands that don't apply right now are left out.
+- **⌘P goes to anything**: sessions (what needs you first, then what's working, unread and recent) and projects. ⌥↩ opens a session beside the current one.
+- **Prefixes switch what the palette lists** without closing it: `>` commands, `+` new session, `!` project actions, `?` help.
+- **Start a session from the palette.** **New session…** asks for a project (recent first, with its branch and status; ⌘1 to ⌘9 pick one, ⌥↩ picks it with a new worktree), then becomes a small message box with the project's defaults: where it runs, the prompt, and the profile, model, effort and mode. ⌘↵ starts it, ⌘E moves it to the full New session view, and Esc keeps the draft for next time.
+
+### Fixed
+
+- ⌘K in the terminal clears the screen, as in Terminal and iTerm.
+
 ## [0.0.9] - 2026-10-07
 
 ### New

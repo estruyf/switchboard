@@ -1,0 +1,78 @@
+import type { ColorScheme, SidebarStyle } from '@switchboard/protocol/bridge';
+import type { ActionIcon, HostState } from '@switchboard/protocol/client';
+import type { TerminalDock } from '../terminal/terminalLayout.ts';
+import type { SettingsSection } from '../../state/sessionsStore.ts';
+
+/** Where you are: what the main area shows. */
+export type PaletteView = 'home' | 'new-session' | 'session' | 'settings' | 'projects';
+
+/** The session in the active pane, as far as the palette's commands care. */
+export interface PaletteSession {
+  id: string;
+  title: string;
+  /** It has a transcript, so it can be renamed, pinned, archived and deleted. */
+  indexed: boolean;
+  pinned: boolean;
+  /** In the sidebar's Archived group (archived by you, or quiet for a while). */
+  archived: boolean;
+  cwd: string | null;
+  projectRoot: string | null;
+  isWorktree: boolean;
+  /** Running in this app (its model, effort and mode can change); null otherwise. */
+  host: { state: HostState; contextTokens: number | null; supportsEffort: boolean } | null;
+  /** Claude is working or waiting for you here, so it can be stopped. */
+  running: boolean;
+  /** What it is waiting for. */
+  waiting: 'question' | 'permission' | null;
+  /** Your prompts in it (to fork from or rewind to). */
+  prompts: number;
+  /** Claude has replied at least once (Copy last reply). */
+  hasReply: boolean;
+}
+
+/** The session's checkout, once read (null outside git, or until it has been read). */
+export interface PaletteGit {
+  /** Changed files, staged or not. */
+  changed: number;
+  /** Changed files not staged yet. */
+  unstaged: number;
+  hasRemote: boolean;
+  /** Why a pull request can't be opened now, or null when it can. */
+  prBlocked: string | null;
+}
+
+export interface PaletteTerminal {
+  /** The panel shows in the session view. */
+  open: boolean;
+  maximized: boolean;
+  dock: TerminalDock;
+  /** The active tab runs a project action: whether it is still running. */
+  action: { running: boolean } | null;
+}
+
+/** What the palette knows about where you are; every command's `when()` reads it. Built from the stores. */
+export interface PaletteContext {
+  view: PaletteView;
+  /** Connected to the engine. */
+  connected: boolean;
+  session: PaletteSession | null;
+  git: PaletteGit | null;
+  terminal: PaletteTerminal;
+  /** Two sessions side by side. */
+  split: boolean;
+  /** Null while the focus limit is off. */
+  focusLimit: number | null;
+  laterCount: number;
+  projectCount: number;
+  /** The project a "New session in …" starts in: the open session's, else the sidebar's filter. */
+  currentProject: { root: string; name: string } | null;
+  /** The open session's project actions. */
+  actions: Array<{ id: string; name: string; shortcut: string | null; icon: ActionIcon }>;
+  /** The session has a project to keep actions in. */
+  canEditActions: boolean;
+  colorScheme: ColorScheme;
+  sidebarStyle: SidebarStyle;
+  settingsSection: SettingsSection;
+  /** New session is on screen: what its route can do. */
+  newSession: { canWorktree: boolean; canSaveDefaults: boolean; canSaveForLater: boolean } | null;
+}

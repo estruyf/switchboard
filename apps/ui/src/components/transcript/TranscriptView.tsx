@@ -10,6 +10,7 @@ import { hostAsLive, isActiveHost, useHosts } from '../../state/hostsStore.ts';
 import { useCheckoutBranches } from '../../state/checkoutBranchesStore.ts';
 import { passFocusGate } from '../../state/focusGate.ts';
 import { useOverlay } from '../../state/overlayStore.ts';
+import { usePaletteBus, useSessionRequests, type SessionDigest } from '../../state/paletteBus.ts';
 import { usePreferences } from '../../state/preferencesStore.ts';
 import { useProjects } from '../../state/projectsStore.ts';
 import { realBranch, useSessions, type Pane } from '../../state/sessionsStore.ts';
@@ -549,6 +550,27 @@ export function TranscriptView({ sessionId, pane = null, active = true }: { sess
       canEdit: (uuid) => previous.has(uuid),
     };
   }, [client, items, sessionId, select]);
+
+  // The command palette's Fork…, Rewind…, Copy last reply: your prompts and Claude's last reply, from the active pane.
+  useEffect(() => {
+    if (!active) return;
+    const prompts: SessionDigest['prompts'] = [];
+    let before: string | null = null;
+    let lastReply: string | null = null;
+    for (const item of items) {
+      const uuid = messageUuid(item.key);
+      if (item.kind === 'user' && !item.subagent && uuid !== before) prompts.push({ uuid, text: item.text, at: item.at, before });
+      if (item.kind === 'text' && !item.subagent) lastReply = item.text;
+      before = uuid;
+    }
+    usePaletteBus.setState({ digest: { sessionId, prompts, lastUuid: before, lastReply } });
+  }, [active, items, sessionId]);
+  useEffect(() => () => usePaletteBus.setState((s) => (s.digest?.sessionId === sessionId ? { digest: null } : {})), [sessionId]);
+  // The palette's Switch branch… and Finish worktree… open the header's branch menu; Rewind… asks to undo since a message.
+  useSessionRequests(active, (request) => {
+    if (request.kind === 'branch-menu') setBranchMenuRequest((n) => n + 1);
+    else if (request.kind === 'rewind' && request.arg) messageActions?.rewind(request.arg);
+  });
 
   /**
    * Sends a message (resuming the session when it isn't running here). A message that brings a session

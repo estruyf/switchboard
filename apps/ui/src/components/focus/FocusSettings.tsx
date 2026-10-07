@@ -1,31 +1,14 @@
 import { Minus, Plus } from 'lucide-react';
-import { FOCUS_LIMIT_DEFAULT, FOCUS_LIMIT_MAX, FOCUS_LIMIT_MIN, type FocusMode } from '@switchboard/protocol/bridge';
+import { FOCUS_LIMIT_MAX, FOCUS_LIMIT_MIN, type FocusMode } from '@switchboard/protocol/bridge';
 import type { ReactNode } from 'react';
 import { usePreferences } from '../../state/preferencesStore.ts';
 import { Button } from '../ui/Button.tsx';
 import { SegmentedControl } from '../ui/SegmentedControl.tsx';
 import { Switch } from '../ui/Toggle.tsx';
+import { lastLimit, rememberLimit } from './focusLimit.ts';
 
 /** Where the article that explains the why lives. */
 export const FOCUS_ARTICLE_URL = 'https://www.eliostruyf.com/ai-chaos-beast-head/';
-
-/** The limit is remembered while it's off, so turning it back on keeps the number you chose. */
-const LAST_LIMIT_KEY = 'focus.lastLimit';
-const lastLimit = () => {
-  try {
-    const value = Number(localStorage.getItem(LAST_LIMIT_KEY));
-    return value >= FOCUS_LIMIT_MIN && value <= FOCUS_LIMIT_MAX ? value : FOCUS_LIMIT_DEFAULT;
-  } catch {
-    return FOCUS_LIMIT_DEFAULT;
-  }
-};
-const rememberLimit = (limit: number) => {
-  try {
-    localStorage.setItem(LAST_LIMIT_KEY, String(limit));
-  } catch {
-    // Remembering is a convenience.
-  }
-};
 
 function Row({ label, detail, children, labelId }: { label: string; detail: string; children: ReactNode; labelId?: string }) {
   return (

@@ -4,6 +4,7 @@ import type { ListedAction } from '@switchboard/protocol/client';
 import { useEngineConnection } from '../../engine/useEngine.ts';
 import { passFocusGate } from '../../state/focusGate.ts';
 import { useOverlay } from '../../state/overlayStore.ts';
+import { useSessionRequests } from '../../state/paletteBus.ts';
 import { useSessions } from '../../state/sessionsStore.ts';
 import { useTerminals } from '../../state/terminalsStore.ts';
 import { ConfirmDialog } from '../ConfirmDialog.tsx';
@@ -60,8 +61,8 @@ export function useActionsMenu({
   const { actions, sharedFile, errors, reload, update } = useProjectActionList(projectRoot);
   const togglePanel = useTerminals((s) => s.togglePanel);
   const setActive = useTerminals((s) => s.setActive);
-  /** The open editor, and the action it starts on. */
-  const [editor, setEditor] = useState<{ action: ListedAction | null } | null>(null);
+  /** The open editor, and the action it starts on (`fresh`: a new action, from the palette's New action…). */
+  const [editor, setEditor] = useState<{ action: ListedAction | null; fresh?: boolean } | null>(null);
   const [deleting, setDeleting] = useState<ListedAction | null>(null);
   const [status, flash] = useFlash();
   const [pending, setPending] = useState<{ action: ListedAction; reason: 'confirm' | 'trust' } | null>(null);
@@ -121,6 +122,12 @@ export function useActionsMenu({
     return () => window.removeEventListener('keydown', onKey);
   }, [actions, active]);
 
+  // The palette's Edit actions… and New action…: only the active pane opens the editor.
+  useSessionRequests(active && projectRoot !== null, (request) => {
+    if (request.kind === 'edit-actions') setEditor({ action: null });
+    else if (request.kind === 'new-action') setEditor({ action: null, fresh: true });
+  });
+
   const edit = (action: ListedAction) => setEditor({ action });
   const askDelete = (action: ListedAction) => action.scope !== 'shared' && setDeleting(action);
   if (!projectRoot) return { entries: [], overlays: null, error: null, actions: [], run, openEditor: null, edit, askDelete, status: null };
@@ -150,6 +157,7 @@ export function useActionsMenu({
           sharedFile={sharedFile}
           errors={errors}
           initialAction={editor.action}
+          initial={editor.fresh ? {} : null}
           onChanged={reload}
           onSaved={(saved, previous) => {
             // The pill changes now; the reload that follows confirms it.

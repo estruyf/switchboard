@@ -645,6 +645,8 @@ let longPromptResult = 'not run';
 let copyMessageResult = 'not run';
 let draftResult = 'not run';
 let paletteResult = 'not run';
+let paletteNewSessionResult = 'not run';
+let terminalClearResult = 'not run';
 let toolsResult = 'not run';
 let splitResult = 'not run';
 let archiveResult = 'not run';
@@ -1356,6 +1358,9 @@ async function runProjectsStep(win: BrowserWindow): Promise<string> {
   await click('[data-save-project-defaults]');
   if (!(await waitInPage(win, "document.querySelector('[data-saved-note]') && !document.querySelector('[data-menu=\"workspace\"]')", 3_000))) return 'Save as project default did not save';
 
+  // The command palette's New session needs a project: this is the one moment the throwaway profile has one.
+  paletteNewSessionResult = await runPaletteNewSessionStep(win).catch((error: Error) => `failed: ${error.message}`);
+
   await click('[data-open-projects]');
   if (!(await waitInPage(win, `${row('[data-defaults-summary]')}?.innerText.includes('low effort')`, 3_000))) return 'the saved default did not reach the Projects view';
   await js(`${row('[data-remove-project]')}.click()`);
@@ -1989,27 +1994,155 @@ async function runDeepLinkStep(win: BrowserWindow): Promise<string> {
   return 'ok: filled in folder and prompt with a notice, sent nothing, refused a bad link and an unknown project, no folder (even with autostart) opens the list and waits, empty folder for an unknown repo, opened a session';
 }
 
-/** ⌘K, type "tog chan", Enter: the Changes panel toggles; again to put it back. */
+/** Presses a key in the page (down and up), with modifiers. */
+function pressKey(win: BrowserWindow, keyCode: string, modifiers: Array<'meta' | 'shift' | 'alt'> = []): void {
+  win.webContents.sendInputEvent({ type: 'keyDown', keyCode, modifiers });
+  win.webContents.sendInputEvent({ type: 'keyUp', keyCode, modifiers });
+}
+
+const PALETTE_MODE = "document.querySelector('[data-command-palette]')?.dataset.paletteMode";
+const PALETTE_STEP = "document.querySelector('[data-command-palette]')?.dataset.paletteStep";
+
+/** Opens the command palette with a shortcut and waits for it in `mode`, with the cursor in its field. */
+async function openPalette(win: BrowserWindow, keyCode: string, modifiers: Array<'meta' | 'shift'>, mode: string): Promise<boolean> {
+  pressKey(win, keyCode, modifiers);
+  return waitInPage(win, `${PALETTE_MODE} === ${JSON.stringify(mode)} && document.activeElement?.matches('[data-palette-input]')`, 3_000);
+}
+
+async function closePalette(win: BrowserWindow): Promise<boolean> {
+  pressKey(win, 'Escape');
+  return waitInPage(win, "!document.querySelector('[data-command-palette]')", 2_000);
+}
+
+/**
+ * The command palette: ⌘K and ⌘⇧P open its commands, ⌘P go-to (sessions); typing ">" switches to the
+ * commands and ⌫ leaves them; "This session" leads with a session open and is gone at Home; "tog chan"
+ * and Enter run Toggle changes (and again, to put it back).
+ */
 async function runPaletteStep(win: BrowserWindow): Promise<string> {
   const js = (code: string) => win.webContents.executeJavaScript(code);
-  const panelOpen = () => js("!!document.querySelector('[data-changes-panel]')") as Promise<boolean>;
+  const has = (selector: string) => js(`!!document.querySelector(${JSON.stringify(selector)})`) as Promise<boolean>;
+
+  if (!(await openPalette(win, 'K', ['meta'], 'commands'))) return '⌘K did not open the commands';
+  if (!(await has('[data-command-palette] [data-palette-group="session"] [data-palette-command="copy-session-id"]'))) return 'no "This session" commands with a session open';
+  const firstGroup = await js("document.querySelector('[data-command-palette] [data-palette-group]')?.dataset.paletteGroup ?? null");
+  if (firstGroup !== 'session') return `the first group was ${String(firstGroup)}, not "This session"`;
+  await shot(win, 'command-palette.png');
+  if (!(await closePalette(win))) return 'Esc did not close the palette';
+  if (!(await openPalette(win, 'P', ['meta', 'shift'], 'commands'))) return '⌘⇧P did not open the commands';
+  if (!(await closePalette(win))) return 'Esc did not close the palette';
+
+  if (!(await openPalette(win, 'P', ['meta'], 'goto'))) return '⌘P did not open go-to';
+  if (!(await waitInPage(win, "document.querySelector('[data-command-palette] [data-palette-session]')", 3_000))) return 'go-to listed no sessions';
+  await shot(win, 'command-palette-goto.png');
+  await setFieldValue(win, '[data-palette-input]', '>');
+  if (!(await waitInPage(win, `${PALETTE_MODE} === 'commands' && document.querySelector('[data-palette-input]').value === ''`, 2_000))) return 'typing ">" did not switch to the commands';
+  pressKey(win, 'Backspace');
+  if (!(await waitInPage(win, `${PALETTE_MODE} === 'goto'`, 2_000))) return '⌫ in the empty field did not go back to go-to';
+  if (!(await closePalette(win))) return 'Esc did not close go-to';
+
+  const panelOpen = () => has('[data-changes-panel]');
   const before = await panelOpen();
   const runCommand = async (text: string) => {
-    win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'K', modifiers: ['meta'] });
-    if (!(await waitInPage(win, "document.querySelector('[data-palette] input')", 3_000))) return false;
-    await setFieldValue(win, '[data-palette] input', text);
+    if (!(await openPalette(win, 'K', ['meta'], 'commands'))) return null;
+    await setFieldValue(win, '[data-palette-input]', text);
     await new Promise((resolve) => setTimeout(resolve, 150));
-    const first = await js("document.querySelector('[data-palette-item]')?.dataset.paletteItem ?? null");
-    win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Return' });
-    await waitInPage(win, "!document.querySelector('[data-palette]')", 2_000);
+    const first = await js("document.querySelector('[data-command-palette] [data-palette-command]')?.dataset.paletteCommand ?? null");
+    pressKey(win, 'Return');
+    await waitInPage(win, "!document.querySelector('[data-command-palette]')", 2_000);
     return first;
   };
   const first = await runCommand('tog chan');
-  if (first !== 'changes') return `"tog chan" ranked ${String(first)} first`;
+  if (first !== 'toggle-changes') return `"tog chan" ranked ${String(first)} first`;
   if (!(await waitInPage(win, before ? "!document.querySelector('[data-changes-panel]')" : "!!document.querySelector('[data-changes-panel]')", 2_000))) return 'Toggle changes did nothing';
   await runCommand('tog chan');
   if ((await panelOpen()) !== before) return 'could not toggle the panel back';
-  return 'ok: "tog chan" found Toggle changes, and Enter ran it';
+
+  // Home: nothing for a session.
+  pressKey(win, 'H', ['meta', 'shift']);
+  if (!(await waitInPage(win, "!document.querySelector('[data-current-session]')", 3_000))) return '⌘⇧H did not go Home';
+  if (!(await openPalette(win, 'K', ['meta'], 'commands'))) return '⌘K did not open at Home';
+  const sessionCommands = (await has('[data-command-palette] [data-palette-group="session"]')) || (await has('[data-palette-command="copy-session-id"]'));
+  await closePalette(win);
+  await js(`document.querySelector('[data-session-id="${smokeSessionId}"]')?.click()`);
+  await waitInPage(win, `document.querySelector('[data-current-session="${smokeSessionId}"] [data-transcript-item]')`, 5_000);
+  if (sessionCommands) return '"This session" commands showed at Home';
+  return 'ok: ⌘K and ⌘⇧P open the commands with "This session" first, ⌘P lists sessions, ">" and ⌫ switch mode, "tog chan" ran Toggle changes, nothing for a session at Home';
+}
+
+/**
+ * New session from the palette, starting nothing: New session… lists the projects, the first one opens
+ * the prompt step (route, prompt, chips, Start); Esc closes it and keeps the draft; ⌫ in an empty
+ * prompt goes back to the projects. Needs a project (run while the projects step has one added).
+ */
+async function runPaletteNewSessionStep(win: BrowserWindow): Promise<string> {
+  const js = (code: string) => win.webContents.executeJavaScript(code);
+  const draft = 'Smoke test draft: never started';
+  const sessionsBefore = (await js("document.querySelectorAll('[data-session-id]').length")) as number;
+  const viewBefore = (await js("document.querySelector('[data-current-session]')?.dataset.currentSession ?? (document.querySelector('[data-new-session-view]') ? 'new' : 'home')")) as string;
+  let project: string | null = null;
+  const toPrompt = async (): Promise<string | null> => {
+    if (!(await openPalette(win, 'K', ['meta'], 'commands'))) return '⌘K did not open the commands';
+    await setFieldValue(win, '[data-palette-input]', 'new session');
+    if (!(await waitInPage(win, "document.querySelector('[data-command-palette] [data-palette-command]')?.dataset.paletteCommand === 'new-session'", 2_000))) return '"new session" did not rank New session… first';
+    pressKey(win, 'Return');
+    if (!(await waitInPage(win, `${PALETTE_STEP} === 'projects' && document.querySelector('[data-command-palette] [data-palette-chips]') && document.querySelector('[data-palette-project]')`, 3_000))) return 'New session… did not list the projects';
+    project = (await js("document.querySelector('[data-palette-project]').dataset.paletteProject")) as string;
+    pressKey(win, 'Return');
+    if (!(await waitInPage(win, `${PALETTE_STEP} === 'prompt' && document.activeElement?.matches('[data-palette-prompt]')`, 3_000))) return 'picking a project did not show the prompt step';
+    return null;
+  };
+
+  let failure = await toPrompt();
+  if (failure) return (await closePalette(win), failure);
+  const parts = (await js(
+    `({ project: document.querySelector('[data-palette-route-project]')?.dataset.paletteRouteProject ?? null, chips: !!document.querySelector('[data-command-palette] [data-palette-model-select]') && !!document.querySelector('[data-command-palette] [data-palette-mode-select]'), start: !!document.querySelector('[data-palette-start]'), width: Math.round(document.querySelector('[data-command-palette]').getBoundingClientRect().width) })`,
+  )) as { project: string | null; chips: boolean; start: boolean; width: number };
+  if (parts.project !== project || !parts.chips || !parts.start) return (await closePalette(win), `the prompt step is missing parts: ${JSON.stringify(parts)}`);
+  await win.webContents.insertText(draft);
+  if (!(await waitInPage(win, `document.querySelector('[data-palette-prompt]')?.value === ${JSON.stringify(draft)}`, 2_000))) return (await closePalette(win), 'typing in the prompt step did not stick');
+  await shot(win, 'command-palette-prompt.png');
+  if (!(await closePalette(win))) return 'Esc did not close the prompt step';
+
+  const sessionsAfter = (await js("document.querySelectorAll('[data-session-id]').length")) as number;
+  const viewAfter = (await js("document.querySelector('[data-current-session]')?.dataset.currentSession ?? (document.querySelector('[data-new-session-view]') ? 'new' : 'home')")) as string;
+  if (sessionsAfter !== sessionsBefore || viewAfter !== viewBefore) return `closing the prompt step started something (${sessionsBefore} → ${sessionsAfter} sessions, ${viewBefore} → ${viewAfter})`;
+
+  failure = await toPrompt();
+  if (failure) return (await closePalette(win), `again: ${failure}`);
+  const kept = (await js("document.querySelector('[data-palette-prompt]')?.value")) as string;
+  await setFieldValue(win, '[data-palette-prompt]', '');
+  await new Promise((resolve) => setTimeout(resolve, 100));
+  pressKey(win, 'Backspace');
+  const wentBack = await waitInPage(win, `${PALETTE_STEP} === 'projects' && document.activeElement?.matches('[data-palette-input]')`, 2_000);
+  await closePalette(win);
+  if (kept !== draft) return `Esc did not keep the draft (${JSON.stringify(kept)})`;
+  if (!wentBack) return '⌫ in the empty prompt did not go back to the projects';
+  return `ok: New session… listed the projects, ${String(project).split('/').pop()} opened the prompt step (${parts.width}px) with its route, chips and Start; Esc kept the draft and started nothing; ⌫ went back`;
+}
+
+/** In the terminal, ⌘K clears the screen and the palette stays closed; ⌘⇧P opens the palette from there. */
+async function runTerminalClearStep(win: BrowserWindow): Promise<string> {
+  const js = (code: string) => win.webContents.executeJavaScript(code);
+  await js("document.querySelector('[data-toggle-terminal]')?.click()");
+  if (!(await waitInPage(win, "document.querySelector('[data-terminal] textarea')", 5_000))) return 'the terminal did not open';
+  await new Promise((resolve) => setTimeout(resolve, 500));
+  await js("document.querySelector('[data-terminal] textarea').focus()");
+  const cleared = "Number(document.activeElement?.closest('[data-terminal]')?.dataset.cleared ?? 0)";
+  const before = (await js(cleared)) as number;
+  pressKey(win, 'K', ['meta']);
+  const didClear = await waitInPage(win, `${cleared} > ${before}`, 2_000);
+  await new Promise((resolve) => setTimeout(resolve, 200));
+  const paletteOpened = (await js("!!document.querySelector('[data-command-palette]')")) as boolean;
+  if (paletteOpened) await closePalette(win);
+  pressKey(win, 'P', ['meta', 'shift']);
+  const opened = await waitInPage(win, `${PALETTE_MODE} === 'commands'`, 2_000);
+  if (opened) await closePalette(win);
+  await js("document.querySelector('[data-toggle-terminal]')?.click()");
+  if (!didClear) return '⌘K in the terminal did not clear it';
+  if (paletteOpened) return '⌘K in the terminal opened the palette';
+  if (!opened) return '⌘⇧P in the terminal did not open the palette';
+  return 'ok: ⌘K cleared the terminal without opening the palette; ⌘⇧P opened it from there';
 }
 
 /** The Tools window: MCP servers, skills, agents and plugins for the session's folder (a prompt-less helper answers). */
@@ -2497,6 +2630,7 @@ async function runSmokeStep(win: BrowserWindow | null): Promise<void> {
     settingsResult = await runSettingsStep(win).catch((error: Error) => `failed: ${error.message}`);
     focusResult = await runFocusStep(win).catch((error: Error) => `failed: ${error.message}`);
     terminalOpened = await runTerminalStep(win);
+    terminalClearResult = await runTerminalClearStep(win).catch((error: Error) => `failed: ${error.message}`);
     terminalLayoutResult = await runTerminalLayoutStep(win).catch((error: Error) => `failed: ${error.message}`);
     actionRan = await runActionStep(win);
     actionTerminalResult = await runActionTerminalStep(win).catch((error: Error) => `failed: ${error.message}`);
@@ -2545,6 +2679,8 @@ async function runSmokeStep(win: BrowserWindow | null): Promise<void> {
         copyMessageResult,
         draftResult,
         paletteResult,
+        paletteNewSessionResult,
+        terminalClearResult,
         toolsResult,
         splitResult,
         archiveResult,

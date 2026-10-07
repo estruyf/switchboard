@@ -8,6 +8,7 @@ import { useOpenIn } from './components/OpenInButton.tsx';
 import { LinkError } from './components/LinkError.tsx';
 import { QuitPrompt } from './components/QuitPrompt.tsx';
 import { CommandPalette } from './components/palette/CommandPalette.tsx';
+import { PaletteDialogs } from './components/palette/PaletteDialogs.tsx';
 import { SearchDialog } from './components/search/SearchDialog.tsx';
 import { AddProjectDialog } from './components/projects/AddProjectDialog.tsx';
 import { BackupDialogs } from './components/backup/BackupDialogs.tsx';
@@ -32,7 +33,11 @@ import { useClaudeUpdateSync } from './state/claudeUpdateStore.ts';
 import { useHostsSync } from './state/useHostsSync.ts';
 import { useSessionsSync } from './state/useSessionsSync.ts';
 
-/** ⌘N new session, ⌘O open the current session's folder in the default editor, ⌘J toggle the terminal (⌘⇧J maximize it), ⌘K palette, ⌘⇧F search. */
+/**
+ * ⌘N new session, ⌘O open the current session's folder in the default editor, ⌘J toggle the terminal
+ * (⌘⇧J maximize it), ⌘K or ⌘⇧P the command palette's commands, ⌘P its go-to (sessions and projects),
+ * ⌘⇧F search.
+ */
 function useShortcuts() {
   const openIn = useOpenIn();
   useEffect(() => {
@@ -47,6 +52,12 @@ function useShortcuts() {
         const overlay = useOverlay.getState();
         if (overlay.open === 'search') overlay.close();
         else overlay.show('search');
+        return;
+      }
+      if (event.metaKey && event.shiftKey && !event.altKey && event.key.toLowerCase() === 'p') {
+        // ⌘⇧P, as in VS Code: also the way to the palette from the terminal, where ⌘K clears the screen.
+        event.preventDefault();
+        useOverlay.getState().togglePalette('commands');
         return;
       }
       if (event.metaKey && event.shiftKey && !event.altKey && event.key.toLowerCase() === 'j') {
@@ -77,9 +88,10 @@ function useShortcuts() {
         // In the terminal, ⌘K clears the screen as usual.
         if ((event.target as HTMLElement | null)?.closest?.('.xterm')) return;
         event.preventDefault();
-        const overlay = useOverlay.getState();
-        if (overlay.open === 'palette') overlay.close();
-        else overlay.show('palette');
+        useOverlay.getState().togglePalette('commands');
+      } else if (key === 'p') {
+        event.preventDefault();
+        useOverlay.getState().togglePalette('goto');
       } else if (key === 'j') {
         if (useSessions.getState().view === 'session') {
           event.preventDefault();
@@ -186,6 +198,7 @@ export function App() {
       <LinkError />
       {overlay === 'search' && <SearchDialog />}
       {overlay === 'palette' && <CommandPalette />}
+      <PaletteDialogs />
       {adding && <AddProjectDialog onClose={() => useProjects.getState().showAdd(false)} />}
       <BackupDialogs />
       <FocusGateDialog />

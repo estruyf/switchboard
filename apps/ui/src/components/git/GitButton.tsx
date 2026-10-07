@@ -2,6 +2,7 @@ import { ChevronDown, CloudDownload, CloudUpload, GitBranch, GitBranchPlus, GitC
 import { useEffect, useRef, useState } from 'react';
 import type { GitSyncAction, WorktreeStatus } from '@switchboard/protocol/client';
 import { useEngineConnection } from '../../engine/useEngine.ts';
+import { useSessionRequests } from '../../state/paletteBus.ts';
 import { useSessions } from '../../state/sessionsStore.ts';
 import { useTerminals } from '../../state/terminalsStore.ts';
 import { Menu, useMenu, type MenuEntry } from '../Menu.tsx';
@@ -132,6 +133,11 @@ export function GitButton({
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [active]);
+
+  // The palette's Commit…: the commit dialog, in the active pane.
+  useSessionRequests(active, (request) => {
+    if (request.kind === 'commit' && status && status.uncommitted > 0) setCommitting(true);
+  });
 
   if (!status || !plan) return null;
 

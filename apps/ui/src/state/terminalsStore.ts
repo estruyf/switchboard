@@ -128,6 +128,18 @@ export function waitForExit(id: string, timeoutMs: number): Promise<boolean> {
   });
 }
 
+/** Stop waits this long after ⌃C before it terminates, then kills (the engine's STOP_GRACE_MS, twice), plus a little. */
+const STOP_TIMEOUT_MS = 7_000;
+
+/** Runs a terminal's command again (an action's tab): a running one is stopped first, since the engine only restarts one that has exited. */
+export async function restartTerminal(client: EngineClient, terminal: TerminalInfo): Promise<void> {
+  if (terminal.exitCode === null) {
+    await client.call('terminal.stop', { id: terminal.id });
+    if (!(await waitForExit(terminal.id, STOP_TIMEOUT_MS))) throw new Error('it did not stop');
+  }
+  await client.call('terminal.restart', { id: terminal.id });
+}
+
 /** Keeps the terminal list current and remembers the panel's open state, size and dock. */
 export function useTerminalsSync(): void {
   const connection = useEngineConnection();

@@ -61,7 +61,7 @@ It uses the Claude Code you already have installed, with your login, settings, c
 - **Finish a worktree** from its **Worktree** menu: merge into the base branch, or remove the worktree, optionally with its branch. Switchboard warns you before you lose commits that aren't merged or pushed.
 
 **Everything in one place**
-- A **command palette** (⌘K) for every command, your project actions, and jumping to any session by typing a few letters.
+- A **command palette**: ⌘K (or ⌘⇧P) for the commands that fit where you are, ⌘P to jump to any session or project by typing a few letters. Start a session from it without leaving the keyboard: pick a project, write the prompt, press ⌘↵.
 - **Two sessions side by side**: ⌥-click a session (or choose *Open beside*) to open it next to the current one.
 - **Home** (⌘⇧H, or the house button at the top of the sidebar) shows what needs you, what is working, and your projects. **Close a session** with the × in its header to go back to Home. A session that is working keeps running; pick it in the sidebar to open it again.
 - **Tools** (below the message box): the session's MCP servers, with their status and tools (turn them on or off, or reconnect, while the session runs in Switchboard), plus its skills, commands, agents and plugins.
@@ -148,7 +148,8 @@ To stop the checks, turn off *Check for Claude Code updates automatically* in Se
 | Shortcut | What it does |
 |---|---|
 | ⌘N | New session |
-| ⌘K | Command palette (⌥↩ opens a session beside the current one) |
+| ⌘K or ⌘⇧P | Command palette: the commands for where you are (in the terminal, ⌘K clears it, so use ⌘⇧P) |
+| ⌘P | Go to a session or project (⌥↩ opens a session beside the current one) |
 | ⌘F | Find in this conversation (↩ next, ⇧↩ previous) |
 | ⌘⇧F | Search all conversations |
 | ↑ ↓ | Move through sessions in the sidebar |
@@ -167,6 +168,8 @@ To stop the checks, turn off *Check for Claude Code updates automatically* in Se
 | `/` and `@` | Commands and file mentions in the message box |
 | ↑ ↓ | Bring back an earlier message in the message box (from the first line; Esc goes back to what you were typing) |
 | ⌘Q | Quit (Switchboard asks first; press ⌘Q again to quit) |
+
+In the command palette, the first character picks what it lists: `>` commands, `+` a new session (pick a project, then write the prompt), `!` the session's project actions, `?` help. Commands that ask for more end in **…**: ⌫ in an empty field goes back a step, Esc closes. In the prompt step, ⌘↵ starts the session, ⌘E moves it to the full New session view, and Esc keeps what you wrote for next time.
 
 Right-click a session for more: rename it, open it beside, pin, archive, open its folder, copy its ID, or delete it. With several sessions selected, right-click one of them to archive or unarchive them all at once.
 

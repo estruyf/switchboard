@@ -3,7 +3,7 @@ import { useEffect, useId, useMemo, type KeyboardEvent, type PointerEvent } from
 import type { TerminalInfo, TerminalKind } from '@switchboard/protocol/client';
 import { useEngineConnection } from '../../engine/useEngine.ts';
 import { tildify } from '../../lib/format.ts';
-import { openTerminal, useTerminals, waitForExit } from '../../state/terminalsStore.ts';
+import { openTerminal, restartTerminal, useTerminals } from '../../state/terminalsStore.ts';
 import { useProjectActionList } from '../actions/useActions.ts';
 import { useTicker } from '../transcript/ActivityGroup.tsx';
 import { Button } from '../ui/Button.tsx';
@@ -11,9 +11,6 @@ import { Notice } from '../ui/Notice.tsx';
 import { maxRightWidth, PANEL_MIN_HEIGHT, PANEL_MIN_WIDTH, PANEL_MAX_HEIGHT_SHARE, PANEL_MAX_WIDTH_SHARE, panelSizeForKey, type RightBlocked, type TerminalDock } from './terminalLayout.ts';
 import { actionCommand, elapsedLabel, runStatus, tabStatus, type RunTimes } from './terminalStatus.ts';
 import { XTerm } from './XTerm.tsx';
-
-/** Stop waits this long after ⌃C before it terminates, then kills (the engine's STOP_GRACE_MS, twice), plus a little. */
-const STOP_TIMEOUT_MS = 7_000;
 
 /**
  * Terminals for one session: login shells in its folder, project actions, and the Claude Code TUI
@@ -113,11 +110,7 @@ export function TerminalPanel({
     if (!client) return;
     setNotice(sessionId, null);
     try {
-      if (terminal.exitCode === null) {
-        await client.call('terminal.stop', { id: terminal.id });
-        if (!(await waitForExit(terminal.id, STOP_TIMEOUT_MS))) throw new Error('it did not stop');
-      }
-      await client.call('terminal.restart', { id: terminal.id });
+      await restartTerminal(client, terminal);
     } catch (e) {
       setError(`Couldn't restart it: ${e instanceof Error ? e.message : String(e)}`);
     }

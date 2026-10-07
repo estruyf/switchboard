@@ -1,0 +1,480 @@
+import {
+  Activity,
+  Archive,
+  ArchiveRestore,
+  ArrowDownCircle,
+  ArrowLeftRight,
+  BellRing,
+  Blocks,
+  Bookmark,
+  Code,
+  Columns2,
+  Copy,
+  Cpu,
+  Download,
+  FileDiff,
+  Folder,
+  FolderCog,
+  FolderGit2,
+  FolderPlus,
+  Gauge,
+  GitBranch,
+  GitBranchPlus,
+  GitCommitHorizontal,
+  GitFork,
+  GitMerge,
+  GitPullRequest,
+  Hash,
+  House,
+  Info,
+  Keyboard,
+  ListChecks,
+  Maximize2,
+  MessageSquare,
+  MessagesSquare,
+  Monitor,
+  Moon,
+  Palette,
+  PanelBottom,
+  PanelLeft,
+  PanelRight,
+  Pencil,
+  Pin,
+  PinOff,
+  Plus,
+  RefreshCw,
+  RotateCcw,
+  Save,
+  Settings,
+  Settings2,
+  ShieldCheck,
+  Shrink,
+  SlidersHorizontal,
+  Square,
+  SquarePen,
+  SquareTerminal,
+  StopCircle,
+  Sun,
+  Target,
+  TextSearch,
+  Trash2,
+  Undo2,
+  Upload,
+  Users,
+  X,
+  type LucideIcon,
+} from 'lucide-react';
+import type { ColorScheme, Preferences, SidebarStyle } from '@switchboard/protocol/bridge';
+import { fuzzyMatch } from '../../lib/fuzzy.ts';
+import type { SettingsSection } from '../../state/sessionsStore.ts';
+import { ACTION_ICON } from '../actions/actionIcon.ts';
+import type { TerminalDock } from '../terminal/terminalLayout.ts';
+import type { PaletteContext } from './paletteContext.ts';
+import { NEW_SESSION_STEP, type PaletteMode, type PaletteStep } from './paletteState.ts';
+
+/** Requests the session view answers, because the dialog or menu they open lives there. */
+export type SessionRequest = 'commit' | 'branch-menu' | 'edit-actions' | 'new-action';
+/** Requests the New session view answers: they change its own choices. */
+export type NewSessionRequest = 'toggle-worktree' | 'save-defaults' | 'save-later';
+
+/** What commands do, implemented against the stores in `paletteApi.ts` (and faked in tests). */
+export interface PaletteApi {
+  goHome(): void;
+  showSearch(): void;
+  openSettings(section?: SettingsSection): void;
+  setPreferences(patch: Partial<Preferences>): void;
+  manageProjects(): void;
+  addProject(): void;
+  checkClaudeUpdate(): void;
+  reloadSkills(): void;
+  backup(kind: 'export' | 'import'): void;
+  setFocusLimit(on: boolean): void;
+  renameSession(): void;
+  setFlags(change: { pinned?: boolean; archived?: boolean }): void;
+  compact(): void;
+  copyLastReply(): void;
+  copySessionId(): void;
+  toggleTerminal(): void;
+  newTerminalTab(): void;
+  toggleChanges(): void;
+  showTools(): void;
+  openInEditor(): void;
+  revealInFinder(): void;
+  closeSession(): void;
+  deleteSession(): void;
+  stop(): void;
+  goToWaiting(): void;
+  sessionRequest(kind: SessionRequest): void;
+  createPullRequest(): void;
+  syncWithRemote(): void;
+  stageAll(): void;
+  revertAll(): void;
+  runAction(id: string): void;
+  hideTerminal(): void;
+  toggleMaximizeTerminal(): void;
+  dockTerminal(dock: TerminalDock): void;
+  stopAction(): void;
+  restartAction(): void;
+  focusOtherPane(): void;
+  closePane(): void;
+  newSessionRequest(kind: NewSessionRequest): void;
+}
+
+/**
+ * Where a command belongs. With nothing typed, the groups for where you are come first (This session,
+ * Git, …), then recently used commands, then the rest (`general`).
+ */
+export type CommandGroup = 'session' | 'git' | 'actions' | 'terminal' | 'panes' | 'new-session' | 'settings' | 'general';
+
+export const GROUP_LABEL: Record<CommandGroup, string> = {
+  session: 'This session',
+  git: 'Git',
+  actions: 'Project actions',
+  terminal: 'Terminal',
+  panes: 'Split view',
+  'new-session': 'New session',
+  settings: 'Settings',
+  general: 'Commands',
+};
+
+/** The context groups, in the order they show. */
+const CONTEXT_GROUPS: CommandGroup[] = ['session', 'git', 'actions', 'terminal', 'panes', 'new-session', 'settings'];
+
+/**
+ * One command. It shows only while `when(ctx)` holds (never disabled), and picking it does one of
+ * three things: `run`, show the step `next` returns (its title ends in "…" and the row has a chevron),
+ * or switch the palette to `mode`.
+ */
+export interface PaletteCommand {
+  id: string;
+  title: string | ((ctx: PaletteContext) => string);
+  group: CommandGroup;
+  /** Other words it answers to. */
+  keywords?: string;
+  /** As shown (`⌘N`) or stored (`cmd+shift+p`). */
+  shortcut?: string;
+  /** A quiet note on the right when there is no shortcut ("current project"). */
+  hint?: string;
+  icon: LucideIcon;
+  when(ctx: PaletteContext): boolean;
+  run?(api: PaletteApi, ctx: PaletteContext): void;
+  next?(ctx: PaletteContext): PaletteStep;
+  mode?: PaletteMode;
+}
+
+export const titleOf = (command: PaletteCommand, ctx: PaletteContext) => (typeof command.title === 'string' ? command.title : command.title(ctx));
+
+const always = () => true;
+const hasSession = (ctx: PaletteContext) => ctx.view === 'session' && ctx.session !== null;
+/** The session view is on screen with a session: the precondition of everything in "This session". */
+const session = (ctx: PaletteContext) => (hasSession(ctx) ? ctx.session! : null);
+const indexed = (ctx: PaletteContext) => session(ctx)?.indexed === true;
+const withCwd = (ctx: PaletteContext) => !!session(ctx)?.cwd;
+const hosted = (ctx: PaletteContext) => !!session(ctx)?.host && ctx.connected;
+const inGit = (ctx: PaletteContext) => withCwd(ctx) && ctx.git !== null && ctx.connected;
+const terminalOpen = (ctx: PaletteContext) => hasSession(ctx) && ctx.terminal.open;
+
+const THEMES: Array<{ value: ColorScheme; label: string; icon: LucideIcon }> = [
+  { value: 'system', label: 'Match System', icon: Monitor },
+  { value: 'light', label: 'Light', icon: Sun },
+  { value: 'dark', label: 'Dark', icon: Moon },
+];
+const SIDEBAR_STYLES: Array<{ value: SidebarStyle; label: string }> = [
+  { value: 'compact', label: 'Compact' },
+  { value: 'standard', label: 'Standard' },
+  { value: 'large', label: 'Large icons' },
+];
+/** Settings' pages, in the order of its own sidebar. */
+const SETTINGS_SECTIONS: Array<{ id: SettingsSection; label: string; icon: LucideIcon }> = [
+  { id: 'general', label: 'General', icon: SlidersHorizontal },
+  { id: 'theme', label: 'Theme', icon: Palette },
+  { id: 'sidebar', label: 'Sidebar', icon: PanelLeft },
+  { id: 'conversation', label: 'Conversation', icon: MessageSquare },
+  { id: 'focus', label: 'Focus', icon: Target },
+  { id: 'profiles', label: 'Claude profiles', icon: Users },
+  { id: 'backup', label: 'Backup', icon: ArchiveRestore },
+  { id: 'diagnostics', label: 'Diagnostics', icon: Activity },
+  { id: 'about', label: 'About', icon: Info },
+];
+
+/** Every command that doesn't depend on the project's actions. */
+export const COMMANDS: PaletteCommand[] = [
+  // Always
+  { id: 'new-session', title: 'New session…', group: 'general', shortcut: '⌘N', icon: SquarePen, keywords: 'start create prompt', when: always, next: () => NEW_SESSION_STEP },
+  {
+    id: 'new-session-here',
+    title: (ctx) => `New session in ${ctx.currentProject?.name ?? 'this project'}`,
+    group: 'general',
+    hint: 'current project',
+    icon: SquarePen,
+    keywords: 'start create prompt',
+    when: (ctx) => ctx.currentProject !== null,
+    next: (ctx) => ({ kind: 'prompt', root: ctx.currentProject!.root, worktree: false, chip: 'New session' }),
+  },
+  {
+    id: 'new-session-worktree',
+    title: 'New session in a worktree…',
+    group: 'general',
+    icon: GitBranchPlus,
+    keywords: 'start create isolated branch',
+    when: always,
+    next: () => ({ kind: 'projects', purpose: 'new-session', worktree: true, chip: 'New session in a worktree' }),
+  },
+  { id: 'go-to-session', title: 'Go to session…', group: 'general', shortcut: '⌘P', icon: MessagesSquare, keywords: 'open switch find project quick', when: always, mode: 'goto' },
+  { id: 'home', title: 'Home', group: 'general', shortcut: '⌘⇧H', icon: House, keywords: 'start overview dashboard', when: (ctx) => ctx.view !== 'home', run: (api) => api.goHome() },
+  { id: 'search', title: 'Search conversations', group: 'general', shortcut: '⌘⇧F', icon: TextSearch, keywords: 'find text', when: always, run: (api) => api.showSearch() },
+  { id: 'settings', title: 'Settings', group: 'general', shortcut: '⌘,', icon: Settings, keywords: 'preferences', when: (ctx) => ctx.view !== 'settings', run: (api) => api.openSettings() },
+  ...SIDEBAR_STYLES.map(
+    ({ value, label }): PaletteCommand => ({
+      id: `sidebar-${value}`,
+      title: `Sidebar: ${label}`,
+      group: 'general',
+      icon: PanelLeft,
+      keywords: 'rows density',
+      when: (ctx) => ctx.sidebarStyle !== value,
+      run: (api) => api.setPreferences({ sidebarStyle: value }),
+    }),
+  ),
+  ...THEMES.map(
+    ({ value, label, icon }): PaletteCommand => ({
+      id: `theme-${value}`,
+      title: `Theme: ${label}`,
+      group: 'general',
+      icon,
+      keywords: 'appearance colour color dark light',
+      when: (ctx) => ctx.colorScheme !== value,
+      run: (api) => api.setPreferences({ colorScheme: value }),
+    }),
+  ),
+  { id: 'manage-projects', title: 'Manage projects', group: 'general', icon: FolderCog, keywords: 'folders defaults', when: (ctx) => ctx.view !== 'projects', run: (api) => api.manageProjects() },
+  { id: 'add-project', title: 'Add project…', group: 'general', icon: FolderPlus, keywords: 'folder', when: always, run: (api) => api.addProject() },
+  {
+    id: 'rename-project',
+    title: 'Rename project…',
+    group: 'general',
+    icon: Pencil,
+    keywords: 'name folder',
+    when: (ctx) => ctx.projectCount > 0 && ctx.connected,
+    next: () => ({ kind: 'projects', purpose: 'rename-project', worktree: false, chip: 'Rename project' }),
+  },
+  { id: 'claude-update', title: 'Check for Claude Code updates…', group: 'general', icon: ArrowDownCircle, keywords: 'upgrade version cli', when: always, run: (api) => api.checkClaudeUpdate() },
+  { id: 'reload-skills', title: 'Reload skills', group: 'general', icon: RefreshCw, keywords: 'refresh slash commands plugins', when: (ctx) => ctx.connected, run: (api) => api.reloadSkills() },
+  { id: 'export-settings', title: 'Export settings…', group: 'general', icon: Upload, keywords: 'backup save move mac projects actions preferences', when: always, run: (api) => api.backup('export') },
+  { id: 'import-settings', title: 'Import settings…', group: 'general', icon: Download, keywords: 'backup restore move mac projects actions preferences', when: always, run: (api) => api.backup('import') },
+  { id: 'diagnostics', title: 'Engine diagnostics', group: 'general', icon: Activity, keywords: 'settings log version', when: always, run: (api) => api.openSettings('diagnostics') },
+  { id: 'shortcuts', title: 'Keyboard shortcuts', group: 'general', icon: Keyboard, keywords: 'help keys prefixes', when: always, mode: 'help' },
+  { id: 'focus-on', title: 'Focus limit: turn on', group: 'general', icon: Target, keywords: 'limit sessions', when: (ctx) => ctx.focusLimit === null, run: (api) => api.setFocusLimit(true) },
+  { id: 'focus-off', title: 'Focus limit: turn off', group: 'general', icon: Target, keywords: 'limit sessions', when: (ctx) => ctx.focusLimit !== null, run: (api) => api.setFocusLimit(false) },
+  { id: 'focus-set', title: 'Focus limit: set limit…', group: 'general', icon: Target, keywords: 'limit sessions number', when: always, next: () => ({ kind: 'pick', list: 'focus-limit', chip: 'Focus limit' }) },
+  {
+    id: 'later',
+    title: 'Later: start from a saved prompt…',
+    group: 'general',
+    icon: Bookmark,
+    keywords: 'saved prompts parked',
+    when: (ctx) => ctx.laterCount > 0,
+    next: () => ({ kind: 'pick', list: 'later', chip: 'Later' }),
+  },
+
+  // A session is open
+  { id: 'rename-session', title: 'Rename session…', group: 'session', icon: Pencil, keywords: 'title name', when: indexed, run: (api) => api.renameSession() },
+  {
+    id: 'pin',
+    title: (ctx) => (ctx.session?.pinned ? 'Unpin' : 'Pin to top'),
+    group: 'session',
+    icon: Pin,
+    keywords: 'unpin keep',
+    when: indexed,
+    run: (api, ctx) => api.setFlags({ pinned: !ctx.session!.pinned }),
+  },
+  {
+    id: 'archive',
+    title: (ctx) => (ctx.session?.archived ? 'Unarchive' : 'Archive'),
+    group: 'session',
+    icon: Archive,
+    keywords: 'unarchive settle hide done',
+    when: indexed,
+    run: (api, ctx) => api.setFlags(ctx.session!.archived ? { archived: false } : { archived: true, pinned: false }),
+  },
+  {
+    id: 'fork',
+    title: 'Fork session…',
+    group: 'session',
+    icon: GitFork,
+    keywords: 'copy branch conversation',
+    when: (ctx) => indexed(ctx) && ctx.connected && (session(ctx)!.prompts > 0 || session(ctx)!.hasReply),
+    next: () => ({ kind: 'pick', list: 'fork', chip: 'Fork session' }),
+  },
+  {
+    id: 'rewind',
+    title: 'Rewind to a message…',
+    group: 'session',
+    icon: Undo2,
+    keywords: 'undo file changes checkpoint',
+    when: (ctx) => ctx.connected && (session(ctx)?.prompts ?? 0) > 0,
+    next: () => ({ kind: 'pick', list: 'rewind', chip: 'Rewind to a message' }),
+  },
+  { id: 'compact', title: 'Compact context', group: 'session', icon: Shrink, keywords: '/compact summarise', when: (ctx) => hosted(ctx) && (session(ctx)!.host!.contextTokens ?? 0) > 0, run: (api) => api.compact() },
+  { id: 'change-model', title: 'Change model…', group: 'session', icon: Cpu, keywords: 'opus sonnet haiku', when: hosted, next: () => ({ kind: 'pick', list: 'model', chip: 'Model' }) },
+  { id: 'change-effort', title: 'Change effort…', group: 'session', icon: Gauge, keywords: 'thinking', when: (ctx) => hosted(ctx) && session(ctx)!.host!.supportsEffort, next: () => ({ kind: 'pick', list: 'effort', chip: 'Effort' }) },
+  { id: 'change-mode', title: 'Change permission mode…', group: 'session', shortcut: '⇧⇥', icon: ShieldCheck, keywords: 'plan accept edits auto', when: hosted, next: () => ({ kind: 'pick', list: 'mode', chip: 'Permission mode' }) },
+  { id: 'copy-last-reply', title: 'Copy last reply', group: 'session', icon: Copy, keywords: 'clipboard markdown answer', when: (ctx) => !!session(ctx)?.hasReply, run: (api) => api.copyLastReply() },
+  { id: 'copy-session-id', title: 'Copy session id', group: 'session', icon: Hash, keywords: 'clipboard uuid resume', when: (ctx) => session(ctx) !== null, run: (api) => api.copySessionId() },
+  { id: 'toggle-terminal', title: 'Toggle terminal', group: 'session', shortcut: '⌘J', icon: SquareTerminal, keywords: 'shell panel', when: (ctx) => session(ctx) !== null, run: (api) => api.toggleTerminal() },
+  { id: 'new-terminal-tab', title: 'New terminal tab', group: 'session', icon: Plus, keywords: 'shell', when: (ctx) => withCwd(ctx) && ctx.connected, run: (api) => api.newTerminalTab() },
+  { id: 'toggle-changes', title: 'Toggle changes', group: 'session', shortcut: '⌘⇧D', icon: FileDiff, keywords: 'diff git panel', when: withCwd, run: (api) => api.toggleChanges() },
+  { id: 'tools', title: 'Tools: MCP servers, skills, agents, plugins', group: 'session', icon: Blocks, keywords: 'mcp extensions capabilities', when: withCwd, run: (api) => api.showTools() },
+  { id: 'open-in-editor', title: 'Open folder in editor', group: 'session', shortcut: '⌘O', icon: Code, keywords: 'vscode cursor', when: withCwd, run: (api) => api.openInEditor() },
+  { id: 'reveal-in-finder', title: 'Reveal folder in Finder', group: 'session', icon: Folder, keywords: 'show files', when: withCwd, run: (api) => api.revealInFinder() },
+  { id: 'close-session', title: 'Close session', group: 'session', icon: X, keywords: 'home', when: (ctx) => session(ctx) !== null, run: (api) => api.closeSession() },
+  { id: 'delete-session', title: 'Delete session…', group: 'session', icon: Trash2, keywords: 'trash remove', when: (ctx) => indexed(ctx) && ctx.connected, run: (api) => api.deleteSession() },
+  { id: 'stop', title: 'Stop Claude', group: 'session', shortcut: 'Esc', icon: StopCircle, keywords: 'interrupt cancel', when: (ctx) => !!session(ctx)?.running && !!session(ctx)?.host && ctx.connected, run: (api) => api.stop() },
+  {
+    id: 'go-to-waiting',
+    title: (ctx) => (ctx.session?.waiting === 'question' ? 'Go to the question' : 'Go to the permission'),
+    group: 'session',
+    icon: BellRing,
+    keywords: 'needs you answer allow',
+    when: (ctx) => !!session(ctx)?.waiting,
+    run: (api) => api.goToWaiting(),
+  },
+
+  // The folder is a git repository
+  { id: 'commit', title: 'Commit…', group: 'git', icon: GitCommitHorizontal, keywords: 'git message', when: (ctx) => inGit(ctx) && ctx.git!.changed > 0, run: (api) => api.sessionRequest('commit') },
+  { id: 'create-pr', title: 'Create pull request…', group: 'git', icon: GitPullRequest, keywords: 'git github pr gh', when: (ctx) => inGit(ctx) && ctx.git!.prBlocked === null, run: (api) => api.createPullRequest() },
+  { id: 'sync', title: 'Sync with remote', group: 'git', icon: RefreshCw, keywords: 'git pull push fetch', when: (ctx) => inGit(ctx) && ctx.git!.hasRemote, run: (api) => api.syncWithRemote() },
+  { id: 'switch-branch', title: 'Switch branch…', group: 'git', icon: GitBranch, keywords: 'git checkout', when: (ctx) => inGit(ctx) && !session(ctx)!.isWorktree && !session(ctx)!.running, run: (api) => api.sessionRequest('branch-menu') },
+  { id: 'stage-all', title: 'Stage all', group: 'git', icon: ListChecks, keywords: 'git add', when: (ctx) => inGit(ctx) && ctx.git!.unstaged > 0, run: (api) => api.stageAll() },
+  { id: 'revert-all', title: 'Revert all changes…', group: 'git', icon: Undo2, keywords: 'git discard reset', when: (ctx) => inGit(ctx) && ctx.git!.changed > 0, run: (api) => api.revertAll() },
+  { id: 'finish-worktree', title: 'Finish worktree…', group: 'git', icon: GitMerge, keywords: 'git merge remove', when: (ctx) => inGit(ctx) && session(ctx)!.isWorktree, run: (api) => api.sessionRequest('branch-menu') },
+
+  // Project actions (the actions themselves come from `actionCommands`)
+  { id: 'edit-actions', title: 'Edit actions…', group: 'actions', icon: Settings2, keywords: 'project scripts', when: (ctx) => hasSession(ctx) && ctx.canEditActions && ctx.actions.length > 0, run: (api) => api.sessionRequest('edit-actions') },
+  { id: 'new-action', title: 'New action…', group: 'actions', icon: Plus, keywords: 'project scripts add', when: (ctx) => hasSession(ctx) && ctx.canEditActions, run: (api) => api.sessionRequest('new-action') },
+
+  // The terminal is open
+  { id: 'hide-terminal', title: 'Hide terminal', group: 'terminal', shortcut: '⌘J', icon: SquareTerminal, keywords: 'close panel', when: terminalOpen, run: (api) => api.hideTerminal() },
+  {
+    id: 'maximize-terminal',
+    title: (ctx) => (ctx.terminal.maximized ? 'Restore terminal' : 'Maximize terminal'),
+    group: 'terminal',
+    shortcut: '⌘⇧J',
+    icon: Maximize2,
+    keywords: 'full size',
+    when: terminalOpen,
+    run: (api) => api.toggleMaximizeTerminal(),
+  },
+  { id: 'dock-right', title: 'Dock terminal right', group: 'terminal', icon: PanelRight, keywords: 'side', when: (ctx) => terminalOpen(ctx) && ctx.terminal.dock === 'bottom', run: (api) => api.dockTerminal('right') },
+  { id: 'dock-below', title: 'Dock terminal below', group: 'terminal', icon: PanelBottom, keywords: 'bottom', when: (ctx) => terminalOpen(ctx) && ctx.terminal.dock === 'right', run: (api) => api.dockTerminal('bottom') },
+  { id: 'stop-action', title: 'Stop action', group: 'terminal', shortcut: '⌃C', icon: Square, keywords: 'kill command', when: (ctx) => terminalOpen(ctx) && !!ctx.terminal.action?.running, run: (api) => api.stopAction() },
+  { id: 'restart-action', title: 'Restart action', group: 'terminal', icon: RotateCcw, keywords: 'run again', when: (ctx) => terminalOpen(ctx) && ctx.terminal.action !== null && ctx.connected, run: (api) => api.restartAction() },
+
+  // Split view
+  { id: 'focus-other-pane', title: 'Focus other pane', group: 'panes', icon: ArrowLeftRight, keywords: 'split switch', when: (ctx) => ctx.split && ctx.view === 'session', run: (api) => api.focusOtherPane() },
+  { id: 'close-pane', title: 'Close this pane', group: 'panes', icon: Columns2, keywords: 'split', when: (ctx) => ctx.split && ctx.view === 'session', run: (api) => api.closePane() },
+
+  // New session is on screen
+  { id: 'toggle-worktree', title: 'Toggle worktree', group: 'new-session', icon: FolderGit2, keywords: 'isolated checkout', when: (ctx) => !!ctx.newSession?.canWorktree, run: (api) => api.newSessionRequest('toggle-worktree') },
+  { id: 'save-defaults', title: 'Save as project default', group: 'new-session', icon: Save, keywords: 'model effort mode', when: (ctx) => !!ctx.newSession?.canSaveDefaults, run: (api) => api.newSessionRequest('save-defaults') },
+  { id: 'save-later', title: 'Save for later', group: 'new-session', icon: Bookmark, keywords: 'focus park prompt', when: (ctx) => ctx.focusLimit !== null && !!ctx.newSession?.canSaveForLater, run: (api) => api.newSessionRequest('save-later') },
+
+  // Settings is open: its pages
+  ...SETTINGS_SECTIONS.map(
+    ({ id, label, icon }): PaletteCommand => ({
+      id: `settings-${id}`,
+      title: `Settings: ${label}`,
+      group: 'settings',
+      icon,
+      keywords: 'preferences page',
+      when: (ctx) => ctx.view === 'settings' && ctx.settingsSection !== id,
+      run: (api) => api.openSettings(id),
+    }),
+  ),
+];
+
+/** "Run: <action>" for each of the open session's project actions, with its shortcut. */
+export function actionCommands(ctx: PaletteContext): PaletteCommand[] {
+  return ctx.actions.map((action) => ({
+    id: `action:${action.id}`,
+    title: `Run: ${action.name}`,
+    group: 'actions',
+    shortcut: action.shortcut ?? undefined,
+    icon: ACTION_ICON[action.icon] ?? Square,
+    keywords: 'project action',
+    when: hasSession,
+    run: (api) => api.runAction(action.id),
+  }));
+}
+
+/** Every command that can show here, before matching what is typed. */
+export function visibleCommands(ctx: PaletteContext, commands: readonly PaletteCommand[] = COMMANDS): PaletteCommand[] {
+  return [...commands, ...actionCommands(ctx)].filter((command) => command.when(ctx));
+}
+
+/** A command as a row: its title for this context, and which letters matched what was typed. */
+export interface RankedCommand {
+  command: PaletteCommand;
+  title: string;
+  indices: number[];
+}
+
+export interface CommandSection {
+  id: string;
+  label: string;
+  items: RankedCommand[];
+}
+
+/** How many recently used commands are remembered (in memory, for this window). */
+export const RECENT_LIMIT = 5;
+
+/** `id` moved to the front of the recently used list. */
+export function rememberIn(recent: readonly string[], id: string, limit = RECENT_LIMIT): string[] {
+  return [id, ...recent.filter((other) => other !== id)].slice(0, limit);
+}
+
+let recentIds: string[] = [];
+/** The commands used most recently in this window, newest first. */
+export const recentCommands = (): readonly string[] => recentIds;
+export function rememberCommand(id: string): void {
+  recentIds = rememberIn(recentIds, id);
+}
+
+/**
+ * The palette's command list. With nothing typed: the groups for where you are first (This session,
+ * Git, Project actions, Terminal, …), then recently used, then the rest. With a query: the best
+ * matches by title (or keywords, a little lower), ties going to the commands for where you are.
+ */
+export function arrangeCommands(commands: readonly PaletteCommand[], ctx: PaletteContext, recent: readonly string[], query: string): CommandSection[] {
+  const rank = (command: PaletteCommand): RankedCommand => ({ command, title: titleOf(command, ctx), indices: [] });
+  if (query.trim()) {
+    const contextFirst = (command: PaletteCommand) => (command.group === 'general' ? 1 : 0);
+    const matches = commands
+      .map((command) => {
+        const title = titleOf(command, ctx);
+        const byTitle = fuzzyMatch(query, title);
+        const byKeywords = command.keywords ? fuzzyMatch(query, command.keywords) : null;
+        const keywordScore = byKeywords ? byKeywords.score - 2 : -Infinity;
+        const score = Math.max(byTitle?.score ?? -Infinity, keywordScore);
+        return { command, title, score, indices: byTitle && byTitle.score >= keywordScore ? byTitle.indices : [] };
+      })
+      .filter((match) => match.score > -Infinity)
+      .sort((a, b) => b.score - a.score || contextFirst(a.command) - contextFirst(b.command));
+    return matches.length ? [{ id: 'matches', label: 'Commands', items: matches.map(({ command, title, indices }) => ({ command, title, indices })) }] : [];
+  }
+  const sections: CommandSection[] = [];
+  const shown = new Set<string>();
+  for (const group of CONTEXT_GROUPS) {
+    const items = commands.filter((command) => command.group === group);
+    if (items.length === 0) continue;
+    items.forEach((command) => shown.add(command.id));
+    sections.push({ id: group, label: GROUP_LABEL[group], items: items.map(rank) });
+  }
+  const byId = new Map(commands.map((command) => [command.id, command]));
+  const recentItems = recent.flatMap((id) => (byId.has(id) && !shown.has(id) ? [byId.get(id)!] : []));
+  recentItems.forEach((command) => shown.add(command.id));
+  if (recentItems.length) sections.push({ id: 'recent', label: 'Recently used', items: recentItems.map(rank) });
+  const rest = commands.filter((command) => !shown.has(command.id));
+  if (rest.length) sections.push({ id: 'general', label: GROUP_LABEL.general, items: rest.map(rank) });
+  return sections;
+}
+

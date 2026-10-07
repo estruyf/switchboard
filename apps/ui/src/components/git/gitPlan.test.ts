@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { WorktreeStatus } from '@switchboard/protocol/client';
-import { gitSummary, planGit, stepCount } from './gitPlan.ts';
+import { gitSummary, planGit, stepCount, syncStep } from './gitPlan.ts';
 
 const base: WorktreeStatus = {
   path: '/repo',
@@ -93,5 +93,18 @@ describe('gitSummary', () => {
   it('says when the branch has no upstream or the repository no remote', () => {
     expect(gitSummary(status({ upstream: null, unpushed: null, behindUpstream: null, ahead: 2 }))).toBe('Not pushed yet · ↑2 ahead of main · 0 changed files');
     expect(gitSummary(status({ hasRemote: false, upstream: null }))).toBe('No remote · 0 changed files');
+  });
+});
+
+describe('syncStep: Sync with remote', () => {
+  it('pulls when behind, pushes what is unpushed, and otherwise fetches', () => {
+    expect(syncStep(status({ behindUpstream: 3, unpushed: 1 }), false)).toBe('pull');
+    expect(syncStep(status({ unpushed: 2, ahead: 2 }), false)).toBe('push');
+    expect(syncStep(status({ upstream: null, unpushed: null, ahead: 1 }), false)).toBe('push');
+    expect(syncStep(status({}), false)).toBe('fetch');
+  });
+
+  it('waits for Claude before pulling into a busy checkout', () => {
+    expect(syncStep(status({ behindUpstream: 3 }), true)).toBe('fetch');
   });
 });

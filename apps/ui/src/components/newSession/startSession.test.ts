@@ -1,0 +1,99 @@
+import { describe, expect, it, vi } from 'vitest';
+import type { GateOutcome } from '../../state/focusGate.ts';
+import type { Choices } from './choices.ts';
+import { checkoutBranchFor, sessionCreateParams, shouldPrewarm, startNewSession, type NewSessionStart, type StartDeps } from './startSession.ts';
+
+const CHOICES: Choices = { model: 'opus', permissionMode: 'acceptEdits', effort: 'high', workspace: 'current', baseRef: 'fresh', branch: '' };
+const START: NewSessionStart = { cwd: '/work/app', prompt: 'Fix the login redirect', choices: CHOICES, worktree: false, currentBranch: 'main', profileId: 'default' };
+
+function deps(outcome: GateOutcome = 'start') {
+  const calls: string[] = [];
+  const fake = {
+    calls,
+    createSession: vi.fn(async () => (calls.push('create'), { sessionId: 'new-1' })),
+    gate: vi.fn(async () => (calls.push('gate'), outcome)),
+    addProject: vi.fn(async () => void calls.push('add')),
+    open: vi.fn(() => void calls.push('open')),
+  } satisfies StartDeps & { calls: string[] };
+  return fake;
+}
+
+describe('sessionCreateParams', () => {
+  it('passes the choices, with empty ones as Claude Code’s defaults', () => {
+    expect(sessionCreateParams(START)).toEqual({
+      cwd: '/work/app',
+      prompt: 'Fix the login redirect',
+      attachments: [],
+      model: 'opus',
+      permissionMode: 'acceptEdits',
+      effort: 'high',
+      worktree: null,
+      checkoutBranch: null,
+      profileId: 'default',
+    });
+    expect(sessionCreateParams({ ...START, choices: { ...CHOICES, model: '', effort: '' } })).toMatchObject({ model: null, effort: null });
+  });
+
+  it('names a worktree after the prompt unless it was named', () => {
+    expect(sessionCreateParams({ ...START, worktree: true }).worktree).toEqual({ name: 'fix-the-login-redirect', baseRef: 'fresh' });
+    expect(sessionCreateParams({ ...START, worktree: true, worktreeName: 'login' }).worktree).toEqual({ name: 'login', baseRef: 'fresh' });
+  });
+
+  it('checks out another branch first, but never for a worktree or the current branch', () => {
+    const other = { ...CHOICES, branch: 'feature' };
+    expect(sessionCreateParams({ ...START, choices: other }).checkoutBranch).toBe('feature');
+    expect(checkoutBranchFor(other, true, 'main')).toBeNull();
+    expect(checkoutBranchFor({ ...CHOICES, branch: 'main' }, false, 'main')).toBeNull();
+  });
+
+  it('never starts a link’s session in a mode that skips permission prompts', () => {
+    expect(sessionCreateParams({ ...START, fromLink: true, choices: { ...CHOICES, permissionMode: 'bypassPermissions' } }).permissionMode).toBe('default');
+  });
+});
+
+describe('shouldPrewarm', () => {
+  it('warms up the checkout as it is, not a worktree or another branch', () => {
+    expect(shouldPrewarm(CHOICES)).toBe(true);
+    expect(shouldPrewarm({ workspace: 'worktree', branch: '' })).toBe(false);
+    expect(shouldPrewarm({ workspace: 'current', branch: 'feature' })).toBe(false);
+  });
+});
+
+describe('startNewSession', () => {
+  it('asks the focus limit first, then starts, adds the project and opens the session', async () => {
+    const fake = deps();
+    const outcome = await startNewSession({ ...START, addProject: true }, fake);
+    expect(outcome).toEqual({ kind: 'started', sessionId: 'new-1' });
+    expect(fake.calls).toEqual(['gate', 'create', 'add', 'open']);
+    expect(fake.open).toHaveBeenCalledWith('new-1');
+    expect(fake.addProject).toHaveBeenCalledWith('/work/app');
+  });
+
+  it('starts nothing when the gate says stop, or when the prompt was saved for later', async () => {
+    const stopped = deps('stop');
+    expect(await startNewSession(START, stopped)).toEqual({ kind: 'stopped' });
+    const saved = deps('saved');
+    expect(await startNewSession(START, saved)).toEqual({ kind: 'saved' });
+    expect([...stopped.calls, ...saved.calls]).toEqual(['gate', 'gate']);
+  });
+
+  it('hands the gate the way to save the prompt for later', async () => {
+    const fake = deps();
+    const saveForLater = vi.fn(async () => {});
+    await startNewSession({ ...START, saveForLater }, fake);
+    expect(fake.gate).toHaveBeenCalledWith({ saveForLater });
+  });
+
+  it('skips the gate after Start anyway, and never adds a link’s folder as a project', async () => {
+    const fake = deps('stop');
+    await startNewSession({ ...START, skipGate: true, fromLink: true, addProject: true }, fake);
+    expect(fake.calls).toEqual(['create', 'open']);
+  });
+
+  it('still opens the session when adding the project fails', async () => {
+    const fake = deps();
+    fake.addProject.mockRejectedValueOnce(new Error('nope'));
+    expect(await startNewSession({ ...START, addProject: true }, fake)).toMatchObject({ kind: 'started' });
+    expect(fake.open).toHaveBeenCalled();
+  });
+});

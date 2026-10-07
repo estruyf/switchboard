@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import type { PaletteMode } from '../components/palette/paletteState.ts';
 
 const CHANGES_KEY = 'ui.changesPanel';
 const WRAP_KEY = 'ui.diffWrap';
@@ -29,7 +30,11 @@ interface OverlayState {
   diffWrap: boolean;
   /** The palette asks the session's actions bar to run an action (so confirm and trust prompts apply). */
   actionRequest: { id: string; nonce: number } | null;
+  /** The mode the command palette opens in (⌘K and ⌘⇧P: commands, ⌘P: go to), and a count that resets it when it opens again. */
+  palette: { mode: PaletteMode; nonce: number };
   show(which: 'search' | 'palette' | 'tools'): void;
+  /** Opens the palette in a mode; the same shortcut again closes it, another one switches mode. */
+  togglePalette(mode: PaletteMode): void;
   close(): void;
   focus(target: { sessionId: string; messageUuid: string } | null): void;
   toggleChanges(open?: boolean): void;
@@ -43,7 +48,10 @@ export const useOverlay = create<OverlayState>()((set) => ({
   changesOpen: readFlag(CHANGES_KEY),
   diffWrap: readFlag(WRAP_KEY),
   actionRequest: null,
+  palette: { mode: 'commands', nonce: 0 },
   show: (open) => set({ open }),
+  togglePalette: (mode) =>
+    set((s) => (s.open === 'palette' && s.palette.mode === mode ? { open: null } : { open: 'palette', palette: { mode, nonce: s.palette.nonce + 1 } })),
   close: () => set({ open: null }),
   focus: (focusMessage) => set({ focusMessage }),
   toggleChanges: (open) =>

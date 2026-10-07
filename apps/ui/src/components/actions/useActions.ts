@@ -1,24 +1,8 @@
-import { Bug, Check, FlaskConical, GitCommitHorizontal, GitPullRequest, Globe, Package, Play, Rocket, Sparkles, SquareTerminal, Upload, Wrench, type LucideIcon } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
-import type { ActionIcon, ListedAction } from '@switchboard/protocol/client';
+import type { ListedAction } from '@switchboard/protocol/client';
 import { useEngineConnection } from '../../engine/useEngine.ts';
 
-export const ACTION_ICON: Record<ActionIcon, LucideIcon> = {
-  play: Play,
-  rocket: Rocket,
-  'git-commit': GitCommitHorizontal,
-  'git-pull-request': GitPullRequest,
-  upload: Upload,
-  flask: FlaskConical,
-  package: Package,
-  terminal: SquareTerminal,
-  sparkles: Sparkles,
-  wrench: Wrench,
-  globe: Globe,
-  bug: Bug,
-  check: Check,
-};
-
+export { ACTION_ICON } from './actionIcon.ts';
 export { ariaShortcut, formatShortcut, RESERVED_SHORTCUTS, shortcutFromEvent } from '../../lib/shortcuts.ts';
 
 /** A project's actions (yours, shared and global), reloaded on demand. */

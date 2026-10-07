@@ -1,5 +1,14 @@
 import { describe, expect, it } from 'vitest';
-import { fuzzyScore } from './fuzzy.ts';
+import { fuzzyMatch, fuzzyScore } from './fuzzy.ts';
+
+describe('fuzzyMatch', () => {
+  it('returns the positions of the matched letters, for highlighting', () => {
+    expect(fuzzyMatch('tt', 'Toggle terminal')?.indices).toEqual([0, 7]);
+    expect(fuzzyMatch('new', 'New session')?.indices).toEqual([0, 1, 2]);
+    expect(fuzzyMatch('', 'anything')).toEqual({ score: 0, indices: [] });
+    expect(fuzzyMatch('zz', 'New session')).toBeNull();
+  });
+});
 
 describe('fuzzyScore', () => {
   it('matches subsequences, case-insensitively, and rejects the rest', () => {

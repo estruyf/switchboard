@@ -13,6 +13,9 @@ export interface Choices {
 /** The global defaults: the choices last used for a field no project decides. Branches belong to a repository, so they never become global. */
 export type GlobalChoices = Omit<Choices, 'branch'>;
 
+/** Where the global choices (and the last folder) are kept in the engine's app state. */
+export const DEFAULTS_KEY = 'newSession.defaults';
+
 export const INITIAL_CHOICES: GlobalChoices = { model: '', permissionMode: 'default', effort: '', workspace: 'current', baseRef: 'fresh' };
 
 const FIELDS = ['model', 'permissionMode', 'effort', 'workspace', 'baseRef', 'branch'] as const;

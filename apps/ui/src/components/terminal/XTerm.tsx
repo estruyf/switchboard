@@ -97,7 +97,16 @@ export function XTerm({ id, active, exited, onClose }: { id: string; active: boo
         if (event.type === 'keydown') onCloseRef.current();
         return false;
       }
-      return !(event.metaKey && !['c', 'v', 'a', 'k'].includes(event.key.toLowerCase()));
+      // ⌘K clears the screen and scrollback, as in Terminal and iTerm; the palette opens with ⌘⇧P here.
+      // `data-cleared` counts the clears, for the smoke test (the WebGL renderer keeps the text out of the DOM).
+      if (event.metaKey && !event.shiftKey && !event.altKey && !event.ctrlKey && event.key.toLowerCase() === 'k') {
+        if (event.type === 'keydown') {
+          term.clear();
+          host.dataset.cleared = String(Number(host.dataset.cleared ?? 0) + 1);
+        }
+        return false;
+      }
+      return !(event.metaKey && !['c', 'v', 'a'].includes(event.key.toLowerCase()));
     });
 
     let disposed = false;

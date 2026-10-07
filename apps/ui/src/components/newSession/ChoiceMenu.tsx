@@ -75,7 +75,8 @@ export function ChoiceMenu<T extends string>({
   children: ReactNode;
 }) {
   const [open, setOpen] = useState(false);
-  const [upward, setUpward] = useState(false);
+  /** Where the panel sits: fixed to the window, from the pill's edges, so a dialog or scroll box around the pill can't clip it. */
+  const [anchor, setAnchor] = useState<{ left: number; right: number; top: number; bottom: number; upward: boolean } | null>(null);
   const [query, setQuery] = useState('');
   const ref = useRef<HTMLDivElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
@@ -93,11 +94,15 @@ export function ChoiceMenu<T extends string>({
     (filter ?? items.find((b) => b.getAttribute('aria-checked') === 'true') ?? items[0])?.focus();
     const onDown = (e: MouseEvent) => !ref.current?.contains(e.target as Node) && setOpen(false);
     const onBlur = () => setOpen(false);
+    // The panel is placed once, from the pill: when what's around it scrolls, the menu would be left behind.
+    const onScroll = (e: Event) => !panel.current?.contains(e.target as Node) && setOpen(false);
     window.addEventListener('mousedown', onDown);
     window.addEventListener('blur', onBlur);
+    window.addEventListener('scroll', onScroll, true);
     return () => {
       window.removeEventListener('mousedown', onDown);
       window.removeEventListener('blur', onBlur);
+      window.removeEventListener('scroll', onScroll, true);
     };
   }, [open]);
   useEffect(() => {
@@ -139,8 +144,9 @@ export function ChoiceMenu<T extends string>({
         data-value={value}
         {...{ [`data-${name}-select`]: '' }}
         onClick={(e) => {
+          const rect = e.currentTarget.getBoundingClientRect();
           // Opens upward when the pill sits near the bottom of the window.
-          setUpward(placement === 'up' || window.innerHeight - e.currentTarget.getBoundingClientRect().bottom < 300);
+          setAnchor({ left: rect.left, right: rect.right, top: rect.top, bottom: rect.bottom, upward: placement === 'up' || window.innerHeight - rect.bottom < 300 });
           setOpen((o) => !o);
         }}
         className={`flex h-7 max-w-full min-w-0 items-center gap-1.5 rounded-md px-2 text-ui whitespace-nowrap text-muted hover:bg-border/50 hover:text-text disabled:opacity-50 ${open ? 'bg-border/50 text-text' : ''}`}
@@ -148,14 +154,18 @@ export function ChoiceMenu<T extends string>({
         {children}
         {chevron && <ChevronDown size={12} className="shrink-0 text-faint" aria-hidden />}
       </button>
-      {open && (
+      {open && anchor && (
         <div
           ref={panel}
           role="menu"
           aria-label={heading}
           data-menu={name}
-          style={{ width }}
-          className={`absolute z-40 max-h-80 overflow-y-auto rounded-lg border overlay py-1 ${align === 'right' ? 'right-0' : 'left-0'} ${upward ? 'bottom-full mb-1.5' : 'top-full mt-1.5'}`}
+          style={{
+            width,
+            left: Math.max(8, Math.min(align === 'right' ? anchor.right - width : anchor.left, window.innerWidth - width - 8)),
+            ...(anchor.upward ? { bottom: window.innerHeight - anchor.top + 6 } : { top: anchor.bottom + 6 }),
+          }}
+          className="fixed z-40 max-h-80 overflow-y-auto rounded-lg border overlay py-1"
         >
           {heading && (
             <p role="presentation" className="px-3 pt-1.5 pb-1 text-meta tracking-wide text-faint uppercase">

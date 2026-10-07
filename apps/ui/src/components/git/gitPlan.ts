@@ -70,3 +70,15 @@ export function gitSummary(status: WorktreeStatus): string {
 }
 
 export const STEP_LABEL: Record<GitStep, string> = { fetch: 'Fetch', commit: 'Commit', pull: 'Pull', push: 'Push', pr: 'Create PR' };
+
+/**
+ * What "Sync with remote" runs: pull when the upstream is ahead, else push what hasn't been pushed (or
+ * publish a branch that has commits), else fetch to see whether the upstream moved on.
+ */
+export function syncStep(status: WorktreeStatus, busy: boolean): 'pull' | 'push' | 'fetch' {
+  const plan = planGit(status, busy);
+  if ((status.behindUpstream ?? 0) > 0 && plan.blocked.pull === null) return 'pull';
+  const unpushed = status.upstream ? (status.unpushed ?? 0) > 0 : status.branch !== status.baseBranch && status.ahead > 0;
+  if (unpushed && plan.blocked.push === null) return 'push';
+  return 'fetch';
+}

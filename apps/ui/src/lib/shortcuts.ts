@@ -10,6 +10,8 @@ export const RESERVED_SHORTCUTS = new Set([
   'cmd+o',
   'cmd+j',
   'cmd+k',
+  'cmd+p',
+  'cmd+shift+p',
   'cmd+f',
   'cmd+g',
   'cmd+shift+g',

@@ -1,257 +1,546 @@
-import {
-  Activity,
-  ArrowDownCircle,
-  Download,
-  Blocks,
-  FileDiff,
-  FolderCog,
-  FolderPlus,
-  Monitor,
-  Moon,
-  PanelLeft,
-  Play,
-  RefreshCw,
-  Search,
-  Settings,
-  SquarePen,
-  House,
-  SquareTerminal,
-  StopCircle,
-  Sun,
-  Upload,
-  type LucideIcon,
-} from 'lucide-react';
-import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react';
+import { GitBranchPlus, Search, SquarePen } from 'lucide-react';
+import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
+import { FOCUS_LIMIT_MAX, FOCUS_LIMIT_MIN } from '@switchboard/protocol/bridge';
+import type { LaterItem } from '@switchboard/protocol/client';
 import { useEngineConnection } from '../../engine/useEngine.ts';
-import { shortAge } from '../../lib/format.ts';
-import { fuzzyScore } from '../../lib/fuzzy.ts';
-import { isActiveHost, useHosts } from '../../state/hostsStore.ts';
-import { useBackup } from '../../state/backupStore.ts';
+import { basename, guessHome, shortAge, tildify } from '../../lib/format.ts';
+import { fuzzyMatch } from '../../lib/fuzzy.ts';
+import { findModelOption } from '../../lib/models.ts';
+import { MODE_CHOICES, MODE_DOT, MODE_LABEL } from '../../lib/modes.ts';
+import { useHosts } from '../../state/hostsStore.ts';
+import { useLater } from '../../state/laterStore.ts';
 import { useOverlay } from '../../state/overlayStore.ts';
+import { usePaletteBus } from '../../state/paletteBus.ts';
 import { usePreferences } from '../../state/preferencesStore.ts';
 import { addedProjects } from '../../state/projectList.ts';
 import { useProjects } from '../../state/projectsStore.ts';
-import { toRows, useSessions } from '../../state/sessionsStore.ts';
+import { toRows, useSessions, type SessionRowData } from '../../state/sessionsStore.ts';
 import { inScope } from '../../state/sidebarRows.ts';
-import { useTerminals } from '../../state/terminalsStore.ts';
-import { useClaudeUpdate } from '../../state/claudeUpdateStore.ts';
-import { ACTION_ICON, formatShortcut, useProjectActionList } from '../actions/useActions.ts';
+import { toast } from '../../state/toastStore.ts';
+import { rememberLimit } from '../focus/focusLimit.ts';
+import { activityByProject, latestBranches, recentFirst, tileStatus } from '../newSession/projectTiles.ts';
+import { EFFORT_LABEL, EFFORTS, MODE_DESCRIPTION } from '../newSession/route.ts';
 import { useOpenIn } from '../OpenInButton.tsx';
-import { ProjectIcon } from '../ProjectIcon.tsx';
 import { Dialog } from '../ui/Dialog.tsx';
+import { Kbd } from '../ui/Kbd.tsx';
+import { Pill } from '../ui/Pill.tsx';
+import { SectionHeader } from '../ui/SectionHeader.tsx';
+import { arrangeCommands, recentCommands, rememberCommand, visibleCommands, type CommandSection, type PaletteCommand } from './commands.ts';
+import { matchProjects, matchSessions } from './gotoItems.ts';
+import { createPaletteApi } from './paletteApi.ts';
+import type { PaletteContext } from './paletteContext.ts';
+import { PaletteFooter, type FooterKey } from './PaletteFooter.tsx';
+import { CommandRow, FolderRow, HelpRow, OptionRow, ProjectRow, SessionRow } from './PaletteRows.tsx';
+import { back, currentStep, initialState, PREFIXES, pushStep, switchMode, typeQuery, type PaletteMode, type PaletteState, type PaletteStep, type PickList } from './paletteState.ts';
+import { PromptStep } from './PromptStep.tsx';
+import { usePaletteContext } from './usePaletteContext.ts';
 
-interface Item {
+/** A row in the list. Rows of a step's own list carry a ⌘1 to ⌘9 number. */
+type Row =
+  | { kind: 'command'; key: string; command: PaletteCommand; title: string; indices: number[] }
+  | { kind: 'session'; key: string; data: SessionRowData; indices: number[] }
+  | { kind: 'project'; key: string; root: string; indices: number[]; number: number | null; compact: boolean }
+  | { kind: 'folder'; key: string }
+  | { kind: 'option'; key: string; value: string; title: string; detail?: string; dot?: string; current: boolean; indices: number[]; number: number | null }
+  | { kind: 'help'; key: string; mode: PaletteMode; prefix: string; title: string; detail: string };
+
+interface Section {
   id: string;
-  group: 'Commands' | 'Project actions' | 'Projects' | 'Sessions';
   label: string;
-  /** Extra words to match on. */
-  keywords?: string;
-  hint?: string;
-  icon: ReactNode;
-  run(): void;
-  /** ⌥-Enter (sessions): open in the other pane. */
-  runBeside?(): void;
+  tone?: 'neutral' | 'needs-you' | 'working';
+  rows: Row[];
 }
 
-const icon = (Icon: LucideIcon) => <Icon size={14} />;
+/** An option of a pick step, before matching what is typed. */
+interface Option {
+  value: string;
+  title: string;
+  detail?: string;
+  dot?: string;
+  current?: boolean;
+}
 
-/** ⌘K: every command, the current project's actions, a new session in any project, and a jump to any session, by typing a few letters. */
+/** Sessions and projects shown in go-to with nothing typed. */
+const GOTO_SESSIONS = 8;
+const GOTO_PROJECTS = 5;
+/** Matches shown at most once something is typed. */
+const MATCH_LIMIT = 50;
+
+const PLACEHOLDER: Record<PaletteMode, string> = {
+  goto: 'Go to a session or project',
+  commands: 'Type a command',
+  new: 'Pick a project',
+  actions: 'Run a project action',
+  help: 'Pick what to list',
+};
+const PICK_PLACEHOLDER: Record<PickList, string> = {
+  model: 'Pick a model',
+  effort: 'Pick an effort',
+  mode: 'Pick a permission mode',
+  fork: 'Fork from where',
+  rewind: 'Undo file changes since which message',
+  'focus-limit': 'How many sessions at once',
+  later: 'Pick a saved prompt',
+};
+/** What a command that asks for more shows next, on its row while it's highlighted. */
+const NEXT_HINT: Record<PaletteStep['kind'], string> = { projects: 'picks a project next', prompt: 'write the prompt next', pick: 'pick one next' };
+
+const HELP: Array<{ mode: PaletteMode; prefix: string; title: string; detail: string }> = [
+  { mode: 'goto', prefix: '', title: 'Go to a session or project', detail: 'no prefix · ⌘P' },
+  { mode: 'commands', prefix: PREFIXES.commands, title: 'Commands', detail: '⌘K or ⌘⇧P' },
+  { mode: 'new', prefix: PREFIXES.new, title: 'New session in a project', detail: 'picks a project' },
+  { mode: 'actions', prefix: PREFIXES.actions, title: 'Project actions of this session', detail: 'runs one' },
+  { mode: 'help', prefix: PREFIXES.help, title: 'Help', detail: 'this list' },
+];
+
+const firstLine = (text: string) => text.trim().split('\n')[0]!.slice(0, 140) || '(no text)';
+
+/**
+ * The command palette. ⌘K and ⌘⇧P open its commands (">"), ⌘P go-to (sessions, then projects).
+ * Typing a prefix switches mode: ">" commands, "+" new session, "!" project actions, "?" help. A
+ * command that needs more input becomes a chip in the field and shows its next step; ⌫ in an empty
+ * field goes back a step, Esc closes. New session ends in a small New session form (`PromptStep`).
+ */
 export function CommandPalette() {
   const connection = useEngineConnection();
   const client = connection.status === 'connected' ? connection.client : null;
   const close = useOverlay((s) => s.close);
-  const view = useSessions((s) => s.view);
-  const selectedId = useSessions((s) => s.selectedId);
-  const sessions = useSessions((s) => s.sessions);
-  const live = useSessions((s) => s.live);
-  const hosts = useHosts((s) => s.hosts);
-  const projects = useProjects((s) => s.projects);
-  const updatePrefs = usePreferences((s) => s.update);
-  const scope = usePreferences((s) => s.prefs.sessionScope);
+  const request = useOverlay((s) => s.palette);
+  const [state, setState] = useState<PaletteState>(() => initialState(request.mode));
+  const opened = useRef(request.nonce);
+  // ⌘P while the commands are open (or the other way round) switches mode in place.
+  useEffect(() => {
+    if (opened.current === request.nonce) return;
+    opened.current = request.nonce;
+    setState(initialState(request.mode));
+  }, [request]);
+
+  const ctx = usePaletteContext();
   const openIn = useOpenIn();
-  const [query, setQuery] = useState('');
+  const api = useMemo(() => createPaletteApi(ctx, client, openIn), [ctx, client, openIn]);
+  const step = currentStep(state);
   const [active, setActive] = useState(0);
+  const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const listId = useId();
   const optionId = (index: number) => `${listId}-${index}`;
 
-  const current = view === 'session' && selectedId ? selectedId : null;
-  const summary = current ? sessions.get(current) : undefined;
-  const host = current ? hosts.get(current) : undefined;
-  const cwd = (isActiveHost(host) ? host.cwd : null) ?? summary?.cwd ?? (current ? live.get(current)?.cwd : null) ?? null;
-  const projectRoot = summary?.projectRoot ?? (current ? live.get(current)?.projectRoot : null) ?? null;
-  const { actions } = useProjectActionList(current ? projectRoot : null);
-  const running = isActiveHost(host) && (host.state === 'running' || host.state === 'needs-you');
-
-  const items = useMemo<Item[]>(() => {
-    const setView = useSessions.getState().setView;
-    const commands: Item[] = [
-      { id: 'home', group: 'Commands', label: 'Home', hint: '⌘⇧H', keywords: 'start overview dashboard', icon: icon(House), run: () => useSessions.getState().goHome() },
-      { id: 'new', group: 'Commands', label: 'New session', hint: '⌘N', icon: icon(SquarePen), run: () => useSessions.getState().openNewSession() },
-      { id: 'search', group: 'Commands', label: 'Search conversations', keywords: 'find text', hint: '⌘⇧F', icon: icon(Search), run: () => useOverlay.getState().show('search') },
-      { id: 'settings', group: 'Commands', label: 'Settings', keywords: 'preferences', hint: '⌘,', icon: icon(Settings), run: () => useSessions.getState().openSettings() },
-      { id: 'projects', group: 'Commands', label: 'Manage projects', keywords: 'folders defaults', icon: icon(FolderCog), run: () => setView('projects') },
-      { id: 'add-project', group: 'Commands', label: 'Add project…', keywords: 'folder', icon: icon(FolderPlus), run: () => useProjects.getState().showAdd(true) },
-      {
-        id: 'claude-update',
-        group: 'Commands',
-        label: 'Check for Claude Code updates…',
-        keywords: 'upgrade version cli',
-        icon: icon(ArrowDownCircle),
-        run: () => {
-          useSessions.getState().openSettings('about');
-          useClaudeUpdate.getState().check();
-        },
-      },
-      ...(client ? [{ id: 'reload-skills', group: 'Commands' as const, label: 'Reload skills', keywords: 'refresh slash commands plugins', icon: icon(RefreshCw), run: () => void client.call('skills.reload', {}).catch(() => {}) }] : []),
-      { id: 'export-settings', group: 'Commands', label: 'Export settings…', keywords: 'backup save move mac projects actions preferences', icon: icon(Upload), run: () => useBackup.getState().show('export') },
-      { id: 'import-settings', group: 'Commands', label: 'Import settings…', keywords: 'backup restore move mac projects actions preferences', icon: icon(Download), run: () => useBackup.getState().show('import') },
-      { id: 'diagnostics', group: 'Commands', label: 'Engine diagnostics', keywords: 'settings log version', icon: icon(Activity), run: () => useSessions.getState().openSettings('diagnostics') },
-      { id: 'theme-system', group: 'Commands', label: 'Theme: Match System', keywords: 'appearance', icon: icon(Monitor), run: () => updatePrefs({ colorScheme: 'system' }) },
-      { id: 'theme-light', group: 'Commands', label: 'Theme: Light', keywords: 'appearance', icon: icon(Sun), run: () => updatePrefs({ colorScheme: 'light' }) },
-      { id: 'theme-dark', group: 'Commands', label: 'Theme: Dark', keywords: 'appearance', icon: icon(Moon), run: () => updatePrefs({ colorScheme: 'dark' }) },
-      ...(['large', 'standard', 'compact'] as const).map((style) => ({
-        id: `sidebar-${style}`,
-        group: 'Commands' as const,
-        label: `Sidebar: ${style === 'large' ? 'Large icons' : style === 'standard' ? 'Standard' : 'Compact'}`,
-        icon: icon(PanelLeft),
-        run: () => updatePrefs({ sidebarStyle: style }),
-      })),
-    ];
-    if (current) {
-      commands.push(
-        { id: 'terminal', group: 'Commands', label: 'Toggle terminal', hint: '⌘J', icon: icon(SquareTerminal), run: () => useTerminals.getState().togglePanel() },
-        { id: 'tools', group: 'Commands', label: 'Tools: MCP servers, skills, agents, plugins', keywords: 'mcp extensions', icon: icon(Blocks), run: () => setTimeout(() => useOverlay.getState().show('tools')) },
-        { id: 'changes', group: 'Commands', label: 'Toggle changes', keywords: 'diff git', hint: '⌘⇧D', icon: icon(FileDiff), run: () => useOverlay.getState().toggleChanges() },
-      );
-      if (cwd) commands.push({ id: 'open-in', group: 'Commands', label: 'Open folder in editor', hint: '⌘O', icon: icon(SquarePen), run: () => void openIn(cwd).catch(() => {}) });
-      if (running && client) commands.push({ id: 'stop', group: 'Commands', label: 'Stop Claude', keywords: 'interrupt', hint: 'esc', icon: icon(StopCircle), run: () => void client.call('session.interrupt', { sessionId: current }) });
-    }
-    const projectActions: Item[] = actions.map((a) => {
-      const Icon = ACTION_ICON[a.icon] ?? Play;
-      return { id: `action:${a.id}`, group: 'Project actions', label: `Run: ${a.name}`, keywords: a.command, hint: a.shortcut ? formatShortcut(a.shortcut) : undefined, icon: <Icon size={14} />, run: () => useOverlay.getState().requestAction(a.id) };
-    });
-    // Typing a project's name starts a session there.
-    const projectItems: Item[] = addedProjects(projects)
+  // What the rows are made of.
+  const sessions = useSessions((s) => s.sessions);
+  const live = useSessions((s) => s.live);
+  const hosts = useHosts((s) => s.hosts);
+  const models = useHosts((s) => s.models);
+  const projects = useProjects((s) => s.projects);
+  const scope = usePreferences((s) => s.prefs.sessionScope);
+  const focusLimit = usePreferences((s) => s.prefs.focusLimit);
+  const laterItems = useLater((s) => s.items);
+  const digest = usePaletteBus((s) => s.digest);
+  const home = useMemo(() => guessHome(projects.keys()), [projects]);
+  const nameOf = (root: string) => projects.get(root)?.name ?? basename(root);
+  const sessionRows = useMemo(() => toRows(sessions, live, hosts).filter((row) => inScope(row, scope)), [sessions, live, hosts, scope]);
+  const activity = useMemo(() => activityByProject(sessionRows), [sessionRows]);
+  const branches = useMemo(() => latestBranches(sessions.values()), [sessions]);
+  const projectRoots = useMemo(() => {
+    const roots = addedProjects(projects)
       .filter((p) => p.exists)
-      .map((p) => ({
-        id: `project:${p.root}`,
-        group: 'Projects',
-        label: `New session in ${p.name}`,
-        keywords: `${p.name} ${p.root}`,
-        icon: <ProjectIcon project={p} root={p.root} size={14} />,
-        run: () => {
-          useProjects.getState().startIn(p.root);
-          setView('new');
-        },
+      .map((p) => p.root);
+    return recentFirst(roots, (root) => Math.max(projects.get(root)?.lastActivity ?? 0, activity.get(root)?.lastActivity ?? 0) || null);
+  }, [projects, activity]);
+
+  const sections = useMemo<Section[]>(() => {
+    const query = state.query;
+    if (step?.kind === 'prompt') return [];
+    if (step?.kind === 'projects') return projectSections(step, query);
+    if (step?.kind === 'pick') return pickSections(step.list, query);
+    switch (state.mode) {
+      case 'goto':
+        return gotoSections(query);
+      case 'help':
+        return [{ id: 'help', label: 'Prefixes', rows: HELP.map((h) => ({ kind: 'help', key: `help:${h.mode}`, ...h })) }];
+      case 'actions':
+        return commandSections(arrangeCommands(visibleCommands(ctx).filter((c) => c.group === 'actions'), ctx, [], query));
+      default:
+        return commandSections(arrangeCommands(visibleCommands(ctx), ctx, recentCommands(), query));
+    }
+
+    function commandSections(arranged: CommandSection[]): Section[] {
+      return arranged.map((section) => ({
+        id: section.id,
+        label: section.label,
+        rows: section.items.map(({ command, title, indices }) => ({ kind: 'command', key: `command:${command.id}`, command, title, indices })),
       }));
-    const sessionItems: Item[] = toRows(sessions, live, hosts)
-      .filter((row) => inScope(row, scope))
-      .sort((a, b) => b.updatedAt - a.updatedAt)
-      .map((row) => {
-        const project = projects.get(row.projectRoot);
-        return {
-          id: `session:${row.id}`,
-          group: 'Sessions',
-          label: row.title,
-          keywords: project?.name ?? row.projectRoot.split('/').pop(),
-          hint: shortAge(row.updatedAt),
-          icon: <ProjectIcon project={project} root={row.projectRoot} size={14} />,
-          run: () => useSessions.getState().select(row.id),
-          runBeside: () => useSessions.getState().openBeside(row.id),
-        };
-      });
-    return [...commands, ...projectActions, ...projectItems, ...sessionItems];
-  }, [actions, client, current, cwd, hosts, live, openIn, projects, running, scope, sessions, updatePrefs]);
+    }
 
-  // With nothing typed: commands, actions and the 8 most recent sessions. Otherwise the best matches.
-  const results = useMemo(() => {
-    if (!query.trim()) return [...items.filter((i) => i.group !== 'Sessions' && i.group !== 'Projects'), ...items.filter((i) => i.group === 'Sessions').slice(0, 8)];
-    return items
-      .map((item) => {
-        const label = fuzzyScore(query, item.label);
-        const keywords = item.keywords ? fuzzyScore(query, item.keywords) : null;
-        const score = Math.max(label ?? -Infinity, keywords === null ? -Infinity : keywords - 2);
-        return { item, score };
-      })
-      .filter((r) => r.score > -Infinity)
-      .sort((a, b) => b.score - a.score)
-      .slice(0, 40)
-      .map((r) => r.item);
-  }, [items, query]);
+    function gotoSections(query: string): Section[] {
+      const out: Section[] = [];
+      const found = matchSessions(sessionRows, query, nameOf, query.trim() ? MATCH_LIMIT : GOTO_SESSIONS);
+      if (found.length) out.push({ id: 'sessions', label: 'Sessions', rows: found.map(({ item, indices }) => ({ kind: 'session', key: `session:${item.id}`, data: item, indices })) });
+      const roots = matchProjects(projectRoots, query, nameOf).slice(0, query.trim() ? MATCH_LIMIT : GOTO_PROJECTS);
+      if (roots.length) out.push({ id: 'projects', label: 'Projects', rows: roots.map(({ item, indices }) => ({ kind: 'project', key: `project:${item}`, root: item, indices, number: null, compact: true })) });
+      return out;
+    }
 
-  useEffect(() => setActive(0), [query]);
+    function projectSections(projectStep: Extract<PaletteStep, { kind: 'projects' }>, query: string): Section[] {
+      const roots = matchProjects(projectRoots, query, nameOf).slice(0, MATCH_LIMIT);
+      const rows: Row[] = roots.map(({ item, indices }, i) => ({ kind: 'project', key: `project:${item}`, root: item, indices, number: i < 9 ? i + 1 : null, compact: false }));
+      // Any folder can start a session; renaming is for projects only.
+      if (projectStep.purpose === 'new-session' && (!query.trim() || fuzzyMatch(query, 'Choose another folder'))) rows.push({ kind: 'folder', key: 'folder' });
+      return rows.length ? [{ id: 'projects', label: query.trim() ? 'Projects' : 'Recent projects', rows }] : [];
+    }
+
+    function pickSections(list: PickList, query: string): Section[] {
+      const options = pickOptions(list);
+      const rows = options
+        .flatMap((option) => {
+          const match = fuzzyMatch(query, option.title);
+          return match ? [{ option, score: match.score, indices: match.indices }] : [];
+        })
+        .sort((a, b) => (query.trim() ? b.score - a.score : 0))
+        .slice(0, MATCH_LIMIT)
+        .map(({ option, indices }, i): Row => ({ kind: 'option', key: `option:${option.value}`, ...option, current: option.current ?? false, indices, number: i < 9 ? i + 1 : null }));
+      return rows.length ? [{ id: list, label: PICK_PLACEHOLDER[list].replace(/^Pick (a |an )?/, ''), rows }] : [];
+    }
+    // The pick lists and project rows read these; the functions above are only called from here.
+  }, [state, step, ctx, sessionRows, projectRoots, projects, models, hosts, focusLimit, laterItems, digest]);
+
+  /** The choices of a pick step, the current one marked. */
+  function pickOptions(list: PickList): Option[] {
+    const host = ctx.session ? hosts.get(ctx.session.id) : undefined;
+    switch (list) {
+      case 'model': {
+        const current = findModelOption(models, host?.model)?.value;
+        return models.map((m) => ({ value: m.value, title: m.displayName, detail: m.description, current: m.value === current }));
+      }
+      case 'effort':
+        return [
+          { value: '', title: 'Default', detail: 'What Claude Code would pick', current: !host?.effort },
+          ...EFFORTS.map((e) => ({ value: e, title: EFFORT_LABEL[e], current: host?.effort === e })),
+        ];
+      case 'mode': {
+        const current = host?.permissionMode ?? 'default';
+        return [...new Set([...MODE_CHOICES, current])].map((m) => ({ value: m, title: MODE_LABEL[m], detail: MODE_DESCRIPTION[m], dot: MODE_DOT[m] ?? 'bg-faint', current: m === current }));
+      }
+      case 'fork': {
+        if (!digest || digest.sessionId !== ctx.session?.id) return [];
+        const whole: Option[] = digest.lastUuid ? [{ value: digest.lastUuid, title: 'The whole conversation', detail: 'Up to the latest message' }] : [];
+        const before = [...digest.prompts].reverse().flatMap((p) => (p.before ? [{ value: p.before, title: firstLine(p.text), detail: `Just before this message${p.at ? ` · ${shortAge(p.at)}` : ''}` }] : []));
+        return [...whole, ...before];
+      }
+      case 'rewind':
+        if (!digest || digest.sessionId !== ctx.session?.id) return [];
+        return [...digest.prompts].reverse().map((p) => ({ value: p.uuid, title: firstLine(p.text), detail: p.at ? shortAge(p.at) : undefined }));
+      case 'focus-limit':
+        return Array.from({ length: FOCUS_LIMIT_MAX - FOCUS_LIMIT_MIN + 1 }, (_, i) => FOCUS_LIMIT_MIN + i).map((n) => ({
+          value: String(n),
+          title: n === 1 ? '1 session' : `${n} sessions`,
+          current: focusLimit === n,
+        }));
+      case 'later':
+        return laterItems.map((item: LaterItem) => ({ value: item.id, title: firstLine(item.prompt), detail: `${nameOf(item.cwd)} · ${shortAge(item.createdAt)}` }));
+    }
+  }
+
+  const rows = useMemo(() => sections.flatMap((section) => section.rows), [sections]);
+  useEffect(() => setActive(0), [state.query, state.mode, state.steps.length]);
   useEffect(() => {
     listRef.current?.querySelector('[data-active="true"]')?.scrollIntoView({ block: 'nearest' });
   }, [active]);
+  // Back in the field after a step changes (the prompt step has its own).
+  useEffect(() => {
+    if (step?.kind !== 'prompt') inputRef.current?.focus();
+  }, [state.steps.length, state.mode, step?.kind]);
 
-  const choose = (item: Item | undefined, beside = false) => {
-    if (!item) return;
-    close();
-    if (beside && item.runBeside) item.runBeside();
-    else item.run();
+  const chooseFolder = async (worktree: boolean) => {
+    const picked = await window.switchboard?.pickFolder();
+    if (picked) setState((s) => pushStep(s, { kind: 'prompt', root: picked, worktree, chip: s.steps[0]?.chip ?? 'New session' }));
   };
 
-  const typed = query.trim();
+  const pick = (list: PickList, value: string) => {
+    const sessionId = ctx.session?.id;
+    // The palette has closed by then, so a failure is said in a toast.
+    const run = (what: string, call: () => Promise<unknown>) => void call().catch((e: Error) => toast(`Couldn't ${what}: ${e.message}`));
+    close();
+    switch (list) {
+      case 'model':
+        if (client && sessionId) run('change the model', () => client.call('session.setModel', { sessionId, model: value || null }));
+        return;
+      case 'effort':
+        if (client && sessionId) run('change the effort', () => client.call('session.setEffort', { sessionId, effort: (value || null) as (typeof EFFORTS)[number] | null }));
+        return;
+      case 'mode':
+        if (client && sessionId) run('change the permission mode', () => client.call('session.setPermissionMode', { sessionId, mode: value as (typeof MODE_CHOICES)[number] }));
+        return;
+      case 'fork':
+        if (client && sessionId) run('fork the session', () => client.call('session.forkAt', { sessionId, messageUuid: value }).then((r) => useSessions.getState().select(r.sessionId)));
+        return;
+      case 'rewind':
+        usePaletteBus.getState().requestSession('rewind', value);
+        return;
+      case 'focus-limit':
+        rememberLimit(Number(value));
+        usePreferences.getState().update({ focusLimit: Number(value) });
+        return;
+      case 'later': {
+        const item = laterItems.find((i) => i.id === value);
+        if (item) useLater.getState().use(item);
+        return;
+      }
+    }
+  };
+
+  const choose = (row: Row | undefined, alt: boolean) => {
+    if (!row) return;
+    switch (row.kind) {
+      case 'command': {
+        const { command } = row;
+        rememberCommand(command.id);
+        if (command.mode) return setState(switchMode(command.mode));
+        if (command.next) {
+          const next = command.next(ctx);
+          return setState((s) => pushStep(s, next));
+        }
+        close();
+        command.run?.(api, ctx);
+        return;
+      }
+      case 'session':
+        close();
+        if (alt) useSessions.getState().openBeside(row.data.id);
+        else useSessions.getState().select(row.data.id);
+        return;
+      case 'project': {
+        if (step?.kind === 'projects' && step.purpose === 'rename-project') {
+          close();
+          usePaletteBus.getState().showDialog({ kind: 'rename-project', root: row.root });
+          return;
+        }
+        const worktree = alt || (step?.kind === 'projects' && step.worktree);
+        return setState((s) => pushStep(s, { kind: 'prompt', root: row.root, worktree, chip: s.steps[0]?.chip ?? 'New session' }));
+      }
+      case 'folder':
+        return void chooseFolder(alt || (step?.kind === 'projects' && step.worktree));
+      case 'option':
+        if (step?.kind === 'pick') pick(step.list, row.value);
+        return;
+      case 'help':
+        return setState(switchMode(row.mode));
+    }
+  };
+
+  const onKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
+    if (event.nativeEvent.isComposing) return;
+    // Keys the palette takes don't also reach the window's shortcuts (⌘O opens the editor, ⌘1 picks a folder in New session).
+    const take = () => (event.preventDefault(), event.stopPropagation());
+    if (event.key === 'ArrowDown') (take(), setActive((i) => (rows.length ? (i + 1) % rows.length : 0)));
+    else if (event.key === 'ArrowUp') (take(), setActive((i) => (rows.length ? (i - 1 + rows.length) % rows.length : 0)));
+    else if (event.key === 'Enter') (take(), choose(rows[active], event.altKey));
+    else if (event.key === 'Backspace' && state.query === '' && !event.metaKey) {
+      const previous = back(state);
+      if (previous) (take(), setState(previous));
+    } else if (event.metaKey && /^[1-9]$/.test(event.key) && (step?.kind === 'projects' || step?.kind === 'pick')) {
+      const row = rows.find((r) => (r.kind === 'project' || r.kind === 'option') && r.number === Number(event.key));
+      if (row) (take(), choose(row, event.altKey));
+    } else if (event.metaKey && event.key.toLowerCase() === 'o' && step?.kind === 'projects' && step.purpose === 'new-session') (take(), void chooseFolder(event.altKey || step.worktree));
+  };
+
+  const wide = step?.kind === 'prompt';
   return (
-    <Dialog bare flush placement="top" title="Command palette" onClose={close} data-palette>
-      {/* A combobox: focus stays in the field while ↑ ↓ move the highlighted result. */}
-      <input
-        autoFocus
-        role="combobox"
-        aria-expanded={results.length > 0}
-        aria-controls={listId}
-        aria-autocomplete="list"
-        aria-activedescendant={results[active] ? optionId(active) : undefined}
-        aria-label="Find a command, project action or session"
-        value={query}
-        onChange={(e) => setQuery(e.target.value)}
-        onKeyDown={(e) => {
-          if (e.key === 'ArrowDown') (e.preventDefault(), setActive((i) => Math.max(0, Math.min(results.length - 1, i + 1))));
-          else if (e.key === 'ArrowUp') (e.preventDefault(), setActive((i) => Math.max(0, i - 1)));
-          else if (e.key === 'Enter') (e.preventDefault(), choose(results[active], e.altKey));
-        }}
-        placeholder="Type a command, an action or a session (⌥↩ opens it beside)"
-        spellCheck={false}
-        className="h-12 shrink-0 border-b border-edge bg-transparent px-4 text-[14px] text-text outline-none placeholder:text-faint"
-      />
-      {results.length === 0 && (
-        <div className="grid gap-1 px-4 py-6 text-center text-ui">
-          <p className="text-text">No commands or sessions match “{typed}”.</p>
-          <p className="text-muted">Try fewer letters, or search inside conversations with ⌘⇧F.</p>
-        </div>
-      )}
-      <div ref={listRef} id={listId} role="listbox" aria-label="Results" className={`min-h-0 flex-1 overflow-y-auto ${results.length ? 'py-1' : ''}`}>
-        {results.map((item, index) => (
-          <div key={item.id} role="none">
-            {(index === 0 || results[index - 1]!.group !== item.group) && (
-              <p aria-hidden className="px-4 pt-2 pb-1 text-meta tracking-wide text-muted uppercase">
-                {item.group}
-              </p>
-            )}
-            <div
-              id={optionId(index)}
-              role="option"
-              aria-selected={index === active}
-              data-active={index === active}
-              data-palette-item={item.id}
-              onMouseMove={() => setActive(index)}
-              onClick={(e) => choose(item, e.altKey)}
-              className={`flex h-8 w-full cursor-default items-center gap-2.5 px-4 text-left text-[13px] ${index === active ? 'bg-accent/15 text-text' : 'text-text/85'}`}
-            >
-              <span aria-hidden className="flex w-4 shrink-0 justify-center text-muted">
-                {item.icon}
-              </span>
-              <span className="min-w-0 flex-1 truncate">{item.label}</span>
-              {item.group === 'Sessions' && item.keywords && <span className="max-w-[35%] shrink-0 truncate text-[11.5px] text-muted">{item.keywords}</span>}
-              {item.hint && <span className="shrink-0 text-meta text-faint">{item.hint}</span>}
-            </div>
+    <Dialog
+      bare
+      flush
+      placement="top"
+      width={wide ? 'palette-wide' : 'palette'}
+      title="Command palette"
+      onClose={close}
+      data-command-palette
+      data-palette-mode={state.mode}
+      data-palette-step={step?.kind}
+    >
+      {step?.kind === 'prompt' ? (
+        <PromptStep key={`${step.root}:${step.worktree}`} root={step.root} worktree={step.worktree} chip={step.chip} onBack={() => setState((s) => back(s) ?? s)} onDone={close} />
+      ) : (
+        <>
+          <div className="flex h-12 shrink-0 items-center gap-2 border-b border-edge px-4">
+            <FieldStart state={state} />
+            {/* A combobox: focus stays in the field while ↑ ↓ move the highlighted row. */}
+            <input
+              ref={inputRef}
+              autoFocus
+              role="combobox"
+              aria-expanded={rows.length > 0}
+              aria-controls={listId}
+              aria-autocomplete="list"
+              aria-activedescendant={rows[active] ? optionId(active) : undefined}
+              aria-label={step ? `${step.chip}: ${step.kind === 'pick' ? PICK_PLACEHOLDER[step.list] : 'Pick a project'}` : PLACEHOLDER[state.mode]}
+              value={state.query}
+              onChange={(e) => setState((s) => typeQuery(s, e.target.value))}
+              onKeyDown={onKeyDown}
+              placeholder={step?.kind === 'pick' ? PICK_PLACEHOLDER[step.list] : step ? 'Pick a project' : PLACEHOLDER[state.mode]}
+              spellCheck={false}
+              className="h-full min-w-0 flex-1 bg-transparent text-body text-text outline-none placeholder:text-faint"
+              data-palette-input
+            />
+            {!step && <Kbd keys={state.mode === 'goto' ? '⌘P' : '⌘⇧P'} />}
           </div>
-        ))}
-      </div>
-      <p className="sr-only" aria-live="polite">
-        {typed ? (results.length === 0 ? 'No results' : `${results.length} ${results.length === 1 ? 'result' : 'results'}`) : ''}
-      </p>
+          {rows.length === 0 && <Empty state={state} ctx={ctx} />}
+          <div ref={listRef} id={listId} role="listbox" aria-label="Results" className={`min-h-0 flex-1 overflow-y-auto ${rows.length ? 'pb-1.5' : ''}`}>
+            {(() => {
+              let index = -1;
+              return sections.map((section) => (
+                <div key={section.id} role="group" aria-label={section.label} data-palette-group={section.id}>
+                  <SectionHeader aria-hidden tone={section.tone} className="px-4 pt-2.5 pb-1">
+                    {section.label}
+                  </SectionHeader>
+                  {section.rows.map((row) => {
+                    index += 1;
+                    const i = index;
+                    return <RowView key={row.key} row={row} id={optionId(i)} active={i === active} onHover={() => setActive(i)} onChoose={(alt) => choose(row, alt)} ctx={ctx} home={home} nameOf={nameOf} projectsMap={projects} activity={activity} branches={branches} />;
+                  })}
+                </div>
+              ));
+            })()}
+          </div>
+          <p className="sr-only" aria-live="polite">
+            {state.query.trim() ? (rows.length === 0 ? 'No results' : `${rows.length} ${rows.length === 1 ? 'result' : 'results'}`) : ''}
+          </p>
+          <PaletteFooter keys={footerKeys(state)} />
+        </>
+      )}
     </Dialog>
   );
+}
+
+/** Before the field: the mode's prefix (or a search glyph for go-to), or the chips of the steps taken so far. */
+function FieldStart({ state }: { state: PaletteState }) {
+  if (state.steps.length > 0) {
+    return (
+      <span className="flex shrink-0 items-center gap-1.5" data-palette-chips>
+        {state.steps.map((s, i) => (
+          <Pill key={i} icon={s.kind === 'projects' && s.worktree ? <GitBranchPlus size={12} aria-hidden /> : s.kind === 'projects' ? <SquarePen size={12} aria-hidden /> : undefined}>
+            {s.chip}
+          </Pill>
+        ))}
+      </span>
+    );
+  }
+  if (state.mode === 'goto') return <Search size={15} className="shrink-0 text-muted" aria-hidden />;
+  return (
+    <span aria-hidden className="w-3 shrink-0 font-mono text-body font-semibold text-accent-ink" data-palette-prefix>
+      {PREFIXES[state.mode]}
+    </span>
+  );
+}
+
+function Empty({ state, ctx }: { state: PaletteState; ctx: PaletteContext }) {
+  const step = currentStep(state);
+  const typed = state.query.trim();
+  const [line, hint]: [string, string] =
+    step?.kind === 'projects'
+      ? typed
+        ? [`No projects match “${typed}”.`, 'Add the folder as a project, or choose it with ⌘O.']
+        : ['No projects yet.', 'Add one from Manage projects.']
+      : step?.kind === 'pick'
+        ? [typed ? `Nothing matches “${typed}”.` : 'Nothing to pick from here.', '⌫ goes back.']
+        : state.mode === 'actions'
+          ? [ctx.session ? 'This session’s project has no actions.' : 'Open a session to run its project actions.', '"!" lists them; ⌫ goes back.']
+          : state.mode === 'goto'
+            ? [`No sessions or projects match “${typed}”.`, 'Type ">" for commands, or search inside conversations with ⌘⇧F.']
+            : [`No commands match “${typed}”.`, 'Try fewer letters, or ⌫ to go to sessions.'];
+  return (
+    <div className="grid gap-1 px-4 py-6 text-center text-ui" data-palette-empty>
+      <p className="text-text">{line}</p>
+      <p className="text-muted">{hint}</p>
+    </div>
+  );
+}
+
+function footerKeys(state: PaletteState): FooterKey[] {
+  const step = currentStep(state);
+  const backTo = state.steps.length > 1 ? 'back' : state.mode === 'commands' ? 'back to commands' : 'back';
+  if (step?.kind === 'projects') {
+    const keys: FooterKey[] = [{ keys: '↩', label: 'pick' }];
+    if (step.purpose === 'new-session' && !step.worktree) keys.push({ keys: '⌥↩', label: 'pick, in a worktree' });
+    return [...keys, { keys: '⌫', label: backTo }, { keys: 'Esc', label: 'close' }];
+  }
+  if (step?.kind === 'pick') return [{ keys: '↑ ↓', label: 'move' }, { keys: '↩', label: 'choose' }, { keys: '⌫', label: backTo }, { keys: 'Esc', label: 'close' }];
+  if (state.mode === 'goto') {
+    return [
+      { keys: PREFIXES.commands, label: 'commands', prefix: true },
+      { keys: PREFIXES.new, label: 'new session', prefix: true },
+      { keys: PREFIXES.actions, label: 'project actions', prefix: true },
+      { keys: PREFIXES.help, label: 'help', prefix: true },
+      { keys: '⌥↩', label: 'open beside' },
+    ];
+  }
+  return [{ keys: '↑ ↓', label: 'move' }, { keys: '↩', label: 'choose' }, { keys: 'Esc', label: 'close' }];
+}
+
+/** One row, drawn by its kind. */
+function RowView({
+  row,
+  id,
+  active,
+  onHover,
+  onChoose,
+  ctx,
+  home,
+  nameOf,
+  projectsMap,
+  activity,
+  branches,
+}: {
+  row: Row;
+  id: string;
+  active: boolean;
+  onHover(): void;
+  onChoose(alt: boolean): void;
+  ctx: PaletteContext;
+  home: string | null;
+  nameOf(root: string): string;
+  projectsMap: ReturnType<typeof useProjects.getState>['projects'];
+  activity: ReturnType<typeof activityByProject>;
+  branches: Map<string, string | null>;
+}): ReactNode {
+  const common = { id, active, onHover, onChoose };
+  switch (row.kind) {
+    case 'command': {
+      const { command } = row;
+      const next = command.next ? command.next(ctx) : null;
+      return (
+        <CommandRow
+          {...common}
+          commandId={command.id}
+          icon={command.icon}
+          title={row.title}
+          indices={row.indices}
+          shortcut={command.shortcut}
+          hint={command.hint ?? (active && next ? NEXT_HINT[next.kind] : undefined)}
+          next={next !== null || command.mode !== undefined}
+        />
+      );
+    }
+    case 'session':
+      return <SessionRow {...common} data={row.data} project={projectsMap.get(row.data.projectRoot)} projectName={nameOf(row.data.projectRoot)} indices={row.indices} />;
+    case 'project':
+      return (
+        <ProjectRow
+          {...common}
+          root={row.root}
+          project={projectsMap.get(row.root)}
+          name={nameOf(row.root)}
+          indices={row.indices}
+          branch={branches.get(row.root) ?? null}
+          path={tildify(row.root, home)}
+          status={row.compact ? null : tileStatus(activity.get(row.root), projectsMap.get(row.root)?.lastActivity ?? null, Date.now())}
+          number={row.number}
+          compact={row.compact}
+        />
+      );
+    case 'folder':
+      return <FolderRow {...common} />;
+    case 'option':
+      return <OptionRow {...common} value={row.value} title={row.title} indices={row.indices} detail={row.detail} dot={row.dot} current={row.current} number={row.number} />;
+    case 'help':
+      return <HelpRow {...common} prefix={row.prefix} title={row.title} detail={row.detail} />;
+  }
 }

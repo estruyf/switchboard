@@ -33,7 +33,7 @@ Packaging and signing are covered in [Building, signing and notarisation](buildi
 
 - startup time and the first session list
 - the transcript, and that it opens scrolled to the end
-- summarised tool activity, the Changes panel (read-only), search (⌘⇧F), the ⌘K palette, the Tools window and two panes side by side
+- summarised tool activity, the Changes panel (read-only), search (⌘⇧F), the command palette (⌘K, ⌘⇧P and ⌘P, its modes, and New session up to the prompt without starting anything; ⌘K in the terminal clears it), the Tools window and two panes side by side
 - the ⌘Q prompt, Settings (theme, sidebar style, tool activity, quit prompt), the terminal, project actions and syntax highlighting
 - the app's own controls: resizing the sidebar, the themed dropdowns (keyboard and Escape), tooltips and pointer cursors
 - the drop target on the message box while files are dragged over a session: images to attach, other files to mention (synthetic drag events, nothing is dropped)

@@ -12,6 +12,7 @@ import { passFocusGate, useFocus } from '../../state/focusGate.ts';
 import { useHosts } from '../../state/hostsStore.ts';
 import { removeFromLater, saveForLater, useLater } from '../../state/laterStore.ts';
 import { useLinks } from '../../state/linksStore.ts';
+import { usePaletteBus } from '../../state/paletteBus.ts';
 import { usePreferences } from '../../state/preferencesStore.ts';
 import { useProfiles } from '../../state/profilesStore.ts';
 import { addedProjects } from '../../state/projectList.ts';
@@ -36,9 +37,8 @@ import { UsageBand } from '../UsageBand.tsx';
 import { linkNoticeText } from './linkNotice.ts';
 import { activityByProject, latestBranches, pickUpRows, recentFirst, tileStatus } from './projectTiles.ts';
 import { branchLabel, branchNote, freshBase } from './trayLabels.ts';
-import { globalPatch, INITIAL_CHOICES, linkPermissionMode, linkStartingChoices, readGlobals, sameDefaults, startingChoices, toProjectDefaults, type Choices, type GlobalChoices } from './choices.ts';
-
-const DEFAULTS_KEY = 'newSession.defaults';
+import { checkoutBranchFor, shouldPrewarm, startNewSession } from './startSession.ts';
+import { DEFAULTS_KEY, globalPatch, INITIAL_CHOICES, linkStartingChoices, readGlobals, sameDefaults, startingChoices, toProjectDefaults, type Choices, type GlobalChoices } from './choices.ts';
 
 /** The prompt typed here and not sent yet: it is still in the box after visiting a session or Settings. */
 let unsentPrompt = '';
@@ -218,6 +218,29 @@ export function NewSessionView() {
     setDraftPrompt(item.prompt);
     setFromLater(item);
   }, [laterRequest]);
+  // The command palette's prompt step, moved here with ⌘E: its folder, choices, profile and prompt.
+  const handoff = usePaletteBus((s) => s.handoff);
+  useEffect(() => {
+    if (!handoff) return;
+    const item = usePaletteBus.getState().takeHandoff();
+    if (!item) return;
+    // Like a link, it chose the folder; the choices made in the palette must not be replaced by the project's defaults.
+    folderFromLink.current = true;
+    touchedFor.current = item.root;
+    worktreeFor.current = null;
+    setLinkRepo(null);
+    setLinkNoFolder(false);
+    setPendingStart(null);
+    setLinkPrompt(null);
+    setFromLater(null);
+    setAddAsProject(true);
+    setProfileOverride(item.profileId);
+    setCwd(item.root);
+    setD({ ...item.choices, workspace: item.worktree ? 'worktree' : 'current' });
+    setRestored(false);
+    setPreset({ text: item.prompt, seq: ++presets.current });
+    setDraftPrompt(item.prompt);
+  }, [handoff]);
   // Find a checkout of the link's repository among your projects and folders with sessions.
   const lookingFor = linkRepo?.state === 'looking' ? linkRepo.repo : null;
   useEffect(() => {
@@ -310,7 +333,7 @@ export function NewSessionView() {
     };
   }, [client, cwd, profileId, commandsVersion]);
   useEffect(() => {
-    if (client && cwd && d.workspace === 'current' && !d.branch) void client.call('session.prewarm', { cwd, profileId });
+    if (client && cwd && shouldPrewarm(d)) void client.call('session.prewarm', { cwd, profileId });
   }, [client, cwd, d.workspace, d.branch, profileId]);
 
   const persist = (next: GlobalChoices, folder: string | null) => void client?.call('appState.set', { key: DEFAULTS_KEY, value: { ...next, cwd: folder } });
@@ -350,7 +373,7 @@ export function NewSessionView() {
   const effectiveName = nameTouched ? worktreeName : worktreeSlug(draftPrompt);
   const branch = inspection?.branch ?? (cwd ? (lastBranches.get(cwd) ?? null) : null);
   const folderBranches = useMemo(() => (cwd && inspection?.branch ? new Map(lastBranches).set(cwd, inspection.branch) : lastBranches), [lastBranches, cwd, inspection]);
-  const checkoutBranch = !useWorktree && d.branch && d.branch !== gitBranches.current ? d.branch : null;
+  const checkoutBranch = checkoutBranchFor(d, useWorktree, gitBranches.current);
   const branchOptions = d.branch && !gitBranches.branches.includes(d.branch) ? [d.branch, ...gitBranches.branches] : gitBranches.branches;
   const asDefaults = toProjectDefaults({ ...d, workspace: useWorktree ? 'worktree' : d.workspace });
   const unsaved = isProject && !sameDefaults(asDefaults, project!.defaults);
@@ -370,6 +393,22 @@ export function NewSessionView() {
     reloadProjects();
     setSavedNote(`Saved as ${project?.name ?? basename(cwd)}'s defaults`);
   };
+
+  // The command palette's commands for this view: what they can do here, and their requests.
+  const canSaveForLater = !!cwd && draftPrompt.trim() !== '' && !!client;
+  useEffect(() => {
+    usePaletteBus.setState({ newSessionInfo: { canWorktree, canSaveDefaults: unsaved, canSaveForLater } });
+  }, [canWorktree, unsaved, canSaveForLater]);
+  useEffect(() => () => usePaletteBus.setState({ newSessionInfo: null }), []);
+  const paletteRequest = usePaletteBus((s) => s.newSessionRequest);
+  const seenRequest = useRef(usePaletteBus.getState().newSessionRequest?.nonce ?? 0);
+  useEffect(() => {
+    if (!paletteRequest || paletteRequest.nonce === seenRequest.current) return;
+    seenRequest.current = paletteRequest.nonce;
+    if (paletteRequest.kind === 'toggle-worktree' && canWorktree) update({ workspace: useWorktree ? 'current' : 'worktree' });
+    else if (paletteRequest.kind === 'save-defaults' && unsaved) void saveAsProjectDefault();
+    else if (paletteRequest.kind === 'save-later' && canSaveForLater) void parkForLater(draftPrompt.trim()).catch(() => {});
+  }, [paletteRequest]);
 
   const pickUp = useMemo(() => (cwd ? pickUpRows(rows, cwd, Date.now()) : []), [rows, cwd]);
   /** The first prompts of your sessions in this project, for ↑ in the message box. */
@@ -408,33 +447,38 @@ export function NewSessionView() {
    */
   const create = async (text: string, attachments: ImageAttachment[], { fromLink = false, skipGate = false } = {}): Promise<void | false> => {
     if (!client || !cwd) throw new Error('Choose a folder first');
-    if (!skipGate) {
-      const outcome = await passFocusGate({ saveForLater: () => parkForLater(text) });
-      if (outcome === 'stop') return false;
-      if (outcome === 'saved') return;
-    }
-    const { sessionId } = await client.call('session.create', {
-      cwd,
-      prompt: text,
-      attachments,
-      model: d.model || null,
-      // A link never starts a session in a mode that skips permission prompts (settled below already ensures it).
-      permissionMode: fromLink ? linkPermissionMode(d.permissionMode) : d.permissionMode,
-      effort: d.effort || null,
-      worktree: useWorktree ? { name: effectiveName || worktreeSlug(text), baseRef: d.baseRef } : null,
-      checkoutBranch,
-      profileId,
-    });
-    // The view goes away before the composer empties itself, so forget the prompt here.
-    unsentPrompt = '';
-    if (fromLater) {
-      void removeFromLater(fromLater, true).catch(() => {});
-      setFromLater(null);
-    }
-    if (!isProject && addAsProject && !fromLink && inspection?.exists) {
-      await client.call('projects.add', { path: cwd }).then(reloadProjects, () => {});
-    }
-    select(sessionId);
+    // The same path as the palette's New session: the focus limit's gate, worktree naming, then the session.
+    const outcome = await startNewSession(
+      {
+        cwd,
+        prompt: text,
+        attachments,
+        choices: d,
+        worktree: useWorktree,
+        worktreeName: effectiveName,
+        currentBranch: gitBranches.current,
+        profileId,
+        fromLink,
+        skipGate,
+        addProject: !isProject && addAsProject && !!inspection?.exists,
+        saveForLater: () => parkForLater(text),
+      },
+      {
+        createSession: (params) => client.call('session.create', params),
+        gate: passFocusGate,
+        addProject: (path) => client.call('projects.add', { path }).then(reloadProjects),
+        open: (sessionId) => {
+          // The view goes away before the composer empties itself, so forget the prompt here.
+          unsentPrompt = '';
+          if (fromLater) {
+            void removeFromLater(fromLater, true).catch(() => {});
+            setFromLater(null);
+          }
+          select(sessionId);
+        },
+      },
+    );
+    if (outcome.kind === 'stopped') return false;
   };
 
   // An `autostart` link: start once the folder is checked and the options are the project's defaults
@@ -557,7 +601,7 @@ export function NewSessionView() {
             <FocusNote
               focus={focus}
               now={now}
-              canSave={!!cwd && draftPrompt.trim() !== '' && !!client}
+              canSave={canSaveForLater}
               onSaveForLater={() => void parkForLater(draftPrompt.trim()).catch(() => {})}
               onStartAnyway={() => setSubmitRequest((n) => n + 1)}
             />
