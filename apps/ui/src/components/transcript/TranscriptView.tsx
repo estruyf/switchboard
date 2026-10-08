@@ -380,6 +380,22 @@ export function TranscriptView({ sessionId, pane = null, active = true }: { sess
       requestAnimationFrame(() => (el.scrollTop = el.scrollHeight));
     }
   }, [renderItems.length, totalSize, streamingText, permissions.length, virtualizer]);
+  // The view shrinks when the message box grows (a long prompt, an attachment, a permission card),
+  // and the browser keeps scrollTop without a scroll event, so the last lines slide under the box.
+  // Following the end again on every height change keeps them in sight.
+  useLayoutEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    let lastHeight = el.clientHeight;
+    const observer = new ResizeObserver(() => {
+      const height = el.clientHeight;
+      if (height === lastHeight) return;
+      lastHeight = height;
+      if (stickToBottom.current && height > 0) el.scrollTop = el.scrollHeight;
+    });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
 
   // Search opened this session at a message: scroll there once it's loaded, and highlight it briefly.
   const focusMessage = useOverlay((s) => (s.focusMessage?.sessionId === sessionId ? s.focusMessage.messageUuid : null));

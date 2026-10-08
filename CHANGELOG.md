@@ -12,6 +12,10 @@ All notable changes to Switchboard are listed here. Each release is also on the 
 
 - Sessions under **Working** (in the sidebar and on Home) no longer trade places as they write: the one you last sent a message to is at the top.
 
+### Fixed
+
+- When the message box grows while you type a long prompt, the conversation stays scrolled to the end if it was there, so its last lines no longer hide under the box.
+
 ## [0.0.11] - 2026-10-08
 
 ### New
