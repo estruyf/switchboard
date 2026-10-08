@@ -1811,12 +1811,14 @@ async function runThemeStep(win: BrowserWindow): Promise<string> {
     return ok ? null : `the collapsed sidebar does not follow the theme (${got})`;
   };
 
-  // Every built-in, in light and dark: the open sidebar, a code block, and the rail.
+  // Every built-in, in light and dark: the open sidebar, a code block, and the rail. A mode the theme
+  // doesn't have (Nord and The unnamed are dark only) shows Demo Time's.
   for (const { id, raw } of BUILT_IN_THEMES) {
     if (!(await pick(id))) return `could not pick ${id}`;
     for (const mode of ['light', 'dark'] as const) {
       if (!(await scheme(mode))) return `${mode} did not apply`;
-      const colors = (raw as { [m: string]: { colors: Record<string, string> } })[mode]!.colors;
+      type Modes = { [m: string]: { colors: Record<string, string> } | undefined };
+      const colors = ((raw as Modes)[mode] ?? (BUILT_IN_THEMES[0]!.raw as Modes)[mode])!.colors;
       const problem = (await colours({ sidebar: rgbOf(colors.sidebar!), code: rgbOf(colors['code-bg']!) })) ?? (await collapsedRail(id, mode, colors));
       if (problem) return `${id}, ${mode}: ${problem}`;
     }

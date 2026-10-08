@@ -36,7 +36,7 @@ const waitFor = async (check: () => boolean, ms = 8_000) => {
 describe('ThemeStore', () => {
   it('lists the built-ins first, in order', () => {
     const { store } = setup();
-    expect(store.state().themes.map((t) => t.id)).toEqual(['demo-time', 'solarized']);
+    expect(store.state().themes.map((t) => t.id)).toEqual(['demo-time', 'catppuccin', 'claude', 'nord', 'solarized', 'the-unnamed']);
     expect(store.state().themes.every((t) => t.builtIn && t.path === null)).toBe(true);
   });
 
@@ -66,12 +66,12 @@ describe('ThemeStore', () => {
   it('loads themes from the folder at start, skipping broken files', () => {
     const { dir } = setup();
     mkdirSync(dir, { recursive: true });
-    writeFileSync(join(dir, 'nord.json'), JSON.stringify({ name: 'Nord', version: 1, dark: { canvas: '#2e3440', accent: '#88c0d0' } }));
+    writeFileSync(join(dir, 'frost.json'), JSON.stringify({ name: 'Frost', version: 1, dark: { canvas: '#2e3440', accent: '#88c0d0' } }));
     writeFileSync(join(dir, 'broken.json'), '{ "name": "Broken", "version": 1, "dark": { "colors": { "bg": "var(--x)" } } }');
     writeFileSync(join(dir, 'Not An Id.json'), JSON.stringify(paper));
     const store = new ThemeStore(dir, BUILT_IN_THEMES);
     stores.push(store);
-    expect(store.state().themes.filter((t) => !t.builtIn).map((t) => t.id)).toEqual(['nord']);
+    expect(store.state().themes.filter((t) => !t.builtIn).map((t) => t.id)).toEqual(['frost']);
   });
 
   it('reloads an edited file, and keeps the last good version when an edit is broken', async () => {
@@ -98,9 +98,9 @@ describe('ThemeStore', () => {
 
   it("uses the theme's background for the window, and Demo Time's for a missing mode", () => {
     const { store } = setup();
-    store.add({ name: 'Nord', version: 1, dark: { canvas: 'oklch(0.32 0.02 265)', colors: { bg: '#2e3440' } } }, 'add');
-    expect(store.background('nord', true)).toBe('#2e3440');
-    expect(store.background('nord', false)).toBe('#ffffff');
+    store.add({ name: 'Frost', version: 1, dark: { canvas: 'oklch(0.32 0.02 265)', colors: { bg: '#2e3440' } } }, 'add');
+    expect(store.background('frost', true)).toBe('#2e3440');
+    expect(store.background('frost', false)).toBe('#ffffff');
     expect(store.background('solarized', true)).toBe('#002b36');
     expect(store.background('missing', true)).toBe('#15181f');
   });

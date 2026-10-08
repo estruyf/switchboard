@@ -1,0 +1,59 @@
+{
+  "$schema": "https://raw.githubusercontent.com/estruyf/switchboard/main/docs/switchboard-theme.schema.json",
+  "$comment": "Nord (github.com/nordtheme/visual-studio-code), dark only. Aurora red, orange and purple are a little lighter here so they read as text on Polar Night. Code colours are Shiki's nord, the same theme.",
+  "name": "Nord",
+  "author": "Sven Greb (ported by Elio Struyf)",
+  "version": 1,
+
+  "dark": {
+    "canvas": "#2e3440",
+    "accent": "#88c0d0",
+    "colors": {
+      "bg": "#2e3440",
+      "sidebar": "#3b4252",
+      "card": "#3b4252",
+      "popover": "#434c5e",
+      "code-bg": "#292e39",
+      "border": "#434c5e",
+      "overlay-border": "#4c566a",
+      "overlay-shadow": "#00000080",
+      "text": "#d8dee9",
+      "muted": "#aeb7c6",
+      "faint": "#8891a3",
+      "link": "#88c0d0",
+      "selected": "#eceff41a",
+      "focus-ring": "#88c0d08c",
+      "scrim": "#00000099",
+      "ok": "#a3be8c",
+      "warn": "#bb95b4",
+      "error": "#dc858d",
+      "caution": "#d48c75",
+      "unread": "#81a1c1",
+      "accent": "#88c0d0",
+      "accent-ink": "#88c0d0",
+      "on-accent": "#2e3440",
+      "diff-added": "#a3be8c26",
+      "diff-removed": "#bf616a33",
+      "terminal-bg": "#242933",
+      "terminal-shadow": "#0000008c",
+      "profile-yellow": "#ebcb8b",
+      "profile-blue": "#81a1c1",
+      "profile-green": "#a3be8c",
+      "profile-purple": "#b48ead",
+      "profile-red": "#dc858d",
+      "profile-orange": "#d08770",
+      "profile-gray": "#8891a3"
+    },
+    "terminal": {
+      "background": "#242933",
+      "foreground": "#d8dee9",
+      "cursor": "#d8dee9",
+      "selection": "#434c5ecc",
+      "ansi": [
+        "#3b4252", "#bf616a", "#a3be8c", "#ebcb8b", "#81a1c1", "#b48ead", "#88c0d0", "#e5e9f0",
+        "#4c566a", "#bf616a", "#a3be8c", "#ebcb8b", "#81a1c1", "#b48ead", "#8fbcbb", "#eceff4"
+      ]
+    },
+    "syntax": "nord"
+  }
+}

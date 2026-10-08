@@ -190,7 +190,7 @@ Open Settings with ⌘, or the gear at the bottom of the sidebar. While it is op
 
 - **General:** what Switchboard shows when it opens: *The last session* (the default; only if the sidebar lists it, so not a session from another app while those are hidden) or *New session*. You can also turn off the "Ask before quitting" prompt.
 
-- **Theme:** *Appearance* is Match System, Light or Dark. Under it, pick a [theme](#themes): Demo Time (the default), Solarized, or one you imported.
+- **Theme:** *Appearance* is Match System, Light or Dark. Under it, pick a [theme](#themes): Demo Time (the default), Catppuccin, Claude, Nord (dark only), Solarized, The unnamed (dark only), or one you imported.
 - **Sidebar:** *Large icons* (easy to spot each project), *Standard*, or *Compact* (one line per session). *When collapsed* picks what ⌘B does: a *Minimal rail* of project icons, or *Hidden*. *Show sessions from other apps* also lists sessions from the terminal, Claude desktop and your editor (off by default), and notifies you when a terminal session is waiting.
 - **Conversation:** *Summarised* (the default) shows each run of tool calls as one line, like Claude Code: what Claude is doing right now, or what it did, with how long it took. Click it to see the steps, and a step to see its details. *Every step* shows each tool call as its own card.
 - **Focus:** the [focus limit](#focus-limit): on or off, how many sessions at the same time (1 to 10, 3 to start with), *Nudge* or *Strict*, and whether sessions from the terminal and your editor count.
@@ -203,7 +203,7 @@ Open Settings with ⌘, or the gear at the bottom of the sidebar. While it is op
 
 A theme sets the colours of the app, the code blocks and the terminal, for light and dark. Pick one in **Settings → Theme** or with *Theme: <name>* in the command palette; it applies at once, and the toast's **Undo** takes you back.
 
-- **Built in:** Demo Time and Solarized.
+- **Built in:** Demo Time, Catppuccin (Latte and Mocha), Claude, Nord, Solarized and The unnamed. Nord and The unnamed have only a dark version; in light mode they show Demo Time.
 - **Import…** (or drop a theme `.json` on the window, outside a session's message box) shows both modes, how many colours the file sets and which are worked out from its background and accent, any text that is hard to read, and its terminal and code colours, before you add it. *Add and use* switches to it right away.
 - **Export…** in a theme's ⋯ menu (or *Export current theme…* in the palette) saves it as a `.json` file. Exporting Demo Time gives every colour, a good starting point for your own. **Duplicate** makes an editable copy of any theme.
 - **Open themes folder** shows where imported themes are kept. Edit a file there and Switchboard applies it as soon as you save; if a change isn't valid, it keeps the last version that worked and says what's wrong.
@@ -260,4 +260,4 @@ Switchboard reads the session files Claude Code already keeps in `~/.claude` (an
 
 ## Credits
 
-Switchboard's colour theme and syntax colours come from the [Demo Time theme](https://github.com/estruyf/vscode-demo-time-theme) (MIT). Solarized is [Ethan Schoonover's palette](https://ethanschoonover.com/solarized/) (MIT); see [Themes](docs/themes.md#credits-and-licences).
+Switchboard's colour theme and syntax colours come from the [Demo Time theme](https://github.com/estruyf/vscode-demo-time-theme) (MIT). Solarized is [Ethan Schoonover's palette](https://ethanschoonover.com/solarized/) (MIT), Claude is ported from [jnahian/vscode-claude-theme](https://github.com/jnahian/vscode-claude-theme) (MIT), Nord from [nordtheme/visual-studio-code](https://github.com/nordtheme/visual-studio-code) (MIT), Catppuccin from [catppuccin.com](https://catppuccin.com/) (MIT) and The unnamed from [estruyf/vscode-unnamed-theme](https://github.com/estruyf/vscode-unnamed-theme) (MIT); see [Themes](docs/themes.md#credits-and-licences).

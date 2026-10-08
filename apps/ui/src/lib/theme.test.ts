@@ -197,19 +197,21 @@ async function syntaxOf(syntax: ThemeSyntax | undefined, mode: ThemeMode) {
 
 describe('built-in themes', () => {
   it('ship in picker order with Demo Time first', () => {
-    expect(BUILT_IN_THEMES.map((b) => b.id)).toEqual(['demo-time', 'solarized']);
+    expect(BUILT_IN_THEMES.map((b) => b.id)).toEqual(['demo-time', 'catppuccin', 'claude', 'nord', 'solarized', 'the-unnamed']);
   });
 
-  it.each(BUILT_IN_THEMES.map((b) => [b.id, b.raw] as const))('%s parses, has both modes and keeps text readable', (_id, raw) => {
+  it.each(BUILT_IN_THEMES.map((b) => [b.id, b.raw] as const))('%s parses, has its modes and keeps text readable', (id, raw) => {
     const result = parseThemeFile(raw);
     if ('error' in result) throw new Error(result.error);
     expect(result.ignored).toEqual([]);
     const theme = result.theme;
-    expect(theme.light && theme.dark).toBeTruthy();
+    // Nord and The unnamed are dark only, as the originals are; every other built-in has both modes.
+    const modes = id === 'nord' || id === 'the-unnamed' ? (['dark'] as const) : THEME_MODES;
+    expect(THEME_MODES.filter((mode) => theme[mode])).toEqual(modes);
     const resolved = resolveTheme(theme);
-    // Text, muted text and the accent as text reach WCAG AA. Solarized's own palette keeps a few pairs
-    // under it (text on its yellow, comments in code), as the original does; the import report lists them.
-    for (const mode of THEME_MODES) {
+    // Text, muted text and the accent as text reach WCAG AA. Solarized's and Claude's own palettes keep a
+    // few pairs under it (text on the accent, comments in code), as the originals do; the import report lists them.
+    for (const mode of modes) {
       const t = resolved[mode].tokens;
       expect(contrastOf(t.text, t.bg), `${mode} text`).toBeGreaterThanOrEqual(AA);
       expect(contrastOf(t.muted, t.bg), `${mode} muted`).toBeGreaterThanOrEqual(AA);
