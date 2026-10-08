@@ -6,7 +6,7 @@ import themesDoc from '../../../../docs/themes.md?raw';
 import { BUILT_IN_THEMES } from '../themes/index.ts';
 import { themeCss, overlayShadow } from './themeCss.ts';
 import { CONTRAST, DEMO_TIME_TOKENS, generateTokens } from './themeGenerate.ts';
-import { AA, AAA, contrastIssues, syntaxColorsOf, syntaxLabel, themeReport } from './themeReport.ts';
+import { AA, contrastIssues, syntaxColorsOf, syntaxLabel, themeReport } from './themeReport.ts';
 import { DEMO_TIME, exportThemeFile, resolveTheme } from './themeResolve.ts';
 
 const parse = (raw: unknown): ThemeFile => {
@@ -197,33 +197,30 @@ async function syntaxOf(syntax: ThemeSyntax | undefined, mode: ThemeMode) {
 
 describe('built-in themes', () => {
   it('ship in picker order with Demo Time first', () => {
-    expect(BUILT_IN_THEMES.map((b) => b.id)).toEqual(['demo-time', 'github', 'github-high-contrast', 'vscode', 'vscode-high-contrast']);
+    expect(BUILT_IN_THEMES.map((b) => b.id)).toEqual(['demo-time', 'solarized']);
   });
 
-  it.each(BUILT_IN_THEMES.map((b) => [b.id, b] as const))('%s parses and meets its contrast targets in both modes', async (_id, builtIn) => {
-    const result = parseThemeFile(builtIn.raw);
+  it.each(BUILT_IN_THEMES.map((b) => [b.id, b.raw] as const))('%s parses, has both modes and keeps text readable', (_id, raw) => {
+    const result = parseThemeFile(raw);
     if ('error' in result) throw new Error(result.error);
     expect(result.ignored).toEqual([]);
     const theme = result.theme;
     expect(theme.light && theme.dark).toBeTruthy();
     const resolved = resolveTheme(theme);
-    const target = builtIn.highContrast ? AAA : AA;
+    // Text, muted text and the accent as text reach WCAG AA. Solarized's own palette keeps a few pairs
+    // under it (text on its yellow, comments in code), as the original does; the import report lists them.
     for (const mode of THEME_MODES) {
       const t = resolved[mode].tokens;
-      expect(contrastOf(t.text, t.bg), `${mode} text`).toBeGreaterThanOrEqual(target);
-      expect(contrastOf(t.muted, t.bg), `${mode} muted`).toBeGreaterThanOrEqual(target);
+      expect(contrastOf(t.text, t.bg), `${mode} text`).toBeGreaterThanOrEqual(AA);
+      expect(contrastOf(t.muted, t.bg), `${mode} muted`).toBeGreaterThanOrEqual(AA);
       expect(contrastOf(t['accent-ink'], t.bg), `${mode} accent-ink`).toBeGreaterThanOrEqual(AA);
-      if (builtIn.highContrast) {
-        // Borders stay visible on every surface, and so does the focus ring.
-        for (const surface of [t.bg, t.sidebar, t.card, t.popover]) {
-          expect(contrastOf(t.border, surface), `${mode} border`).toBeGreaterThanOrEqual(3);
-          expect(contrastOf(t['overlay-border'], surface), `${mode} overlay-border`).toBeGreaterThanOrEqual(3);
-          expect(contrastOf(t['focus-ring'], surface), `${mode} focus-ring`).toBeGreaterThanOrEqual(3);
-        }
-      }
     }
-    const syntax = { light: await syntaxOf(theme.light?.syntax, 'light'), dark: await syntaxOf(theme.dark?.syntax, 'dark') };
-    expect(contrastIssues(theme, resolved, syntax, AA)).toEqual([]);
+  });
+
+  it('Demo Time keeps every pair readable, code included', async () => {
+    const resolved = resolveTheme(DEMO_TIME);
+    const syntax = { light: await syntaxOf(undefined, 'light'), dark: await syntaxOf(undefined, 'dark') };
+    expect(contrastIssues(DEMO_TIME, resolved, syntax, AA)).toEqual([]);
   });
 });
 

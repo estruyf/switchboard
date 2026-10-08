@@ -1725,6 +1725,7 @@ async function runThemeStep(win: BrowserWindow): Promise<string> {
   if (!(await waitInPage(win, "document.querySelector('[data-theme-card=\"demo-time-2\"][data-theme-selected]')", 3_000))) return 'the copy was not added and picked';
   for (const mode of ['light', 'dark'] as const) {
     if (!(await scheme(mode))) return `${mode} did not apply`;
+    await shot(win, `theme-settings-${mode}.png`);
     const demo = BUILT_IN_THEMES[0]!.raw as { [m: string]: { colors: Record<string, string> } };
     const problem = await colours({ sidebar: rgbOf(demo[mode]!.colors.sidebar!), code: rgbOf(demo[mode]!.colors['code-bg']!) });
     if (problem) return `the Demo Time copy, ${mode}: ${problem}`;

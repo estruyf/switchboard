@@ -57,9 +57,9 @@ function Heading({ title, description, children }: { title: string; description?
 function ThemeCard({ entry, selected, mode, onMenu }: { entry: ThemeEntry; selected: boolean; mode: ThemeMode; onMenu(at: ContextMenuPoint): void }) {
   const resolved = useMemo(() => resolveTheme(entry.file), [entry.file]);
   const only = onlyLabel(entry);
-  // "GitHub, ported for Switchboard" reads as "GitHub" on the card, so "built in" stays in view (the full line is its tooltip).
+  // "Ethan Schoonover (ported by …)" reads as "Ethan Schoonover" on the card, so "built in" stays in view (the full line is its tooltip).
   const author = entry.file.author?.trim();
-  const shortAuthor = author?.replace(/,\s*ported for Switchboard$/i, '');
+  const shortAuthor = author?.replace(/\s*\(ported by [^)]*\)$|,\s*ported for Switchboard$/i, '');
   // The ring is the theme's own accent, so the selected card reads as that theme.
   const ring = selected ? { boxShadow: `0 0 0 2px ${resolved[mode].tokens.accent}`, borderColor: 'transparent' } : undefined;
   return (

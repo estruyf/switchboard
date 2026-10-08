@@ -50,12 +50,12 @@ This one has only a dark version, so in light mode Switchboard uses Demo Time.
 - Files may have comments (`//`, `/* */`) and trailing commas, as VS Code's theme files do.
 - **Unknown keys are ignored**, and the import lists them ("Ignored 2 unknown keys: `colors.tab-bg`, `fonts`").
 
-Here is Solarized with both modes, a few colours of its own, its terminal and Shiki's Solarized code colours:
+Here is a short Solarized with both modes, a few colours of its own, its terminal and Shiki's Solarized code colours. The Solarized that ships with Switchboard sets every colour; it is in [apps/ui/src/themes/solarized.json](../apps/ui/src/themes/solarized.json).
 
 ```json
 {
   "$schema": "https://raw.githubusercontent.com/estruyf/switchboard/main/docs/switchboard-theme.schema.json",
-  "name": "Solarized",
+  "name": "Solarized Short",
   "author": "Ethan Schoonover",
   "version": 1,
   "light": {
@@ -247,20 +247,16 @@ The background of code is always the theme's `code-bg`, never the syntax theme's
 | Theme | Light | Dark | Code colours |
 |---|---|---|---|
 | Demo Time | Demo Time Light | Demo Time Dark | Demo Time |
-| GitHub | GitHub Light Default | GitHub Dark Default | `github-light-default` / `github-dark-default` |
-| GitHub High Contrast | GitHub Light High Contrast | GitHub Dark High Contrast | `github-light-high-contrast` / `github-dark-high-contrast` |
-| VS Code | Light Modern | Dark Modern | `light-plus` / `dark-plus` (Modern uses the Plus code colours) |
-| VS Code High Contrast | Light High Contrast | Dark High Contrast | inline themes converted from VS Code's high contrast token colours |
+| Solarized | Solarized Light | Solarized Dark | `solarized-light` / `solarized-dark` |
 
-They are theme files like any other ([apps/ui/src/themes](../apps/ui/src/themes)), checked the same way as imports. Each sets canvas and accent from the source's editor background and main accent, takes the colours the source clearly defines (sidebar, widgets and menus, borders, text and description text, links, git decoration and error colours, code block background, diff backgrounds, terminal), and leaves the rest to generation. Where the source has no colour for one of Switchboard's states (pink for "needs you", blue for "unread"), the closest colour from its own palette is used; each file's `$comment` notes those choices. Every built-in reaches WCAG AA for text and muted text in both modes; the high contrast ones reach AAA (7:1), keep borders visible on every surface, and have a visible focus ring.
+They are theme files like any other ([apps/ui/src/themes](../apps/ui/src/themes)), checked the same way as imports, and they can't be removed. Both reach WCAG AA for text, muted text and the accent as text in both modes. Solarized keeps its own palette where that is lower, as the original does: text on its yellow in light mode (3.0:1) and comments in code (2.3:1 light, 2.6:1 dark).
 
 ## Credits and licences
 
 - **Demo Time**: [estruyf/vscode-demo-time-theme](https://github.com/estruyf/vscode-demo-time-theme), MIT.
-- **GitHub** and **GitHub High Contrast**: ported from [primer/github-vscode-theme](https://github.com/primer/github-vscode-theme) (GitHub Light/Dark Default and High Contrast), as published in [Shiki's bundled themes](https://github.com/shikijs/textmate-grammars-themes). MIT License, Copyright (c) 2020 Primer.
-- **VS Code** and **VS Code High Contrast**: ported from [microsoft/vscode, extensions/theme-defaults](https://github.com/microsoft/vscode/tree/main/extensions/theme-defaults/themes): [light_modern.json](https://github.com/microsoft/vscode/blob/main/extensions/theme-defaults/themes/light_modern.json), [dark_modern.json](https://github.com/microsoft/vscode/blob/main/extensions/theme-defaults/themes/dark_modern.json), [hc_light.json](https://github.com/microsoft/vscode/blob/main/extensions/theme-defaults/themes/hc_light.json) and [hc_black.json](https://github.com/microsoft/vscode/blob/main/extensions/theme-defaults/themes/hc_black.json), with colours those files leave to VS Code's colour registry defaults. MIT License, Copyright (c) 2015 - present Microsoft Corporation.
+- **Solarized**: the [Solarized](https://ethanschoonover.com/solarized/) palette by Ethan Schoonover ([altercation/solarized](https://github.com/altercation/solarized)), ported for Switchboard by Elio Struyf. MIT License, Copyright (c) 2011 Ethan Schoonover. Its code colours are Shiki's bundled `solarized-light` and `solarized-dark`.
 
-The MIT License for each:
+The MIT License for Solarized:
 
 > Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
 >

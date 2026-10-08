@@ -36,7 +36,7 @@ function context(over: Partial<PaletteContext> = {}): PaletteContext {
     colorScheme: 'system',
     themes: [
       { id: 'demo-time', name: 'Demo Time' },
-      { id: 'github', name: 'GitHub' },
+      { id: 'solarized', name: 'Solarized' },
     ],
     themeId: 'demo-time',
     sidebarStyle: 'standard',
@@ -235,13 +235,13 @@ describe('arrangeCommands', () => {
 describe('themes', () => {
   it('offers every theme but the one in use, and import and export', () => {
     const shown = visibleCommands(context());
-    expect(shown.map((c) => c.id)).toEqual(expect.arrayContaining(['theme:github', 'import-theme', 'export-theme']));
+    expect(shown.map((c) => c.id)).toEqual(expect.arrayContaining(['theme:solarized', 'import-theme', 'export-theme']));
     expect(shown.map((c) => c.id)).not.toContain('theme:demo-time');
-    expect(titleOf(shown.find((c) => c.id === 'theme:github')!, context())).toBe('Theme: GitHub');
+    expect(titleOf(shown.find((c) => c.id === 'theme:solarized')!, context())).toBe('Theme: Solarized');
     expect(titleOf(shown.find((c) => c.id === 'theme-dark')!, context())).toBe('Appearance: Dark');
     const api = { selectTheme: vi.fn() } as unknown as PaletteApi;
-    shown.find((c) => c.id === 'theme:github')!.run!(api, context());
-    expect(api.selectTheme).toHaveBeenCalledWith('github');
+    shown.find((c) => c.id === 'theme:solarized')!.run!(api, context());
+    expect(api.selectTheme).toHaveBeenCalledWith('solarized');
   });
 });
 

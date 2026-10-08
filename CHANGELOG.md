@@ -6,11 +6,12 @@ All notable changes to Switchboard are listed here. Each release is also on the 
 
 ### New
 
-- **Themes.** Settings → Theme now has a theme picker under Light and Dark: Demo Time, GitHub, GitHub High Contrast, VS Code and VS Code High Contrast are built in. A theme colours the app, code blocks, diffs and the terminal, and switching shows a toast with Undo.
+- **Themes.** Settings → Theme now has a theme picker under Light and Dark, with Demo Time and Solarized built in. A theme colours the app, code blocks, diffs and the terminal, and switching shows a toast with Undo.
 - **Import and export themes** as `.json` files. Import shows both modes, what the file sets, what is worked out from its background and accent, and text that is hard to read, before anything is added. A theme only needs a background and an accent per mode; the rest is generated to stay readable. Drop a theme file on the window to import it.
 - **Edit a theme while you look at it.** Switchboard reloads the theme in use when its file in the themes folder changes, and keeps the last working version if a change isn't valid.
 - In the command palette: *Theme: <name>*, *Import theme…* and *Export current theme…*. The Light, Dark and Match System commands are now called *Appearance: …*.
 - Settings → Backup can include the themes you imported.
+- The Light, Dark and Match System switch in Settings is easier to see in light mode.
 
 ## [0.0.10] - 2026-10-07
 
