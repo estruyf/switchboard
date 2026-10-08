@@ -15,6 +15,7 @@ const host = (state: SessionHostInfo['state'], extra: Partial<SessionHostInfo> =
   contextMax: null,
   error: null,
   startedAt: 0,
+  promptedAt: null,
   queued: 0,
   profileId: 'default',
   backgroundTasks: [],

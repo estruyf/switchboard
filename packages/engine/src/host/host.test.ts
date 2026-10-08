@@ -216,6 +216,8 @@ describe('HostManager', () => {
     expect(t.streams.filter((s) => s.kind === 'text').map((s) => s.text).join('')).toBe('Hello');
     expect(t.messages.flatMap((m) => m.messages.map((x) => x.uuid))).toContain('a-Hello');
     expect(t.infos.at(-1)).toMatchObject({ model: 'fake-model', costUsd: 0.01, contextPercent: 12 });
+    // The Working list orders by when you last sent a message.
+    expect(t.infos.at(-1)!.promptedAt).toBeGreaterThanOrEqual(t.infos.at(-1)!.startedAt);
     await expect(t.manager.commands(id, undefined, 'default')).resolves.toEqual([{ name: 'review', description: 'Review the diff', argumentHint: '' }]);
     t.manager.closeAll();
   });

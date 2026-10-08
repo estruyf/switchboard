@@ -757,6 +757,7 @@ let actionMenuResult = 'not run';
 let highlighted = false;
 /** Diagnostics shows a Finder button next to the config folder and the cache database (not clicked: it would open Finder). */
 let diagnosticsReveal = false;
+let codeCopy = false;
 let usageBand: string | null = null;
 let quitGuarded = false;
 let settingsResult = 'not run';
@@ -3144,6 +3145,8 @@ async function runSmokeStep(win: BrowserWindow | null): Promise<void> {
     await waitInPage(win, "document.querySelector('[data-settings-section=\"diagnostics\"]')", 3_000);
     await win.webContents.executeJavaScript("document.querySelector('[data-settings-section=\"diagnostics\"]').click()");
     highlighted = await waitInPage(win, "document.querySelector('[data-rendering-check] .shiki span[style*=\"--shiki\"]')", 5_000);
+    // Present without hovering (only invisible), so it can be reached with Tab. Not clicked: that would overwrite the clipboard.
+    codeCopy = await win.webContents.executeJavaScript("document.querySelector('[data-rendering-check] [data-code-copy]')?.getAttribute('aria-label') === 'Copy code'");
     diagnosticsReveal = await waitInPage(win, "document.querySelector('[data-diagnostics-reveal=\"config-dir\"]') && document.querySelector('[data-diagnostics-reveal=\"database\"]')", 3_000);
     await shot(win, 'diagnostics.png');
     await win.webContents.executeJavaScript("document.querySelector('[data-close-settings]').click()");
@@ -3209,6 +3212,7 @@ async function runSmokeStep(win: BrowserWindow | null): Promise<void> {
         backupResult,
         themeResult,
         highlighted,
+        codeCopy,
         diagnosticsReveal,
         usageBand,
         rendering,

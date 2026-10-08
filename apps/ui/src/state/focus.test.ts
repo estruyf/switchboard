@@ -19,6 +19,7 @@ const host = (sessionId: string, state: HostState, startedAt = NOW - HOUR): Sess
   contextMax: null,
   error: null,
   startedAt,
+  promptedAt: null,
   queued: 0,
   profileId: 'default',
   backgroundTasks: [],

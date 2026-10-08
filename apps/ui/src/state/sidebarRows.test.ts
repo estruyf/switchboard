@@ -152,6 +152,14 @@ describe('groupSessions', () => {
     expect(groupSessions([], NOW)).toEqual([]);
   });
 
+  it('orders Working by when you set each session going, not by its last write', () => {
+    const working = (id: string, since: number, updatedAt: number, pinned = false) => row(id, { updatedAt, pinned, live: { ...live('running'), updatedAt: since } });
+    // 'first' was started before 'second' but wrote more recently: it stays below.
+    const rows = [working('first', NOW - 10 * 60_000, NOW), working('second', NOW - 5 * 60_000, NOW - 60_000), working('pin', NOW - HOUR, NOW - HOUR, true)];
+    const list = buildSessionList(rows, { search: '', project: null, now: NOW });
+    expect(groupSessions(list.active, NOW).map((g) => ids(g.rows))).toEqual([['pin', 'second', 'first']]);
+  });
+
   it('keeps pinned sessions at the top of their section', () => {
     const list = buildSessionList([row('new', { updatedAt: NOW - 60_000 }), row('pin', { updatedAt: midnight + 1, pinned: true })], { search: '', project: null, now: NOW });
     expect(groupSessions(list.active, NOW).map((g) => ids(g.rows))).toEqual([['pin', 'new']]);
@@ -258,7 +266,7 @@ describe('toRows', () => {
   });
 
   it('prefers the state of sessions running in this app and flags failed runs', () => {
-    const host: SessionHostInfo = { sessionId: 'mine', cwd: '/p/a/.claude/worktrees/wt', state: 'needs-you', model: null, permissionMode: 'default', effort: null, costUsd: 0, contextPercent: null, contextTokens: null, contextMax: null, error: null, startedAt: 5, queued: 0, profileId: 'default', backgroundTasks: [] };
+    const host: SessionHostInfo = { sessionId: 'mine', cwd: '/p/a/.claude/worktrees/wt', state: 'needs-you', model: null, permissionMode: 'default', effort: null, costUsd: 0, contextPercent: null, contextTokens: null, contextMax: null, error: null, startedAt: 5, promptedAt: null, queued: 0, profileId: 'default', backgroundTasks: [] };
     const closed: SessionHostInfo = { ...host, sessionId: 'old', state: 'closed' };
     const rows = toRows(new Map(), new Map(), new Map([['mine', host], ['old', closed]]));
     expect(rows).toHaveLength(1);
@@ -267,10 +275,15 @@ describe('toRows', () => {
 
   it('puts a session started in this app above one already working', () => {
     const summary = { id: 'busy', title: 'busy', firstPrompt: null, customTitle: null, cwd: '/p/a', projectRoot: '/p/a', gitBranch: null, worktree: null, origin: 'cli', createdAt: null, updatedAt: NOW - HOUR, fileSize: null, tag: null, pinned: false, archivedAt: null, viewedAt: null, unread: false, inApp: true, profileId: 'default' } as const;
-    const busy: SessionHostInfo = { sessionId: 'busy', cwd: '/p/a', state: 'running', model: null, permissionMode: 'default', effort: null, costUsd: 0, contextPercent: null, contextTokens: null, contextMax: null, error: null, startedAt: NOW - 2 * HOUR, queued: 0, profileId: 'default', backgroundTasks: [] };
+    const busy: SessionHostInfo = { sessionId: 'busy', cwd: '/p/a', state: 'running', model: null, permissionMode: 'default', effort: null, costUsd: 0, contextPercent: null, contextTokens: null, contextMax: null, error: null, startedAt: NOW - 2 * HOUR, promptedAt: null, queued: 0, profileId: 'default', backgroundTasks: [] };
     const fresh: SessionHostInfo = { ...busy, sessionId: 'fresh', state: 'starting', startedAt: NOW };
     const rows = toRows(new Map([['busy', summary]]), new Map(), new Map([['busy', busy], ['fresh', fresh]]));
     expect(ids(buildSessionList(rows, { search: '', project: null, now: NOW }).active)).toEqual(['fresh', 'busy']);
+  });
+
+  it('dates a session from this app by the last message you sent it', () => {
+    const host: SessionHostInfo = { sessionId: 'mine', cwd: '/p/a', state: 'running', model: null, permissionMode: 'default', effort: null, costUsd: 0, contextPercent: null, contextTokens: null, contextMax: null, error: null, startedAt: 5, promptedAt: 50, queued: 0, profileId: 'default', backgroundTasks: [] };
+    expect(toRows(new Map(), new Map(), new Map([['mine', host]]))[0]!.live).toMatchObject({ startedAt: 5, updatedAt: 50 });
   });
 });
 

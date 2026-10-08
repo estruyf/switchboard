@@ -58,6 +58,8 @@ export const SessionHostInfo = z.object({
   contextMax: z.number().nullable(),
   error: z.string().nullable(),
   startedAt: z.number(),
+  /** When you last sent a message (null before the first). The Working list orders by it, so sessions don't trade places as they write. */
+  promptedAt: z.number().nullable(),
   /** User messages accepted but not answered yet (sent while Claude was busy). */
   queued: z.number(),
   /** The Claude profile (login) this process runs with. */

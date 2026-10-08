@@ -101,9 +101,9 @@ export function hostAsLive(host: SessionHostInfo): LiveSession | null {
     name: null,
     origin: 'app',
     startedAt: host.startedAt,
-    // Not `Date.now()`: every working session would tie at "now" and the sidebar would keep the
-    // older one on top. Later activity comes from the transcript's own updatedAt.
-    updatedAt: host.startedAt,
+    // When you last sent it a message, not `Date.now()`: the Working list orders by this, and a time
+    // that moved with every update would make sessions trade places. Later activity comes from the transcript.
+    updatedAt: host.promptedAt ?? host.startedAt,
     profileId: host.profileId,
     background: host.backgroundTasks.map((t) => t.description),
   };

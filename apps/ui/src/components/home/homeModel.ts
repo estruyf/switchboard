@@ -1,12 +1,13 @@
 import type { SessionRowData } from '../../state/sessionsStore.ts';
+import { workingSince } from '../../state/sidebarRows.ts';
 
 /**
  * The sessions Home shows: those waiting for you (longest wait first, as the most overdue) and those
- * Claude is working on (most recent first). Pass the rows the sidebar lists.
+ * Claude is working on (the one you set going last first, so they don't trade places as they write). Pass the rows the sidebar lists.
  */
 export function homeSessions(rows: readonly SessionRowData[]): { needs: SessionRowData[]; working: SessionRowData[] } {
   const needs = rows.filter((row) => row.live?.status === 'needs-you').sort((a, b) => a.updatedAt - b.updatedAt);
-  const working = rows.filter((row) => row.live?.status === 'running').sort((a, b) => b.updatedAt - a.updatedAt);
+  const working = rows.filter((row) => row.live?.status === 'running').sort((a, b) => workingSince(b) - workingSince(a));
   return { needs, working };
 }
 

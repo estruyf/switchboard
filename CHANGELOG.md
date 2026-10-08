@@ -2,6 +2,16 @@
 
 All notable changes to Switchboard are listed here. Each release is also on the [releases page](https://github.com/estruyf/switchboard/releases), with the `.dmg` to download.
 
+## [Unreleased]
+
+### New
+
+- **Copy a code block.** Hover a code block in Claude's reply (or Tab to it) and click the copy button in its corner to copy the code.
+
+### Changed
+
+- Sessions under **Working** (in the sidebar and on Home) no longer trade places as they write: the one you last sent a message to is at the top.
+
 ## [0.0.11] - 2026-10-08
 
 ### New

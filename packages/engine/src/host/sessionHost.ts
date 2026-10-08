@@ -160,6 +160,7 @@ export class SessionHost {
       contextMax: null,
       error: null,
       startedAt: Date.now(),
+      promptedAt: null,
       queued: 0,
       profileId: config.profileId,
       backgroundTasks: [],
@@ -210,7 +211,8 @@ export class SessionHost {
     const commands = this.commands.length ? this.commands : (this.events.knownCommands?.() ?? []);
     const echo = attachments.length === 0 && text ? { role: 'user' as const, content: [{ type: 'text' as const, text: commandEcho(text, commands.map((c) => c.name)) }] } : message.message;
     this.events.messages(this.sessionId, [{ type: 'user', uuid, message: echo, parent_tool_use_id: null, timestamp: new Date().toISOString() }]);
-    if (this.info.state === 'running' || this.info.state === 'needs-you') this.update({ queued: this.info.queued + 1 });
+    const busy = this.info.state === 'running' || this.info.state === 'needs-you';
+    this.update({ promptedAt: this.lastActivity, ...(busy ? { queued: this.info.queued + 1 } : {}) });
     return uuid;
   }
 

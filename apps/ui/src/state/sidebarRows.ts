@@ -116,8 +116,18 @@ export function sessionGroup(row: SessionRowData, now: number): SessionGroup {
 }
 
 /**
+ * When a working session's turn began: when you last sent it a message (Claude Code's registry: when it
+ * went busy). The Working list orders by this rather than by the last write, which moves all the time.
+ */
+export const workingSince = (row: SessionRowData): number => row.live?.updatedAt ?? row.live?.startedAt ?? row.updatedAt;
+
+/** Working sessions, pinned first, then the one you set going last. */
+export const byWorkingSince = (a: SessionRowData, b: SessionRowData): number => Number(b.pinned) - Number(a.pinned) || workingSince(b) - workingSince(a);
+
+/**
  * Splits the main list into its sections, skipping empty ones. The order inside a section is the
  * order given (buildSessionList puts pinned sessions first, then newest), so pins stay on top of their section.
+ * Working is the exception: it keeps the order you started its sessions in (`byWorkingSince`).
  */
 export function groupSessions(active: readonly SessionRowData[], now: number): { group: SessionGroup; rows: SessionRowData[] }[] {
   const buckets = new Map<SessionGroup, SessionRowData[]>();
@@ -127,6 +137,7 @@ export function groupSessions(active: readonly SessionRowData[], now: number): {
     if (bucket) bucket.push(row);
     else buckets.set(group, [row]);
   }
+  buckets.get('working')?.sort(byWorkingSince);
   return GROUP_ORDER.flatMap((group) => {
     const rows = buckets.get(group);
     return rows ? [{ group, rows }] : [];
