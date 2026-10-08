@@ -105,7 +105,7 @@ export function HomeView() {
                 {homeSummary(needs.length, working.length)}
               </p>
             </div>
-            <Button variant="primary" size="lg" kbd="⌘N" onClick={newSession} className="shrink-0" data-empty-new-session>
+            <Button variant="primary" size="lg" shortcut="session.new" onClick={newSession} className="shrink-0" data-empty-new-session>
               New session
             </Button>
           </header>

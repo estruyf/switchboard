@@ -18,6 +18,7 @@ import { ProjectIcon } from '../ProjectIcon.tsx';
 import { Button } from '../ui/Button.tsx';
 import { STATUS_LABEL } from './rowLabel.ts';
 import { useSessionMenu } from './useSessionMenu.tsx';
+import { matches } from '../../lib/shortcuts.ts';
 
 /** One row of the rail: a session, or the thin line between two groups. */
 type RailItem = { kind: 'session'; data: SessionRowData } | { kind: 'divider'; key: string };
@@ -186,8 +187,7 @@ export function SidebarRail() {
 
   // ↑/↓ move between rows; ↩ (the button's own) opens the focused one.
   const onKeyDown = (event: KeyboardEvent) => {
-    if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return;
-    if (event.metaKey || event.altKey || event.ctrlKey) return;
+    if (!matches(event.nativeEvent, 'sidebar.move') && !matches(event.nativeEvent, 'sidebar.select')) return;
     event.preventDefault();
     if (order.length === 0) return;
     const current = (event.target as HTMLElement).closest<HTMLElement>('[data-sidebar-rail-row]')?.dataset.sidebarRailRow ?? tabStopId;
@@ -214,7 +214,7 @@ export function SidebarRail() {
           iconOnly
           icon={<Plus size={17} strokeWidth={2.4} aria-hidden />}
           aria-label="New session"
-          kbd="⌘N"
+          shortcut="session.new"
           data-tooltip-placement="right"
           data-new-session
           onClick={() => useSessions.getState().openNewSession()}
@@ -226,7 +226,7 @@ export function SidebarRail() {
           iconOnly
           icon={<Search size={15} aria-hidden />}
           aria-label="Go to a session"
-          kbd="⌘P"
+          shortcut="palette.goto"
           data-tooltip-placement="right"
           data-rail-search
           onClick={() => useOverlay.getState().togglePalette('goto')}
@@ -238,7 +238,7 @@ export function SidebarRail() {
           iconOnly
           icon={<House size={15} aria-hidden />}
           aria-label="Home"
-          kbd="⌘⇧H"
+          shortcut="home"
           selected={atHome}
           aria-current={atHome ? 'page' : undefined}
           data-tooltip-placement="right"
@@ -287,7 +287,7 @@ export function SidebarRail() {
           iconOnly
           icon={<Settings size={15} aria-hidden />}
           aria-label="Settings"
-          kbd="⌘,"
+          shortcut="settings"
           selected={view === 'settings'}
           aria-current={view === 'settings' ? 'page' : undefined}
           data-tooltip-placement="right"

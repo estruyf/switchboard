@@ -17,6 +17,7 @@
     "typecheck": "npm run typecheck --workspaces --if-present",
     "test": "vitest run",
     "check": "npm run typecheck && npm run test",
+    "docs:shortcuts": "node apps/ui/scripts/docs-shortcuts.ts",
     "dist": "npm run dist -w @switchboard/desktop",
     "smoke:packaged": "npm run smoke:packaged -w @switchboard/desktop",
     "dist:preview": "npm run dist:preview -w @switchboard/desktop",

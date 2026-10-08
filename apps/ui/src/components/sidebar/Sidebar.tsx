@@ -34,6 +34,7 @@ import { ProjectFilter } from './ProjectMenu.tsx';
 import { sessionRowLabel } from './rowLabel.ts';
 import { StatusIcon } from './StatusIcon.tsx';
 import { ARCHIVE, useSessionMenu, type FlagChange } from './useSessionMenu.tsx';
+import { formatKeys, keysFor, matches } from '../../lib/shortcuts.ts';
 
 const SESSION_ROW_HEIGHT: Record<SidebarStyle, number> = { large: 52, standard: 48, compact: 34 };
 const ARCHIVED_HEADER_HEIGHT = 34;
@@ -469,13 +470,13 @@ export function Sidebar() {
   // ↑/↓ moves through visible sessions, like a native source list (⇧ extends the selection); ⌘A picks the
   // focused row's group; ⌘⌫ deletes the picked sessions, or the focused (else the selected) one; F2 renames it.
   const onKeyDown = (event: KeyboardEvent) => {
-    if (event.key === 'Escape' && picked.size > 0) {
+    if (matches(event.nativeEvent, 'sidebar.clear-selection') && picked.size > 0) {
       event.preventDefault();
       event.stopPropagation();
       setPicks(NO_PICKS);
       return;
     }
-    if (event.key === 'a' && event.metaKey && !event.shiftKey && !event.altKey) {
+    if (matches(event.nativeEvent, 'sidebar.select-group')) {
       const focused = (event.target as HTMLElement).closest<HTMLElement>('[data-session-id]')?.dataset.sessionId ?? selectedId;
       const group = [...headerSessions.values()].find((ids) => focused && ids.includes(focused));
       if (group) {
@@ -484,7 +485,7 @@ export function Sidebar() {
       }
       return;
     }
-    if (event.key === 'Backspace' && event.metaKey) {
+    if (matches(event.nativeEvent, 'sidebar.delete')) {
       // Like ⌘A, the focused row wins over the open one.
       const focused = (event.target as HTMLElement).closest<HTMLElement>('[data-session-id]')?.dataset.sessionId ?? selectedId;
       const selected = rows.find((r) => r.kind === 'session' && r.data.id === focused);
@@ -495,7 +496,7 @@ export function Sidebar() {
       }
       return;
     }
-    if (event.key === 'F2' && !multi) {
+    if (matches(event.nativeEvent, 'sidebar.rename') && !multi) {
       const focused = (event.target as HTMLElement).closest<HTMLElement>('[data-session-id]')?.dataset.sessionId ?? selectedId;
       const target = rows.find((r) => r.kind === 'session' && r.data.id === focused);
       if (target?.kind === 'session' && target.data.summary) {
@@ -504,9 +505,10 @@ export function Sidebar() {
       }
       return;
     }
-    if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return;
+    const extend = matches(event.nativeEvent, 'sidebar.select');
+    if (!extend && !matches(event.nativeEvent, 'sidebar.move')) return;
     event.preventDefault();
-    if (event.shiftKey) {
+    if (extend) {
       const next = stepPick(picks, event.key === 'ArrowDown' ? 1 : -1, selectedId, order);
       if (!next?.end) return;
       setPicks(next);
@@ -603,7 +605,7 @@ export function Sidebar() {
           iconOnly
           icon={<House size={15} aria-hidden />}
           aria-label="Home"
-          kbd="⌘⇧H"
+          shortcut="home"
           selected={atHome}
           data-go-home
           onClick={() => useSessions.getState().goHome()}
@@ -617,7 +619,7 @@ export function Sidebar() {
           iconOnly
           icon={<Plus size={17} strokeWidth={2.4} aria-hidden />}
           aria-label="New session"
-          kbd="⌘N"
+          shortcut="session.new"
           data-new-session
           onClick={() => useSessions.getState().openNewSession()}
           className={`no-drag shrink-0 rounded-lg! ${view === 'new' ? 'ring-2 ring-accent/40 ring-offset-1 ring-offset-sidebar' : ''}`}
@@ -645,10 +647,10 @@ export function Sidebar() {
               {search
                 ? `No sessions match “${search.trim()}”. Search looks at titles, projects and branches; ⌘⇧F searches inside conversations.`
                 : projectFilter
-                  ? 'No sessions in this project yet. Start one with ⌘N.'
+                  ? `No sessions in this project yet. Start one with ${formatKeys(keysFor('session.new'))}.`
                   : scope === 'switchboard'
-                    ? 'Sessions you start or continue in Switchboard show up here. Start one with ⌘N.'
-                    : 'No Claude Code sessions found yet. Start one with ⌘N.'}
+                    ? `Sessions you start or continue in Switchboard show up here. Start one with ${formatKeys(keysFor('session.new'))}.`
+                    : `No Claude Code sessions found yet. Start one with ${formatKeys(keysFor('session.new'))}.`}
             </p>
             {search && (
               <button type="button" onClick={() => setSearch('')} className="text-link hover:underline">
@@ -749,7 +751,7 @@ export function Sidebar() {
               {picked.size}
             </span>
             <span className="min-w-0 flex-1 truncate text-ui font-semibold text-text">sessions selected</span>
-            <Button variant="quiet" size="sm" kbd="Esc" onClick={() => setPicks(NO_PICKS)} data-clear-selection className="shrink-0">
+            <Button variant="quiet" size="sm" shortcut="sidebar.clear-selection" onClick={() => setPicks(NO_PICKS)} data-clear-selection className="shrink-0">
               Clear
             </Button>
           </div>
@@ -777,7 +779,7 @@ export function Sidebar() {
             </Button>
           </div>
           <p className="flex flex-wrap gap-x-3 gap-y-1 text-meta text-faint">
-            {([['⌘A', 'all in group'], ['⇧↑↓', 'extend'], ['⌘⌫', 'delete']] as const).map(([key, what]) => (
+            {([[keysFor('sidebar.select-group'), 'all in group'], ['⇧↑↓', 'extend'], [keysFor('sidebar.delete'), 'delete']] as const).map(([key, what]) => (
               <span key={key} className="flex items-center gap-1">
                 <Kbd keys={key} /> {what}
               </span>
@@ -821,7 +823,7 @@ export function Sidebar() {
           iconOnly
           icon={<Settings size={15} aria-hidden />}
           aria-label="Settings"
-          kbd="⌘,"
+          shortcut="settings"
           selected={view === 'settings'}
           aria-current={view === 'settings' ? 'page' : undefined}
           data-open-settings

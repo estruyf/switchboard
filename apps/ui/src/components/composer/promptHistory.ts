@@ -1,5 +1,6 @@
 import type { SessionSummary } from '@switchboard/protocol/client';
 import type { DisplayItem } from '../transcript/displayItems.ts';
+import { matches } from '../../lib/shortcuts.ts';
 
 /** `older` is ↑ (further back), `newer` is ↓ (towards your draft). */
 export type HistoryDirection = 'older' | 'newer';
@@ -162,7 +163,7 @@ export function routeArrow(event: ArrowKey, palette: { active: number; count: nu
     const step = event.key === 'ArrowDown' ? 1 : -1;
     return { kind: 'palette', active: (palette.active + step + palette.count) % palette.count };
   }
-  if (event.shiftKey || event.altKey || event.ctrlKey || event.metaKey) return null;
+  if (!matches(event, 'composer.history')) return null;
   const direction = event.key === 'ArrowUp' ? 'older' : 'newer';
   return atEdge(direction) ? { kind: 'history', direction } : null;
 }

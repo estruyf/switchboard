@@ -286,7 +286,7 @@ export function ChangesPanel({
           data-changes-expand
         />
         <Button variant="quiet" size="sm" iconOnly icon={<RefreshCw size={12} />} onClick={onRefresh} data-tooltip="Check git for changes again" aria-label="Refresh changes" />
-        <Button variant="quiet" size="sm" iconOnly icon={<X size={13} />} kbd="⌘⇧D" onClick={onClose} aria-label="Close changes" />
+        <Button variant="quiet" size="sm" iconOnly icon={<X size={13} />} shortcut="changes.toggle" onClick={onClose} aria-label="Close changes" />
       </div>
 
       {(error ?? changes?.error) && (

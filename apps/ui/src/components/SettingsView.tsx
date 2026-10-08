@@ -15,6 +15,7 @@ import { Choice } from './ui/Choice.tsx';
 import { Radio, RadioGroup } from './ui/Radio.tsx';
 import { SegmentedControl } from './ui/SegmentedControl.tsx';
 import { Toggle } from './ui/Toggle.tsx';
+import { formatKeys, keysFor, matches } from '../lib/shortcuts.ts';
 
 /** A session row in miniature, drawn with the live theme tokens. */
 function RowPreview({ style }: { style: SidebarStyle }) {
@@ -135,7 +136,7 @@ const close = () => useSessions.getState().closeSettings();
 function useEscapeToClose(sheet: RefObject<HTMLElement | null>) {
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
-      if (event.key !== 'Escape' || event.defaultPrevented) return;
+      if (!matches(event, 'settings.close') || event.defaultPrevented) return;
       const overlays = [...document.querySelectorAll('[role=dialog], [role=alertdialog], [role=menu], [role=listbox]')];
       if (overlays.some((el) => el !== sheet.current)) return;
       if (event.target instanceof HTMLElement && event.target.closest('input, textarea, [contenteditable=true]')) return;
@@ -169,7 +170,7 @@ function SectionPage({ section }: { section: SettingsSection }) {
           <div className="flex items-center justify-between gap-4">
             <span>
               <span className="block text-ui">When collapsed</span>
-              <span className="block text-meta text-muted">What ⌘B and the sidebar button do: a narrow rail of project icons, or hide the sidebar.</span>
+              <span className="block text-meta text-muted">What {formatKeys(keysFor('sidebar.toggle'))} and the sidebar button do: a narrow rail of project icons, or hide the sidebar.</span>
             </span>
             <SegmentedControl<SidebarCollapsed>
               mode="radio"
@@ -238,7 +239,7 @@ function SectionPage({ section }: { section: SettingsSection }) {
           <Section title="Quitting">
             <Toggle
               label="Ask before quitting"
-              detail="⌘Q shows a prompt first; pressing ⌘Q again quits."
+              detail={`${formatKeys(keysFor('quit'))} shows a prompt first; pressing ${formatKeys(keysFor('quit'))} again quits.`}
               checked={prefs.confirmQuit}
               attr="data-confirm-quit"
               onChange={(confirmQuit) => update({ confirmQuit })}
@@ -330,7 +331,7 @@ export function SettingsView() {
           {/* The top strip keeps the window draggable, like every other view's header. */}
           {/* Same padding as the session header, so the close button stays put when Settings opens over it. */}
           <div className="drag flex h-13 shrink-0 items-center justify-end px-6">
-            <Button variant="quiet" iconOnly icon={<X size={15} aria-hidden />} kbd="Esc" onClick={close} data-close-settings data-tooltip="Close (Esc)" aria-label="Close settings" className="no-drag" />
+            <Button variant="quiet" iconOnly icon={<X size={15} aria-hidden />} shortcut="settings.close" onClick={close} data-close-settings data-tooltip={`Close (${formatKeys(keysFor('settings.close'))})`} aria-label="Close settings" className="no-drag" />
           </div>
           <div className="min-h-0 flex-1 overflow-y-auto">
             <div className={`mx-auto min-w-0 px-8 ${section === 'diagnostics' ? 'max-w-3xl' : 'max-w-2xl'}`} data-settings-page={section}>

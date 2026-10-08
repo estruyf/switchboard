@@ -26,6 +26,7 @@ export const IpcChannel = {
   setPreferences: 'switchboard:set-preferences',
   preferencesChanged: 'switchboard:preferences-changed',
   openSettings: 'switchboard:open-settings',
+  toggleShortcuts: 'switchboard:toggle-shortcuts',
   getAppInfo: 'switchboard:get-app-info',
   getUpdateState: 'switchboard:get-update-state',
   updateState: 'switchboard:update-state',
@@ -250,6 +251,8 @@ export interface SwitchboardBridge {
   onPreferencesChanged(listener: (preferences: Preferences) => void): () => void;
   /** Switchboard → Settings… (⌘,) in the menu bar, or Check for Updates… (which opens About). */
   onOpenSettings(listener: (section: 'about' | null) => void): () => void;
+  /** Help › Keyboard Shortcuts (⌘/) in the menu bar: open the shortcuts sheet, or close it. */
+  onToggleShortcuts(listener: () => void): () => void;
   /** Read once when the page loads. */
   readonly appInfo: AppInfo;
   /** Read once when the page loads; then follow `onUpdateState`. */

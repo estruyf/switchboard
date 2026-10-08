@@ -11,6 +11,7 @@ import { Notice } from '../ui/Notice.tsx';
 import { maxRightWidth, PANEL_MIN_HEIGHT, PANEL_MIN_WIDTH, PANEL_MAX_HEIGHT_SHARE, PANEL_MAX_WIDTH_SHARE, panelSizeForKey, type RightBlocked, type TerminalDock } from './terminalLayout.ts';
 import { actionCommand, elapsedLabel, runStatus, tabStatus, type RunTimes } from './terminalStatus.ts';
 import { XTerm } from './XTerm.tsx';
+import { formatKeys, keysFor, matches } from '../../lib/shortcuts.ts';
 
 /**
  * Terminals for one session: login shells in its folder, project actions, and the Claude Code TUI
@@ -156,7 +157,7 @@ export function TerminalPanel({
   // Esc restores a maximized panel from its tabs, strip and buttons. Inside a terminal, Esc belongs to the program
   // running there (Claude Code, vim); an exited one closes its tab on Esc instead.
   const onPanelKey = (event: KeyboardEvent<HTMLElement>) => {
-    if (event.key !== 'Escape' || !maximized || event.defaultPrevented) return;
+    if (!matches(event.nativeEvent, 'terminal.restore') || !maximized || event.defaultPrevented) return;
     if ((event.target as HTMLElement).closest('.xterm')) return;
     event.preventDefault();
     setMaximized(false);
@@ -276,7 +277,7 @@ export function TerminalPanel({
             size="sm"
             iconOnly
             icon={maximized ? <Minimize2 size={13} aria-hidden /> : <Maximize2 size={13} aria-hidden />}
-            kbd="⌘⇧J"
+            shortcut="terminal.maximize"
             selected={maximized}
             aria-pressed={maximized}
             onClick={() => setMaximized()}
@@ -288,7 +289,7 @@ export function TerminalPanel({
             size="sm"
             iconOnly
             icon={right ? <ChevronRight size={14} aria-hidden /> : <ChevronDown size={14} aria-hidden />}
-            kbd="⌘J"
+            shortcut="terminal.toggle"
             onClick={() => togglePanel(false)}
             aria-label="Hide terminal"
             data-terminal-hide
@@ -406,7 +407,7 @@ function RunStrip({
           Restart
         </Button>
         {running && (
-          <Button variant="danger" size="sm" icon={<Square size={9} className="fill-current" aria-hidden />} kbd="⌃C" onClick={onStop} data-tooltip="Stop the command (⌃C in the terminal)" data-terminal-stop>
+          <Button variant="danger" size="sm" icon={<Square size={9} className="fill-current" aria-hidden />} shortcut="terminal.stop-action" onClick={onStop} data-tooltip={`Stop the command (${formatKeys(keysFor('terminal.stop-action'))} in the terminal)`} data-terminal-stop>
             Stop
           </Button>
         )}

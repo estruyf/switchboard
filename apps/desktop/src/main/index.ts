@@ -390,6 +390,13 @@ function installMenu(): void {
       ],
     },
     { role: 'windowMenu' },
+    {
+      role: 'help',
+      submenu: [
+        // The page handles ⌘/ itself (in the terminal and the message box too), so the menu only shows the key.
+        { label: 'Keyboard Shortcuts', accelerator: 'CmdOrCtrl+/', registerAccelerator: false, click: () => sendToWindow(showWindow(), IpcChannel.toggleShortcuts, null, { latestOnly: true }) },
+      ],
+    },
   ];
   Menu.setApplicationMenu(Menu.buildFromTemplate(template));
 }
@@ -768,6 +775,7 @@ let longPromptResult = 'not run';
 let copyMessageResult = 'not run';
 let draftResult = 'not run';
 let paletteResult = 'not run';
+let shortcutsResult = 'not run';
 let paletteNewSessionResult = 'not run';
 let terminalClearResult = 'not run';
 let toolsResult = 'not run';
@@ -2343,6 +2351,96 @@ async function runPaletteStep(win: BrowserWindow): Promise<string> {
   return 'ok: ⌘K and ⌘⇧P open the commands with "This session" first, ⌘P lists sessions, ">" and ⌫ switch mode, "tog chan" ran Toggle changes, nothing for a session at Home';
 }
 
+const SHEET = "document.querySelector('[data-shortcuts-sheet]')";
+/** The ids of the rows the shortcuts sheet shows. */
+const SHEET_ROWS = "[...document.querySelectorAll('[data-shortcuts-sheet] [data-shortcut-row]')].map((el) => el.dataset.shortcutRow)";
+
+/**
+ * The shortcuts sheet: ⌘/ from the message box opens it with the filter focused and Command palette (⌘K)
+ * listed, in light and dark; "terminal" leaves only rows about the terminal; ⌘J pressed in the filter is
+ * typed rather than run; ⌘/ closes it; at Home, Here hides Stop Claude (All fades it); Esc closes and
+ * focus goes back to where it was.
+ */
+async function runShortcutsStep(win: BrowserWindow): Promise<string> {
+  const js = (code: string) => win.webContents.executeJavaScript(code);
+  const scheme = preferences.get().colorScheme;
+  try {
+    return await shortcutsChecks(win, js);
+  } finally {
+    updatePreferences({ colorScheme: scheme });
+    // Leave the sheet in All mode and closed, and go back to the session the later steps use.
+    if (await js(`!!${SHEET}`)) {
+      await js("document.querySelector('[data-shortcut-mode-option=\"all\"]')?.click()");
+      pressKey(win, 'Escape');
+    }
+    await js(`document.querySelector('[data-session-id="${smokeSessionId}"]')?.click()`);
+    await waitInPage(win, `document.querySelector('[data-current-session="${smokeSessionId}"] [data-transcript-item]')`, 5_000);
+  }
+}
+
+async function shortcutsChecks(win: BrowserWindow, js: (code: string) => Promise<unknown>): Promise<string> {
+  const open = async () => {
+    pressKey(win, '/', ['meta']);
+    return waitInPage(win, `${SHEET} && document.activeElement?.matches('[data-shortcut-filter]')`, 3_000);
+  };
+  if (!(await js("(() => { const box = document.querySelector('textarea[data-composer]'); box?.focus(); return document.activeElement === box && !!box; })()"))) return 'no message box to start from';
+  if (!(await open())) return '⌘/ in the message box did not open the sheet with the filter focused';
+  const palette = (await js(
+    "(() => { const row = document.querySelector('[data-shortcut-row=\"palette.commands\"]'); return row ? { text: row.innerText, caps: [...row.querySelectorAll('kbd')].map((k) => k.textContent), edge: getComputedStyle(row.querySelector('kbd')).borderBottomWidth } : null; })()",
+  )) as { text: string; caps: string[]; edge: string } | null;
+  if (!palette?.text.includes('Command palette')) return 'no Command palette row';
+  if (palette.caps.slice(0, 2).join(' ') !== '⌘ K') return `Command palette showed ${palette.caps.join(' ')}, not ⌘ K`;
+  if (palette.edge !== '2px') return `keycaps have a ${palette.edge} bottom border, not 2px`;
+  if ((await js("document.querySelector('[data-shortcuts-sheet]')?.getAttribute('role')")) !== 'dialog') return 'the sheet is not a dialog';
+  for (const colorScheme of ['light', 'dark'] as const) {
+    updatePreferences({ colorScheme });
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    if (!(await js(`!!document.querySelector('[data-shortcut-row="palette.commands"]')`))) return `the sheet lost its rows in ${colorScheme} mode`;
+    await shot(win, `shortcuts-${colorScheme}.png`);
+  }
+
+  await setFieldValue(win, '[data-shortcut-filter]', 'terminal');
+  if (!(await waitInPage(win, `${SHEET_ROWS}.includes('terminal.toggle') && !${SHEET_ROWS}.includes('session.new')`, 2_000))) return `"terminal" left ${String(await js(SHEET_ROWS))}`;
+  const strays = (await js(
+    "[...document.querySelectorAll('[data-shortcut-row]')].filter((el) => !el.innerText.toLowerCase().includes('terminal')).map((el) => el.dataset.shortcutRow)",
+  )) as string[];
+  if (strays.length) return `"terminal" kept rows without it: ${strays.join(', ')}`;
+  await shot(win, 'shortcuts-filter.png');
+
+  await setFieldValue(win, '[data-shortcut-filter]', '');
+  const terminalBefore = await js("!!document.querySelector('[data-terminal-panel], section[aria-label=\"Terminal\"]')");
+  pressKey(win, 'J', ['meta']);
+  if (!(await waitInPage(win, `document.querySelector('[data-shortcut-filter]').value === '⌘J' && ${SHEET_ROWS}.join() === 'terminal.toggle'`, 2_000))) {
+    return `⌘J in the filter typed ${String(await js("document.querySelector('[data-shortcut-filter]').value"))} and left ${String(await js(SHEET_ROWS))}`;
+  }
+  if ((await js("!!document.querySelector('[data-terminal-panel], section[aria-label=\"Terminal\"]')")) !== terminalBefore) return '⌘J in the filter also toggled the terminal';
+
+  pressKey(win, '/', ['meta']);
+  if (!(await waitInPage(win, `!${SHEET}`, 2_000))) return '⌘/ did not close the sheet';
+
+  // At Home: All fades Stop Claude, Here hides it.
+  pressKey(win, 'H', ['meta', 'shift']);
+  if (!(await waitInPage(win, "!document.querySelector('[data-current-session]')", 3_000))) return '⌘⇧H did not go Home';
+  if (!(await open())) return '⌘/ did not open the sheet at Home';
+  if ((await js("document.querySelector('[data-shortcut-row=\"claude.stop\"]')?.dataset.available")) !== 'false') return 'Stop Claude was not faded at Home in All';
+  await js("document.querySelector('[data-shortcut-mode-option=\"here\"]').click()");
+  if (!(await waitInPage(win, `${SHEET}?.dataset.shortcutMode === 'here' && !document.querySelector('[data-shortcut-row="claude.stop"]')`, 2_000))) return 'Here still showed Stop Claude at Home';
+  if (!(await js("!!document.querySelector('[data-shortcut-row=\"session.new\"]')"))) return 'Here hid New session at Home';
+  await js("document.querySelector('[data-shortcut-mode-option=\"all\"]').click()");
+
+  // Esc closes, and focus goes back to where it was.
+  await js("document.querySelector('[data-shortcuts-sheet]') && document.querySelector('[data-shortcut-filter]').focus()");
+  pressKey(win, 'Escape');
+  if (!(await waitInPage(win, `!${SHEET}`, 2_000))) return 'Esc did not close the sheet';
+  await js(`document.querySelector('[data-session-id="${smokeSessionId}"]')?.click()`);
+  if (!(await waitInPage(win, `document.querySelector('[data-current-session="${smokeSessionId}"] textarea[data-composer]')`, 5_000))) return 'could not reopen the session';
+  await js("document.querySelector('textarea[data-composer]').focus()");
+  if (!(await open())) return '⌘/ did not open the sheet again';
+  pressKey(win, 'Escape');
+  if (!(await waitInPage(win, `!${SHEET} && document.activeElement?.matches('textarea[data-composer]')`, 2_000))) return `Esc did not put focus back in the message box (${String(await js('document.activeElement?.outerHTML.slice(0, 80)'))})`;
+  return 'ok: ⌘/ opens it from the message box with Command palette ⌘ K (light and dark), "terminal" filters, ⌘J is typed not run, ⌘/ closes, Here hides Stop Claude at Home, Esc closes and gives focus back';
+}
+
 /**
  * New session from the palette, starting nothing: New session… lists the projects, the first one opens
  * the prompt step (route, prompt, chips, Start), which takes a pasted image and shows a drop target;
@@ -3011,6 +3109,7 @@ async function runSmokeStep(win: BrowserWindow | null): Promise<void> {
     draftResult = await runDraftStep(win).catch((error: Error) => `failed: ${error.message}`);
     searchResult = await runSearchStep(win).catch((error: Error) => `failed: ${error.message}`);
     paletteResult = await runPaletteStep(win).catch((error: Error) => `failed: ${error.message}`);
+    shortcutsResult = await runShortcutsStep(win).catch((error: Error) => `failed: ${error.message}`);
     toolsResult = await runToolsStep(win).catch((error: Error) => `failed: ${error.message}`);
     splitResult = await runSplitStep(win).catch((error: Error) => `failed: ${error.message}`);
     archiveResult = await runArchiveStep(win).catch((error: Error) => `failed: ${error.message}`);
@@ -3081,6 +3180,7 @@ async function runSmokeStep(win: BrowserWindow | null): Promise<void> {
         copyMessageResult,
         draftResult,
         paletteResult,
+        shortcutsResult,
         paletteNewSessionResult,
         terminalClearResult,
         toolsResult,

@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import type { PaletteMode } from '../components/palette/paletteState.ts';
+import type { SheetMode } from '../components/shortcuts/shortcutSheet.ts';
 
 const CHANGES_KEY = 'ui.changesPanel';
 const WRAP_KEY = 'ui.diffWrap';
@@ -20,8 +21,8 @@ const readFlag = (key: string) => {
 
 /** Full-window overlays (search, command palette), side panels, and cross-component requests. */
 interface OverlayState {
-  /** `tools`: the current session's MCP servers, skills, agents and plugins. */
-  open: 'search' | 'palette' | 'tools' | null;
+  /** `tools`: the current session's MCP servers, skills, agents and plugins. `shortcuts`: the shortcuts sheet (⌘/). */
+  open: 'search' | 'palette' | 'tools' | 'shortcuts' | null;
   /** Set by search: the session view scrolls to this message and highlights it once. */
   focusMessage: { sessionId: string; messageUuid: string } | null;
   /** The Changes panel (⌘⇧D), remembered across launches. */
@@ -32,7 +33,12 @@ interface OverlayState {
   actionRequest: { id: string; nonce: number } | null;
   /** The mode the command palette opens in (⌘K and ⌘⇧P: commands, ⌘P: go to), and a count that resets it when it opens again. */
   palette: { mode: PaletteMode; nonce: number };
-  show(which: 'search' | 'palette' | 'tools'): void;
+  /** The shortcuts sheet's All or Here, kept while the window is open. */
+  shortcutsMode: SheetMode;
+  show(which: 'search' | 'palette' | 'tools' | 'shortcuts'): void;
+  /** Opens the shortcuts sheet, or closes it when it's open (⌘/, Help › Keyboard Shortcuts). */
+  toggleShortcuts(): void;
+  setShortcutsMode(mode: SheetMode): void;
   /** Opens the palette in a mode; the same shortcut again closes it, another one switches mode. */
   togglePalette(mode: PaletteMode): void;
   close(): void;
@@ -49,7 +55,10 @@ export const useOverlay = create<OverlayState>()((set) => ({
   diffWrap: readFlag(WRAP_KEY),
   actionRequest: null,
   palette: { mode: 'commands', nonce: 0 },
+  shortcutsMode: 'all',
   show: (open) => set({ open }),
+  toggleShortcuts: () => set((s) => ({ open: s.open === 'shortcuts' ? null : 'shortcuts' })),
+  setShortcutsMode: (shortcutsMode) => set({ shortcutsMode }),
   togglePalette: (mode) =>
     set((s) => (s.open === 'palette' && s.palette.mode === mode ? { open: null } : { open: 'palette', palette: { mode, nonce: s.palette.nonce + 1 } })),
   close: () => set({ open: null }),

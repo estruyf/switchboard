@@ -5,6 +5,7 @@ import { useEngineConnection } from '../engine/useEngine.ts';
 import { useHosts } from '../state/hostsStore.ts';
 import type { MenuEntry } from './Menu.tsx';
 import { Popover } from './ui/Popover.tsx';
+import { ariaKeysFor, formatKeys, keysFor } from '../lib/shortcuts.ts';
 
 /** Opens a path in the user's editor, terminal or Finder. Used by the header button, ⌘O and file links. */
 export function useOpenIn() {
@@ -97,7 +98,7 @@ export function useOpenInEntries(path: string | null): { entries: MenuEntry[]; e
   const others = GROUPS.flatMap((group) => editors.filter((e) => e.kind === group.kind && e.id !== current.id));
   const entries: MenuEntry[] = [
     { heading: 'Open in' },
-    { label: current.name, icon: KIND_ICON[current.kind], hint: '⌘O', onSelect: () => run(), data: { 'data-open-in': true, 'data-open-in-editor': current.id, 'data-tooltip': `Open ${path} in ${current.name}` } },
+    { label: current.name, icon: KIND_ICON[current.kind], hint: formatKeys(keysFor('editor.open')), onSelect: () => run(), data: { 'data-open-in': true, 'data-open-in-editor': current.id, 'data-tooltip': `Open ${path} in ${current.name}` } },
     ...others.map((editor): MenuEntry => ({ label: editor.name, icon: KIND_ICON[editor.kind], onSelect: () => run(editor.id), data: { 'data-open-in-editor': editor.id } })),
     {
       label: 'Copy path',
@@ -198,9 +199,9 @@ export function OpenInButton({ path, shortcut = true }: { path: string | null; /
         onClick={() => run()}
         className={`flex h-7 items-center gap-1.5 rounded-l-md border border-border px-2.5 text-ui hover:bg-border/50 @max-[860px]:rounded-md @max-[860px]:px-1.5 ${error ? 'text-error' : 'text-text'}`}
         // A failed open keeps its message on the button that failed, where hovering finds it.
-        data-tooltip={error ?? `Open ${path} in ${current.name}${shortcut ? ' (⌘O)' : ''}`}
+        data-tooltip={error ?? `Open ${path} in ${current.name}${shortcut ? ` (${formatKeys(keysFor('editor.open'))})` : ''}`}
         aria-label={`Open in ${current.name}`}
-        aria-keyshortcuts={shortcut ? 'Meta+O' : undefined}
+        aria-keyshortcuts={shortcut ? ariaKeysFor('editor.open') : undefined}
         data-open-in
       >
         <ExternalLink size={13} className="shrink-0 text-muted" aria-hidden />

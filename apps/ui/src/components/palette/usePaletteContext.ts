@@ -30,11 +30,13 @@ function useGitState(cwd: string | null, busy: boolean): PaletteGit | null {
     Promise.all([client.call('worktree.status', { cwd }), client.call('git.changes', { cwd, base: 'uncommitted' })]).then(
       ([status, changes]) => {
         if (cancelled) return;
+        const plan = planGit(status, busy);
         setGit({
           changed: changes.files.length,
           unstaged: changes.files.filter((file) => !file.staged).length,
           hasRemote: status.hasRemote,
-          prBlocked: planGit(status, busy).blocked.pr,
+          prBlocked: plan.blocked.pr,
+          pullable: plan.blocked.pull === null,
         });
       },
       () => !cancelled && setGit(null),

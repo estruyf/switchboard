@@ -49,6 +49,11 @@ const bridge: SwitchboardBridge = {
     ipcRenderer.on(IpcChannel.openSettings, handler);
     return () => ipcRenderer.off(IpcChannel.openSettings, handler);
   },
+  onToggleShortcuts(listener) {
+    const handler = () => listener();
+    ipcRenderer.on(IpcChannel.toggleShortcuts, handler);
+    return () => ipcRenderer.off(IpcChannel.toggleShortcuts, handler);
+  },
   appInfo: ipcRenderer.sendSync(IpcChannel.getAppInfo) as AppInfo,
   updateState: ipcRenderer.sendSync(IpcChannel.getUpdateState) as UpdateState,
   onUpdateState(listener) {

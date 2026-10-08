@@ -50,7 +50,7 @@ export function QuitPrompt() {
         <>
           {impact && <p>{impact}</p>}
           <p className={impact ? 'mt-2' : undefined}>
-            Press <Kbd keys="⌘Q" /> again to quit.
+            Press <Kbd shortcut="quit" /> again to quit.
           </p>
         </>
       }

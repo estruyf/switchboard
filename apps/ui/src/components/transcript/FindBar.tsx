@@ -1,10 +1,11 @@
 import { ChevronDown, ChevronUp, X } from 'lucide-react';
 import { useEffect, useRef } from 'react';
 import { Button } from '../ui/Button.tsx';
+import { formatKeys, keysFor, matches } from '../../lib/shortcuts.ts';
 
 /**
  * Find in the conversation (⌘F): Enter or ⌘G goes to the next match, ⇧Enter or ⇧⌘G to the
- * previous one, Escape closes. `focusNonce` changes when ⌘F is pressed again, to refocus the field.
+ * previous one (`find.next` and `find.previous` in `lib/shortcuts.ts`), Escape closes. `focusNonce` changes when ⌘F is pressed again, to refocus the field.
  */
 export function FindBar({
   query,
@@ -49,9 +50,9 @@ export function FindBar({
             event.preventDefault();
             event.stopPropagation();
             onClose();
-          } else if (event.key === 'Enter' || (event.metaKey && event.key.toLowerCase() === 'g')) {
+          } else if (matches(event, 'find.next') || matches(event, 'find.previous')) {
             event.preventDefault();
-            onStep(event.shiftKey ? -1 : 1);
+            onStep(matches(event, 'find.previous') ? -1 : 1);
           }
         }}
         placeholder="Find in conversation"
@@ -63,8 +64,8 @@ export function FindBar({
       <span className="min-w-14 text-right text-meta text-faint tabular-nums" role="status" aria-live="polite" data-find-count>
         {status}
       </span>
-      <Button variant="quiet" size="sm" iconOnly icon={<ChevronUp size={14} />} disabled={count === 0} onClick={() => onStep(-1)} data-tooltip="Previous (⇧Enter)" aria-label="Previous match" />
-      <Button variant="quiet" size="sm" iconOnly icon={<ChevronDown size={14} />} disabled={count === 0} onClick={() => onStep(1)} data-tooltip="Next (Enter)" aria-label="Next match" />
+      <Button variant="quiet" size="sm" iconOnly icon={<ChevronUp size={14} />} disabled={count === 0} onClick={() => onStep(-1)} data-tooltip={`Previous (${formatKeys(keysFor('find.previous'))})`} aria-label="Previous match" />
+      <Button variant="quiet" size="sm" iconOnly icon={<ChevronDown size={14} />} disabled={count === 0} onClick={() => onStep(1)} data-tooltip={`Next (${formatKeys(keysFor('find.next'))})`} aria-label="Next match" />
       <Button variant="quiet" size="sm" iconOnly icon={<X size={13} />} onClick={onClose} data-tooltip="Close (Esc)" aria-label="Close find" />
     </div>
   );

@@ -40,6 +40,8 @@ export interface PaletteGit {
   hasRemote: boolean;
   /** Why a pull request can't be opened now, or null when it can. */
   prBlocked: string | null;
+  /** The branch is behind its upstream and can be pulled now (⌘⇧L). */
+  pullable: boolean;
 }
 
 export interface PaletteTerminal {

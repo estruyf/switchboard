@@ -6,6 +6,7 @@ import { ProjectIcon, useProjectColor } from '../ProjectIcon.tsx';
 import { Button } from '../ui/Button.tsx';
 import { Kbd } from '../ui/Kbd.tsx';
 import { filterFolders, quickTiles, type TileTone } from './projectTiles.ts';
+import { matches } from '../../lib/shortcuts.ts';
 
 const COLUMNS = 5;
 /** Tiles shown before "+N More projects": the fifth place is that tile. */
@@ -105,7 +106,7 @@ export function FolderPicker({
   useEffect(() => {
     if (!shortcuts) return;
     const onKey = (event: globalThis.KeyboardEvent) => {
-      if (!event.metaKey || event.shiftKey || event.altKey || event.ctrlKey || !/^[1-9]$/.test(event.key)) return;
+      if (!matches(event, 'new-session.pick')) return;
       if (document.querySelector('[role=dialog], [role=alertdialog], [role=menu]')) return;
       const folder = shownRef.current[Number(event.key) - 1];
       if (!folder) return;

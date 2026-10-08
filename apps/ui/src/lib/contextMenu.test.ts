@@ -1,15 +1,17 @@
 import { describe, expect, it } from 'vitest';
 import { contextMenuPoint, isContextMenuKey } from './contextMenu.ts';
 
+const key = (key: string, shiftKey: boolean) => ({ key, shiftKey, metaKey: false, ctrlKey: false, altKey: false });
+
 describe('isContextMenuKey', () => {
   it('takes Shift+F10 and the context-menu key', () => {
-    expect(isContextMenuKey({ key: 'F10', shiftKey: true })).toBe(true);
-    expect(isContextMenuKey({ key: 'ContextMenu', shiftKey: false })).toBe(true);
+    expect(isContextMenuKey(key('F10', true))).toBe(true);
+    expect(isContextMenuKey(key('ContextMenu', false))).toBe(true);
   });
 
   it('ignores F10 alone and other keys', () => {
-    expect(isContextMenuKey({ key: 'F10', shiftKey: false })).toBe(false);
-    expect(isContextMenuKey({ key: 'Enter', shiftKey: true })).toBe(false);
+    expect(isContextMenuKey(key('F10', false))).toBe(false);
+    expect(isContextMenuKey(key('Enter', true))).toBe(false);
   });
 });
 

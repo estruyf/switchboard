@@ -10,6 +10,7 @@ import { MODE_CHOICES, MODE_DOT, MODE_LABEL } from '../../lib/modes.ts';
 import { useHosts } from '../../state/hostsStore.ts';
 import { useLater } from '../../state/laterStore.ts';
 import { useOverlay } from '../../state/overlayStore.ts';
+import { formatKeys, keysFor, shortcutById } from '../../lib/shortcuts.ts';
 import { usePaletteBus } from '../../state/paletteBus.ts';
 import { usePreferences } from '../../state/preferencesStore.ts';
 import { addedProjects } from '../../state/projectList.ts';
@@ -42,7 +43,7 @@ type Row =
   | { kind: 'project'; key: string; root: string; indices: number[]; number: number | null; compact: boolean }
   | { kind: 'folder'; key: string }
   | { kind: 'option'; key: string; value: string; title: string; detail?: string; dot?: string; current: boolean; indices: number[]; number: number | null }
-  | { kind: 'help'; key: string; mode: PaletteMode; prefix: string; title: string; detail: string };
+  | { kind: 'help'; key: string; mode: PaletteMode; prefix: string; title: string; detail: string; sheet?: boolean };
 
 interface Section {
   id: string;
@@ -86,8 +87,8 @@ const PICK_PLACEHOLDER: Record<PickList, string> = {
 const NEXT_HINT: Record<PaletteStep['kind'], string> = { projects: 'picks a project next', prompt: 'write the prompt next', pick: 'pick one next' };
 
 const HELP: Array<{ mode: PaletteMode; prefix: string; title: string; detail: string }> = [
-  { mode: 'goto', prefix: '', title: 'Go to a session or project', detail: 'no prefix · ⌘P' },
-  { mode: 'commands', prefix: PREFIXES.commands, title: 'Commands', detail: '⌘K or ⌘⇧P' },
+  { mode: 'goto', prefix: '', title: 'Go to a session or project', detail: `no prefix · ${formatKeys(keysFor('palette.goto'))}` },
+  { mode: 'commands', prefix: PREFIXES.commands, title: 'Commands', detail: shortcutById('palette.commands').keys.map(formatKeys).join(' or ') },
   { mode: 'new', prefix: PREFIXES.new, title: 'New session in a project', detail: 'picks a project' },
   { mode: 'actions', prefix: PREFIXES.actions, title: 'Project actions of this session', detail: 'runs one' },
   { mode: 'help', prefix: PREFIXES.help, title: 'Help', detail: 'this list' },
@@ -156,7 +157,11 @@ export function CommandPalette() {
       case 'goto':
         return gotoSections(query);
       case 'help':
-        return [{ id: 'help', label: 'Prefixes', rows: HELP.map((h) => ({ kind: 'help', key: `help:${h.mode}`, ...h })) }];
+        return [
+          { id: 'help', label: 'Prefixes', rows: HELP.map((h) => ({ kind: 'help', key: `help:${h.mode}`, ...h })) },
+          // Every shortcut is on the sheet (⌘/), not here.
+          { id: 'help-keys', label: 'Keys', rows: [{ kind: 'help', key: 'help:shortcuts', mode: 'help', prefix: '', title: 'Keyboard shortcuts', detail: formatKeys(keysFor('shortcuts')), sheet: true }] },
+        ];
       case 'actions':
         return commandSections(arrangeCommands(visibleCommands(ctx).filter((c) => c.group === 'actions'), ctx, [], query));
       default:
@@ -335,6 +340,7 @@ export function CommandPalette() {
         if (step?.kind === 'pick') pick(step.list, row.value);
         return;
       case 'help':
+        if (row.sheet) return useOverlay.getState().show('shortcuts');
         return setState(switchMode(row.mode));
     }
   };
@@ -392,7 +398,7 @@ export function CommandPalette() {
               className="h-full min-w-0 flex-1 bg-transparent text-body text-text outline-none placeholder:text-faint"
               data-palette-input
             />
-            {!step && <Kbd keys={state.mode === 'goto' ? '⌘P' : '⌘⇧P'} />}
+            {!step && <Kbd shortcut={state.mode === 'goto' ? 'palette.goto' : 'palette.commands'} />}
           </div>
           {rows.length === 0 && <Empty state={state} ctx={ctx} />}
           <div ref={listRef} id={listId} role="listbox" aria-label="Results" className={`min-h-0 flex-1 overflow-y-auto ${rows.length ? 'pb-1.5' : ''}`}>
@@ -456,7 +462,7 @@ function Empty({ state, ctx }: { state: PaletteState; ctx: PaletteContext }) {
         : state.mode === 'actions'
           ? [ctx.session ? 'This session’s project has no actions.' : 'Open a session to run its project actions.', '"!" lists them; ⌫ goes back.']
           : state.mode === 'goto'
-            ? [`No sessions or projects match “${typed}”.`, 'Type ">" for commands, or search inside conversations with ⌘⇧F.']
+            ? [`No sessions or projects match “${typed}”.`, `Type ">" for commands, or search inside conversations with ${formatKeys(keysFor('search'))}.`]
             : [`No commands match “${typed}”.`, 'Try fewer letters, or ⌫ to go to sessions.'];
   return (
     <div className="grid gap-1 px-4 py-6 text-center text-ui" data-palette-empty>
@@ -553,6 +559,6 @@ function RowView({
     case 'option':
       return <OptionRow {...common} value={row.value} title={row.title} indices={row.indices} detail={row.detail} dot={row.dot} current={row.current} number={row.number} />;
     case 'help':
-      return <HelpRow {...common} prefix={row.prefix} title={row.title} detail={row.detail} />;
+      return <HelpRow {...common} prefix={row.prefix} title={row.title} detail={row.detail} hook={row.sheet ? 'shortcuts' : undefined} />;
   }
 }
