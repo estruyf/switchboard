@@ -35,9 +35,10 @@ export function ClampedPrompt({ itemKey, className = '', children }: { itemKey: 
     observer.observe(el);
     return () => observer.disconnect();
   }, []);
+  // The cut fades out over its last line, so it reads as more text below. A mask rather than a gradient overlay, so it works on any card colour.
   return (
     <>
-      <div ref={ref} id={textId} className={`${className} ${long && !open ? 'max-h-[2lh] overflow-hidden' : ''}`} data-prompt-clamped={long && !open ? true : undefined}>
+      <div ref={ref} id={textId} className={`${className} ${long && !open ? 'max-h-[2lh] overflow-hidden [mask-image:linear-gradient(to_bottom,#000_1lh,transparent)]' : ''}`} data-prompt-clamped={long && !open ? true : undefined}>
         {children}
       </div>
       {long && (

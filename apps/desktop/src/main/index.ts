@@ -2341,7 +2341,8 @@ async function runPaletteStep(win: BrowserWindow): Promise<string> {
 
 /**
  * New session from the palette, starting nothing: New session… lists the projects, the first one opens
- * the prompt step (route, prompt, chips, Start); Esc closes it and keeps the draft; ⌫ in an empty
+ * the prompt step (route, prompt, chips, Start), which takes a pasted image and shows a drop target;
+ * Esc closes it and keeps the draft; ⌫ in an empty
  * prompt goes back to the projects. Needs a project (run while the projects step has one added).
  */
 async function runPaletteNewSessionStep(win: BrowserWindow): Promise<string> {
@@ -2370,6 +2371,31 @@ async function runPaletteNewSessionStep(win: BrowserWindow): Promise<string> {
   if (parts.project !== project || !parts.chips || !parts.start) return (await closePalette(win), `the prompt step is missing parts: ${JSON.stringify(parts)}`);
   await win.webContents.insertText(draft);
   if (!(await waitInPage(win, `document.querySelector('[data-palette-prompt]')?.value === ${JSON.stringify(draft)}`, 2_000))) return (await closePalette(win), 'typing in the prompt step did not stick');
+  // Paste an image and hold a drag over the step, as in the message box; then remove the image again. Nothing is dropped.
+  await js(`(async () => {
+    const canvas = document.createElement('canvas');
+    canvas.width = canvas.height = 16;
+    const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/png'));
+    const data = new DataTransfer();
+    data.items.add(new File([blob], 'smoke.png', { type: 'image/png' }));
+    document.querySelector('[data-palette-prompt]').dispatchEvent(new ClipboardEvent('paste', { bubbles: true, cancelable: true, clipboardData: data }));
+  })()`);
+  if (!(await waitInPage(win, "document.querySelector('[data-command-palette] [data-attachments] img')", 2_000))) return (await closePalette(win), 'pasting an image in the prompt step did not attach it');
+  const dropState = (await js(`(async () => {
+    const data = new DataTransfer();
+    data.items.add(new File(['x'], 'smoke.png', { type: 'image/png' }));
+    const prompt = document.querySelector('[data-palette-prompt]');
+    prompt.dispatchEvent(new DragEvent('dragenter', { bubbles: true, cancelable: true, dataTransfer: data }));
+    prompt.dispatchEvent(new DragEvent('dragover', { bubbles: true, cancelable: true, dataTransfer: data }));
+    await new Promise((resolve) => setTimeout(resolve, 60));
+    const state = document.querySelector('[data-command-palette] [data-drop-overlay]')?.dataset.dropState ?? 'none';
+    window.dispatchEvent(new DragEvent('dragend'));
+    return state;
+  })()`)) as string;
+  if (dropState !== 'ok') return (await closePalette(win), `dragging an image over the prompt step showed ${dropState}, not the drop target`);
+  if (!(await waitInPage(win, "!document.querySelector('[data-command-palette] [data-drop-overlay]')", 1_000))) return (await closePalette(win), 'the prompt step kept the drop target after the drag ended');
+  await js("document.querySelector('[data-command-palette] [data-attachments] button').click()");
+  if (!(await waitInPage(win, "!document.querySelector('[data-command-palette] [data-attachments]')", 1_000))) return (await closePalette(win), 'removing the pasted image did not work');
   await shot(win, 'command-palette-prompt.png');
   if (!(await closePalette(win))) return 'Esc did not close the prompt step';
 
@@ -2387,7 +2413,7 @@ async function runPaletteNewSessionStep(win: BrowserWindow): Promise<string> {
   await closePalette(win);
   if (kept !== draft) return `Esc did not keep the draft (${JSON.stringify(kept)})`;
   if (!wentBack) return '⌫ in the empty prompt did not go back to the projects';
-  return `ok: New session… listed the projects, ${String(project).split('/').pop()} opened the prompt step (${parts.width}px) with its route, chips and Start; Esc kept the draft and started nothing; ⌫ went back`;
+  return `ok: New session… listed the projects, ${String(project).split('/').pop()} opened the prompt step (${parts.width}px) with its route, chips and Start; a pasted image attached and a drag showed the drop target; Esc kept the draft and started nothing; ⌫ went back`;
 }
 
 /** In the terminal, ⌘K clears the screen and the palette stays closed; ⌘⇧P opens the palette from there. */

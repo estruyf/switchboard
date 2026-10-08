@@ -89,7 +89,7 @@ export function NewSessionView() {
   const folderFromLink = useRef(false);
   const linkRequest = useLinks((s) => s.newSession);
   /** Replaces the prompt: a link's prompt, or clearing it. */
-  const [preset, setPreset] = useState<{ text: string; seq: number } | undefined>(undefined);
+  const [preset, setPreset] = useState<{ text: string; attachments?: ImageAttachment[]; seq: number } | undefined>(undefined);
   const presets = useRef(0);
   /** The prompt came from a link and hasn't been sent or cleared: its length, to say so under the message box. */
   const [linkPrompt, setLinkPrompt] = useState<number | null>(null);
@@ -239,7 +239,7 @@ export function NewSessionView() {
     setCwd(item.root);
     setD({ ...item.choices, workspace: item.worktree ? 'worktree' : 'current' });
     setRestored(false);
-    setPreset({ text: item.prompt, seq: ++presets.current });
+    setPreset({ text: item.prompt, attachments: item.attachments, seq: ++presets.current });
     setDraftPrompt(item.prompt);
   }, [handoff]);
   // Find a checkout of the link's repository among your projects and folders with sessions.

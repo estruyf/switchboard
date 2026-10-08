@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { create } from 'zustand';
+import type { ImageAttachment } from '@switchboard/protocol/client';
 import type { NewSessionRequest, SessionRequest } from '../components/palette/commands.ts';
 import type { Choices } from '../components/newSession/choices.ts';
 import { useSessions } from './sessionsStore.ts';
@@ -32,6 +33,7 @@ export type PaletteDialog =
 export interface NewSessionHandoff {
   root: string;
   prompt: string;
+  attachments: ImageAttachment[];
   choices: Choices;
   worktree: boolean;
   profileId: string | null;

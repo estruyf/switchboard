@@ -22,6 +22,11 @@ All notable changes to Switchboard are listed here. Each release is also on the 
 ### Changed
 
 - Project actions can no longer use ⌘B, ⌃⇥, ⌃⇧⇥ or ⌘⇧U. An action that already has one of them keeps it, and runs instead of Switchboard's shortcut.
+- A long prompt that is cut to two lines now fades out above Show more, so it's clear there is more to read.
+
+### Fixed
+
+- New session in the command palette now takes pasted images, and dropped images, files and folders, like the message box. ⌘E brings the images along to the New session view.
 
 ## [0.0.10] - 2026-10-07
 

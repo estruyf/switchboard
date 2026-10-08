@@ -1,6 +1,6 @@
 import { ChevronRight, Folder, FolderGit2, GitBranch, GitBranchPlus, SquarePen } from 'lucide-react';
 import { useEffect, useId, useRef, useState } from 'react';
-import type { LaterDraft, ProjectInspection } from '@switchboard/protocol/client';
+import type { ImageAttachment, LaterDraft, ProjectInspection } from '@switchboard/protocol/client';
 import { useEngineConnection } from '../../engine/useEngine.ts';
 import { basename } from '../../lib/format.ts';
 import { nextMode } from '../../lib/modes.ts';
@@ -11,7 +11,10 @@ import { usePaletteBus } from '../../state/paletteBus.ts';
 import { useProfiles } from '../../state/profilesStore.ts';
 import { useProjects } from '../../state/projectsStore.ts';
 import { useSessions } from '../../state/sessionsStore.ts';
+import { AttachmentThumbs, DropOverlay } from '../composer/Attachments.tsx';
 import { ComposerChipRow } from '../composer/ComposerChips.tsx';
+import { DraftStore } from '../composer/drafts.ts';
+import { useAttachments } from '../composer/useAttachments.ts';
 import { ChoiceMenu } from '../newSession/ChoiceMenu.tsx';
 import { DEFAULTS_KEY, globalPatch, INITIAL_CHOICES, readGlobals, startingChoices, type Choices, type GlobalChoices } from '../newSession/choices.ts';
 import { checkoutBranchFor, shouldPrewarm, startNewSession } from '../newSession/startSession.ts';
@@ -23,8 +26,9 @@ import { Switch } from '../ui/Toggle.tsx';
 import { filterBranches } from '../worktree/branchMenu.ts';
 import { PaletteFooter } from './PaletteFooter.tsx';
 
-/** Prompts written here and not started, per project: Esc keeps them for the next time the step opens. */
-const drafts = new Map<string, string>();
+/** Prompts written (and images attached) here and not started, per project: Esc keeps them for the next time the step opens. */
+const drafts = new DraftStore<ImageAttachment>();
+const forget = (root: string) => drafts.set(root, { text: '', attachments: [] });
 
 /**
  * The palette's last step of New session: a small New session form with the project's defaults. The
@@ -49,10 +53,14 @@ export function PromptStep({ root, worktree, chip, onBack, onDone }: { root: str
   const [inspection, setInspection] = useState<ProjectInspection | null>(null);
   const [gitBranches, setGitBranches] = useState<{ current: string | null; branches: string[] }>({ current: null, branches: [] });
   const [gitStatus, setGitStatus] = useState<{ remote: string | null; baseBranch: string | null; behindUpstream: number | null } | null>(null);
-  const [text, setText] = useState(() => drafts.get(root) ?? '');
+  const [saved] = useState(() => drafts.get(root));
+  const [text, setText] = useState(saved?.text ?? '');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  /** What a paste or drop left out. */
+  const [notice, setNotice] = useState<string | null>(null);
   const textRef = useRef<HTMLTextAreaElement>(null);
+  const zoneRef = useRef<HTMLDivElement>(null);
   const labelId = useId();
 
   const projectProfile = project?.profileId && profiles.some((p) => p.id === project.profileId) ? project.profileId : null;
@@ -94,10 +102,6 @@ export function PromptStep({ root, worktree, chip, onBack, onDone }: { root: str
     if (client && shouldPrewarm(d)) void client.call('session.prewarm', { cwd: root, profileId });
   }, [client, root, d.workspace, d.branch, profileId]);
 
-  useEffect(() => {
-    drafts.set(root, text);
-  }, [root, text]);
-
   const canWorktree = inspection?.isGitRepo ?? false;
   const useWorktree = d.workspace === 'worktree' && canWorktree;
   const checkoutBranch = checkoutBranchFor(d, useWorktree, gitBranches.current);
@@ -113,6 +117,11 @@ export function PromptStep({ root, worktree, chip, onBack, onDone }: { root: str
   const branchOptions = d.branch && !gitBranches.branches.includes(d.branch) ? [d.branch, ...gitBranches.branches] : gitBranches.branches;
   const blocked = !client ? 'Connecting to the engine…' : inspection && !inspection.exists ? 'This folder no longer exists' : null;
   const canStart = !busy && !blocked && text.trim() !== '';
+  // Pasting or dropping images and files works as in the message box.
+  const { attachments, setAttachments, onPaste, drop } = useAttachments({ initial: saved?.attachments, rootRef: zoneRef, textareaRef: textRef, cwd: root, disabledReason: blocked, setText, onNotice: setNotice });
+  useEffect(() => {
+    drafts.set(root, { text, attachments });
+  }, [root, text, attachments]);
 
   // As in New session: a choice the project doesn't decide is remembered for next time.
   const update = (patch: Partial<Choices>) => {
@@ -146,7 +155,7 @@ export function PromptStep({ root, worktree, chip, onBack, onDone }: { root: str
     setBusy(true);
     setError(null);
     const finish = () => {
-      drafts.delete(root);
+      forget(root);
       onDone();
     };
     try {
@@ -154,6 +163,7 @@ export function PromptStep({ root, worktree, chip, onBack, onDone }: { root: str
         {
           cwd: root,
           prompt,
+          attachments,
           choices: d,
           worktree: useWorktree,
           currentBranch: gitBranches.current,
@@ -181,15 +191,17 @@ export function PromptStep({ root, worktree, chip, onBack, onDone }: { root: str
 
   /** ⌘E: the full New session view, with this project, these choices and the prompt so far. */
   const moreOptions = () => {
-    usePaletteBus.getState().handOff({ root, prompt: text, choices: d, worktree: useWorktree, profileId: profileOverride });
-    drafts.delete(root);
+    usePaletteBus.getState().handOff({ root, prompt: text, attachments, choices: d, worktree: useWorktree, profileId: profileOverride });
+    forget(root);
     onDone();
     useSessions.getState().openNewSession();
   };
 
   const modelLabel = d.model ? (models.find((m) => m.value === d.model)?.displayName ?? d.model) : 'Default model';
   return (
-    <>
+    // The whole step takes dropped files, like a session view.
+    <div ref={zoneRef} className="relative flex min-h-0 flex-1 flex-col" data-drop-zone>
+      <DropOverlay drop={drop} />
       {/* The route: the command and project as chips, then where the session works. */}
       <div className="flex h-12 shrink-0 items-center gap-1.5 border-b border-edge px-3" data-palette-route>
         <Pill icon={worktree ? <GitBranchPlus size={12} aria-hidden /> : <SquarePen size={12} aria-hidden />}>{chip}</Pill>
@@ -261,6 +273,7 @@ export function PromptStep({ root, worktree, chip, onBack, onDone }: { root: str
         autoFocus
         value={text}
         onChange={(e) => setText(e.target.value)}
+        onPaste={onPaste}
         onKeyDown={(e) => {
           if (e.nativeEvent.isComposing) return;
           // Keys the palette takes for itself don't also reach the window's shortcuts (⌘E, ⌘↵).
@@ -274,6 +287,14 @@ export function PromptStep({ root, worktree, chip, onBack, onDone }: { root: str
         rows={4}
         className="min-h-28 w-full shrink-0 resize-none bg-transparent px-4 pt-3.5 pb-2 text-body text-text outline-none placeholder:text-faint"
         data-palette-prompt
+      />
+      <AttachmentThumbs
+        attachments={attachments}
+        className="shrink-0 px-4 pb-2"
+        onRemove={(i) => {
+          setAttachments((current) => current.filter((_, j) => j !== i));
+          textRef.current?.focus();
+        }}
       />
 
       <div className="flex shrink-0 items-center gap-2 px-3 pb-3">
@@ -298,9 +319,9 @@ export function PromptStep({ root, worktree, chip, onBack, onDone }: { root: str
           {busy ? 'Starting…' : 'Start'}
         </Button>
       </div>
-      {error && (
+      {(error ?? notice) && (
         <p role="alert" className="shrink-0 px-4 pb-2 text-ui text-error">
-          {error}
+          {error ?? notice}
         </p>
       )}
 
@@ -312,6 +333,6 @@ export function PromptStep({ root, worktree, chip, onBack, onDone }: { root: str
           { keys: 'Esc', label: 'close, keeps the draft' },
         ]}
       />
-    </>
+    </div>
   );
 }

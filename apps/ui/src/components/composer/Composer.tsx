@@ -1,16 +1,15 @@
-import { AtSign, ImageOff, ImagePlus } from 'lucide-react';
-import { useEffect, useId, useLayoutEffect, useRef, useState, type ClipboardEvent, type KeyboardEvent, type ReactNode } from 'react';
+import { ImagePlus } from 'lucide-react';
+import { useEffect, useId, useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 import type { ImageAttachment, SlashCommand } from '@switchboard/protocol/client';
 import { useEngineConnection } from '../../engine/useEngine.ts';
 import { Button } from '../ui/Button.tsx';
 import { attachmentsAfterSend, textAfterSend } from './afterSend.ts';
+import { AttachmentThumbs, DropOverlay } from './Attachments.tsx';
 import { DraftStore } from './drafts.ts';
-import { dropMessage, dropVerdict, MAX_ATTACHMENTS, mergeAttachments, planDrop, readImage } from './images.ts';
 import { onFirstLine, onLastLine, textareaRows } from './caretLine.ts';
-import { insertMentions, mentionFor } from './mentions.ts';
 import { PromptHistory, recallAnnouncement, routeArrow, type Recall } from './promptHistory.ts';
 import { tokenAtCaret } from './tokens.ts';
-import { useDropTarget } from './useDropTarget.ts';
+import { useAttachments } from './useAttachments.ts';
 
 type PaletteItem = { value: string; label: string; detail: string };
 interface Palette {
@@ -28,8 +27,8 @@ export interface ComposerProps {
   draftKey?: string;
   /** Earlier messages, newest first, that ↑ on the first line brings back. */
   history?: readonly string[];
-  /** Replaces the text whenever `seq` changes (a prompt from a `switchboard://` link, or clearing it). */
-  preset?: { text: string; seq: number };
+  /** Replaces the text whenever `seq` changes (a prompt from a `switchboard://` link, or clearing it), and the images when it has `attachments` (a prompt moved over from the palette). */
+  preset?: { text: string; attachments?: ImageAttachment[]; seq: number };
   cwd: string | null;
   commands: SlashCommand[];
   placeholder: string;
@@ -78,7 +77,6 @@ export function Composer(props: ComposerProps) {
   const client = connection.status === 'connected' ? connection.client : null;
   const [saved] = useState(() => (props.draftKey === undefined ? undefined : drafts.get(props.draftKey)));
   const [text, setText] = useState(props.initialText ?? saved?.text ?? '');
-  const [attachments, setAttachments] = useState<ImageAttachment[]>(saved?.attachments ?? []);
   const [palette, setPalette] = useState<Palette | null>(null);
   const [sending, setSending] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
@@ -86,6 +84,7 @@ export function Composer(props: ComposerProps) {
   const fileRef = useRef<HTMLInputElement>(null);
   const rootRef = useRef<HTMLDivElement>(null);
   const listRef = useRef<HTMLUListElement>(null);
+  const { attachments, setAttachments, addFiles, onPaste, drop } = useAttachments({ initial: saved?.attachments, rootRef, textareaRef: ref, cwd: props.cwd, disabledReason: props.disabledReason, setText, onNotice: setNotice });
   /** Bumped whenever the palette's input moves on: a file search that answers after that is dropped. */
   const searchSeq = useRef(0);
   const ids = useId();
@@ -103,6 +102,7 @@ export function Composer(props: ComposerProps) {
     if (presetSeq === undefined) return;
     const value = props.preset!.text;
     setText(value);
+    if (props.preset!.attachments) setAttachments(props.preset!.attachments);
     history.current!.reset();
     closePalette();
     requestAnimationFrame(() => {
@@ -287,82 +287,11 @@ export function Composer(props: ComposerProps) {
     }
   };
 
-  const addFiles = async (files: File[]) => {
-    const images = (await Promise.all(files.map(readImage))).filter((a): a is ImageAttachment => a !== null);
-    setAttachments((current) => {
-      const { next, notice } = mergeAttachments(current, images, files.length);
-      setNotice(notice);
-      return next;
-    });
-  };
-
-  const onPaste = (event: ClipboardEvent) => {
-    const files = [...event.clipboardData.files].filter((f) => f.type.startsWith('image/'));
-    if (files.length) {
-      event.preventDefault();
-      void addFiles(files);
-    }
-  };
-
-  // A dropped file's place on disk, for an @ mention; empty outside the app or for files not on disk.
-  const canMention = typeof window.switchboard?.getPathForFile === 'function';
-  const pathOf = (file: File) => {
-    try {
-      return window.switchboard?.getPathForFile(file) ?? '';
-    } catch {
-      return '';
-    }
-  };
-
-  /** A drop: images are attached while there is room; other files, folders and the images past the limit become @ mentions. */
-  const dropFiles = async (files: File[], directories: boolean[]) => {
-    const dropped = files.map((file, i) => ({ type: file.type, size: file.size, directory: directories[i] ?? false, path: pathOf(file) }));
-    const plan = planDrop(dropped, attachments.length);
-    const read = await Promise.all(plan.attach.map((i) => readImage(files[i]!)));
-    // An image that can't be read is mentioned instead, when it has a path.
-    const unread = plan.attach.filter((_, k) => !read[k]).map((i) => dropped[i]!);
-    const mentioned = [...plan.mention, ...unread.filter((f) => f.path)];
-    const images = read.filter((a): a is ImageAttachment => a !== null);
-    if (images.length) setAttachments((current) => [...current, ...images].slice(0, MAX_ATTACHMENTS));
-    if (mentioned.length) {
-      const el = ref.current;
-      const value = el?.value ?? text;
-      const caret = el && document.activeElement === el ? el.selectionEnd : value.length;
-      const next = insertMentions(value, caret, mentioned.map((f) => mentionFor(f.path, props.cwd, f.directory)));
-      setText(next.text);
-      requestAnimationFrame(() => {
-        el?.focus();
-        el?.setSelectionRange(next.caret, next.caret);
-      });
-    }
-    const skipped = plan.skipped + unread.length - unread.filter((f) => f.path).length;
-    setNotice(skipped ? 'Some files were skipped: only images, and files and folders on disk, can be added.' : null);
-  };
-
-  // Files dragged anywhere over the session view: an overlay on the message box shows what a drop would do.
-  const drop = useDropTarget(rootRef, (drag) => dropVerdict(drag, { attached: attachments.length, disabledReason: props.disabledReason, canMention }), (files, directories) => void dropFiles(files, directories));
-  const dropOk = drop.verdict?.kind === 'ok';
-  const mentionOnly = drop.verdict?.kind === 'ok' && drop.verdict.attach === 0 && drop.verdict.mention > 0;
-
   const disabled = !!props.disabledReason;
 
   return (
     <div ref={rootRef} className="relative">
-      {drop.verdict && (
-        <div
-          data-drop-overlay
-          data-drop-state={drop.verdict.kind}
-          data-drop-over={drop.over}
-          data-drop-mention={drop.verdict.kind === 'ok' ? drop.verdict.mention : undefined}
-          aria-live="polite"
-          className={`pointer-events-none absolute inset-0 z-20 overflow-hidden rounded-xl border-2 bg-card/95 ${dropOk ? `border-accent-ink text-accent-ink ${drop.over ? 'border-solid' : 'border-dashed'}` : 'border-dashed border-faint text-muted'}`}
-        >
-          <div className={`flex size-full items-center justify-center gap-2 px-4 text-center text-[12.5px] font-medium ${dropOk ? (drop.over ? 'bg-accent/20' : 'bg-accent/10') : ''}`}>
-            {mentionOnly ? <AtSign size={16} className="shrink-0" /> : dropOk ? <ImagePlus size={16} className="shrink-0" /> : <ImageOff size={16} className="shrink-0" />}
-            <span className="min-w-0">{dropMessage(drop.verdict)}</span>
-          </div>
-        </div>
-      )}
+      <DropOverlay drop={drop} />
       {palette && (
         // Focus stays in the message box (aria-activedescendant points at the highlighted option), so the
         // options are plain list items rather than buttons that Tab could land on.
@@ -398,28 +327,14 @@ export function Composer(props: ComposerProps) {
         className={`rounded-xl border border-border bg-card px-3 pt-2.5 pb-2 shadow-sm transition-colors ${disabled ? '' : 'focus-within:border-accent-ink/60'}`}
         style={props.frameColor ? { borderColor: props.frameColor } : undefined}
       >
-        {attachments.length > 0 && (
-          <div className="mb-2 flex flex-wrap gap-2">
-            {attachments.map((a, i) => (
-              <div key={i} className="group relative size-14 overflow-hidden rounded-md border border-border">
-                <img src={`data:${a.mediaType};base64,${a.data}`} alt={a.name ?? `Attached image ${i + 1}`} className="size-full object-cover" />
-                {/* Hidden until hover, but still in the Tab order: it appears when it has keyboard focus. */}
-                <button
-                  type="button"
-                  onClick={() => {
-                    setAttachments((current) => current.filter((_, j) => j !== i));
-                    ref.current?.focus();
-                  }}
-                  className="absolute top-0.5 right-0.5 flex size-4 items-center justify-center rounded-full bg-black/70 text-[10px] text-white opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
-                  aria-label={`Remove ${a.name ?? `image ${i + 1}`}`}
-                  data-tooltip="Remove"
-                >
-                  <span aria-hidden>×</span>
-                </button>
-              </div>
-            ))}
-          </div>
-        )}
+        <AttachmentThumbs
+          attachments={attachments}
+          className="mb-2"
+          onRemove={(i) => {
+            setAttachments((current) => current.filter((_, j) => j !== i));
+            ref.current?.focus();
+          }}
+        />
         <textarea
           data-composer
           data-history={props.history?.length ?? 0}
