@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { app, BrowserWindow, dialog, ipcMain, Menu, MessageChannelMain, nativeTheme, shell, type MenuItemConstructorOptions } from 'electron';
@@ -43,6 +43,20 @@ if (scripted) app.setPath('userData', mkdtempSync(join(tmpdir(), 'switchboard-sm
 if (scripted) {
   process.env.SWITCHBOARD_CLAUDE_REGISTRY ??= `data:application/json,${encodeURIComponent(JSON.stringify({ latest: '999.0.0', stable: '999.0.0' }))}`;
   process.env.SWITCHBOARD_NO_CLAUDE_UPDATE = '1';
+}
+
+// The single-instance lock belongs to the data folder. Development builds keep their own ("Switchboard Dev"), so
+// `npm run dev` starts next to the installed app instead of handing over to it, and a newer migration never touches
+// the installed app's database. SWITCHBOARD_DATA_DIR picks another folder, for a second dev build (another worktree).
+if (!scripted) {
+  const dataDir = process.env.SWITCHBOARD_DATA_DIR || (app.isPackaged ? undefined : join(app.getPath('appData'), 'Switchboard Dev'));
+  if (dataDir) {
+    const installedPreferences = join(app.getPath('userData'), 'preferences.json');
+    mkdirSync(dataDir, { recursive: true });
+    // A fresh folder starts with the installed app's theme and layout rather than the defaults.
+    if (!existsSync(join(dataDir, 'preferences.json')) && existsSync(installedPreferences)) copyFileSync(installedPreferences, join(dataDir, 'preferences.json'));
+    app.setPath('userData', dataDir);
+  }
 }
 
 // A second launch hands its arguments to the running instance (its second-instance event) and stops here.
