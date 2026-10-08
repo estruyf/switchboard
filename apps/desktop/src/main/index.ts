@@ -1697,7 +1697,9 @@ async function runThemeStep(win: BrowserWindow): Promise<string> {
     await click(`[data-settings-section="${id}"]`);
     return waitInPage(win, `document.querySelector('[data-settings-page="${id}"]')`, 2_000);
   };
-  const sidebar = "getComputedStyle(document.querySelector('[data-sidebar]')).backgroundColor";
+  const sidebar = "getComputedStyle(document.querySelector('[data-sidebar-open]')).backgroundColor";
+  const rail = "getComputedStyle(document.querySelector('[data-sidebar-rail]')).backgroundColor";
+  const sidebarState = "document.querySelector('[data-sidebar]')?.dataset.sidebarState";
   const codeBlock = "getComputedStyle(document.querySelector('[data-rendering-check] .code-block')).backgroundColor";
   /** A token's value as the page computes it (the generated style element in use). */
   const token = (name: string) => `(() => { const d = document.createElement('div'); d.style.background = 'var(--sb-${name})'; document.body.appendChild(d); const c = getComputedStyle(d).backgroundColor; d.remove(); return c; })()`;
@@ -1785,17 +1787,39 @@ async function runThemeStep(win: BrowserWindow): Promise<string> {
   await click('[role="alertdialog"] [data-confirm]');
   if (!(await waitInPage(win, "!document.querySelector('[data-theme-card=\"smoke-mint\"]')", 3_000))) return 'the minimal theme was not removed';
 
-  // Every built-in, in light and dark.
-  for (const { id, raw } of BUILT_IN_THEMES.slice(1)) {
+  /**
+   * The collapsed sidebar in the theme: ⌘B down to the rail (Settings closed, a session beside it), its
+   * background and the session view's against the theme, a screenshot, then ⌘B back to the full sidebar.
+   */
+  const collapsedRail = async (id: string, mode: 'light' | 'dark', colors: Record<string, string>) => {
+    const collapsed = preferences.get().sidebarCollapsed;
+    updatePreferences({ sidebarCollapsed: 'minimal' });
+    await click('[data-close-settings]');
+    if (smokeSessionId) await js(`document.querySelector('[data-session-id="${smokeSessionId}"]')?.click()`);
+    pressKey(win, 'B', ['meta']);
+    const minimal = await waitInPage(win, `${sidebarState} === 'minimal' && document.querySelector('[data-sidebar-rail] [data-sidebar-rail-row]')`, 3_000);
+    const ok = minimal && (await waitInPage(win, `${rail} === ${JSON.stringify(rgbOf(colors.sidebar!))} && getComputedStyle(document.body).backgroundColor === ${JSON.stringify(rgbOf(colors.bg!))}`, 2_000));
+    const got = minimal ? `rail ${await js(rail)}, page ${await js('getComputedStyle(document.body).backgroundColor')}` : `sidebar ${String(await js(sidebarState))}`;
+    if (minimal) await shot(win, `theme-rail-${id}-${mode}.png`);
+    pressKey(win, 'B', ['meta']);
+    await waitInPage(win, `${sidebarState} === 'open'`, 2_000);
+    updatePreferences({ sidebarCollapsed: collapsed });
+    await click('[data-open-settings]');
+    await section('theme');
+    return ok ? null : `the collapsed sidebar does not follow the theme (${got})`;
+  };
+
+  // Every built-in, in light and dark: the open sidebar, a code block, and the rail.
+  for (const { id, raw } of BUILT_IN_THEMES) {
     if (!(await pick(id))) return `could not pick ${id}`;
     for (const mode of ['light', 'dark'] as const) {
       if (!(await scheme(mode))) return `${mode} did not apply`;
       const colors = (raw as { [m: string]: { colors: Record<string, string> } })[mode]!.colors;
-      const problem = await colours({ sidebar: rgbOf(colors.sidebar!), code: rgbOf(colors['code-bg']!) });
+      const problem = (await colours({ sidebar: rgbOf(colors.sidebar!), code: rgbOf(colors['code-bg']!) })) ?? (await collapsedRail(id, mode, colors));
       if (problem) return `${id}, ${mode}: ${problem}`;
     }
   }
-  if (!(await pick('demo-time'))) return 'could not go back to Demo Time';
+  if (preferences.get().themeId !== 'demo-time' && !(await pick('demo-time'))) return 'could not go back to Demo Time';
   await click('[data-color-scheme="system"]');
   await click('[data-close-settings]');
   smokeThemeFile = null;
