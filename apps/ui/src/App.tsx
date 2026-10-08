@@ -15,7 +15,8 @@ import { BackupDialogs } from './components/backup/BackupDialogs.tsx';
 import { ProjectManagerView } from './components/projects/ProjectManagerView.tsx';
 import { SettingsView } from './components/SettingsView.tsx';
 import { useUsageSync } from './components/UsageBand.tsx';
-import { Sidebar } from './components/sidebar/Sidebar.tsx';
+import { SessionHud } from './components/sidebar/SessionHud.tsx';
+import { SidebarShell } from './components/sidebar/SidebarShell.tsx';
 import { TranscriptView } from './components/transcript/TranscriptView.tsx';
 import { useReadyReport } from './engine/useReadyReport.ts';
 import { isActiveHost, useHosts } from './state/hostsStore.ts';
@@ -26,22 +27,39 @@ import { useOverlay } from './state/overlayStore.ts';
 import { usePreferencesSync } from './state/preferencesStore.ts';
 import { useProfilesSync } from './state/profilesStore.ts';
 import { useProjects, useProjectsSync } from './state/projectsStore.ts';
-import { useSidebarSync } from './state/sidebarStore.ts';
+import { goToAdjacentSession, goToNextNeedsYou } from './state/sessionNav.ts';
+import { useSidebar, useSidebarSync } from './state/sidebarStore.ts';
 import { useTerminals, useTerminalsSync } from './state/terminalsStore.ts';
 import { useUpdatesSync } from './state/updatesStore.ts';
 import { useClaudeUpdateSync } from './state/claudeUpdateStore.ts';
 import { useHostsSync } from './state/useHostsSync.ts';
 import { useSessionsSync } from './state/useSessionsSync.ts';
 
+/** A dialog, menu or popover is open: it keeps Tab for itself, so ⌃⇥ doesn't switch sessions behind it. */
+const overlayOpen = () => document.querySelector('[role="dialog"], [role="alertdialog"], [role="menu"], [data-popover]') !== null;
+
 /**
  * ⌘N new session, ⌘O open the current session's folder in the default editor, ⌘J toggle the terminal
  * (⌘⇧J maximize it), ⌘K or ⌘⇧P the command palette's commands, ⌘P its go-to (sessions and projects),
- * ⌘⇧F search.
+ * ⌘⇧F search, ⌘B the sidebar, ⌃⇥ / ⌃⇧⇥ the next and previous session, ⌘⇧U the next that needs you.
+ * The terminal passes ⌘ keys and ⌃⇥ on to the window (XTerm.tsx), so these work there too.
  */
 function useShortcuts() {
   const openIn = useOpenIn();
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
+      // ⌘B, ⌃⇥ and ⌘⇧U became Switchboard's after project actions could take them: an action saved on
+      // one of them keeps it. These run once the key has been through every listener, and only if none
+      // took it (the actions' listener may come before or after this one). They have no default to stop.
+      const later = (run: () => void) => setTimeout(() => !event.defaultPrevented && run(), 0);
+      if (event.ctrlKey && !event.metaKey && !event.altKey && event.key === 'Tab') {
+        if (!event.defaultPrevented && !overlayOpen()) later(() => goToAdjacentSession(event.shiftKey ? -1 : 1));
+        return;
+      }
+      if (event.metaKey && event.shiftKey && !event.altKey && !event.ctrlKey && event.key.toLowerCase() === 'u') {
+        later(goToNextNeedsYou);
+        return;
+      }
       if (event.metaKey && event.shiftKey && !event.altKey && event.key.toLowerCase() === 'h') {
         event.preventDefault();
         useSessions.getState().goHome();
@@ -82,6 +100,10 @@ function useShortcuts() {
           event.preventDefault();
           closePane(activePane === 'main' ? 'split' : 'main');
         }
+        return;
+      }
+      if (key === 'b' && !event.ctrlKey) {
+        later(() => useSidebar.getState().toggle());
         return;
       }
       if (key === 'k') {
@@ -164,7 +186,7 @@ export function App() {
 
   return (
     <div className="flex h-full">
-      <Sidebar />
+      <SidebarShell />
       <main className="relative flex min-w-0 flex-1 flex-col overflow-hidden">
         {/* Settings is a sheet over the view it opened from, which stays on screen (inert) behind it. */}
         <div className="flex min-h-0 min-w-0 flex-1 flex-col" inert={view === 'settings'}>
@@ -202,6 +224,7 @@ export function App() {
       {adding && <AddProjectDialog onClose={() => useProjects.getState().showAdd(false)} />}
       <BackupDialogs />
       <FocusGateDialog />
+      <SessionHud />
       <ToastLayer />
       <TooltipLayer />
     </div>

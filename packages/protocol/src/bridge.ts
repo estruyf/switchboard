@@ -29,12 +29,15 @@ export const IpcChannel = {
   updateState: 'switchboard:update-state',
   updateCommand: 'switchboard:update-command',
   deepLink: 'switchboard:deep-link',
+  windowButtons: 'switchboard:window-buttons',
 } as const;
 
 /** Appearance: follow macOS, or always light or dark. */
 export type ColorScheme = 'system' | 'light' | 'dark';
 /** Sidebar rows: a large project icon beside three lines, three lines, or one line. */
 export type SidebarStyle = 'large' | 'standard' | 'compact';
+/** What collapsing the sidebar (⌘B) does: the narrow rail of project icons, or hide it. */
+export type SidebarCollapsed = 'minimal' | 'closed';
 /** Tool calls in a conversation: one summary line per run (click for the steps), or every step. */
 export type ToolActivity = 'summary' | 'steps';
 /** Sessions in the sidebar: only those started or continued in Switchboard, or every Claude Code session. */
@@ -56,6 +59,7 @@ export const FOCUS_LIMIT_DEFAULT = 3;
 export interface Preferences {
   colorScheme: ColorScheme;
   sidebarStyle: SidebarStyle;
+  sidebarCollapsed: SidebarCollapsed;
   toolActivity: ToolActivity;
   /** ⌘Q asks first (a second ⌘Q quits). */
   confirmQuit: boolean;
@@ -74,6 +78,7 @@ export interface Preferences {
 export const DEFAULT_PREFERENCES: Preferences = {
   colorScheme: 'system',
   sidebarStyle: 'standard',
+  sidebarCollapsed: 'minimal',
   toolActivity: 'summary',
   confirmQuit: true,
   sessionScope: 'switchboard',
@@ -93,6 +98,7 @@ export function sanitizePreferences(input: unknown): Partial<Preferences> {
   const out: Partial<Preferences> = {};
   if (oneOf(['system', 'light', 'dark'] as const, raw.colorScheme)) out.colorScheme = raw.colorScheme;
   if (oneOf(['large', 'standard', 'compact'] as const, raw.sidebarStyle)) out.sidebarStyle = raw.sidebarStyle;
+  if (oneOf(['minimal', 'closed'] as const, raw.sidebarCollapsed)) out.sidebarCollapsed = raw.sidebarCollapsed;
   if (oneOf(['summary', 'steps'] as const, raw.toolActivity)) out.toolActivity = raw.toolActivity;
   if (typeof raw.confirmQuit === 'boolean') out.confirmQuit = raw.confirmQuit;
   if (oneOf(['switchboard', 'all'] as const, raw.sessionScope)) out.sessionScope = raw.sessionScope;
@@ -230,6 +236,11 @@ export interface SwitchboardBridge {
   update(command: UpdateCommand): void;
   /** Saves the channel in Preferences and checks again right away. */
   setUpdateChannel(channel: UpdateChannel): void;
+  /**
+   * Where the window's traffic lights sit: `rail` tucks them into the 64px minimal sidebar, `default`
+   * puts them back. macOS only; elsewhere it does nothing.
+   */
+  setWindowButtons(position: 'default' | 'rail'): void;
   /** A `switchboard://` link was opened (main holds links until this window's renderer is ready). */
   onDeepLink(listener: (message: DeepLinkMessage) => void): () => void;
 }

@@ -14,9 +14,10 @@ const TONE = { under: 'muted', at: 'accent', over: 'warn' } as const;
 
 /**
  * The focus limit in the sidebar footer, while it's on: "2 / 3", neutral under the limit, yellow at it,
- * pink over it. A click lists the sessions that count, needs you first, each with Open.
+ * pink over it. A click lists the sessions that count, needs you first, each with Open. `compact` is the
+ * minimal sidebar's "2/3", without the icon; its list opens to the right of the rail.
  */
-export function FocusCounter() {
+export function FocusCounter({ compact = false }: { compact?: boolean }) {
   const focus = useFocus();
   const projects = useProjects((s) => s.projects);
   const [open, setOpen] = useState<{ x: number; y: number } | null>(null);
@@ -28,7 +29,7 @@ export function FocusCounter() {
   const toggle = () => {
     if (open) return setOpen(null);
     const rect = anchor.current?.getBoundingClientRect();
-    if (rect) setOpen({ x: rect.left, y: rect.top - 6 });
+    if (rect) setOpen(compact ? { x: rect.right + 8, y: rect.bottom } : { x: rect.left, y: rect.top - 6 });
   };
   const projectName = (root: string) => projects.get(root)?.name ?? basename(root);
 
@@ -39,15 +40,16 @@ export function FocusCounter() {
         tone={TONE[focus.level]}
         selected={open !== null}
         onClick={toggle}
-        icon={<Target size={12} className="shrink-0" aria-hidden />}
+        icon={compact ? undefined : <Target size={12} className="shrink-0" aria-hidden />}
         aria-label={`Focus limit: ${going}`}
         aria-expanded={open !== null}
         aria-haspopup="dialog"
         data-tooltip={open ? undefined : `Focus limit: ${going}`}
+        data-tooltip-placement={compact ? 'right' : undefined}
         data-focus-counter={focus.level}
         className="no-drag font-semibold tabular-nums"
       >
-        {focus.count} / {focus.limit}
+        {compact ? `${focus.count}/${focus.limit}` : `${focus.count} / ${focus.limit}`}
       </Pill>
       {open && (
         <Popover x={open.x} y={open.y} above width={320} onClose={() => setOpen(null)} anchor={anchor} role="dialog" aria-label={`Focus limit, ${going}`} className="py-0!" data-focus-popover>

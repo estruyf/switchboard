@@ -155,7 +155,10 @@ To stop the checks, turn off *Check for Claude Code updates automatically* in Se
 |---|---|
 | ⌘N | New session |
 | ⌘K or ⌘⇧P | Command palette: the commands for where you are (in the terminal, ⌘K clears it, so use ⌘⇧P) |
-| ⌘P | Go to a session or project (⌥↩ opens a session beside the current one) |
+| ⌘P | Go to a session or project, listed like the sidebar (⌥↩ opens a session beside the current one) |
+| ⌃⇥ / ⌃⇧⇥ | Next or previous session, in the sidebar's order |
+| ⌘⇧U | Next session that needs you |
+| ⌘B | Collapse or open the sidebar |
 | ⌘F | Find in this conversation (↩ next, ⇧↩ previous) |
 | ⌘⇧F | Search all conversations |
 | ↑ ↓ | Move through sessions in the sidebar |
@@ -179,7 +182,7 @@ In the command palette, the first character picks what it lists: `>` commands, `
 
 Right-click a session for more: rename it, open it beside, pin, archive, open its folder, copy its ID, or delete it. With several sessions selected, right-click one of them to archive or unarchive them all at once.
 
-Drag the sidebar's right edge to make it wider or narrower; double-click the edge to reset it. Switchboard remembers the width.
+Drag the sidebar's right edge to make it wider or narrower; double-click the edge to reset it. Drag it further in and it snaps to a narrow rail with one project icon per session (hover one to see its title and what it's doing), and further still to hide it. Drag the edge out again to open it. ⌘B, the sidebar button at the left of the header, and the command palette do the same; Settings → Sidebar chooses whether collapsing shows the rail or hides the sidebar. Switchboard remembers the width and the state. With the sidebar hidden, a pill in the header says when sessions need you, and ⌃⇥, ⌘⇧U and ⌘P take you between sessions.
 
 ## Settings
 
@@ -188,7 +191,7 @@ Open Settings with ⌘, or the gear at the bottom of the sidebar. While it is op
 - **General:** what Switchboard shows when it opens: *The last session* (the default; only if the sidebar lists it, so not a session from another app while those are hidden) or *New session*. You can also turn off the "Ask before quitting" prompt.
 
 - **Theme:** Match System, Light or Dark. The colours come from the [Demo Time theme](https://github.com/estruyf/vscode-demo-time-theme).
-- **Sidebar:** *Large icons* (easy to spot each project), *Standard*, or *Compact* (one line per session). *Show sessions from other apps* also lists sessions from the terminal, Claude desktop and your editor (off by default), and notifies you when a terminal session is waiting.
+- **Sidebar:** *Large icons* (easy to spot each project), *Standard*, or *Compact* (one line per session). *When collapsed* picks what ⌘B does: a *Minimal rail* of project icons, or *Hidden*. *Show sessions from other apps* also lists sessions from the terminal, Claude desktop and your editor (off by default), and notifies you when a terminal session is waiting.
 - **Conversation:** *Summarised* (the default) shows each run of tool calls as one line, like Claude Code: what Claude is doing right now, or what it did, with how long it took. Click it to see the steps, and a step to see its details. *Every step* shows each tool call as its own card.
 - **Focus:** the [focus limit](#focus-limit): on or off, how many sessions at the same time (1 to 10, 3 to start with), *Nudge* or *Strict*, and whether sessions from the terminal and your editor count.
 - **Claude profiles:** use more than one Claude account, for example a personal plan and a work one. Each profile is a Claude Code config folder with its own login, settings, plugins and sessions (`~/.claude` is the first). Add one, sign in there once in a terminal with the command Settings shows (`CLAUDE_CONFIG_DIR=~/.claude-work claude`, then `/login`), and pick the default. *How to set up another profile* under the list walks through it step by step. Link a project to a profile from its menu or the Projects view; New session shows the profile a folder uses and lets you pick another for one session. With more than one profile, sessions show which account they use, and the usage band shows that account's limits.

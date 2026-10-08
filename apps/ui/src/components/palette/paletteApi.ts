@@ -7,7 +7,9 @@ import { useOverlay } from '../../state/overlayStore.ts';
 import { usePaletteBus } from '../../state/paletteBus.ts';
 import { usePreferences } from '../../state/preferencesStore.ts';
 import { useProjects } from '../../state/projectsStore.ts';
+import { goToAdjacentSession, goToNextNeedsYou } from '../../state/sessionNav.ts';
 import { useSessions } from '../../state/sessionsStore.ts';
+import { useSidebar } from '../../state/sidebarStore.ts';
 import { openTerminal, restartTerminal, useTerminals } from '../../state/terminalsStore.ts';
 import { toast } from '../../state/toastStore.ts';
 import { lastLimit } from '../focus/focusLimit.ts';
@@ -47,6 +49,10 @@ export function createPaletteApi(ctx: PaletteContext, client: EngineClient | nul
     showSearch: () => useOverlay.getState().show('search'),
     openSettings: (section) => useSessions.getState().openSettings(section),
     setPreferences: (patch) => usePreferences.getState().update(patch),
+    setSidebar: (state) => useSidebar.getState().setState(state),
+    toggleSidebar: () => useSidebar.getState().toggle(),
+    goToSession: (direction) => goToAdjacentSession(direction),
+    goToNextNeedsYou: () => goToNextNeedsYou(),
     manageProjects: () => manage(),
     addProject: () => useProjects.getState().showAdd(true),
     checkClaudeUpdate: () => {

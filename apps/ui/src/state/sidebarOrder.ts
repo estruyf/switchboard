@@ -1,0 +1,101 @@
+import type { SessionRowData } from './sessionsStore.ts';
+import { buildSessionList, groupSessions, rowStatus, type RowStatus, type SessionGroup } from './sidebarRows.ts';
+
+/** A permission or question a session waits on, as far as the rail's tooltip and the needs-you pill care. */
+export interface WaitingRequest {
+  sessionId: string;
+  toolName: string;
+  input: unknown;
+  createdAt: number;
+}
+
+/**
+ * The sidebar's sections and their sessions, in the order it lists them: Needs you, Working, Today,
+ * Yesterday, Earlier, pinned first inside each. Archived sessions are left out. The minimal rail,
+ * ⌃⇥ and ⌘P all read this, so the order never differs between them.
+ */
+export function sidebarGroups(
+  rows: readonly SessionRowData[],
+  options: { now: number; search?: string; project?: string | null },
+): { group: SessionGroup; rows: SessionRowData[] }[] {
+  const { active } = buildSessionList(rows, { search: options.search ?? '', project: options.project ?? null, now: options.now });
+  return groupSessions(active, options.now);
+}
+
+/** The sessions of `sidebarGroups`, one after the other. */
+export const sidebarOrder = (groups: readonly { rows: readonly SessionRowData[] }[]): SessionRowData[] => groups.flatMap((g) => g.rows);
+
+/**
+ * The session after (1) or before (-1) the current one, wrapping at the ends. Without a current session
+ * in the list, the first (or, going back, the last). Null when there is nothing to go to.
+ */
+export function stepSession(order: readonly string[], currentId: string | null, direction: 1 | -1): string | null {
+  if (order.length === 0) return null;
+  const index = currentId ? order.indexOf(currentId) : -1;
+  if (index === -1) return direction === 1 ? order[0]! : order[order.length - 1]!;
+  return order[(index + direction + order.length) % order.length]!;
+}
+
+/** The next session that needs you after the current one, wrapping; the current one when it is the only one; null when nothing waits. */
+export function nextNeedsYou(order: readonly SessionRowData[], currentId: string | null): string | null {
+  const waiting = order.filter((row) => rowStatus(row) === 'needs-you').map((row) => row.id);
+  if (waiting.length === 0) return null;
+  const index = currentId ? order.findIndex((row) => row.id === currentId) : -1;
+  // The first waiting session below the current one, else the first from the top.
+  const after = order.slice(index + 1).find((row) => waiting.includes(row.id));
+  return after?.id ?? waiting[0]!;
+}
+
+/** When each waiting session started waiting: its oldest open request, else when it last changed. */
+function waitingSince(row: SessionRowData, requests: Iterable<WaitingRequest>): number {
+  let since = Infinity;
+  for (const request of requests) if (request.sessionId === row.id && request.createdAt < since) since = request.createdAt;
+  return since === Infinity ? row.updatedAt : since;
+}
+
+/**
+ * The header's pill while the sidebar is closed: how many sessions need you ("1 needs you", "2 need you")
+ * and the one waiting longest, which a click opens. Null when nothing waits.
+ */
+export function needsYouPill(rows: readonly SessionRowData[], requests: Iterable<WaitingRequest>): { count: number; label: string; targetId: string } | null {
+  const list = [...requests];
+  const waiting = rows.filter((row) => rowStatus(row) === 'needs-you');
+  if (waiting.length === 0) return null;
+  const oldest = waiting.reduce((best, row) => (waitingSince(row, list) < waitingSince(best, list) ? row : best));
+  return { count: waiting.length, label: `${waiting.length} ${waiting.length === 1 ? 'needs' : 'need'} you`, targetId: oldest.id };
+}
+
+/** What a waiting request asks, in a few words: the question itself, a plan, or the tool. */
+export function waitingDetail(request: Pick<WaitingRequest, 'toolName' | 'input'> | null): string | null {
+  if (!request) return null;
+  if (request.toolName === 'AskUserQuestion') {
+    const questions = (request.input as { questions?: Array<{ question?: unknown }> } | null)?.questions;
+    const question = Array.isArray(questions) ? questions[0]?.question : null;
+    return typeof question === 'string' && question.trim() ? question.trim() : 'a question';
+  }
+  if (request.toolName === 'ExitPlanMode') return 'a plan to review';
+  return `allow ${request.toolName}`;
+}
+
+/** The status colours, as text, for the rail's tooltip and the HUD. */
+export type StatusTone = 'warn' | 'accent' | 'unread' | 'ok' | 'error' | 'faint';
+
+/** A session's state as one line in its colour: "Needs you: which easing…", "Working", "Done, not read yet". */
+export function statusLine(status: RowStatus, detail: string | null = null): { text: string; tone: StatusTone } | null {
+  switch (status) {
+    case 'needs-you':
+      return { text: detail ? `Needs you: ${detail}` : 'Needs you', tone: 'warn' };
+    case 'running':
+      return { text: 'Working', tone: 'accent' };
+    case 'unread':
+      return { text: 'Done, not read yet', tone: 'unread' };
+    case 'error':
+      return { text: 'Last run failed', tone: 'error' };
+    case 'background':
+      return { text: 'A background task is running', tone: 'ok' };
+    case 'idle':
+      return { text: 'Open, idle', tone: 'faint' };
+    default:
+      return null;
+  }
+}

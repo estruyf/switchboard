@@ -110,6 +110,14 @@ let notifier: Notifier;
 let focusedSession: string | null = null;
 const recordedNotifications: Array<AttentionEvent & { suppressed: boolean }> = [];
 
+/** Where the traffic lights sit: the default, or tucked into the 64px minimal sidebar (they are 54px wide). */
+const WINDOW_BUTTONS = { default: { x: 16, y: 18 }, rail: { x: 5, y: 18 } } as const;
+ipcMain.on(IpcChannel.windowButtons, (event, position: unknown) => {
+  const win = BrowserWindow.fromWebContents(event.sender);
+  if (process.platform !== 'darwin' || !win) return;
+  win.setWindowButtonPosition(position === 'rail' ? WINDOW_BUTTONS.rail : WINDOW_BUTTONS.default);
+});
+
 ipcMain.on(IpcChannel.focusSession, (_event, sessionId: unknown) => {
   focusedSession = typeof sessionId === 'string' ? sessionId : null;
 });
@@ -281,7 +289,7 @@ function createWindow(): BrowserWindow {
     minHeight: 560,
     show: false,
     titleBarStyle: 'hiddenInset',
-    trafficLightPosition: { x: 16, y: 18 },
+    trafficLightPosition: WINDOW_BUTTONS.default,
     backgroundColor: windowBackground(),
     webPreferences: {
       preload: join(here, '../preload/index.cjs'),
@@ -655,6 +663,7 @@ let archiveManyResult = 'not run';
 let dropResult = 'not run';
 let historyResult = 'not run';
 let controlsResult = 'not run';
+let sidebarStatesResult = 'not run';
 let projectsResult = 'not run';
 let profilesResult = 'not run';
 let aboutResult = 'not run';
@@ -1995,7 +2004,7 @@ async function runDeepLinkStep(win: BrowserWindow): Promise<string> {
 }
 
 /** Presses a key in the page (down and up), with modifiers. */
-function pressKey(win: BrowserWindow, keyCode: string, modifiers: Array<'meta' | 'shift' | 'alt'> = []): void {
+function pressKey(win: BrowserWindow, keyCode: string, modifiers: Array<'meta' | 'shift' | 'alt' | 'control'> = []): void {
   win.webContents.sendInputEvent({ type: 'keyDown', keyCode, modifiers });
   win.webContents.sendInputEvent({ type: 'keyUp', keyCode, modifiers });
 }
@@ -2215,11 +2224,12 @@ async function runControlsStep(win: BrowserWindow): Promise<string> {
     await pause();
   };
 
-  // Sidebar: wider, clamped at 520, narrower, clamped at 240, double-click back to 320.
+  // Sidebar: wider, clamped at 520, narrower to its 240 minimum (further snaps to the rail: the sidebar
+  // states step checks that), double-click back to 320.
   const start = await width();
   await drag(400);
   const widest = await width();
-  await drag(-600);
+  await drag(-280);
   const narrowest = await width();
   // At the narrowest width, rows truncate instead of sticking out.
   const overflowing = (await js("(() => { const edge = document.querySelector('[data-sidebar]').getBoundingClientRect().right + 1; return [...document.querySelectorAll('[data-session-id]')].filter((row) => row.getBoundingClientRect().right > edge).length; })()")) as number;
@@ -2269,6 +2279,105 @@ async function runControlsStep(win: BrowserWindow): Promise<string> {
 
   if (smokeSessionId) await js(`document.querySelector('[data-session-id="${smokeSessionId}"]')?.click()`);
   return `ok: sidebar ${start} → ${widest} → ${narrowest} → ${reset}px, pointer cursors, themed tooltip${slashTab}`;
+}
+
+/**
+ * The sidebar's three states: ⌘B goes to the minimal rail and back; with "When collapsed" set to Hidden
+ * it closes (the session view takes the whole window) and reopens; dragging the edge snaps to the rail
+ * and back open; ⌃⇥ moves to another session and ⌃⇧⇥ back, with the HUD while the rail shows. The rail
+ * and the closed header are captured in light and dark. Only the throwaway profile's preferences and
+ * sidebar state change, and they are put back.
+ */
+async function runSidebarStatesStep(win: BrowserWindow): Promise<string> {
+  const js = (code: string) => win.webContents.executeJavaScript(code);
+  const pause = (ms = 250) => new Promise((resolve) => setTimeout(resolve, ms));
+  const state = "document.querySelector('[data-sidebar]')?.dataset.sidebarState";
+  const width = () => js("Math.round(document.querySelector('[data-sidebar]').getBoundingClientRect().width)") as Promise<number>;
+  const inState = (name: string) => waitInPage(win, `${state} === '${name}'`, 2_000);
+  const before = preferences.get();
+  const restore = async () => {
+    updatePreferences({ sidebarCollapsed: before.sidebarCollapsed, colorScheme: before.colorScheme });
+    // From minimal or closed, ⌘B always opens.
+    if ((await js(state)) !== 'open') pressKey(win, 'B', ['meta']);
+    await waitInPage(win, `${state} === 'open'`, 2_000);
+    if (smokeSessionId) await js(`document.querySelector('[data-session-id="${smokeSessionId}"]')?.click()`);
+  };
+  const themed = async (name: string) => {
+    for (const scheme of ['light', 'dark'] as const) {
+      updatePreferences({ colorScheme: scheme });
+      await pause(300);
+      await shot(win, `${name}-${scheme}.png`);
+    }
+    updatePreferences({ colorScheme: before.colorScheme });
+  };
+
+  if (!(await inState('open'))) return `the sidebar did not start open (${String(await js(state))})`;
+  if (!(await js("!!document.querySelector('[data-current-session] [data-sidebar-toggle]')"))) return 'no sidebar toggle in the session header';
+  const openWidth = await width();
+
+  // ⌘B: open → minimal → open, with "When collapsed" on the rail.
+  updatePreferences({ sidebarCollapsed: 'minimal' });
+  await pause(100);
+  pressKey(win, 'B', ['meta']);
+  if (!(await inState('minimal'))) return '⌘B did not minimize the sidebar';
+  if (!(await waitInPage(win, "document.querySelector('[data-sidebar-rail] [data-sidebar-rail-row]')", 2_000))) return 'the rail lists no sessions';
+  await pause();
+  if ((await width()) !== 64) return `the rail is ${await width()}px wide, not 64`;
+  const railLabel = (await js("document.querySelector('[data-sidebar-rail-row]').getAttribute('aria-label')")) as string;
+  if (!railLabel) return 'a rail row has no accessible name';
+  await themed('sidebar-minimal');
+
+  // ⌃⇥ and ⌃⇧⇥ walk the rail's order; the HUD says where you landed.
+  await js("document.querySelector('[data-sidebar-rail-row]').click()");
+  const first = (await js("document.querySelector('[data-sidebar-rail-row]').dataset.sidebarRailRow")) as string;
+  await waitInPage(win, `document.querySelector('[data-current-session="${first}"]')`, 3_000);
+  const rows = (await js("document.querySelectorAll('[data-sidebar-rail-row]').length")) as number;
+  let navigation = 'only one session, so ⌃⇥ was not checked';
+  if (rows > 1) {
+    pressKey(win, 'Tab', ['control']);
+    if (!(await waitInPage(win, `document.querySelector('[data-current-session]') && !document.querySelector('[data-current-session="${first}"]')`, 3_000))) return '⌃⇥ did not move to another session';
+    if (!(await waitInPage(win, "document.querySelector('[data-session-hud]')", 1_000))) return 'no HUD after ⌃⇥ with the rail showing';
+    pressKey(win, 'Tab', ['control', 'shift']);
+    if (!(await waitInPage(win, `document.querySelector('[data-current-session="${first}"]')`, 3_000))) return '⌃⇧⇥ did not go back to the first session';
+    navigation = '⌃⇥ moved on and ⌃⇧⇥ back, with the HUD';
+  }
+  pressKey(win, 'B', ['meta']);
+  if (!(await inState('open'))) return '⌘B did not open the sidebar again';
+  await pause();
+  if ((await width()) !== openWidth) return `the open width was not kept (${openWidth} → ${await width()}px)`;
+
+  // Hidden: ⌘B closes it; the session view takes the whole window.
+  updatePreferences({ sidebarCollapsed: 'closed' });
+  await pause(100);
+  pressKey(win, 'B', ['meta']);
+  if (!(await inState('closed'))) return '⌘B did not close the sidebar with "When collapsed" set to Hidden';
+  await pause();
+  const fullWidth = (await js(
+    "(() => { const view = document.querySelector('[data-current-session]').getBoundingClientRect(); return Math.round(view.left) === 0 && Math.round(view.width) === window.innerWidth && !document.querySelector('[data-sidebar-open], [data-sidebar-rail]'); })()",
+  )) as boolean;
+  if (!fullWidth) return 'the session view is not full width with the sidebar closed';
+  // The toggle moves right of the traffic lights.
+  if (!(await js("document.querySelector('[data-current-session] [data-sidebar-toggle]').getBoundingClientRect().left >= 72"))) return 'the toggle sits under the traffic lights';
+  await themed('sidebar-closed');
+  await js("document.querySelector('[data-current-session] [data-sidebar-toggle]').click()");
+  if (!(await inState('open'))) return 'the header toggle did not reopen the sidebar';
+  await pause();
+
+  // Drag the edge into the rail's zone, then back out past 200: it snaps to minimal, then open.
+  const edge = (await js("(() => { const r = document.querySelector('[data-sidebar-resize]').getBoundingClientRect(); return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) }; })()")) as { x: number; y: number };
+  const drag = async (from: number, to: number) => {
+    win.webContents.sendInputEvent({ type: 'mouseDown', x: from, y: edge.y, button: 'left', clickCount: 1 });
+    for (let i = 1; i <= 5; i++) win.webContents.sendInputEvent({ type: 'mouseMove', x: Math.round(from + ((to - from) * i) / 5), y: edge.y, button: 'left' });
+    win.webContents.sendInputEvent({ type: 'mouseUp', x: to, y: edge.y, button: 'left', clickCount: 1 });
+    await pause();
+  };
+  await drag(edge.x, 150);
+  if (!(await inState('minimal'))) return `dragging the edge to 150px did not snap to the rail (${String(await js(state))})`;
+  await drag(64, 260);
+  if (!(await inState('open'))) return `dragging the rail's edge past 200px did not open the sidebar (${String(await js(state))})`;
+  const reopened = await width();
+  await restore();
+  return `ok: ⌘B open → minimal (64px rail) → open at ${openWidth}px, Hidden closes it with a full-width session view, the toggle reopens it, the edge snaps to the rail and back open (${reopened}px), ${navigation}, both themes captured`;
 }
 
 /**
@@ -2620,6 +2729,7 @@ async function runSmokeStep(win: BrowserWindow | null): Promise<void> {
     dropResult = await runDropStep(win).catch((error: Error) => `failed: ${error.message}`);
     historyResult = await runHistoryStep(win).catch((error: Error) => `failed: ${error.message}`);
     controlsResult = await runControlsStep(win).catch((error: Error) => `failed: ${error.message}`);
+    sidebarStatesResult = await runSidebarStatesStep(win).catch((error: Error) => `failed: ${error.message}`);
     newSessionResult = await runNewSessionStep(win).catch((error: Error) => `failed: ${error.message}`);
     deepLinkResult = await runDeepLinkStep(win).catch((error: Error) => `failed: ${error.message}`);
     usageBand = (await waitInPage(win, "document.querySelector('[data-usage-band]')", 15_000))
@@ -2689,6 +2799,7 @@ async function runSmokeStep(win: BrowserWindow | null): Promise<void> {
         dropResult,
         historyResult,
         controlsResult,
+        sidebarStatesResult,
         newSessionResult,
         deepLinkResult,
         liveSession,
