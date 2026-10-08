@@ -53,6 +53,7 @@ import { MessageActionsContext, messageUuid, pendingDrafts, type MessageActions 
 import { parseTodos, TodoList } from './TodoList.tsx';
 import { TranscriptItem } from './TranscriptItem.tsx';
 import { useTranscript } from './useTranscript.ts';
+import { formatKeys, keysFor, matches as isShortcut } from '../../lib/shortcuts.ts';
 
 const ORIGIN_LABEL = { cli: 'Terminal', desktop: 'Claude desktop', ide: 'IDE', sdk: 'SDK', app: 'Switchboard', unknown: '' } as const;
 
@@ -291,12 +292,12 @@ export function TranscriptView({ sessionId, pane = null, active = true }: { sess
       if (useSessions.getState().view !== 'session') return;
       // A key something else already took (a shortcut recorder), or one pressed while a dialog is open, isn't for this view.
       if (event.defaultPrevented || document.querySelector('[aria-modal="true"]')) return;
-      if (active && event.metaKey && event.shiftKey && !event.altKey && event.key.toLowerCase() === 'd') {
+      if (active && isShortcut(event, 'changes.toggle')) {
         event.preventDefault();
         toggleChanges();
       }
       // ⌘F finds in this conversation (the terminal keeps its own keys).
-      if (active && event.metaKey && !event.shiftKey && !event.altKey && event.key.toLowerCase() === 'f' && !(event.target as HTMLElement | null)?.closest?.('.xterm')) {
+      if (active && isShortcut(event, 'find') && !(event.target as HTMLElement | null)?.closest?.('.xterm')) {
         event.preventDefault();
         setFindQuery((q) => q ?? '');
         setFindFocus((n) => n + 1);
@@ -690,9 +691,9 @@ export function TranscriptView({ sessionId, pane = null, active = true }: { sess
                     icon: <FileDiff size={14} aria-hidden />,
                     iconOnly: true,
                     badge: changedCount,
-                    tooltip: `${changesOpen ? 'Hide' : 'Show'} changed files (⌘⇧D)`,
-                    ariaLabel: `${changesOpen ? 'Hide' : 'Show'} changed files${changedCount ? `, ${changedCount} changed` : ''} (⌘⇧D)`,
-                    kbd: '⌘⇧D',
+                    tooltip: `${changesOpen ? 'Hide' : 'Show'} changed files (${formatKeys(keysFor('changes.toggle'))})`,
+                    ariaLabel: `${changesOpen ? 'Hide' : 'Show'} changed files${changedCount ? `, ${changedCount} changed` : ''} (${formatKeys(keysFor('changes.toggle'))})`,
+                    kbd: keysFor('changes.toggle'),
                     expanded: changesOpen && active,
                     data: { 'data-toggle-changes': true },
                   },
@@ -704,9 +705,9 @@ export function TranscriptView({ sessionId, pane = null, active = true }: { sess
               icon: <SquareTerminal size={14} aria-hidden />,
               iconOnly: true,
               dot: terminalCount > 0,
-              tooltip: `${panelOpen ? 'Hide' : 'Show'} terminal (⌘J)${terminalCount ? ` · ${terminalCount} running` : ''}`,
-              ariaLabel: `${panelOpen ? 'Hide' : 'Show'} terminal${terminalCount ? `, ${terminalCount} running` : ''} (⌘J)`,
-              kbd: '⌘J',
+              tooltip: `${panelOpen ? 'Hide' : 'Show'} terminal (${formatKeys(keysFor('terminal.toggle'))})${terminalCount ? ` · ${terminalCount} running` : ''}`,
+              ariaLabel: `${panelOpen ? 'Hide' : 'Show'} terminal${terminalCount ? `, ${terminalCount} running` : ''} (${formatKeys(keysFor('terminal.toggle'))})`,
+              kbd: keysFor('terminal.toggle'),
               expanded: panelOpen && active,
               data: { 'data-toggle-terminal': true },
             },
@@ -758,7 +759,7 @@ export function TranscriptView({ sessionId, pane = null, active = true }: { sess
             data-close-pane
             onClick={() => useSessions.getState().closePane(pane)}
             // Braces, because a plain JSX attribute string keeps both backslashes of `\\`.
-            data-tooltip={'Close this pane (⌘\\ closes the other one)'}
+            data-tooltip={`Close this pane (${formatKeys(keysFor('pane.close-other'))} closes the other one)`}
             aria-label="Close this pane"
             className="no-drag shrink-0"
           />

@@ -151,32 +151,91 @@ To stop the checks, turn off *Check for Claude Code updates automatically* in Se
 
 ## Keyboard shortcuts
 
+Press **⌘/** (or Help › Keyboard Shortcuts) to see every shortcut in the app, with the ones that work where you are and your project actions' shortcuts. Type in its field to filter by name or by keys ("terminal", "⌘J").
+
+<!-- shortcuts:start (written by npm run docs:shortcuts from apps/ui/src/lib/shortcuts.ts; edit the registry, not this table) -->
+
+**General**
+
 | Shortcut | What it does |
 |---|---|
 | ⌘N | New session |
-| ⌘K or ⌘⇧P | Command palette: the commands for where you are (in the terminal, ⌘K clears it, so use ⌘⇧P) |
-| ⌘P | Go to a session or project, listed like the sidebar (⌥↩ opens a session beside the current one) |
-| ⌃⇥ / ⌃⇧⇥ | Next or previous session, in the sidebar's order |
-| ⌘⇧U | Next session that needs you |
-| ⌘B | Collapse or open the sidebar |
-| ⌘F | Find in this conversation (↩ next, ⇧↩ previous) |
+| ⌘K or ⌘⇧P | Command palette (in the terminal ⌘K clears it, so use ⌘⇧P) |
+| ⌘P | Go to a session or project (⌥↩ opens a session beside this one) |
 | ⌘⇧F | Search all conversations |
-| ↑ ↓ | Move through sessions in the sidebar |
-| ⌘-click, ⇧-click, ⇧↑ ↓ | Select several sessions (Esc clears the selection) |
-| F2 | Rename the selected session |
-| ⌘⌫ | Delete the selected session (to the Trash) |
-| ⌘O | Open the session's folder in your editor |
-| ⌘J | Show or hide the terminal |
-| ⌘⇧D | Show or hide the Changes panel |
-| ⌘⇧L | Pull, when the branch is behind its upstream |
-| ⌥-click | Open a session beside the current one |
-| ⌘\\ | Close the other pane |
+| ⌘⇧H | Home |
 | ⌘, | Settings |
-| Esc | Stop Claude while it's working |
-| ⇧Tab | Switch permission mode |
-| `/` and `@` | Commands and file mentions in the message box |
-| ↑ ↓ | Bring back an earlier message in the message box (from the first line; Esc goes back to what you were typing) |
-| ⌘Q | Quit (Switchboard asks first; press ⌘Q again to quit) |
+| ⌘/ | Keyboard shortcuts |
+| ⌘Q then ⌘Q | Quit (Switchboard asks first; Press once if you turned that off) |
+
+**Sessions and sidebar**
+
+| Shortcut | What it does |
+|---|---|
+| ⌘B | Collapse or open the sidebar |
+| ⌃⇥ | Next session (in the sidebar's order) |
+| ⌃⇧⇥ | Previous session (in the sidebar's order) |
+| ⌘⇧U | Next session that needs you |
+| ↑ or ↓ | Move through sessions (in the sidebar) |
+| ⌘-click or ⇧-click or ⇧↑ or ⇧↓ | Select several sessions (in the sidebar) |
+| ⌘A | Select every session in the group (in the sidebar) |
+| Esc | Clear the selection (while sessions are selected) |
+| F2 | Rename the session (in the sidebar) |
+| ⌘⌫ | Delete the session (in the sidebar, to the Trash) |
+| ⌥-click | Open beside the current session (in the sidebar) |
+| ⇧F10 | Open the context menu (on a session, project or file; or right-click) |
+| ⌘\\ | Close the other pane (with two panes open) |
+
+**In a session**
+
+| Shortcut | What it does |
+|---|---|
+| ⌘F | Find in the conversation |
+| ↩ or ⌘G | Next match (in Find) |
+| ⇧↩ or ⌘⇧G | Previous match (in Find) |
+| ⌘⇧D | Show or hide Changes |
+| ⌘J | Show or hide the terminal |
+| ⌘⇧J | Maximize or restore the terminal |
+| Esc | Restore the terminal (while it fills the view, outside the shell) |
+| ⌘K | Clear the terminal (in the terminal) |
+| ⌃C | Stop the action (in the terminal, while an action runs) |
+| ⌘⇧L | Pull (when the branch is behind) |
+| ⌘O | Open the folder in your editor |
+| Esc | Stop Claude (while Claude is working) |
+| ⇧⇥ | Switch permission mode (in the message box) |
+
+**Message box**
+
+| Shortcut | What it does |
+|---|---|
+| ↩ or ⌘↩ | Send |
+| ⇧↩ | New line |
+| / | Commands and skills (at the start of the message) |
+| @ | Mention a file |
+| ↑ or ↓ | Bring back an earlier message (from the first line; Esc goes back to what you were typing) |
+
+**Permissions and questions**
+
+| Shortcut | What it does |
+|---|---|
+| ⌘↩ or ⌃↩ | Allow, or send your answers (when a card is waiting) |
+| Esc | Deny, or skip the question (when a card is waiting) |
+| 1 to 9 | Pick an answer (when a question is waiting) |
+
+**New session**
+
+| Shortcut | What it does |
+|---|---|
+| ⌘1 to ⌘9 | Pick a recent project |
+| ⌘↩ | Start the session |
+
+**Settings**
+
+| Shortcut | What it does |
+|---|---|
+| Esc | Close Settings |
+
+<!-- shortcuts:end -->
 
 In the command palette, the first character picks what it lists: `>` commands, `+` a new session (pick a project, then write the prompt), `!` the session's project actions, `?` help. Commands that ask for more end in **…**: ⌫ in an empty field goes back a step, Esc closes. In the prompt step, ⌘↵ starts the session, ⌘E moves it to the full New session view, and Esc keeps what you wrote for next time.
 

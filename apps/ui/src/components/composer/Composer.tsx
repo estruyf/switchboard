@@ -10,6 +10,7 @@ import { onFirstLine, onLastLine, textareaRows } from './caretLine.ts';
 import { PromptHistory, recallAnnouncement, routeArrow, type Recall } from './promptHistory.ts';
 import { tokenAtCaret } from './tokens.ts';
 import { useAttachments } from './useAttachments.ts';
+import { ariaKeysFor, formatKeys, keysFor, matches } from '../../lib/shortcuts.ts';
 
 type PaletteItem = { value: string; label: string; detail: string };
 interface Palette {
@@ -273,15 +274,15 @@ export function Composer(props: ComposerProps) {
         return;
       }
     }
-    if (event.key === 'Enter' && !event.shiftKey) {
+    if (matches(event.nativeEvent, 'composer.send')) {
       event.preventDefault();
       void submit();
-    } else if (event.key === 'Escape' && props.running) {
+    } else if (matches(event.nativeEvent, 'claude.stop') && props.running) {
       // With a dialog, menu or popover open, Escape closes that; it must never also stop Claude.
       if (document.querySelector('[role=dialog], [role=alertdialog], [role=menu], [role=listbox], [data-context-breakdown]')) return;
       event.preventDefault();
       props.onInterrupt?.();
-    } else if (event.key === 'Tab' && event.shiftKey && !event.ctrlKey && props.onCycleMode) {
+    } else if (matches(event.nativeEvent, 'mode.cycle') && props.onCycleMode) {
       event.preventDefault();
       props.onCycleMode();
     }
@@ -345,7 +346,7 @@ export function Composer(props: ComposerProps) {
           placeholder={props.disabledReason ?? props.placeholder}
           aria-label="Message to Claude"
           aria-describedby={`${ids}-hint`}
-          aria-keyshortcuts={props.running && props.onInterrupt ? 'Escape' : undefined}
+          aria-keyshortcuts={props.running && props.onInterrupt ? ariaKeysFor('claude.stop') : undefined}
           // While the / or @ list is open, ↑ ↓ move through it without leaving the box.
           aria-autocomplete="list"
           aria-controls={palette ? `${ids}-palette` : undefined}
@@ -422,7 +423,7 @@ export function Composer(props: ComposerProps) {
             />
             {props.meter}
             {props.running && props.onInterrupt && (
-              <Button size="lg" icon={<span className="size-2 rounded-[2px] bg-current" aria-hidden />} kbd="Esc" kbdHideNarrow onClick={props.onInterrupt} data-tooltip="Stop Claude (Esc)" data-composer-stop>
+              <Button size="lg" icon={<span className="size-2 rounded-[2px] bg-current" aria-hidden />} shortcut="claude.stop" kbdHideNarrow onClick={props.onInterrupt} data-tooltip={`Stop Claude (${formatKeys(keysFor('claude.stop'))})`} data-composer-stop>
                 Stop
               </Button>
             )}

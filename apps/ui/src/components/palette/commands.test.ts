@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { arrangeCommands, COMMANDS, rememberIn, titleOf, visibleCommands, type PaletteApi } from './commands.ts';
 import type { PaletteContext, PaletteSession } from './paletteContext.ts';
+import { shortcutGlyphs } from '../../lib/shortcuts.ts';
 
 const SESSION: PaletteSession = {
   id: 's1',
@@ -146,7 +147,7 @@ describe('when(): a session is open', () => {
 });
 
 describe('when(): git, actions, terminal, panes', () => {
-  const git = { changed: 0, unstaged: 0, hasRemote: true, prBlocked: null };
+  const git = { changed: 0, unstaged: 0, hasRemote: true, prBlocked: null, pullable: false };
 
   it('offers git commands in a repository, the ones for changes only with changes', () => {
     expect(groupIds(inSession(), 'git')).toEqual([]);
@@ -207,7 +208,7 @@ describe('when(): New session and Settings', () => {
 
 describe('arrangeCommands', () => {
   it('puts where you are first, then recently used, then the rest', () => {
-    const ctx = inSession({}, { git: { changed: 1, unstaged: 1, hasRemote: true, prBlocked: null } });
+    const ctx = inSession({}, { git: { changed: 1, unstaged: 1, hasRemote: true, prBlocked: null, pullable: false } });
     const sections = arrangeCommands(visibleCommands(ctx), ctx, ['theme-dark', 'rename-session', 'unknown'], '');
     expect(sections.map((s) => s.label)).toEqual(['This session', 'Git', 'Recently used', 'Commands']);
     // A recent command already shown for where you are isn't listed twice.
@@ -266,7 +267,7 @@ describe('sidebar and session navigation', () => {
   });
 
   it('puts ⌘B on Toggle sidebar and keeps ⌘\\ for closing the other pane', () => {
-    const byShortcut = (keys: string) => COMMANDS.filter((c) => c.shortcut === keys).map((c) => c.id);
+    const byShortcut = (keys: string) => COMMANDS.filter((c) => c.shortcut && shortcutGlyphs(c.shortcut) === keys).map((c) => c.id);
     expect(byShortcut('⌘B')).toEqual(['toggle-sidebar']);
     expect(byShortcut('⌘\\')).toEqual([]);
   });
@@ -275,7 +276,7 @@ describe('sidebar and session navigation', () => {
     const api = { goToSession: vi.fn(), goToNextNeedsYou: vi.fn(), setSidebar: vi.fn(), toggleSidebar: vi.fn() } as unknown as PaletteApi;
     const ctx = context();
     const byId = (id: string) => COMMANDS.find((c) => c.id === id)!;
-    expect([byId('next-session').shortcut, byId('previous-session').shortcut, byId('next-needs-you').shortcut]).toEqual(['⌃⇥', '⌃⇧⇥', '⌘⇧U']);
+    expect([byId('next-session').shortcut, byId('previous-session').shortcut, byId('next-needs-you').shortcut].map((k) => shortcutGlyphs(k!))).toEqual(['⌃⇥', '⌃⇧⇥', '⌘⇧U']);
     byId('next-session').run!(api, ctx);
     byId('previous-session').run!(api, ctx);
     byId('next-needs-you').run!(api, ctx);

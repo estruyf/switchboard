@@ -2,6 +2,8 @@
  * Keyboard shortcuts for the permission card, as pure logic so it can be tested without a DOM.
  * The card turns the focused element into a `KeyTarget` and asks what a key press means.
  */
+import { matches } from '../../lib/shortcuts.ts';
+
 
 /** Where the key press happened. */
 export type KeyTarget =
@@ -40,19 +42,19 @@ export function cardKeyAction(event: KeyLike, target: KeyTarget, kind: CardKind,
   if (target === 'field') return null;
   const plain = !event.metaKey && !event.ctrlKey && !event.altKey && !event.shiftKey;
 
-  if (event.key === 'Enter' && (event.metaKey || event.ctrlKey) && !event.altKey && !event.shiftKey) {
+  if (matches(event, 'permission.allow')) {
     // In the tool card's own feedback field, ⌘↵ would approve what you are explaining a "no" for.
     if (target === 'card-field' && kind === 'tool') return null;
     return { type: 'allow' };
   }
-  if (event.key === 'Escape' && plain) {
+  if (matches(event, 'permission.deny')) {
     // Escape in your own answer to a question must not throw that answer away by skipping.
     if (target === 'card-field' && kind === 'question') return null;
     return { type: 'deny' };
   }
 
   if (kind !== 'question' || !plain) return null;
-  if (/^[1-9]$/.test(event.key)) {
+  if (matches(event, 'permission.pick')) {
     // Digits typed into a text field (the composer or your own answer) are text.
     if (target === 'composer' || target === 'card-field') return null;
     const index = Number(event.key) - 1;

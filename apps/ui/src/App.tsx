@@ -36,15 +36,17 @@ import { useUpdatesSync } from './state/updatesStore.ts';
 import { useClaudeUpdateSync } from './state/claudeUpdateStore.ts';
 import { useHostsSync } from './state/useHostsSync.ts';
 import { useSessionsSync } from './state/useSessionsSync.ts';
+import { matches } from './lib/shortcuts.ts';
+import { ShortcutsSheet } from './components/shortcuts/ShortcutsSheet.tsx';
 
 /** A dialog, menu or popover is open: it keeps Tab for itself, so ⌃⇥ doesn't switch sessions behind it. */
 const overlayOpen = () => document.querySelector('[role="dialog"], [role="alertdialog"], [role="menu"], [data-popover]') !== null;
 
 /**
- * ⌘N new session, ⌘O open the current session's folder in the default editor, ⌘J toggle the terminal
- * (⌘⇧J maximize it), ⌘K or ⌘⇧P the command palette's commands, ⌘P its go-to (sessions and projects),
- * ⌘⇧F search, ⌘B the sidebar, ⌃⇥ / ⌃⇧⇥ the next and previous session, ⌘⇧U the next that needs you.
- * The terminal passes ⌘ keys and ⌃⇥ on to the window (XTerm.tsx), so these work there too.
+ * The window's own shortcuts (keys in `lib/shortcuts.ts`): new session, open in editor, the terminal, the
+ * command palette and go-to, search, Home, the sidebar, moving between sessions, closing the other pane
+ * and the shortcuts sheet. The terminal passes ⌘ keys and ⌃⇥ on to the window (XTerm.tsx), so these work
+ * there too.
  */
 function useShortcuts() {
   const openIn = useOpenIn();
@@ -54,77 +56,56 @@ function useShortcuts() {
       // one of them keeps it. These run once the key has been through every listener, and only if none
       // took it (the actions' listener may come before or after this one). They have no default to stop.
       const later = (run: () => void) => setTimeout(() => !event.defaultPrevented && run(), 0);
-      if (event.ctrlKey && !event.metaKey && !event.altKey && event.key === 'Tab') {
-        if (!event.defaultPrevented && !overlayOpen()) later(() => goToAdjacentSession(event.shiftKey ? -1 : 1));
-        return;
-      }
-      if (event.metaKey && event.shiftKey && !event.altKey && !event.ctrlKey && event.key.toLowerCase() === 'u') {
+      if (matches(event, 'shortcuts')) {
+        // From anywhere, the terminal and the message box included; a shortcut recorder that took the key keeps it.
+        if (event.defaultPrevented) return;
+        event.preventDefault();
+        useOverlay.getState().toggleShortcuts();
+      } else if (matches(event, 'session.next') || matches(event, 'session.previous')) {
+        if (!event.defaultPrevented && !overlayOpen()) later(() => goToAdjacentSession(matches(event, 'session.previous') ? -1 : 1));
+      } else if (matches(event, 'session.next-needs-you')) {
         later(goToNextNeedsYou);
-        return;
-      }
-      if (event.metaKey && event.shiftKey && !event.altKey && event.key.toLowerCase() === 'h') {
+      } else if (matches(event, 'sidebar.toggle')) {
+        later(() => useSidebar.getState().toggle());
+      } else if (matches(event, 'home')) {
         event.preventDefault();
         useSessions.getState().goHome();
-        return;
-      }
-      if (event.metaKey && event.shiftKey && !event.altKey && event.key.toLowerCase() === 'f') {
+      } else if (matches(event, 'search')) {
         event.preventDefault();
         const overlay = useOverlay.getState();
         if (overlay.open === 'search') overlay.close();
         else overlay.show('search');
-        return;
-      }
-      if (event.metaKey && event.shiftKey && !event.altKey && event.key.toLowerCase() === 'p') {
-        // ⌘⇧P, as in VS Code: also the way to the palette from the terminal, where ⌘K clears the screen.
+      } else if (matches(event, 'palette.commands')) {
+        // In the terminal, ⌘K clears the screen as usual; ⌘⇧P (as in VS Code) is the way to the palette there.
+        if (matches(event, 'terminal.clear') && (event.target as HTMLElement | null)?.closest?.('.xterm')) return;
         event.preventDefault();
         useOverlay.getState().togglePalette('commands');
-        return;
-      }
-      if (event.metaKey && event.shiftKey && !event.altKey && event.key.toLowerCase() === 'j') {
-        // ⌘⇧J: the terminal takes the whole session view, or gives it back. Closed, it opens maximized.
-        if (useSessions.getState().view === 'session') {
-          event.preventDefault();
-          const { panelOpen, togglePanel, setMaximized } = useTerminals.getState();
-          if (panelOpen) setMaximized();
-          else {
-            togglePanel();
-            setMaximized(true);
-          }
-        }
-        return;
-      }
-      if (!event.metaKey || event.shiftKey || event.altKey) return;
-      const key = event.key.toLowerCase();
-      if (key === '\\') {
-        // ⌘\ closes the other pane.
-        const { splitId, activePane, closePane } = useSessions.getState();
-        if (splitId) {
-          event.preventDefault();
-          closePane(activePane === 'main' ? 'split' : 'main');
-        }
-        return;
-      }
-      if (key === 'b' && !event.ctrlKey) {
-        later(() => useSidebar.getState().toggle());
-        return;
-      }
-      if (key === 'k') {
-        // In the terminal, ⌘K clears the screen as usual.
-        if ((event.target as HTMLElement | null)?.closest?.('.xterm')) return;
-        event.preventDefault();
-        useOverlay.getState().togglePalette('commands');
-      } else if (key === 'p') {
+      } else if (matches(event, 'palette.goto')) {
         event.preventDefault();
         useOverlay.getState().togglePalette('goto');
-      } else if (key === 'j') {
-        if (useSessions.getState().view === 'session') {
-          event.preventDefault();
-          useTerminals.getState().togglePanel();
+      } else if (matches(event, 'terminal.maximize')) {
+        // The terminal takes the whole session view, or gives it back. Closed, it opens maximized.
+        if (useSessions.getState().view !== 'session') return;
+        event.preventDefault();
+        const { panelOpen, togglePanel, setMaximized } = useTerminals.getState();
+        if (panelOpen) setMaximized();
+        else {
+          togglePanel();
+          setMaximized(true);
         }
-      } else if (key === 'n') {
+      } else if (matches(event, 'terminal.toggle')) {
+        if (useSessions.getState().view !== 'session') return;
+        event.preventDefault();
+        useTerminals.getState().togglePanel();
+      } else if (matches(event, 'pane.close-other')) {
+        const { splitId, activePane, closePane } = useSessions.getState();
+        if (!splitId) return;
+        event.preventDefault();
+        closePane(activePane === 'main' ? 'split' : 'main');
+      } else if (matches(event, 'session.new')) {
         event.preventDefault();
         useSessions.getState().openNewSession();
-      } else if (key === 'o') {
+      } else if (matches(event, 'editor.open')) {
         const { view, selectedId, sessions, live } = useSessions.getState();
         if (view !== 'session' || !selectedId) return;
         const host = useHosts.getState().hosts.get(selectedId);
@@ -150,6 +131,8 @@ function useWindowFocus() {
   useEffect(() => window.switchboard?.onSelectSession((id) => useSessions.getState().select(id)), []);
   // Switchboard → Settings… (⌘,) or Check for Updates… (About) in the menu bar.
   useEffect(() => window.switchboard?.onOpenSettings((section) => useSessions.getState().openSettings(section ?? undefined)), []);
+  // Help › Keyboard Shortcuts (⌘/) in the menu bar.
+  useEffect(() => window.switchboard?.onToggleShortcuts(() => useOverlay.getState().toggleShortcuts()), []);
 }
 
 export function App() {
@@ -223,6 +206,7 @@ export function App() {
       <LinkError />
       {overlay === 'search' && <SearchDialog />}
       {overlay === 'palette' && <CommandPalette />}
+      {overlay === 'shortcuts' && <ShortcutsSheet />}
       <PaletteDialogs />
       {adding && <AddProjectDialog onClose={() => useProjects.getState().showAdd(false)} />}
       <BackupDialogs />

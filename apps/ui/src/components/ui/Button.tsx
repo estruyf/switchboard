@@ -1,5 +1,5 @@
 import type { ButtonHTMLAttributes, ReactNode, Ref } from 'react';
-import { ariaShortcut, shortcutGlyphs, storedShortcut } from '../../lib/shortcuts.ts';
+import { ariaKeysFor, ariaShortcut, keysFor, shortcutGlyphs, storedShortcut, type ShortcutId } from '../../lib/shortcuts.ts';
 import { buttonClass, type ButtonSize, type ButtonVariant } from './buttonStyles.ts';
 import { Kbd } from './Kbd.tsx';
 
@@ -12,6 +12,8 @@ interface BaseProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   icon?: ReactNode;
   /** The shortcut that does the same (`⌘↵`, `Esc`, or a stored `cmd+enter`): shown in a `<kbd>` and announced through `aria-keyshortcuts`. */
   kbd?: string;
+  /** A shortcut from the registry (`lib/shortcuts.ts`) that does the same: shown like `kbd`, and every alternative announced. */
+  shortcut?: ShortcutId;
   /** Hide the shortcut in a narrow pane, where the label alone has to fit. */
   kbdHideNarrow?: boolean;
   /** Danger only: the solid red button that confirms a destructive dialog. */
@@ -32,14 +34,15 @@ type ButtonProps = (BaseProps & { iconOnly: true; 'aria-label': string }) | (Bas
  * Every button in the app. Variants and sizes follow AGENTS.md (Design system); `className` is for
  * layout around it (`ml-auto`, `w-full`, `min-w-0`), not for changing its look.
  */
-export function Button({ variant = 'secondary', size = 'md', icon, iconOnly = false, kbd, kbdHideNarrow = false, filled = false, selected = false, className = '', type = 'button', children, ...rest }: ButtonProps) {
+export function Button({ variant = 'secondary', size = 'md', icon, iconOnly = false, kbd: keys, shortcut, kbdHideNarrow = false, filled = false, selected = false, className = '', type = 'button', children, ...rest }: ButtonProps) {
+  const kbd = shortcut ? keysFor(shortcut) : keys;
   const glyphs = kbd ? shortcutGlyphs(kbd) : null;
   const label = rest['aria-label'];
   const tooltip = rest['data-tooltip'] ?? (iconOnly && label ? `${label}${glyphs ? ` (${glyphs})` : ''}` : undefined);
   return (
     <button
       type={type}
-      aria-keyshortcuts={kbd ? ariaShortcut(storedShortcut(kbd)) : undefined}
+      aria-keyshortcuts={shortcut ? ariaKeysFor(shortcut) : kbd ? ariaShortcut(storedShortcut(kbd)) : undefined}
       {...rest}
       data-tooltip={tooltip}
       data-selected={selected && variant === 'secondary' ? true : undefined}

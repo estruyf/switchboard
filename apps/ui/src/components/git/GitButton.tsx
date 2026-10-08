@@ -8,6 +8,7 @@ import { useTerminals } from '../../state/terminalsStore.ts';
 import { Menu, useMenu, type MenuEntry } from '../Menu.tsx';
 import { CommitDialog } from './CommitDialog.tsx';
 import { gitSummary, planGit, STEP_LABEL, stepCount, type GitStep } from './gitPlan.ts';
+import { ariaKeysFor, matches } from '../../lib/shortcuts.ts';
 
 const ICON: Record<GitStep, typeof GitCommitHorizontal> = { fetch: RefreshCw, commit: GitCommitHorizontal, pull: CloudDownload, push: CloudUpload, pr: GitPullRequest };
 /** The count on the button's face (↓ behind, ↑ ahead, files to commit). It sits on the yellow fill, so it keeps the fill's text colour. */
@@ -125,7 +126,7 @@ export function GitButton({
       // Not while another view (Settings) covers the session, a dialog is open, or a shortcut recorder took the key.
       if (event.defaultPrevented || useSessions.getState().view !== 'session' || document.querySelector('[aria-modal="true"]')) return;
       if (wrapperRef.current?.closest('[inert]')) return;
-      if (event.metaKey && event.shiftKey && !event.altKey && event.key.toLowerCase() === 'l' && pullRef.current) {
+      if (matches(event, 'git.pull') && pullRef.current) {
         event.preventDefault();
         pullRef.current();
       }
@@ -207,7 +208,7 @@ export function GitButton({
         aria-disabled={faceBlocked !== null}
         data-tooltip={error ?? tooltipFor(face)}
         aria-label={`${STEP_LABEL[face]}${count ? ` ${count}` : ''}`}
-        aria-keyshortcuts={face === 'pull' ? 'Meta+Shift+L' : undefined}
+        aria-keyshortcuts={face === 'pull' ? ariaKeysFor('git.pull') : undefined}
         className={`flex h-7 items-center gap-1.5 rounded-l-md px-2.5 text-ui ${primary ? 'bg-accent font-semibold text-on-accent' : 'border border-border text-text'} ${error ? 'ring-1 ring-error ring-inset' : ''} ${faceBlocked ? 'cursor-default opacity-50' : primary ? 'hover:bg-accent/85' : 'hover:bg-border/50'}`}
       >
         <FaceIcon size={13} className={`@max-[860px]:hidden ${primary ? '' : 'text-muted'}`} aria-hidden />

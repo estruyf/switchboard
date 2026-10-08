@@ -1,5 +1,27 @@
 import { describe, expect, it } from 'vitest';
-import { ariaShortcut, formatShortcut, isStoredShortcut, normalizeShortcut, RESERVED_SHORTCUTS, sameShortcut, shortcutFromEvent, shortcutGlyphs, storedShortcut } from './shortcuts.ts';
+import {
+  ariaKeysFor,
+  ariaShortcut,
+  available,
+  comboPresses,
+  formatKeys,
+  formatShortcut,
+  isStoredShortcut,
+  keysFor,
+  matches,
+  normalizeShortcut,
+  RESERVED_SHORTCUTS,
+  sameShortcut,
+  shortcutById,
+  shortcutFromEvent,
+  shortcutGlyphs,
+  SHORTCUTS,
+  spokenKeys,
+  storedShortcut,
+  type ShortcutContext,
+  type ShortcutDef,
+  type ShortcutId,
+} from './shortcuts.ts';
 
 const press = (key: string, mods: { metaKey?: boolean; ctrlKey?: boolean; altKey?: boolean; shiftKey?: boolean } = {}) => ({ metaKey: false, ctrlKey: false, altKey: false, shiftKey: false, key, ...mods });
 
@@ -58,5 +80,196 @@ describe('shortcuts', () => {
     expect(RESERVED_SHORTCUTS.has(shortcutFromEvent(press('K', { metaKey: true }))!)).toBe(true);
     expect(RESERVED_SHORTCUTS.has(shortcutFromEvent(press(',', { metaKey: true }))!)).toBe(true);
     expect(RESERVED_SHORTCUTS.has('cmd+shift+b')).toBe(false);
+  });
+});
+
+/** Nothing open, nothing going on: Home. */
+const HOME: ShortcutContext = {
+  view: 'home',
+  session: false,
+  running: false,
+  pending: null,
+  selection: 0,
+  split: false,
+  behind: false,
+  focus: 'other',
+  terminal: { open: false, maximized: false, actionRunning: false },
+};
+const at = (patch: Partial<ShortcutContext>): ShortcutContext => ({ ...HOME, ...patch });
+const SESSION = at({ view: 'session', session: true });
+
+describe('the shortcut registry', () => {
+  it('has unique ids, and keys in the stored form', () => {
+    expect(new Set(SHORTCUTS.map((s) => s.id)).size).toBe(SHORTCUTS.length);
+    for (const def of SHORTCUTS as readonly ShortcutDef[]) {
+      for (const combo of def.keys) {
+        for (const step of combo.split(' ')) {
+          const press = step.replace(/(\d)\.\.\d$/, '$1').replace(/\+?click$/, '').replace(/^$/, 'a');
+          expect(isStoredShortcut(press), `${def.id}: ${combo}`).toBe(true);
+        }
+      }
+    }
+  });
+
+  it('formats combos as macOS writes them', () => {
+    expect(formatKeys('mod+shift+p')).toBe('⌘⇧P');
+    expect(formatKeys('mod+k')).toBe('⌘K');
+    expect(formatKeys('mod+1..9')).toBe('⌘1 to ⌘9');
+    expect(formatKeys('1..9')).toBe('1 to 9');
+    expect(formatKeys('mod+q mod+q')).toBe('⌘Q then ⌘Q');
+    expect(formatKeys('alt+click')).toBe('⌥-click');
+    expect(formatKeys('ctrl+shift+tab')).toBe('⌃⇧⇥');
+    expect(formatKeys('mod+\\')).toBe('⌘\\');
+    expect(formatKeys('escape')).toBe('Esc');
+    expect(formatKeys('shift+enter')).toBe('⇧↩');
+    expect(formatKeys('f2')).toBe('F2');
+  });
+
+  it('says combos as words for screen readers', () => {
+    expect(spokenKeys('mod+k')).toBe('Command, K');
+    expect(spokenKeys('mod+shift+p')).toBe('Command, Shift, P');
+    expect(spokenKeys('mod+q mod+q')).toBe('Command, Q then Command, Q');
+    expect(spokenKeys('1..9')).toBe('1 to 9');
+    expect(spokenKeys('alt+click')).toBe('Option, click');
+  });
+
+  it('reads mod as ⌘ everywhere a stored shortcut is read', () => {
+    expect(normalizeShortcut('mod+shift+p')).toBe('cmd+shift+p');
+    expect(sameShortcut('mod+j', 'cmd+j')).toBe(true);
+    expect(keysFor('terminal.toggle')).toBe('cmd+j');
+    expect(ariaKeysFor('palette.commands')).toBe('Meta+K Meta+Shift+P');
+    expect(comboPresses('mod+1..3')).toEqual(['cmd+1', 'cmd+2', 'cmd+3']);
+    expect(comboPresses('mod+q mod+q')).toEqual(['cmd+q']);
+    expect(comboPresses('alt+click')).toEqual([]);
+  });
+
+  it('matches key presses to a shortcut and its alternatives', () => {
+    expect(matches(press('k', { metaKey: true }), 'palette.commands')).toBe(true);
+    expect(matches(press('P', { metaKey: true, shiftKey: true }), 'palette.commands')).toBe(true);
+    expect(matches(press('p', { metaKey: true }), 'palette.commands')).toBe(false);
+    expect(matches(press('k', { metaKey: true, ctrlKey: true }), 'palette.commands')).toBe(false);
+    expect(matches(press('j', { metaKey: true }), 'terminal.toggle')).toBe(true);
+    expect(matches(press('J', { metaKey: true, shiftKey: true }), 'terminal.toggle')).toBe(false);
+    expect(matches(press('J', { metaKey: true, shiftKey: true }), 'terminal.maximize')).toBe(true);
+    expect(matches(press('Tab', { ctrlKey: true }), 'session.next')).toBe(true);
+    expect(matches(press('Tab', { ctrlKey: true, shiftKey: true }), 'session.next')).toBe(false);
+    expect(matches(press('Tab', { ctrlKey: true, shiftKey: true }), 'session.previous')).toBe(true);
+    expect(matches(press('Enter'), 'composer.send')).toBe(true);
+    expect(matches(press('Enter', { metaKey: true }), 'composer.send')).toBe(true);
+    expect(matches(press('Enter', { shiftKey: true }), 'composer.send')).toBe(false);
+    expect(matches(press('Enter', { shiftKey: true }), 'composer.newline')).toBe(true);
+    expect(matches(press('Enter', { ctrlKey: true }), 'permission.allow')).toBe(true);
+    expect(matches(press('3'), 'permission.pick')).toBe(true);
+    expect(matches(press('0'), 'permission.pick')).toBe(false);
+    expect(matches(press('3', { metaKey: true }), 'new-session.pick')).toBe(true);
+    expect(matches(press('\\', { metaKey: true }), 'pane.close-other')).toBe(true);
+    expect(matches(press('F2'), 'sidebar.rename')).toBe(true);
+    expect(matches(press('Backspace', { metaKey: true }), 'sidebar.delete')).toBe(true);
+    expect(matches(press('F10', { shiftKey: true }), 'context-menu')).toBe(true);
+    expect(matches(press('g', { metaKey: true }), 'find.next')).toBe(true);
+    expect(matches(press('G', { metaKey: true, shiftKey: true }), 'find.previous')).toBe(true);
+    // ⌘/ is ⌘⇧7 on some keyboards: ⇧ doesn't count for a symbol.
+    expect(matches(press('/', { metaKey: true }), 'shortcuts')).toBe(true);
+    expect(matches(press('/', { metaKey: true, shiftKey: true }), 'shortcuts')).toBe(true);
+    expect(matches(press('Shift', { shiftKey: true }), 'shortcuts')).toBe(false);
+  });
+
+  it('reserves every registry key with a modifier, and the menu bar', () => {
+    for (const def of SHORTCUTS as readonly ShortcutDef[]) {
+      if (def.reserve === false) continue;
+      for (const press of def.keys.flatMap(comboPresses).filter((p) => p.includes('+'))) expect(RESERVED_SHORTCUTS.has(press), `${def.id}: ${press}`).toBe(true);
+    }
+    for (const key of ['cmd+/', 'cmd+shift+j', 'cmd+q', 'cmd+c', 'cmd+w', 'shift+tab']) expect(RESERVED_SHORTCUTS.has(key), key).toBe(true);
+    // ⌘1 to ⌘9 only pick projects in New session, where actions don't run.
+    expect(RESERVED_SHORTCUTS.has('cmd+1')).toBe(false);
+    expect([...RESERVED_SHORTCUTS].filter((k) => !k.includes('+'))).toEqual([]);
+  });
+
+  it('decides where each shortcut works', () => {
+    // For every shortcut with a condition: a place it works, and one it doesn't.
+    const cases: Partial<Record<ShortcutId, [works: ShortcutContext, doesnt: ShortcutContext]>> = {
+      'sidebar.clear-selection': [at({ selection: 2 }), HOME],
+      'pane.close-other': [at({ split: true }), HOME],
+      find: [SESSION, { ...SESSION, focus: 'terminal' }],
+      'find.next': [SESSION, HOME],
+      'find.previous': [SESSION, HOME],
+      'changes.toggle': [SESSION, at({ view: 'session' })],
+      'terminal.toggle': [SESSION, HOME],
+      'terminal.maximize': [SESSION, at({ view: 'settings' })],
+      'terminal.restore': [{ ...SESSION, terminal: { open: true, maximized: true, actionRunning: false } }, { ...SESSION, terminal: { open: true, maximized: false, actionRunning: false } }],
+      'terminal.clear': [{ ...SESSION, terminal: { open: true, maximized: false, actionRunning: false } }, SESSION],
+      'terminal.stop-action': [{ ...SESSION, terminal: { open: true, maximized: false, actionRunning: true } }, { ...SESSION, terminal: { open: true, maximized: false, actionRunning: false } }],
+      'git.pull': [{ ...SESSION, behind: true }, SESSION],
+      'editor.open': [SESSION, at({ view: 'new-session' })],
+      'claude.stop': [{ ...SESSION, running: true }, SESSION],
+      'mode.cycle': [SESSION, HOME],
+      'composer.send': [at({ view: 'new-session' }), HOME],
+      'composer.newline': [SESSION, at({ view: 'settings' })],
+      'composer.commands': [at({ view: 'new-session' }), at({ view: 'projects' })],
+      'composer.mention': [SESSION, HOME],
+      'composer.history': [SESSION, at({ view: 'new-session' })],
+      'permission.allow': [{ ...SESSION, pending: 'permission' }, SESSION],
+      'permission.deny': [{ ...SESSION, pending: 'question' }, SESSION],
+      'permission.pick': [{ ...SESSION, pending: 'question' }, { ...SESSION, pending: 'permission' }],
+      'new-session.pick': [at({ view: 'new-session' }), SESSION],
+      'new-session.start': [at({ view: 'new-session' }), SESSION],
+      'settings.close': [at({ view: 'settings' }), SESSION],
+    };
+    const conditional = (SHORTCUTS as readonly ShortcutDef[]).filter((s) => s.when).map((s) => s.id);
+    expect(Object.keys(cases).sort()).toEqual(conditional.sort());
+    for (const [id, [works, doesnt]] of Object.entries(cases)) {
+      expect(available(shortcutById(id as ShortcutId), works), `${id} works`).toBe(true);
+      expect(available(shortcutById(id as ShortcutId), doesnt), `${id} doesn't`).toBe(false);
+    }
+    // The rest work anywhere.
+    for (const def of (SHORTCUTS as readonly ShortcutDef[]).filter((s) => !s.when)) expect(available(def, HOME), def.id).toBe(true);
+  });
+});
+
+/** Keys that are meant to do different things at the same time and place, and how they're told apart. */
+const INTENDED_OVERLAPS: Record<string, string> = {
+  escape: 'Esc closes or cancels what is nearest: a menu or dialog first, then a waiting card, then the message box stops Claude.',
+  'cmd+enter': 'A waiting card takes ⌘↩ (Allow) before the message box sends; in New session the message box sending is starting the session.',
+  'cmd+k': 'In the terminal ⌘K clears it, as in Terminal; the palette is ⌘⇧P there.',
+};
+
+describe('shortcut collisions', () => {
+  const VIEWS: ShortcutContext['view'][] = ['home', 'new-session', 'session', 'settings', 'projects'];
+  const FOCUS: ShortcutContext['focus'][] = ['terminal', 'composer', 'other'];
+  /** Every view and focus, with everything off and with everything on (the most shortcuts at once). */
+  const contexts = VIEWS.flatMap((view) =>
+    FOCUS.flatMap((focus): ShortcutContext[] => [
+      at({ view, focus, session: view === 'session' }),
+      { view, focus, session: view === 'session', running: true, pending: 'question', selection: 2, split: true, behind: true, terminal: { open: true, maximized: true, actionRunning: true } },
+    ]),
+  );
+
+  const overlaps = () => {
+    const found = new Map<string, Set<string>>();
+    for (const ctx of contexts) {
+      const live = (SHORTCUTS as readonly ShortcutDef[]).filter((s) => available(s, ctx));
+      for (const [i, a] of live.entries()) {
+        for (const b of live.slice(i + 1)) {
+          // Two places for focus never overlap; one shortcut without a place works wherever the other does.
+          if (a.where && b.where && a.where !== b.where) continue;
+          const keysA = new Set(a.keys.flatMap(comboPresses));
+          for (const press of b.keys.flatMap(comboPresses).filter((p) => keysA.has(p))) {
+            if (!found.has(press)) found.set(press, new Set());
+            found.get(press)!.add([a.id, b.id].sort().join(' + '));
+          }
+        }
+      }
+    }
+    return found;
+  };
+
+  it('no two shortcuts share keys where both work, except the intended overlaps', () => {
+    const unintended = [...overlaps()].filter(([press]) => !INTENDED_OVERLAPS[press]).map(([press, pairs]) => `${press}: ${[...pairs].join(', ')}`);
+    expect(unintended).toEqual([]);
+  });
+
+  it('every intended overlap still happens (so the list stays honest)', () => {
+    const found = overlaps();
+    for (const press of Object.keys(INTENDED_OVERLAPS)) expect(found.has(press), press).toBe(true);
   });
 });

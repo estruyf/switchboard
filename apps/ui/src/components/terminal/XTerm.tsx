@@ -6,6 +6,7 @@ import '@xterm/xterm/css/xterm.css';
 import { useEffect, useRef } from 'react';
 import { useEngineConnection } from '../../engine/useEngine.ts';
 import { useThemes } from '../../state/themeStore.ts';
+import { matches } from '../../lib/shortcuts.ts';
 
 /** Fallbacks after the user's own terminal font: system monospace, then common Nerd Fonts for prompt glyphs. */
 const FALLBACK_FONTS = '"SF Mono", ui-monospace, Menlo, "Symbols Nerd Font Mono", "MesloLGS NF", "Hack Nerd Font Mono", "JetBrainsMono Nerd Font Mono", monospace';
@@ -94,7 +95,7 @@ export function XTerm({ id, active, exited, onClose }: { id: string; active: boo
       }
       // ⌘K clears the screen and scrollback, as in Terminal and iTerm; the palette opens with ⌘⇧P here.
       // `data-cleared` counts the clears, for the smoke test (the WebGL renderer keeps the text out of the DOM).
-      if (event.metaKey && !event.shiftKey && !event.altKey && !event.ctrlKey && event.key.toLowerCase() === 'k') {
+      if (matches(event, 'terminal.clear')) {
         if (event.type === 'keydown') {
           term.clear();
           host.dataset.cleared = String(Number(host.dataset.cleared ?? 0) + 1);
@@ -102,7 +103,7 @@ export function XTerm({ id, active, exited, onClose }: { id: string; active: boo
         return false;
       }
       // ⌃⇥ and ⌃⇧⇥ move between sessions, as everywhere else in the window.
-      if (event.ctrlKey && !event.metaKey && !event.altKey && event.key === 'Tab') return false;
+      if (matches(event, 'session.next') || matches(event, 'session.previous')) return false;
       return !(event.metaKey && !['c', 'v', 'a'].includes(event.key.toLowerCase()));
     });
 

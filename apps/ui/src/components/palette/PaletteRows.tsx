@@ -9,7 +9,7 @@ import { Kbd } from '../ui/Kbd.tsx';
 import type { TileTone } from '../newSession/projectTiles.ts';
 
 /** The letters of `text` at `indices` in the readable accent, the rest as is. */
-export function Highlight({ text, indices, className = '' }: { text: string; indices: readonly number[]; className?: string }) {
+export function Highlight({ text, indices, className = '', mark = 'text-accent-ink' }: { text: string; indices: readonly number[]; className?: string; /** How a matched run looks. */ mark?: string }) {
   if (indices.length === 0) return <span className={className}>{text}</span>;
   const marked = new Set(indices);
   const parts: ReactNode[] = [];
@@ -17,7 +17,7 @@ export function Highlight({ text, indices, className = '' }: { text: string; ind
   let runMarked = false;
   const flush = (key: number) => {
     if (!run) return;
-    parts.push(runMarked ? <span key={key} className="text-accent-ink">{run}</span> : run);
+    parts.push(runMarked ? <span key={key} className={mark}>{run}</span> : run);
     run = '';
   };
   text.split('').forEach((char, i) => {
@@ -206,9 +206,9 @@ export function OptionRow({
 }
 
 /** A prefix in the "?" help: the character, what it lists, and how to get there. */
-export function HelpRow({ prefix, title, detail, ...common }: Common & { prefix: string; title: string; detail: string }) {
+export function HelpRow({ prefix, title, detail, hook, ...common }: Common & { prefix: string; title: string; detail: string; /** The `data-palette-help` value when it isn't the prefix (the shortcuts sheet). */ hook?: string }) {
   return (
-    <RowShell {...common} data-palette-help={prefix || 'goto'}>
+    <RowShell {...common} data-palette-help={hook ?? (prefix || 'goto')}>
       <span aria-hidden className="flex w-4 shrink-0 justify-center font-mono text-body font-semibold text-accent-ink">
         {prefix}
       </span>

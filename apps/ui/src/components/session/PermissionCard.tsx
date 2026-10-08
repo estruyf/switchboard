@@ -150,7 +150,7 @@ function FeedbackField({ value, onChange, onSubmit, busy }: { value: string; onC
 
 function DenyButton({ label, busy, onClick }: { label: string; busy: boolean; onClick(): void }) {
   return (
-    <Button variant="quiet" size="lg" disabled={busy} onClick={onClick} kbd="Esc" data-permission-deny className="ml-auto">
+    <Button variant="quiet" size="lg" disabled={busy} onClick={onClick} shortcut="permission.deny" data-permission-deny className="ml-auto">
       {label}
     </Button>
   );
@@ -238,7 +238,7 @@ function ToolPermission({ request, cwd, titleId, cardRef }: CardProps & { cwd: s
         </pre>
       )}
       <div className="flex flex-wrap items-center gap-1.5">
-        <Button ref={allowRef} variant="primary" size="lg" kbd="⌘↵" data-permission-allow disabled={busy} onClick={allow} data-tooltip="Allow this once; Claude asks again next time">
+        <Button ref={allowRef} variant="primary" size="lg" shortcut="permission.allow" data-permission-allow disabled={busy} onClick={allow} data-tooltip="Allow this once; Claude asks again next time">
           Allow
         </Button>
         {request.alwaysLabel && (
@@ -405,7 +405,7 @@ function AskUserQuestion({ request, titleId, cardRef }: CardProps) {
         );
       })}
       <div className="flex flex-wrap items-center gap-1.5">
-        <Button type="submit" variant="primary" size="lg" kbd="⌘↵" disabled={busy || !complete}>
+        <Button type="submit" variant="primary" size="lg" shortcut="permission.allow" disabled={busy || !complete}>
           Answer
         </Button>
         {current && current.options.length > 0 && !busy && (
@@ -442,7 +442,7 @@ function PlanApproval({ request, titleId, cardRef }: CardProps) {
         <Markdown text={plan} />
       </div>
       <div className="flex flex-wrap items-center gap-1.5">
-        <Button variant="primary" size="lg" kbd="⌘↵" disabled={busy} onClick={() => void approveWithEdits()} data-tooltip="Start, and let Claude edit files without asking each time">
+        <Button variant="primary" size="lg" shortcut="permission.allow" disabled={busy} onClick={() => void approveWithEdits()} data-tooltip="Start, and let Claude edit files without asking each time">
           Approve and accept edits
         </Button>
         <Button size="lg" disabled={busy} onClick={() => void respond({ behavior: 'allow' })} data-tooltip="Start, and ask before each file edit">

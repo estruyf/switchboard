@@ -40,6 +40,9 @@ import { activityByProject, latestBranches, pickUpRows, recentFirst, tileStatus 
 import { branchLabel, branchNote, freshBase } from './trayLabels.ts';
 import { checkoutBranchFor, shouldPrewarm, startNewSession } from './startSession.ts';
 import { DEFAULTS_KEY, globalPatch, INITIAL_CHOICES, linkStartingChoices, readGlobals, sameDefaults, startingChoices, toProjectDefaults, type Choices, type GlobalChoices } from './choices.ts';
+import { comboPresses, keysFor, shortcutById } from '../../lib/shortcuts.ts';
+
+const keysOf = (id: 'new-session.pick') => shortcutById(id).keys[0]!;
 
 /** The prompt typed here and not sent yet: it is still in the box after visiting a session or Settings. */
 let unsentPrompt = '';
@@ -582,7 +585,7 @@ export function NewSessionView() {
             {/* The one hero heading in the app, a little larger than text-title. */}
             <h1 className="text-hero leading-tight font-semibold">Where do we start?</h1>
             <p className="mt-1 text-ui text-muted">
-              <Kbd keys="⌘1" /> to <Kbd keys="⌘9" /> picks a project, or start typing its name
+              <Kbd keys={comboPresses(keysOf('new-session.pick'))[0]!} /> to <Kbd keys={comboPresses(keysOf('new-session.pick')).at(-1)!} /> picks a project, or start typing its name
             </p>
           </div>
 
@@ -758,7 +761,7 @@ export function NewSessionView() {
               commands={commands}
               placeholder="What should Claude work on?"
               submitLabel="Start session"
-              submitHint="⌘↵"
+              submitHint={keysFor('new-session.start')}
               large
               frameColor={projectColor}
               autoFocus

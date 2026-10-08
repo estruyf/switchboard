@@ -8,6 +8,7 @@ import { needsYouPill } from '../../state/sidebarOrder.ts';
 import { inScope } from '../../state/sidebarRows.ts';
 import { Button } from '../ui/Button.tsx';
 import { Pill } from '../ui/Pill.tsx';
+import { formatKeys, keysFor } from '../../lib/shortcuts.ts';
 
 /**
  * The start of a view's header: the sidebar toggle (⌘B) and, while the sidebar is closed, room for the
@@ -28,8 +29,8 @@ export function SidebarToggle() {
         icon={<PanelLeft size={15} aria-hidden />}
         aria-label={open ? (collapsed === 'closed' ? 'Hide sidebar' : 'Minimize sidebar') : 'Open sidebar'}
         aria-expanded={open}
-        data-tooltip="Sidebar (⌘B)"
-        kbd="⌘B"
+        data-tooltip={`Sidebar (${formatKeys(keysFor('sidebar.toggle'))})`}
+        shortcut="sidebar.toggle"
         onClick={() => useSidebar.getState().toggle()}
         className="no-drag"
         data-sidebar-toggle={state}

@@ -71,6 +71,7 @@ import {
 } from 'lucide-react';
 import type { ColorScheme, Preferences, SidebarStyle } from '@switchboard/protocol/bridge';
 import { fuzzyMatch } from '../../lib/fuzzy.ts';
+import { keysFor } from '../../lib/shortcuts.ts';
 import type { SettingsSection } from '../../state/sessionsStore.ts';
 import type { SidebarState } from '../../state/sidebarWidth.ts';
 import { ACTION_ICON } from '../actions/actionIcon.ts';
@@ -87,6 +88,8 @@ export type NewSessionRequest = 'toggle-worktree' | 'save-defaults' | 'save-late
 export interface PaletteApi {
   goHome(): void;
   showSearch(): void;
+  /** The keyboard shortcuts sheet (⌘/). */
+  showShortcuts(): void;
   openSettings(section?: SettingsSection): void;
   setPreferences(patch: Partial<Preferences>): void;
   setSidebar(state: SidebarState): void;
@@ -166,7 +169,7 @@ export interface PaletteCommand {
   group: CommandGroup;
   /** Other words it answers to. */
   keywords?: string;
-  /** As shown (`⌘N`) or stored (`cmd+shift+p`). */
+  /** Stored (`cmd+shift+p`): `keysFor(id)` from the registry for Switchboard's own, an action's own shortcut for actions. */
   shortcut?: string;
   /** A quiet note on the right when there is no shortcut ("current project"). */
   hint?: string;
@@ -215,7 +218,7 @@ const SETTINGS_SECTIONS: Array<{ id: SettingsSection; label: string; icon: Lucid
 /** Every command that doesn't depend on the project's actions. */
 export const COMMANDS: PaletteCommand[] = [
   // Always
-  { id: 'new-session', title: 'New session…', group: 'general', shortcut: '⌘N', icon: SquarePen, keywords: 'start create prompt', when: always, next: () => NEW_SESSION_STEP },
+  { id: 'new-session', title: 'New session…', group: 'general', shortcut: keysFor('session.new'), icon: SquarePen, keywords: 'start create prompt', when: always, next: () => NEW_SESSION_STEP },
   {
     id: 'new-session-here',
     title: (ctx) => `New session in ${ctx.currentProject?.name ?? 'this project'}`,
@@ -235,17 +238,17 @@ export const COMMANDS: PaletteCommand[] = [
     when: always,
     next: () => ({ kind: 'projects', purpose: 'new-session', worktree: true, chip: 'New session in a worktree' }),
   },
-  { id: 'go-to-session', title: 'Go to session…', group: 'general', shortcut: '⌘P', icon: MessagesSquare, keywords: 'open switch find project quick', when: always, mode: 'goto' },
-  { id: 'next-session', title: 'Next session', group: 'general', shortcut: '⌃⇥', icon: ChevronsDown, keywords: 'switch cycle down sidebar order', when: always, run: (api) => api.goToSession(1) },
-  { id: 'previous-session', title: 'Previous session', group: 'general', shortcut: '⌃⇧⇥', icon: ChevronsUp, keywords: 'switch cycle up sidebar order back', when: always, run: (api) => api.goToSession(-1) },
-  { id: 'next-needs-you', title: 'Go to next session that needs you', group: 'general', shortcut: '⌘⇧U', icon: BellRing, keywords: 'waiting permission question attention', when: always, run: (api) => api.goToNextNeedsYou() },
-  { id: 'toggle-sidebar', title: 'Toggle sidebar', group: 'general', shortcut: '⌘B', icon: PanelLeft, keywords: 'hide show collapse rail', when: always, run: (api) => api.toggleSidebar() },
+  { id: 'go-to-session', title: 'Go to session…', group: 'general', shortcut: keysFor('palette.goto'), icon: MessagesSquare, keywords: 'open switch find project quick', when: always, mode: 'goto' },
+  { id: 'next-session', title: 'Next session', group: 'general', shortcut: keysFor('session.next'), icon: ChevronsDown, keywords: 'switch cycle down sidebar order', when: always, run: (api) => api.goToSession(1) },
+  { id: 'previous-session', title: 'Previous session', group: 'general', shortcut: keysFor('session.previous'), icon: ChevronsUp, keywords: 'switch cycle up sidebar order back', when: always, run: (api) => api.goToSession(-1) },
+  { id: 'next-needs-you', title: 'Go to next session that needs you', group: 'general', shortcut: keysFor('session.next-needs-you'), icon: BellRing, keywords: 'waiting permission question attention', when: always, run: (api) => api.goToNextNeedsYou() },
+  { id: 'toggle-sidebar', title: 'Toggle sidebar', group: 'general', shortcut: keysFor('sidebar.toggle'), icon: PanelLeft, keywords: 'hide show collapse rail', when: always, run: (api) => api.toggleSidebar() },
   { id: 'sidebar-open', title: 'Open sidebar', group: 'general', icon: PanelLeftOpen, keywords: 'show expand', when: (ctx) => ctx.sidebar !== 'open', run: (api) => api.setSidebar('open') },
   { id: 'sidebar-minimize', title: 'Minimize sidebar', group: 'general', icon: PanelLeftDashed, keywords: 'rail icons collapse narrow', when: (ctx) => ctx.sidebar !== 'minimal', run: (api) => api.setSidebar('minimal') },
   { id: 'sidebar-close', title: 'Close sidebar', group: 'general', icon: PanelLeftClose, keywords: 'hide collapse full width', when: (ctx) => ctx.sidebar !== 'closed', run: (api) => api.setSidebar('closed') },
-  { id: 'home', title: 'Home', group: 'general', shortcut: '⌘⇧H', icon: House, keywords: 'start overview dashboard', when: (ctx) => ctx.view !== 'home', run: (api) => api.goHome() },
-  { id: 'search', title: 'Search conversations', group: 'general', shortcut: '⌘⇧F', icon: TextSearch, keywords: 'find text', when: always, run: (api) => api.showSearch() },
-  { id: 'settings', title: 'Settings', group: 'general', shortcut: '⌘,', icon: Settings, keywords: 'preferences', when: (ctx) => ctx.view !== 'settings', run: (api) => api.openSettings() },
+  { id: 'home', title: 'Home', group: 'general', shortcut: keysFor('home'), icon: House, keywords: 'start overview dashboard', when: (ctx) => ctx.view !== 'home', run: (api) => api.goHome() },
+  { id: 'search', title: 'Search conversations', group: 'general', shortcut: keysFor('search'), icon: TextSearch, keywords: 'find text', when: always, run: (api) => api.showSearch() },
+  { id: 'settings', title: 'Settings', group: 'general', shortcut: keysFor('settings'), icon: Settings, keywords: 'preferences', when: (ctx) => ctx.view !== 'settings', run: (api) => api.openSettings() },
   ...SIDEBAR_STYLES.map(
     ({ value, label }): PaletteCommand => ({
       id: `sidebar-${value}`,
@@ -286,7 +289,7 @@ export const COMMANDS: PaletteCommand[] = [
   { id: 'export-settings', title: 'Export settings…', group: 'general', icon: Upload, keywords: 'backup save move mac projects actions preferences', when: always, run: (api) => api.backup('export') },
   { id: 'import-settings', title: 'Import settings…', group: 'general', icon: Download, keywords: 'backup restore move mac projects actions preferences', when: always, run: (api) => api.backup('import') },
   { id: 'diagnostics', title: 'Engine diagnostics', group: 'general', icon: Activity, keywords: 'settings log version', when: always, run: (api) => api.openSettings('diagnostics') },
-  { id: 'shortcuts', title: 'Keyboard shortcuts', group: 'general', icon: Keyboard, keywords: 'help keys prefixes', when: always, mode: 'help' },
+  { id: 'shortcuts', title: 'Keyboard shortcuts', group: 'general', shortcut: keysFor('shortcuts'), icon: Keyboard, keywords: 'help keys hotkeys cheat sheet', when: always, run: (api) => api.showShortcuts() },
   { id: 'focus-on', title: 'Focus limit: turn on', group: 'general', icon: Target, keywords: 'limit sessions', when: (ctx) => ctx.focusLimit === null, run: (api) => api.setFocusLimit(true) },
   { id: 'focus-off', title: 'Focus limit: turn off', group: 'general', icon: Target, keywords: 'limit sessions', when: (ctx) => ctx.focusLimit !== null, run: (api) => api.setFocusLimit(false) },
   { id: 'focus-set', title: 'Focus limit: set limit…', group: 'general', icon: Target, keywords: 'limit sessions number', when: always, next: () => ({ kind: 'pick', list: 'focus-limit', chip: 'Focus limit' }) },
@@ -341,18 +344,18 @@ export const COMMANDS: PaletteCommand[] = [
   { id: 'compact', title: 'Compact context', group: 'session', icon: Shrink, keywords: '/compact summarise', when: (ctx) => hosted(ctx) && (session(ctx)!.host!.contextTokens ?? 0) > 0, run: (api) => api.compact() },
   { id: 'change-model', title: 'Change model…', group: 'session', icon: Cpu, keywords: 'opus sonnet haiku', when: hosted, next: () => ({ kind: 'pick', list: 'model', chip: 'Model' }) },
   { id: 'change-effort', title: 'Change effort…', group: 'session', icon: Gauge, keywords: 'thinking', when: (ctx) => hosted(ctx) && session(ctx)!.host!.supportsEffort, next: () => ({ kind: 'pick', list: 'effort', chip: 'Effort' }) },
-  { id: 'change-mode', title: 'Change permission mode…', group: 'session', shortcut: '⇧⇥', icon: ShieldCheck, keywords: 'plan accept edits auto', when: hosted, next: () => ({ kind: 'pick', list: 'mode', chip: 'Permission mode' }) },
+  { id: 'change-mode', title: 'Change permission mode…', group: 'session', shortcut: keysFor('mode.cycle'), icon: ShieldCheck, keywords: 'plan accept edits auto', when: hosted, next: () => ({ kind: 'pick', list: 'mode', chip: 'Permission mode' }) },
   { id: 'copy-last-reply', title: 'Copy last reply', group: 'session', icon: Copy, keywords: 'clipboard markdown answer', when: (ctx) => !!session(ctx)?.hasReply, run: (api) => api.copyLastReply() },
   { id: 'copy-session-id', title: 'Copy session id', group: 'session', icon: Hash, keywords: 'clipboard uuid resume', when: (ctx) => session(ctx) !== null, run: (api) => api.copySessionId() },
-  { id: 'toggle-terminal', title: 'Toggle terminal', group: 'session', shortcut: '⌘J', icon: SquareTerminal, keywords: 'shell panel', when: (ctx) => session(ctx) !== null, run: (api) => api.toggleTerminal() },
+  { id: 'toggle-terminal', title: 'Toggle terminal', group: 'session', shortcut: keysFor('terminal.toggle'), icon: SquareTerminal, keywords: 'shell panel', when: (ctx) => session(ctx) !== null, run: (api) => api.toggleTerminal() },
   { id: 'new-terminal-tab', title: 'New terminal tab', group: 'session', icon: Plus, keywords: 'shell', when: (ctx) => withCwd(ctx) && ctx.connected, run: (api) => api.newTerminalTab() },
-  { id: 'toggle-changes', title: 'Toggle changes', group: 'session', shortcut: '⌘⇧D', icon: FileDiff, keywords: 'diff git panel', when: withCwd, run: (api) => api.toggleChanges() },
+  { id: 'toggle-changes', title: 'Toggle changes', group: 'session', shortcut: keysFor('changes.toggle'), icon: FileDiff, keywords: 'diff git panel', when: withCwd, run: (api) => api.toggleChanges() },
   { id: 'tools', title: 'Tools: MCP servers, skills, agents, plugins', group: 'session', icon: Blocks, keywords: 'mcp extensions capabilities', when: withCwd, run: (api) => api.showTools() },
-  { id: 'open-in-editor', title: 'Open folder in editor', group: 'session', shortcut: '⌘O', icon: Code, keywords: 'vscode cursor', when: withCwd, run: (api) => api.openInEditor() },
+  { id: 'open-in-editor', title: 'Open folder in editor', group: 'session', shortcut: keysFor('editor.open'), icon: Code, keywords: 'vscode cursor', when: withCwd, run: (api) => api.openInEditor() },
   { id: 'reveal-in-finder', title: 'Reveal folder in Finder', group: 'session', icon: Folder, keywords: 'show files', when: withCwd, run: (api) => api.revealInFinder() },
   { id: 'close-session', title: 'Close session', group: 'session', icon: X, keywords: 'home', when: (ctx) => session(ctx) !== null, run: (api) => api.closeSession() },
   { id: 'delete-session', title: 'Delete session…', group: 'session', icon: Trash2, keywords: 'trash remove', when: (ctx) => indexed(ctx) && ctx.connected, run: (api) => api.deleteSession() },
-  { id: 'stop', title: 'Stop Claude', group: 'session', shortcut: 'Esc', icon: StopCircle, keywords: 'interrupt cancel', when: (ctx) => !!session(ctx)?.running && !!session(ctx)?.host && ctx.connected, run: (api) => api.stop() },
+  { id: 'stop', title: 'Stop Claude', group: 'session', shortcut: keysFor('claude.stop'), icon: StopCircle, keywords: 'interrupt cancel', when: (ctx) => !!session(ctx)?.running && !!session(ctx)?.host && ctx.connected, run: (api) => api.stop() },
   {
     id: 'go-to-waiting',
     title: (ctx) => (ctx.session?.waiting === 'question' ? 'Go to the question' : 'Go to the permission'),
@@ -377,12 +380,12 @@ export const COMMANDS: PaletteCommand[] = [
   { id: 'new-action', title: 'New action…', group: 'actions', icon: Plus, keywords: 'project scripts add', when: (ctx) => hasSession(ctx) && ctx.canEditActions, run: (api) => api.sessionRequest('new-action') },
 
   // The terminal is open
-  { id: 'hide-terminal', title: 'Hide terminal', group: 'terminal', shortcut: '⌘J', icon: SquareTerminal, keywords: 'close panel', when: terminalOpen, run: (api) => api.hideTerminal() },
+  { id: 'hide-terminal', title: 'Hide terminal', group: 'terminal', shortcut: keysFor('terminal.toggle'), icon: SquareTerminal, keywords: 'close panel', when: terminalOpen, run: (api) => api.hideTerminal() },
   {
     id: 'maximize-terminal',
     title: (ctx) => (ctx.terminal.maximized ? 'Restore terminal' : 'Maximize terminal'),
     group: 'terminal',
-    shortcut: '⌘⇧J',
+    shortcut: keysFor('terminal.maximize'),
     icon: Maximize2,
     keywords: 'full size',
     when: terminalOpen,
@@ -390,7 +393,7 @@ export const COMMANDS: PaletteCommand[] = [
   },
   { id: 'dock-right', title: 'Dock terminal right', group: 'terminal', icon: PanelRight, keywords: 'side', when: (ctx) => terminalOpen(ctx) && ctx.terminal.dock === 'bottom', run: (api) => api.dockTerminal('right') },
   { id: 'dock-below', title: 'Dock terminal below', group: 'terminal', icon: PanelBottom, keywords: 'bottom', when: (ctx) => terminalOpen(ctx) && ctx.terminal.dock === 'right', run: (api) => api.dockTerminal('bottom') },
-  { id: 'stop-action', title: 'Stop action', group: 'terminal', shortcut: '⌃C', icon: Square, keywords: 'kill command', when: (ctx) => terminalOpen(ctx) && !!ctx.terminal.action?.running, run: (api) => api.stopAction() },
+  { id: 'stop-action', title: 'Stop action', group: 'terminal', shortcut: keysFor('terminal.stop-action'), icon: Square, keywords: 'kill command', when: (ctx) => terminalOpen(ctx) && !!ctx.terminal.action?.running, run: (api) => api.stopAction() },
   { id: 'restart-action', title: 'Restart action', group: 'terminal', icon: RotateCcw, keywords: 'run again', when: (ctx) => terminalOpen(ctx) && ctx.terminal.action !== null && ctx.connected, run: (api) => api.restartAction() },
 
   // Split view

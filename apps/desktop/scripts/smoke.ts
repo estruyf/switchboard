@@ -58,6 +58,8 @@ console.log(`${String(result.searchResult).startsWith('ok') ? '✓' : '✗'} sea
 if (!String(result.searchResult).startsWith('ok')) process.exitCode = 1;
 console.log(`${String(result.paletteResult).startsWith('ok') ? '✓' : '✗'} command palette: ${result.paletteResult}`);
 if (!String(result.paletteResult).startsWith('ok')) process.exitCode = 1;
+console.log(`${String(result.shortcutsResult).startsWith('ok') ? '✓' : '✗'} shortcuts sheet: ${result.shortcutsResult}`);
+if (!String(result.shortcutsResult).startsWith('ok')) process.exitCode = 1;
 console.log(`${String(result.paletteNewSessionResult).startsWith('ok') ? '✓' : '✗'} command palette, new session: ${result.paletteNewSessionResult}`);
 if (!String(result.paletteNewSessionResult).startsWith('ok')) process.exitCode = 1;
 console.log(`${String(result.terminalClearResult).startsWith('ok') ? '✓' : '✗'} ⌘K in the terminal: ${result.terminalClearResult}`);

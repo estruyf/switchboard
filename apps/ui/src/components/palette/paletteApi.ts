@@ -48,6 +48,7 @@ export function createPaletteApi(ctx: PaletteContext, client: EngineClient | nul
   return {
     goHome: () => useSessions.getState().goHome(),
     showSearch: () => useOverlay.getState().show('search'),
+    showShortcuts: () => useOverlay.getState().show('shortcuts'),
     openSettings: (section) => useSessions.getState().openSettings(section),
     setPreferences: (patch) => usePreferences.getState().update(patch),
     setSidebar: (state) => useSidebar.getState().setState(state),
