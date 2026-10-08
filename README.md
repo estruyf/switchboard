@@ -153,6 +153,11 @@ To stop the checks, turn off *Check for Claude Code updates automatically* in Se
 
 Press **⌘/** (or Help › Keyboard Shortcuts) to see every shortcut in the app, with the ones that work where you are and your project actions' shortcuts. Type in its field to filter by name or by keys ("terminal", "⌘J").
 
+<p align="center"><picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/shortcuts-dark.png">
+  <img src="docs/screenshots/shortcuts-light.png" width="80%" alt="The keyboard shortcuts sheet over a session: every shortcut grouped by where it works, with its keys on the right and the ones that don't work there faded">
+</picture></p>
+
 <!-- shortcuts:start (written by npm run docs:shortcuts from apps/ui/src/lib/shortcuts.ts; edit the registry, not this table) -->
 
 **General**

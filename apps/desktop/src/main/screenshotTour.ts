@@ -123,6 +123,13 @@ export async function runScreenshotTour(win: BrowserWindow, outDir: string, hook
     await click('[data-pane="split"] [data-close-pane]');
     await need("!document.querySelector('[data-split]')", 'the second pane did not close');
 
+    // The keyboard shortcuts sheet (⌘/) over the finished session: what works here, the rest faded.
+    key('/', ['meta']);
+    await need("document.querySelector('[data-shortcuts-sheet] [data-shortcut-row]')", '⌘/ did not open the shortcuts sheet');
+    await shot(`shortcuts-${scheme}`);
+    key('Escape');
+    await need("!document.querySelector('[data-shortcuts-sheet]')", 'the shortcuts sheet did not close');
+
     // Search across every conversation.
     key('F', ['meta', 'shift']);
     await need("document.querySelector('[data-search] input')", '⌘⇧F did not open search');

@@ -2,12 +2,11 @@
 
 All notable changes to Switchboard are listed here. Each release is also on the [releases page](https://github.com/estruyf/switchboard/releases), with the `.dmg` to download.
 
-## [Unreleased]
+## [0.0.11] - 2026-10-08
 
 ### New
 
 - **Keyboard shortcuts sheet.** Press ⌘/ (or Help › Keyboard Shortcuts, or *Keyboard shortcuts* in the command palette) to see every shortcut, grouped by where it works, with your project actions' shortcuts for the open project. Shortcuts that don't work where you are are faded; switch to *Here* to hide them. Type to filter by name, or by keys ("⌘J", "cmd j"); pressing a shortcut in the filter looks it up instead of running it.
-- A project action can no longer be given a shortcut Switchboard already uses: ⌘/, ⌘⇧J, ⌃↩, ⇧↩, ⇧⇥, ⇧↑, ⇧↓ and ⇧F10 are now refused like the others.
 - **Themes.** Settings → Theme now has a theme picker under Light and Dark, with Demo Time, Catppuccin, Claude, Nord (dark only), Solarized and The unnamed (dark only) built in. A theme colours the app, code blocks, diffs and the terminal, and switching shows a toast with Undo.
 - **Import and export themes** as `.json` files. Import shows both modes, what the file sets, what is worked out from its background and accent, and text that is hard to read, before anything is added. A theme only needs a background and an accent per mode; the rest is generated to stay readable. Drop a theme file on the window to import it.
 - **Edit a theme while you look at it.** Switchboard reloads the theme in use when its file in the themes folder changes, and keeps the last working version if a change isn't valid.
@@ -24,6 +23,7 @@ All notable changes to Switchboard are listed here. Each release is also on the 
 
 ### Changed
 
+- A project action can no longer be given a shortcut Switchboard already uses: ⌘/, ⌘⇧J, ⌃↩, ⇧↩, ⇧⇥, ⇧↑, ⇧↓ and ⇧F10 are now refused like the others.
 - Project actions can no longer use ⌘B, ⌃⇥, ⌃⇧⇥ or ⌘⇧U. An action that already has one of them keeps it, and runs instead of Switchboard's shortcut.
 - A long prompt that is cut to two lines now fades out above Show more, so it's clear there is more to read.
 - The pin on a pinned session now sits next to its age in the sidebar, instead of at the end of the branch line.
