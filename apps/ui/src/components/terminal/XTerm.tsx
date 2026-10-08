@@ -101,6 +101,8 @@ export function XTerm({ id, active, exited, onClose }: { id: string; active: boo
         }
         return false;
       }
+      // ⌃⇥ and ⌃⇧⇥ move between sessions, as everywhere else in the window.
+      if (event.ctrlKey && !event.metaKey && !event.altKey && event.key === 'Tab') return false;
       return !(event.metaKey && !['c', 'v', 'a'].includes(event.key.toLowerCase()));
     });
 

@@ -37,6 +37,7 @@ export const CHOICE_KEYS: Record<string, string> = {
 const PREFERENCE_LABELS: Record<keyof Preferences, string> = {
   colorScheme: 'Appearance',
   sidebarStyle: 'Sidebar style',
+  sidebarCollapsed: 'When the sidebar is collapsed',
   toolActivity: 'Tool activity',
   confirmQuit: 'Ask before quitting',
   sessionScope: 'Sessions in the sidebar',

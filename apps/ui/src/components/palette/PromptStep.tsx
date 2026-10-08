@@ -267,7 +267,7 @@ export function PromptStep({ root, worktree, chip, onBack, onDone }: { root: str
           if (e.metaKey && e.key === 'Enter') (e.preventDefault(), e.stopPropagation(), void start());
           else if (e.metaKey && !e.shiftKey && e.key.toLowerCase() === 'e') (e.preventDefault(), e.stopPropagation(), moreOptions());
           else if (e.key === 'Backspace' && text === '') (e.preventDefault(), onBack());
-          else if (e.key === 'Tab' && e.shiftKey) (e.preventDefault(), update({ permissionMode: nextMode(d.permissionMode) }));
+          else if (e.key === 'Tab' && e.shiftKey && !e.ctrlKey) (e.preventDefault(), update({ permissionMode: nextMode(d.permissionMode) }));
         }}
         placeholder="What should Claude work on?"
         spellCheck={false}

@@ -1,8 +1,9 @@
 import { Activity, ArchiveRestore, Info, MessageSquare, Palette, PanelLeft, SlidersHorizontal, Target, Users, X, type LucideIcon } from 'lucide-react';
 import { useEffect, useId, useRef, type ReactNode, type RefObject } from 'react';
-import type { SidebarStyle, StartupView, ToolActivity } from '@switchboard/protocol/bridge';
+import type { SidebarCollapsed, SidebarStyle, StartupView, ToolActivity } from '@switchboard/protocol/bridge';
 import { usePreferences } from '../state/preferencesStore.ts';
 import { useSessions, type SettingsSection } from '../state/sessionsStore.ts';
+import { useSidebar } from '../state/sidebarStore.ts';
 import { BackupSettings } from './backup/BackupSettings.tsx';
 import { EngineDiagnostics } from './EngineDiagnostics.tsx';
 import { FocusSettings } from './focus/FocusSettings.tsx';
@@ -12,6 +13,7 @@ import { AboutSettings, SettingsVersion } from './updates/AboutSettings.tsx';
 import { Button } from './ui/Button.tsx';
 import { Choice } from './ui/Choice.tsx';
 import { Radio, RadioGroup } from './ui/Radio.tsx';
+import { SegmentedControl } from './ui/SegmentedControl.tsx';
 import { Toggle } from './ui/Toggle.tsx';
 
 /** A session row in miniature, drawn with the live theme tokens. */
@@ -164,6 +166,23 @@ function SectionPage({ section }: { section: SettingsSection }) {
               </Choice>
             ))}
           </RadioGroup>
+          <div className="flex items-center justify-between gap-4">
+            <span>
+              <span className="block text-ui">When collapsed</span>
+              <span className="block text-meta text-muted">What ⌘B and the sidebar button do: a narrow rail of project icons, or hide the sidebar.</span>
+            </span>
+            <SegmentedControl<SidebarCollapsed>
+              mode="radio"
+              label="When collapsed"
+              value={prefs.sidebarCollapsed}
+              onChange={(sidebarCollapsed) => update({ sidebarCollapsed })}
+              segments={[
+                { value: 'minimal', label: 'Minimal rail', data: { 'data-sidebar-collapsed': 'minimal' } },
+                { value: 'closed', label: 'Hidden', data: { 'data-sidebar-collapsed': 'closed' } },
+              ]}
+              className="shrink-0"
+            />
+          </div>
           <Toggle
             label="Show sessions from other apps"
             detail="Also list sessions from Terminal, Claude desktop and your editor. Off shows only sessions you started or continued in Switchboard."
@@ -255,8 +274,10 @@ function SectionPage({ section }: { section: SettingsSection }) {
 export function SettingsNav() {
   const section = useSessions((s) => s.settingsSection);
   const openSettings = useSessions((s) => s.openSettings);
+  // With the sidebar closed, the traffic lights sit above this list.
+  const sidebarClosed = useSidebar((s) => s.state === 'closed');
   return (
-    <nav aria-label="Settings sections" className="flex w-52 shrink-0 flex-col gap-0.5 overflow-y-auto border-r border-border p-2 pt-3" data-settings-nav>
+    <nav aria-label="Settings sections" className={`flex w-52 shrink-0 flex-col gap-0.5 overflow-y-auto border-r border-border p-2 ${sidebarClosed ? 'pt-12' : 'pt-3'}`} data-settings-nav>
       <h2 id="settings-title" className="px-2.5 pt-2 pb-3 text-title font-semibold">
         Settings
       </h2>

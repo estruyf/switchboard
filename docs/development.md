@@ -25,6 +25,14 @@ npm run smoke:packaged   # run the smoke test against the packaged app
 
 Packaging and signing are covered in [Building, signing and notarisation](building-and-signing.md).
 
+### Next to the installed app
+
+Development builds (`npm run dev`, `npm start`) keep their data in `~/Library/Application Support/Switchboard Dev` instead of the installed app's `Switchboard` folder. They have their own single-instance lock and their own database, so a dev build runs side by side with the installed app, and its migrations never touch the installed app's cache or your saved choices. The first launch copies the installed app's `preferences.json`. To run a second dev build at the same time (another worktree), give it its own folder:
+
+```bash
+SWITCHBOARD_DATA_DIR="$HOME/Library/Application Support/Switchboard Dev 2" npm run dev
+```
+
 ## Tests
 
 `npm run check` runs the TypeScript checks and the unit tests (Vitest).
@@ -82,7 +90,7 @@ The live smoke step drives the real window. It starts a session in that folder, 
 
 ## Preferences
 
-Main keeps the app's preferences (theme, sidebar style, quit prompt) in `preferences.json` in the app's data folder (`~/Library/Application Support/Switchboard`). The preload reads them synchronously at page load, so the first paint already has the right theme and layout. Changes go through main, which saves them and broadcasts them to every window.
+Main keeps the app's preferences (theme, sidebar style, quit prompt) in `preferences.json` in the app's data folder (`~/Library/Application Support/Switchboard`, or `Switchboard Dev` for a development build). The preload reads them synchronously at page load, so the first paint already has the right theme and layout. Changes go through main, which saves them and broadcasts them to every window.
 
 The colours are the [Demo Time theme](https://github.com/estruyf/vscode-demo-time-theme)'s, as CSS variables in [`apps/ui/src/styles.css`](../apps/ui/src/styles.css). Code blocks use its syntax colours from [`apps/ui/src/lib/themes`](../apps/ui/src/lib/themes).
 

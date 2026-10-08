@@ -1,4 +1,5 @@
 import type { ColorScheme, SidebarStyle } from '@switchboard/protocol/bridge';
+import type { SidebarState } from '../../state/sidebarWidth.ts';
 import type { ActionIcon, HostState } from '@switchboard/protocol/client';
 import type { TerminalDock } from '../terminal/terminalLayout.ts';
 import type { SettingsSection } from '../../state/sessionsStore.ts';
@@ -75,6 +76,8 @@ export interface PaletteContext {
   themes: Array<{ id: string; name: string }>;
   themeId: string;
   sidebarStyle: SidebarStyle;
+  /** Open, the minimal rail, or closed. */
+  sidebar: SidebarState;
   settingsSection: SettingsSection;
   /** New session is on screen: what its route can do. */
   newSession: { canWorktree: boolean; canSaveDefaults: boolean; canSaveForLater: boolean } | null;

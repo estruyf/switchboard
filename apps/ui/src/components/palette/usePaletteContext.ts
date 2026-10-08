@@ -10,6 +10,7 @@ import { addedProjects } from '../../state/projectList.ts';
 import { useProjects } from '../../state/projectsStore.ts';
 import { toRows, useSessions } from '../../state/sessionsStore.ts';
 import { isActive } from '../../state/sidebarRows.ts';
+import { useSidebar } from '../../state/sidebarStore.ts';
 import { useTerminals } from '../../state/terminalsStore.ts';
 import { useThemes } from '../../state/themeStore.ts';
 import { useProjectActionList } from '../actions/useActions.ts';
@@ -71,6 +72,7 @@ export function usePaletteContext(): PaletteContext {
   const dock = useTerminals((s) => s.dock);
   const terminals = useTerminals((s) => s.terminals);
   const activeTerminals = useTerminals((s) => s.active);
+  const sidebar = useSidebar((s) => s.state);
 
   const view: PaletteView = mainView === 'new' ? 'new-session' : mainView === 'settings' ? 'settings' : mainView === 'projects' ? 'projects' : selectedId ? 'session' : 'home';
   const id = view === 'session' ? selectedId : null;
@@ -133,6 +135,7 @@ export function usePaletteContext(): PaletteContext {
     themes: themes.map((t) => ({ id: t.id, name: t.file.name })),
     themeId: activeTheme,
     sidebarStyle: prefs.sidebarStyle,
+    sidebar,
     settingsSection,
     newSession: view === 'new-session' ? newSessionInfo : null,
   };

@@ -8,6 +8,8 @@ import {
   Blocks,
   Bookmark,
   Code,
+  ChevronsDown,
+  ChevronsUp,
   Columns2,
   Copy,
   Cpu,
@@ -37,6 +39,9 @@ import {
   Palette,
   PanelBottom,
   PanelLeft,
+  PanelLeftClose,
+  PanelLeftDashed,
+  PanelLeftOpen,
   PanelRight,
   Pencil,
   Pin,
@@ -67,6 +72,7 @@ import {
 import type { ColorScheme, Preferences, SidebarStyle } from '@switchboard/protocol/bridge';
 import { fuzzyMatch } from '../../lib/fuzzy.ts';
 import type { SettingsSection } from '../../state/sessionsStore.ts';
+import type { SidebarState } from '../../state/sidebarWidth.ts';
 import { ACTION_ICON } from '../actions/actionIcon.ts';
 import type { TerminalDock } from '../terminal/terminalLayout.ts';
 import type { PaletteContext } from './paletteContext.ts';
@@ -83,6 +89,12 @@ export interface PaletteApi {
   showSearch(): void;
   openSettings(section?: SettingsSection): void;
   setPreferences(patch: Partial<Preferences>): void;
+  setSidebar(state: SidebarState): void;
+  /** ⌘B: open, or collapsed as Settings says. */
+  toggleSidebar(): void;
+  /** The next (1) or previous (-1) session in the sidebar's order. */
+  goToSession(direction: 1 | -1): void;
+  goToNextNeedsYou(): void;
   manageProjects(): void;
   addProject(): void;
   checkClaudeUpdate(): void;
@@ -224,6 +236,13 @@ export const COMMANDS: PaletteCommand[] = [
     next: () => ({ kind: 'projects', purpose: 'new-session', worktree: true, chip: 'New session in a worktree' }),
   },
   { id: 'go-to-session', title: 'Go to session…', group: 'general', shortcut: '⌘P', icon: MessagesSquare, keywords: 'open switch find project quick', when: always, mode: 'goto' },
+  { id: 'next-session', title: 'Next session', group: 'general', shortcut: '⌃⇥', icon: ChevronsDown, keywords: 'switch cycle down sidebar order', when: always, run: (api) => api.goToSession(1) },
+  { id: 'previous-session', title: 'Previous session', group: 'general', shortcut: '⌃⇧⇥', icon: ChevronsUp, keywords: 'switch cycle up sidebar order back', when: always, run: (api) => api.goToSession(-1) },
+  { id: 'next-needs-you', title: 'Go to next session that needs you', group: 'general', shortcut: '⌘⇧U', icon: BellRing, keywords: 'waiting permission question attention', when: always, run: (api) => api.goToNextNeedsYou() },
+  { id: 'toggle-sidebar', title: 'Toggle sidebar', group: 'general', shortcut: '⌘B', icon: PanelLeft, keywords: 'hide show collapse rail', when: always, run: (api) => api.toggleSidebar() },
+  { id: 'sidebar-open', title: 'Open sidebar', group: 'general', icon: PanelLeftOpen, keywords: 'show expand', when: (ctx) => ctx.sidebar !== 'open', run: (api) => api.setSidebar('open') },
+  { id: 'sidebar-minimize', title: 'Minimize sidebar', group: 'general', icon: PanelLeftDashed, keywords: 'rail icons collapse narrow', when: (ctx) => ctx.sidebar !== 'minimal', run: (api) => api.setSidebar('minimal') },
+  { id: 'sidebar-close', title: 'Close sidebar', group: 'general', icon: PanelLeftClose, keywords: 'hide collapse full width', when: (ctx) => ctx.sidebar !== 'closed', run: (api) => api.setSidebar('closed') },
   { id: 'home', title: 'Home', group: 'general', shortcut: '⌘⇧H', icon: House, keywords: 'start overview dashboard', when: (ctx) => ctx.view !== 'home', run: (api) => api.goHome() },
   { id: 'search', title: 'Search conversations', group: 'general', shortcut: '⌘⇧F', icon: TextSearch, keywords: 'find text', when: always, run: (api) => api.showSearch() },
   { id: 'settings', title: 'Settings', group: 'general', shortcut: '⌘,', icon: Settings, keywords: 'preferences', when: (ctx) => ctx.view !== 'settings', run: (api) => api.openSettings() },

@@ -1,6 +1,7 @@
 import { fuzzyMatch } from '../../lib/fuzzy.ts';
 import type { SessionRowData } from '../../state/sessionsStore.ts';
-import { rowStatus } from '../../state/sidebarRows.ts';
+import { sidebarGroups } from '../../state/sidebarOrder.ts';
+import { rowStatus, type SessionGroup } from '../../state/sidebarRows.ts';
 
 /** What needs attention first: needs you, then working, then finished and unread, then the rest. */
 export function sessionUrgency(row: SessionRowData): number {
@@ -51,4 +52,18 @@ export function matchProjects(roots: readonly string[], query: string, nameOf: (
     })
     .sort((a, b) => b.score - a.score)
     .map(({ item, indices }) => ({ item, indices }));
+}
+
+/**
+ * ⌘P with nothing typed: sessions under the sidebar's own headings, in its order (Needs you, Working,
+ * Today, Yesterday, Earlier; archived ones left out), so it can stand in for the sidebar while that is
+ * closed. At most `limit` sessions; the urgent groups come first, so they are never the ones cut.
+ */
+export function gotoGroups(rows: readonly SessionRowData[], now: number, limit: number): { group: SessionGroup; rows: SessionRowData[] }[] {
+  let left = limit;
+  return sidebarGroups(rows, { now }).flatMap(({ group, rows: inGroup }) => {
+    const shown = inGroup.slice(0, Math.max(0, left));
+    left -= shown.length;
+    return shown.length ? [{ group, rows: shown }] : [];
+  });
 }

@@ -12,6 +12,16 @@ All notable changes to Switchboard are listed here. Each release is also on the 
 - In the command palette: *Theme: <name>*, *Import theme…* and *Export current theme…*. The Light, Dark and Match System commands are now called *Appearance: …*.
 - Settings → Backup can include the themes you imported.
 - The Light, Dark and Match System switch in Settings is easier to see in light mode.
+- **Collapse the sidebar.** ⌘B, or the sidebar button at the left of the header, turns the sidebar into a narrow rail: one project icon per session in the same groups and order, with a coloured rail for what needs you, what's working and what's unread. Hover an icon to see its title, project, branch and state. In Settings → Sidebar, choose *Hidden* to hide it completely instead, so the conversation takes the whole window.
+- **Drag the sidebar's edge to collapse it.** Drag it in and it snaps to the rail, further and it hides; drag it out again to open it at your width. The arrow keys on the edge do the same.
+- **A pill for sessions that need you** shows in the header while the sidebar is hidden. Click it to open the one waiting longest.
+- **Move between sessions without the sidebar.** ⌃⇥ and ⌃⇧⇥ go to the next and previous session in the sidebar's order, and ⌘⇧U to the next one that needs you. With the sidebar collapsed, a short label at the top says where you landed.
+- **⌘P lists sessions like the sidebar**: Needs you, Working, Today, Yesterday and Earlier, then your projects.
+- New palette commands: *Toggle sidebar*, *Open sidebar*, *Minimize sidebar*, *Close sidebar*, *Next session*, *Previous session* and *Go to next session that needs you*.
+
+### Changed
+
+- Project actions can no longer use ⌘B, ⌃⇥, ⌃⇧⇥ or ⌘⇧U. An action that already has one of them keeps it, and runs instead of Switchboard's shortcut.
 
 ## [0.0.10] - 2026-10-07
 

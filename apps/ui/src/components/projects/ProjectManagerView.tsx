@@ -12,6 +12,7 @@ import { useProjectActionList } from '../actions/useActions.ts';
 import { Menu, type MenuEntry } from '../Menu.tsx';
 import { ProfileBadge } from '../profiles/ProfileBadge.tsx';
 import { ProjectIcon } from '../ProjectIcon.tsx';
+import { SidebarToggle } from '../sidebar/SidebarToggle.tsx';
 import { RemoveProjectDialog, useProjectActions, useProjectIconEntries } from '../sidebar/ProjectMenu.tsx';
 import { Button } from '../ui/Button.tsx';
 import { Notice } from '../ui/Notice.tsx';
@@ -288,6 +289,7 @@ export function ProjectManagerView() {
   return (
     <div className="@container flex h-full min-h-0 flex-col" data-project-manager>
       <header className="drag flex h-13 shrink-0 items-center gap-3 border-b border-border px-6">
+        <SidebarToggle />
         <h1 className="flex-1 text-title font-semibold">Projects</h1>
         <Button icon={<FolderPlus size={13} aria-hidden />} onClick={() => showAdd(true)} className="no-drag" data-manager-add>
           Add project

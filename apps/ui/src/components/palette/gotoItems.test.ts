@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import type { LiveSession } from '@switchboard/protocol/client';
 import type { SessionRowData } from '../../state/sessionsStore.ts';
-import { matchProjects, matchSessions, orderSessions } from './gotoItems.ts';
+import { buildListRows, buildSessionList } from '../../state/sidebarRows.ts';
+import { gotoGroups, matchProjects, matchSessions, orderSessions } from './gotoItems.ts';
 
 const row = (id: string, updatedAt: number, over: Partial<SessionRowData> = {}): SessionRowData => ({
   id,
@@ -52,5 +53,34 @@ describe('matchProjects', () => {
     expect(matchProjects(roots, '', name).map((m) => m.item)).toEqual(roots);
     expect(matchProjects(roots, 'demo', name)[0]!.item).toBe('/work/demo-time');
     expect(matchProjects(roots, 'archive', name).map((m) => m.item)).toEqual(['/archive/tideline']);
+  });
+});
+
+describe('gotoGroups', () => {
+  const now = new Date(2026, 9, 8, 15, 0).getTime();
+  const hour = 60 * 60 * 1000;
+  const rows = [
+    row('yesterday', now - 20 * hour),
+    row('today', now - hour),
+    row('asking', now - 3 * hour, { live: { status: 'needs-you', origin: 'app' } as LiveSession }),
+    row('working', now - 2 * hour, { live: { status: 'running', origin: 'app' } as LiveSession }),
+    row('old', now - 30 * 24 * hour),
+  ];
+
+  it('lists the groups and sessions in the sidebar order, without archived ones', () => {
+    const groups = gotoGroups(rows, now, 20);
+    expect(groups.map((g) => g.group)).toEqual(['needs-you', 'working', 'today', 'yesterday']);
+    const { active, archived } = buildSessionList(rows, { search: '', project: null, now });
+    const sidebar = buildListRows(active, archived, { now, archivedOpen: false }).flatMap((r) => (r.kind === 'group' ? [r.group] : []));
+    expect(groups.map((g) => g.group)).toEqual(sidebar);
+    expect(groups.flatMap((g) => g.rows.map((r) => r.id))).toEqual(['asking', 'working', 'today', 'yesterday']);
+  });
+
+  it('cuts the later groups first', () => {
+    expect(gotoGroups(rows, now, 3).map((g) => [g.group, g.rows.length])).toEqual([
+      ['needs-you', 1],
+      ['working', 1],
+      ['today', 1],
+    ]);
   });
 });
