@@ -187,7 +187,7 @@ Open Settings with ⌘, or the gear at the bottom of the sidebar. While it is op
 
 - **General:** what Switchboard shows when it opens: *The last session* (the default; only if the sidebar lists it, so not a session from another app while those are hidden) or *New session*. You can also turn off the "Ask before quitting" prompt.
 
-- **Theme:** Match System, Light or Dark. The colours come from the [Demo Time theme](https://github.com/estruyf/vscode-demo-time-theme).
+- **Theme:** *Appearance* is Match System, Light or Dark. Under it, pick a [theme](#themes): Demo Time (the default), GitHub, GitHub High Contrast, VS Code, VS Code High Contrast, or one you imported.
 - **Sidebar:** *Large icons* (easy to spot each project), *Standard*, or *Compact* (one line per session). *Show sessions from other apps* also lists sessions from the terminal, Claude desktop and your editor (off by default), and notifies you when a terminal session is waiting.
 - **Conversation:** *Summarised* (the default) shows each run of tool calls as one line, like Claude Code: what Claude is doing right now, or what it did, with how long it took. Click it to see the steps, and a step to see its details. *Every step* shows each tool call as its own card.
 - **Focus:** the [focus limit](#focus-limit): on or off, how many sessions at the same time (1 to 10, 3 to start with), *Nudge* or *Strict*, and whether sessions from the terminal and your editor count.
@@ -195,6 +195,25 @@ Open Settings with ⌘, or the gear at the bottom of the sidebar. While it is op
 - **Backup:** export your settings to a file and import them again. See [Back up and move your settings](#back-up-and-move-your-settings).
 - **Diagnostics:** whether the engine is connected, which Claude Code it found, version numbers and the engine's recent log. Useful when something doesn't work.
 - **About:** the version you're running (and the commit it was built from, handy for bug reports), links to its release notes and the changelog, and the update controls: *Check for Updates*, automatic checks on or off, and the channel. The version also shows at the bottom of the Settings sidebar. Below them, the Claude Code that Switchboard runs: its version, path and how it was installed, the newest version, and an *Update* button when there is one.
+
+## Themes
+
+A theme sets the colours of the app, the code blocks and the terminal, for light and dark. Pick one in **Settings → Theme** or with *Theme: <name>* in the command palette; it applies at once, and the toast's **Undo** takes you back.
+
+- **Built in:** Demo Time, GitHub, GitHub High Contrast, VS Code and VS Code High Contrast. The high contrast themes keep text at 7:1 or more and borders on every surface.
+- **Import…** (or drop a theme `.json` on the window, outside a session's message box) shows both modes, how many colours the file sets and which are worked out from its background and accent, any text that is hard to read, and its terminal and code colours, before you add it. *Add and use* switches to it right away.
+- **Export…** in a theme's ⋯ menu (or *Export current theme…* in the palette) saves it as a `.json` file. Exporting Demo Time gives every colour, a good starting point for your own. **Duplicate** makes an editable copy of any theme.
+- **Open themes folder** shows where imported themes are kept. Edit a file there and Switchboard applies it as soon as you save; if a change isn't valid, it keeps the last version that worked and says what's wrong.
+- A theme can have only a light or only a dark version; the other mode then uses Demo Time.
+- Theme files hold colours only, so a theme can't change anything else in the app.
+
+The smallest theme is three lines per mode:
+
+```json
+{ "name": "Mint", "version": 1, "dark": { "canvas": "#0f1a17", "accent": "#3ddc97" } }
+```
+
+See [Themes](docs/themes.md) for the file format, every colour and where it shows, and code colours.
 
 ## Focus limit
 
@@ -216,7 +235,7 @@ Everything that starts work asks the same way: a message that brings back a sess
 
 To move to a new Mac, restore your setup after a reset, or share a set of actions with someone, use **Settings → Backup** (or *Export settings…* and *Import settings…* in the command palette).
 
-- **Export** saves the parts you tick to one `.json` file: preferences, projects (in your order, with their names, icons and defaults), project actions (global and per project, with shortcuts and worktree setup), and app choices such as your default editor. Pinned and archived sessions are left out unless you tick them; they're only useful on the same Mac, or when you copy `~/.claude` too. Your sessions themselves are never in the file.
+- **Export** saves the parts you tick to one `.json` file: preferences, themes you imported, projects (in your order, with their names, icons and defaults), project actions (global and per project, with shortcuts and worktree setup), and app choices such as your default editor. Pinned and archived sessions are left out unless you tick them; they're only useful on the same Mac, or when you copy `~/.claude` too. Your sessions themselves are never in the file.
 - **Import** shows what the file would add, change or skip before anything happens. *Merge* (the default) adds what's missing and keeps your own values; *Replace* makes your projects, actions and preferences match the file. A project folder that doesn't exist on this Mac (a different user name, say) can be pointed at another folder, or skipped.
 - Imported shell actions ask for your approval the first time they run, even if you approved them on the other Mac, so a settings file can't run a command you haven't seen.
 - Before importing, Switchboard saves your current settings in the `backups` folder of its app data. To undo an import, import that file with *Replace*.
@@ -227,6 +246,7 @@ Switchboard reads the session files Claude Code already keeps in `~/.claude` (an
 
 ## Documentation
 
+- [Themes](docs/themes.md): the theme file format, every colour and where it shows, and code colours.
 - [Project actions](docs/project-actions.md): add buttons for your own commands and prompts, and share them with your team.
 - [Links](docs/deep-links.md): open Switchboard from a `switchboard://` URL, with examples for the shell, READMEs, Raycast, Alfred and alerts.
 - [Building, signing and notarisation](docs/building-and-signing.md): packaging the app, and signing it with an Apple Developer ID.
@@ -237,4 +257,4 @@ Switchboard reads the session files Claude Code already keeps in `~/.claude` (an
 
 ## Credits
 
-Switchboard's colour theme and syntax colours come from the [Demo Time theme](https://github.com/estruyf/vscode-demo-time-theme) (MIT).
+Switchboard's colour theme and syntax colours come from the [Demo Time theme](https://github.com/estruyf/vscode-demo-time-theme) (MIT). The GitHub themes are ported from [primer/github-vscode-theme](https://github.com/primer/github-vscode-theme) (MIT) and the VS Code themes from [microsoft/vscode](https://github.com/microsoft/vscode/tree/main/extensions/theme-defaults) (MIT); see [Themes](docs/themes.md#credits-and-licences).

@@ -34,6 +34,11 @@ function context(over: Partial<PaletteContext> = {}): PaletteContext {
     actions: [],
     canEditActions: false,
     colorScheme: 'system',
+    themes: [
+      { id: 'demo-time', name: 'Demo Time' },
+      { id: 'github', name: 'GitHub' },
+    ],
+    themeId: 'demo-time',
     sidebarStyle: 'standard',
     settingsSection: 'general',
     newSession: null,
@@ -224,6 +229,19 @@ describe('arrangeCommands', () => {
     expect(byKeyword!.items[0]!.command.id).toBe('copy-session-id');
     expect(byKeyword!.items[0]!.indices).toEqual([]);
     expect(arrangeCommands(visibleCommands(ctx), ctx, [], 'zzzz')).toEqual([]);
+  });
+});
+
+describe('themes', () => {
+  it('offers every theme but the one in use, and import and export', () => {
+    const shown = visibleCommands(context());
+    expect(shown.map((c) => c.id)).toEqual(expect.arrayContaining(['theme:github', 'import-theme', 'export-theme']));
+    expect(shown.map((c) => c.id)).not.toContain('theme:demo-time');
+    expect(titleOf(shown.find((c) => c.id === 'theme:github')!, context())).toBe('Theme: GitHub');
+    expect(titleOf(shown.find((c) => c.id === 'theme-dark')!, context())).toBe('Appearance: Dark');
+    const api = { selectTheme: vi.fn() } as unknown as PaletteApi;
+    shown.find((c) => c.id === 'theme:github')!.run!(api, context());
+    expect(api.selectTheme).toHaveBeenCalledWith('github');
   });
 });
 

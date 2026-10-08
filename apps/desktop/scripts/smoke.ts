@@ -102,6 +102,8 @@ console.log(`${String(result.aboutResult).startsWith('ok') ? '✓' : '✗'} abou
 if (!String(result.aboutResult).startsWith('ok')) process.exitCode = 1;
 console.log(`${String(result.backupResult).startsWith('ok') ? '✓' : '✗'} backup: ${result.backupResult}`);
 if (!String(result.backupResult).startsWith('ok')) process.exitCode = 1;
+console.log(`${String(result.themeResult).startsWith('ok') ? '✓' : '✗'} themes: export, import, pick, remove, and every built-in in light and dark: ${result.themeResult}`);
+if (!String(result.themeResult).startsWith('ok')) process.exitCode = 1;
 console.log(`${result.highlighted ? '✓' : '✗'} syntax highlighting loaded and coloured a code block`);
 console.log(`${result.usageBand ? '✓' : '✗'} usage band above the composer: ${result.usageBand ?? 'not shown'}`);
 console.log(`  rendering on screen: ${JSON.stringify(result.rendering)}`);

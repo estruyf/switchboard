@@ -41,6 +41,8 @@ export const SettingsFile = z.object({
   appVersion: z.string().max(100).default('unknown'),
   exportedAt: z.string().max(100).default(''),
   preferences: z.record(z.string(), z.unknown()).optional(),
+  /** Imported themes, each a theme file as in the themes folder; checked one by one on import, like a theme import. */
+  themes: z.array(z.unknown()).max(500).optional(),
   projects: z.array(z.unknown()).max(5000).optional(),
   actions: z
     .object({

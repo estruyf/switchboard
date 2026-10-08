@@ -102,9 +102,9 @@ const FileDiff = memo(function FileDiff({ id, cwd, base, path, version }: { id: 
     );
   // Unwrapped, the inner block is as wide as the longest line, so every row's colour runs the full
   // width while scrolling sideways; the line numbers stay put.
-  const gutter = 'sticky left-0 z-[1] flex shrink-0 self-stretch bg-bg';
+  const gutter = 'sticky left-0 z-[1] flex shrink-0 self-stretch bg-code';
   return (
-    <div id={id} className="overflow-x-auto overscroll-x-contain border-t border-border font-mono text-ui select-text" data-file-diff data-diff-wrap={wrap}>
+    <div id={id} className="overflow-x-auto overscroll-x-contain border-t border-border bg-code font-mono text-ui select-text" data-file-diff data-diff-wrap={wrap}>
       <div className={wrap ? '' : 'w-max min-w-full'}>
         {rows.map((row, i) =>
           row.kind === 'hunk' ? (
@@ -116,10 +116,10 @@ const FileDiff = memo(function FileDiff({ id, cwd, base, path, version }: { id: 
               {row.text}
             </div>
           ) : (
-            <div key={i} className={`flex ${row.kind === 'add' ? 'bg-ok/12' : row.kind === 'del' ? 'bg-error/12 text-text/80' : 'text-muted'}`}>
+            <div key={i} className={`flex ${row.kind === 'add' ? 'bg-diff-added' : row.kind === 'del' ? 'bg-diff-removed text-text/80' : 'text-muted'}`}>
               {/* The gutter is opaque (it covers lines scrolling under it), so it repeats the row's tint. */}
               <span className={gutter}>
-                <span className={`flex ${row.kind === 'add' ? 'bg-ok/12' : row.kind === 'del' ? 'bg-error/12' : ''}`}>
+                <span className={`flex ${row.kind === 'add' ? 'bg-diff-added' : row.kind === 'del' ? 'bg-diff-removed' : ''}`}>
                   <span className="w-9 shrink-0 pr-1.5 text-right text-faint/70 select-none">{row.newLine ?? row.oldLine}</span>
                   <span className={`w-4 shrink-0 text-center select-none ${row.kind === 'add' ? 'text-ok' : row.kind === 'del' ? 'text-error' : 'text-faint'}`}>
                     {row.kind === 'add' ? '+' : row.kind === 'del' ? '−' : ' '}

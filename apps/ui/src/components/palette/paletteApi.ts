@@ -9,6 +9,7 @@ import { usePreferences } from '../../state/preferencesStore.ts';
 import { useProjects } from '../../state/projectsStore.ts';
 import { useSessions } from '../../state/sessionsStore.ts';
 import { openTerminal, restartTerminal, useTerminals } from '../../state/terminalsStore.ts';
+import { useThemes } from '../../state/themeStore.ts';
 import { toast } from '../../state/toastStore.ts';
 import { lastLimit } from '../focus/focusLimit.ts';
 import { syncStep } from '../git/gitPlan.ts';
@@ -55,6 +56,12 @@ export function createPaletteApi(ctx: PaletteContext, client: EngineClient | nul
     },
     reloadSkills: () => call('reload skills', (c) => c.call('skills.reload', {})),
     backup: (kind) => useBackup.getState().show(kind),
+    selectTheme: (id) => useThemes.getState().select(id, { announce: true }),
+    importTheme: () => void useThemes.getState().chooseImport(),
+    exportTheme: () => {
+      const { active, exportTheme } = useThemes.getState();
+      void exportTheme(active.entry.id).then((path) => path && toast(`Exported ${active.entry.file.name} to ${path.split('/').pop()}`), failed('export the theme'));
+    },
     setFocusLimit: (on) => usePreferences.getState().update({ focusLimit: on ? lastLimit() : null }),
 
     renameSession: () => session && usePaletteBus.getState().showDialog({ kind: 'rename-session', sessionId, title: session.title }),

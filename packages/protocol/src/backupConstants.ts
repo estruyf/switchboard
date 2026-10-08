@@ -1,9 +1,9 @@
 /** The kinds of data a settings file can hold, in the order the export and import dialogs list them. */
-export const BACKUP_SECTIONS = ['preferences', 'projects', 'actions', 'choices', 'sessions'] as const;
+export const BACKUP_SECTIONS = ['preferences', 'themes', 'projects', 'actions', 'choices', 'sessions'] as const;
 export type BackupSection = (typeof BACKUP_SECTIONS)[number];
 
-/** The newest settings file format this build reads and the one it writes. */
-export const SETTINGS_FILE_FORMAT = 1;
+/** The newest settings file format this build reads and the one it writes (2 added themes). */
+export const SETTINGS_FILE_FORMAT = 2;
 
 /** `switchboard-settings-2026-10-06.json` for a date. */
 export const settingsFileName = (date: Date) =>

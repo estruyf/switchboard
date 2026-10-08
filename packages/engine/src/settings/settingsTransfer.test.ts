@@ -68,14 +68,14 @@ describe('settings export and import', () => {
     before.stores.db.prepare("INSERT INTO owned_sessions (id, created_at) VALUES ('s1', 1)").run();
 
     const file = roundTrip(before.stores, { ...DEFAULT_PREFERENCES, colorScheme: 'dark' });
-    expect(file).toMatchObject({ kind: 'switchboard-settings', format: 1, appVersion: '1.2.3' });
+    expect(file).toMatchObject({ kind: 'switchboard-settings', format: 2, appVersion: '1.2.3' });
     // Only the known app choices travel, never caches like the shell's PATH.
     expect(file.choices).toEqual({ 'editor.default': 'vscode' });
 
     const after = mac();
     const plan = planImport(after.stores, file, ALL);
     expect(plan.preview.missingFolders).toEqual([]);
-    expect(plan.preview.changes.find((c) => c.label === 'Theme')).toMatchObject({ change: 'change', detail: 'system → dark' });
+    expect(plan.preview.changes.find((c) => c.label === 'Appearance')).toMatchObject({ change: 'change', detail: 'system → dark' });
     expect(plan.preview.changes.filter((c) => c.section === 'projects').map((c) => c.change)).toEqual(['add', 'add']);
     const { preferences } = plan.apply();
     expect(preferences).toEqual({ colorScheme: 'dark' });
@@ -138,7 +138,7 @@ describe('settings export and import', () => {
     const full = roundTrip(before.stores);
     const after = mac();
     const plan = planImport(after.stores, full, { ...ALL, sections: ['projects'] });
-    expect(plan.preview.sections).toEqual(['preferences', 'projects', 'actions', 'choices', 'sessions']);
+    expect(plan.preview.sections).toEqual(['preferences', 'themes', 'projects', 'actions', 'choices', 'sessions']);
     expect(new Set(plan.preview.changes.map((c) => c.section))).toEqual(new Set(['projects']));
     plan.apply();
     expect(after.stores.actions.all()).toEqual([]);
@@ -171,8 +171,8 @@ describe('settings export and import', () => {
     expect(byLabel[shared]).toMatchObject({ change: 'keep', detail: 'your name and icon differ' });
     expect(byLabel['test · all projects']).toMatchObject({ change: 'keep' });
     expect(byLabel['Default editor']).toMatchObject({ change: 'keep' });
-    // Your theme is kept; the sidebar style was still the default, so the file's fills it in.
-    expect(byLabel.Theme).toMatchObject({ change: 'keep' });
+    // Your appearance is kept; the sidebar style was still the default, so the file's fills it in.
+    expect(byLabel.Appearance).toMatchObject({ change: 'keep' });
     expect(merge.apply().preferences).toEqual({ sidebarStyle: 'compact' });
     expect(target.stores.projects.list(new Map()).find((p) => p.root === shared)).toMatchObject({ name: 'Orange', icon: { kind: 'emoji', value: '🍊' } });
     expect(target.stores.actions.all().map((a) => a.action.id).sort()).toEqual(['build', 'mine', 'test']);
@@ -266,5 +266,30 @@ describe('settings export and import', () => {
     expect(kept).toHaveLength(10);
     expect(join(dir, kept.at(-1)!)).toBe(last);
     expect(JSON.parse(readFileSync(last, 'utf8'))).toMatchObject({ kind: 'switchboard-settings' });
+  });
+
+  it('carries imported themes: adds new ones, keeps or replaces one with the same name, and skips broken ones', () => {
+    const nord = { name: 'Nord', version: 1, dark: { canvas: '#2e3440', accent: '#88c0d0' } };
+    const paper = { name: 'Paper', version: 1, light: { canvas: '#fdf6e3', accent: '#b58900' } };
+    const path = join(tempDir(), 'switchboard-settings.json');
+    const exported = exportSettings(mac().stores, { sections: ['themes'], preferences: DEFAULT_PREFERENCES, themes: [nord, paper, { name: 'Broken' }], appVersion: '1.2.3' });
+    // Only valid themes are written.
+    expect(exported.themes).toEqual([nord, paper]);
+    writeSettingsFile(path, { ...exported, themes: [nord, paper, { name: 'Bad', version: 1, dark: { colors: { bg: 'url(x)' } } }] });
+    const file = readSettingsFile(path);
+
+    const here = mac();
+    const mine = { ...nord, dark: { canvas: '#000000' } };
+    const merge = planImport(here.stores, file, { ...ALL, sections: ['themes'], themes: [mine] });
+    expect(merge.preview.changes).toEqual([
+      { section: 'themes', label: 'Nord', change: 'keep', detail: 'you have a theme with this name' },
+      { section: 'themes', label: 'Paper', change: 'add', detail: null },
+      { section: 'themes', label: 'Theme 3', change: 'skip', detail: expect.stringMatching(/^dark\.colors\.bg uses url/) },
+    ]);
+    expect(merge.apply().themes).toEqual([{ raw: paper, how: 'add' }]);
+
+    const replace = planImport(here.stores, file, { ...ALL, sections: ['themes'], mode: 'replace', themes: [mine, paper] });
+    expect(replace.preview.unchanged).toBe(1);
+    expect(replace.apply().themes).toEqual([{ raw: nord, how: 'replace' }]);
   });
 });

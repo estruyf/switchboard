@@ -48,6 +48,7 @@ function ToastCard({ toast }: { toast: Toast }) {
       data-toast
     >
       {toast.icon === 'bookmark' && <Bookmark size={14} className="shrink-0 text-muted" aria-hidden />}
+      {toast.dot && <span className="size-2 shrink-0 rounded-full" style={{ background: toast.dot }} aria-hidden />}
       <span className="min-w-0 flex-1 truncate">{toast.message}</span>
       {toast.undo && (
         // In the link colour, like the sidebar's Select all: the one thing to do with a toast.

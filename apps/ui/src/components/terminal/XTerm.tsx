@@ -5,6 +5,7 @@ import { Terminal, type ITheme } from '@xterm/xterm';
 import '@xterm/xterm/css/xterm.css';
 import { useEffect, useRef } from 'react';
 import { useEngineConnection } from '../../engine/useEngine.ts';
+import { useThemes } from '../../state/themeStore.ts';
 
 /** Fallbacks after the user's own terminal font: system monospace, then common Nerd Fonts for prompt glyphs. */
 const FALLBACK_FONTS = '"SF Mono", ui-monospace, Menlo, "Symbols Nerd Font Mono", "MesloLGS NF", "Hack Nerd Font Mono", "JetBrainsMono Nerd Font Mono", monospace';
@@ -14,28 +15,22 @@ let userFont: Promise<string | null> | undefined;
 const HIDE_CURSOR = '\x1b[?25l';
 const SHOW_CURSOR = '\x1b[?25h';
 
-/** The Demo Time theme's terminal colours (github.com/estruyf/vscode-demo-time-theme). */
-const ANSI = {
-  dark: {
-    black: '#15181f', red: '#ff6b6b', green: '#51cf66', yellow: '#ffd43b', blue: '#74c0fc', magenta: '#d0bfff', cyan: '#66d9ef', white: '#d9dbe1',
-    brightBlack: '#6b7280', brightRed: '#ed217c', brightGreen: '#7ee787', brightYellow: '#e6be36', brightBlue: '#8bb3ff', brightMagenta: '#d2a8ff', brightCyan: '#56d4dd', brightWhite: '#ffffff',
-  },
-} satisfies Record<string, ITheme>;
-
 /**
- * Terminal colours: always the dark theme, in light mode too (the panel is `.theme-dark`, so its
- * tokens are the dark ones), on the panel's own background (darker than the conversation), with the dark ANSI palette.
+ * Terminal colours from the active theme's dark mode (the panel is always dark, in light mode too):
+ * its `terminal` colours where it has them, otherwise the panel's background, the dark text and
+ * accent, and Demo Time's ANSI palette (see `resolveTerminal`).
  */
-function themeFromCss(el: Element = document.documentElement): ITheme {
-  const css = getComputedStyle(el);
-  const v = (name: string) => css.getPropertyValue(name).trim();
+function terminalTheme(): ITheme {
+  const { background, foreground, cursor, selection, ansi } = useThemes.getState().active.resolved.terminal;
+  const [black, red, green, yellow, blue, magenta, cyan, white, brightBlack, brightRed, brightGreen, brightYellow, brightBlue, brightMagenta, brightCyan, brightWhite] = ansi;
   return {
-    background: v('--sb-terminal-bg'),
-    foreground: v('--sb-text'),
-    cursor: v('--sb-accent-ink'),
-    cursorAccent: v('--sb-terminal-bg'),
-    selectionBackground: '#ffd43b40',
-    ...ANSI.dark,
+    background,
+    foreground,
+    cursor,
+    cursorAccent: background,
+    selectionBackground: selection,
+    ...{ black, red, green, yellow, blue, magenta, cyan, white },
+    ...{ brightBlack, brightRed, brightGreen, brightYellow, brightBlue, brightMagenta, brightCyan, brightWhite },
   };
 }
 
@@ -66,7 +61,7 @@ export function XTerm({ id, active, exited, onClose }: { id: string; active: boo
       allowProposedApi: true,
       scrollback: 10_000,
       macOptionIsMeta: true,
-      theme: themeFromCss(host),
+      theme: terminalTheme(),
     });
     const fit = new FitAddon();
     term.loadAddon(fit);
@@ -136,15 +131,16 @@ export function XTerm({ id, active, exited, onClose }: { id: string; active: boo
     });
     observer.observe(host);
 
-    const scheme = window.matchMedia('(prefers-color-scheme: dark)');
-    const retheme = () => (term.options.theme = themeFromCss(hostRef.current ?? undefined));
-    scheme.addEventListener('change', retheme);
+    // A new theme (or an edit to its file) recolours open terminals.
+    const offTheme = useThemes.subscribe((state, previous) => {
+      if (state.active !== previous.active) term.options.theme = terminalTheme();
+    });
 
     return () => {
       disposed = true;
       clearTimeout(resizeTimer);
       observer.disconnect();
-      scheme.removeEventListener('change', retheme);
+      offTheme();
       input.dispose();
       offData();
       void client.call('terminal.detach', { id }).catch(() => {});

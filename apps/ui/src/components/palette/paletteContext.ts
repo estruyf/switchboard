@@ -71,6 +71,9 @@ export interface PaletteContext {
   /** The session has a project to keep actions in. */
   canEditActions: boolean;
   colorScheme: ColorScheme;
+  /** Every theme, for "Theme: <name>", and the one in use. */
+  themes: Array<{ id: string; name: string }>;
+  themeId: string;
   sidebarStyle: SidebarStyle;
   settingsSection: SettingsSection;
   /** New session is on screen: what its route can do. */

@@ -989,16 +989,16 @@ export function createEngine(options: EngineOptions): Engine {
       claudeUpdater.update().catch((error: Error) => log('error', `Claude Code update failed: ${error.message}`));
       return {};
     },
-    'settings.export': ({ path, sections, preferences, appVersion }) => {
-      writeSettingsFile(path, exportSettings(settingsStores, { sections, preferences, appVersion }));
+    'settings.export': ({ path, sections, preferences, themes, appVersion }) => {
+      writeSettingsFile(path, exportSettings(settingsStores, { sections, preferences, themes, appVersion }));
       log('info', `Exported settings (${sections.join(', ')}) to ${path}`);
       return { path };
     },
-    'settings.import': ({ path, sections, mode, relocate, preferences, appVersion, apply }) => {
-      const plan = planImport(settingsStores, readSettingsFile(path), { sections, mode, relocate, preferences });
-      if (!apply) return { preview: plan.preview, backupPath: null, preferences: null };
+    'settings.import': ({ path, sections, mode, relocate, preferences, themes, appVersion, apply }) => {
+      const plan = planImport(settingsStores, readSettingsFile(path), { sections, mode, relocate, preferences, themes });
+      if (!apply) return { preview: plan.preview, backupPath: null, preferences: null, themes: [] };
       // Everything as it is now, so the import can be undone by importing this file with Replace.
-      const backupPath = writeBackup(join(options.dataDir, 'backups'), exportSettings(settingsStores, { sections: BACKUP_SECTIONS, preferences, appVersion }));
+      const backupPath = writeBackup(join(options.dataDir, 'backups'), exportSettings(settingsStores, { sections: BACKUP_SECTIONS, preferences, themes, appVersion }));
       const result = plan.apply();
       // Owned and continued sessions and session flags are also held in memory.
       for (const { id } of cache.db.prepare('SELECT id FROM owned_sessions').all() as Array<{ id: string }>) owned.add(id);
@@ -1006,7 +1006,7 @@ export function createEngine(options: EngineOptions): Engine {
       sessions.reloadFlags();
       broadcast('settings.imported', {});
       log('info', `Imported settings from ${path} (${mode}); backup at ${backupPath}`);
-      return { preview: plan.preview, backupPath, preferences: result.preferences };
+      return { preview: plan.preview, backupPath, preferences: result.preferences, themes: result.themes };
     },
     'claudeUpdate.dismiss': () => {
       claudeUpdater.dismiss();

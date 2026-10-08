@@ -1,0 +1,93 @@
+{
+  "$schema": "https://raw.githubusercontent.com/estruyf/switchboard/main/docs/switchboard-theme.schema.json",
+  "$comment": "Ported from GitHub Light High Contrast and GitHub Dark High Contrast, github.com/primer/github-vscode-theme (MIT, Copyright (c) 2020 Primer), as published in Shiki's bundled themes.",
+  "name": "GitHub High Contrast",
+  "author": "GitHub, ported for Switchboard",
+  "version": 1,
+  "light": {
+    "$comment": [
+      "From github-light-high-contrast.json: canvas is editor.background, accent is focusBorder (the Primer accent).",
+      "code-bg is editor.background: the comments (#66707b) fall under AA on textCodeBlock.background (#acb6c033).",
+      "warn (\"needs you\") is Primer's pink #971368, from the theme's palette: the theme has no colour for that state, and its attention yellow would read as \"working\" here.",
+      "caution is gitDecoration.conflictingResourceForeground (Primer severe, orange); unread is the link blue.",
+      "High contrast: borders are panel.border on every surface, and the focus ring is focusBorder."
+    ],
+    "canvas": "#ffffff",
+    "accent": "#0349b4",
+    "colors": {
+      "bg": "#ffffff",
+      "sidebar": "#ffffff",
+      "card": "#ffffff",
+      "popover": "#ffffff",
+      "code-bg": "#ffffff",
+      "border": "#20252c",
+      "overlay-border": "#20252c",
+      "focus-ring": "#0349b4",
+      "text": "#0e1116",
+      "muted": "#0e1116",
+      "link": "#0349b4",
+      "ok": "#055d20",
+      "warn": "#971368",
+      "error": "#a0111f",
+      "caution": "#873800",
+      "unread": "#0349b4",
+      "diff-added": "#43c66380",
+      "diff-removed": "#ee5a5d66"
+    },
+    "syntax": "github-light-high-contrast"
+  },
+  "dark": {
+    "$comment": [
+      "From github-dark-high-contrast.json: canvas is editor.background, accent is focusBorder (the Primer accent).",
+      "code-bg is textCodeBlock.background (#9ea7b366) drawn on the canvas.",
+      "warn (\"needs you\") is Primer's pink #ffadd4, from the theme's palette: the theme has no colour for that state, and its attention yellow would read as \"working\" here.",
+      "caution is gitDecoration.conflictingResourceForeground (Primer severe, orange); unread is the link blue.",
+      "High contrast: borders are panel.border on every surface, and the focus ring is focusBorder."
+    ],
+    "canvas": "#0a0c10",
+    "accent": "#409eff",
+    "colors": {
+      "bg": "#0a0c10",
+      "sidebar": "#010409",
+      "card": "#272b33",
+      "popover": "#272b33",
+      "code-bg": "#454a51",
+      "border": "#7a828e",
+      "overlay-border": "#7a828e",
+      "focus-ring": "#409eff",
+      "text": "#f0f3f6",
+      "muted": "#f0f3f6",
+      "link": "#71b7ff",
+      "ok": "#26cd4d",
+      "warn": "#ffadd4",
+      "error": "#ff6a69",
+      "caution": "#e7811d",
+      "unread": "#71b7ff",
+      "diff-added": "#26cd4d4d",
+      "diff-removed": "#ff94924d"
+    },
+    "terminal": {
+      "background": "#0a0c10",
+      "foreground": "#f0f3f6",
+      "ansi": [
+        "#7a828e",
+        "#ff9492",
+        "#26cd4d",
+        "#f0b72f",
+        "#71b7ff",
+        "#cb9eff",
+        "#39c5cf",
+        "#d9dee3",
+        "#9ea7b3",
+        "#ffb1af",
+        "#4ae168",
+        "#f7c843",
+        "#91cbff",
+        "#dbb7ff",
+        "#56d4dd",
+        "#ffffff"
+      ]
+    },
+    "syntax": "github-dark-high-contrast"
+  }
+}

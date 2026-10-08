@@ -88,6 +88,9 @@ export interface PaletteApi {
   checkClaudeUpdate(): void;
   reloadSkills(): void;
   backup(kind: 'export' | 'import'): void;
+  selectTheme(id: string): void;
+  importTheme(): void;
+  exportTheme(): void;
   setFocusLimit(on: boolean): void;
   renameSession(): void;
   setFlags(change: { pinned?: boolean; archived?: boolean }): void;
@@ -238,14 +241,16 @@ export const COMMANDS: PaletteCommand[] = [
   ...THEMES.map(
     ({ value, label, icon }): PaletteCommand => ({
       id: `theme-${value}`,
-      title: `Theme: ${label}`,
+      title: `Appearance: ${label}`,
       group: 'general',
       icon,
-      keywords: 'appearance colour color dark light',
+      keywords: 'theme colour color dark light mode',
       when: (ctx) => ctx.colorScheme !== value,
       run: (api) => api.setPreferences({ colorScheme: value }),
     }),
   ),
+  { id: 'import-theme', title: 'Import theme…', group: 'general', icon: Upload, keywords: 'colours colors json file', when: always, run: (api) => api.importTheme() },
+  { id: 'export-theme', title: 'Export current theme…', group: 'general', icon: Download, keywords: 'colours colors json file save', when: always, run: (api) => api.exportTheme() },
   { id: 'manage-projects', title: 'Manage projects', group: 'general', icon: FolderCog, keywords: 'folders defaults', when: (ctx) => ctx.view !== 'projects', run: (api) => api.manageProjects() },
   { id: 'add-project', title: 'Add project…', group: 'general', icon: FolderPlus, keywords: 'folder', when: always, run: (api) => api.addProject() },
   {
@@ -406,9 +411,22 @@ export function actionCommands(ctx: PaletteContext): PaletteCommand[] {
   }));
 }
 
+/** "Theme: <name>" for each theme but the one in use. */
+export function themeCommands(ctx: PaletteContext): PaletteCommand[] {
+  return ctx.themes.map((theme) => ({
+    id: `theme:${theme.id}`,
+    title: `Theme: ${theme.name}`,
+    group: 'general',
+    icon: Palette,
+    keywords: 'colours colors appearance',
+    when: (c) => c.themeId !== theme.id,
+    run: (api) => api.selectTheme(theme.id),
+  }));
+}
+
 /** Every command that can show here, before matching what is typed. */
 export function visibleCommands(ctx: PaletteContext, commands: readonly PaletteCommand[] = COMMANDS): PaletteCommand[] {
-  return [...commands, ...actionCommands(ctx)].filter((command) => command.when(ctx));
+  return [...commands, ...actionCommands(ctx), ...themeCommands(ctx)].filter((command) => command.when(ctx));
 }
 
 /** A command as a row: its title for this context, and which letters matched what was typed. */

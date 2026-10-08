@@ -24,6 +24,8 @@ import { useLinksSync } from './state/linksStore.ts';
 import { useSessions, type Pane } from './state/sessionsStore.ts';
 import { useOverlay } from './state/overlayStore.ts';
 import { usePreferencesSync } from './state/preferencesStore.ts';
+import { useThemesSync } from './state/themeStore.ts';
+import { ThemeImportDialogs } from './components/theme/ThemeImport.tsx';
 import { useProfilesSync } from './state/profilesStore.ts';
 import { useProjects, useProjectsSync } from './state/projectsStore.ts';
 import { useSidebarSync } from './state/sidebarStore.ts';
@@ -139,6 +141,7 @@ export function App() {
   useSidebarSync();
   useUsageSync();
   usePreferencesSync();
+  useThemesSync();
   useLaterSync();
   // Listen for links before telling main the window is ready: main hands over waiting links then.
   useLinksSync();
@@ -201,6 +204,7 @@ export function App() {
       <PaletteDialogs />
       {adding && <AddProjectDialog onClose={() => useProjects.getState().showAdd(false)} />}
       <BackupDialogs />
+      <ThemeImportDialogs />
       <FocusGateDialog />
       <ToastLayer />
       <TooltipLayer />

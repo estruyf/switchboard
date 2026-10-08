@@ -2,9 +2,6 @@ import { nativeTheme } from 'electron';
 import { DEFAULT_PREFERENCES, sanitizePreferences, type ColorScheme, type Preferences } from '@switchboard/protocol/bridge';
 import { readJsonFile, writeFileAtomic } from './jsonFile.ts';
 
-/** Window background before the page paints, matching the Demo Time theme. */
-export const windowBackground = () => (nativeTheme.shouldUseDarkColors ? '#15181f' : '#ffffff');
-
 /**
  * The user's preferences, saved as JSON in the app's data folder. Setting the
  * colour scheme sets nativeTheme.themeSource, which flips prefers-color-scheme in every window.

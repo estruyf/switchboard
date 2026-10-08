@@ -47,6 +47,12 @@
    */
   --sb-terminal-bg: #0d1016;
   --sb-terminal-shadow: rgb(21 24 31 / 0.16);
+  /* Code blocks and diffs: their own surface, and the backgrounds of added and removed lines. */
+  --sb-code-bg: #f4f6fa;
+  --sb-diff-added: #00806f1f;
+  --sb-diff-removed: #d73a491f;
+  /* The outline around the focused control while moving with Tab. */
+  --sb-focus-ring: #916c008c;
   color-scheme: light;
 }
 
@@ -84,13 +90,18 @@
     --sb-scrim: rgb(0 0 0 / 0.6);
     --sb-terminal-bg: #0d1016;
     --sb-terminal-shadow: rgb(0 0 0 / 0.55);
+    --sb-code-bg: #202736;
+    --sb-diff-added: #51cf661f;
+    --sb-diff-removed: #ff6b6b1f;
+    --sb-focus-ring: #ffd43b8c;
     color-scheme: dark;
   }
 }
 
 /*
  * Always dark, whatever the app theme: the terminal panel (a terminal reads best light-on-dark).
- * The same values as the dark theme above.
+ * The same values as the dark theme above. These are Demo Time's; another theme overrides all three
+ * blocks from a generated style element (lib/themeCss.ts), and src/themes/demo-time.json holds the same values.
  */
 .theme-dark {
   /* Demo Time Dark */
@@ -124,6 +135,10 @@
   --sb-overlay-shadow: 0 0 0 1px rgb(0 0 0 / 0.35), 0 4px 10px rgb(0 0 0 / 0.35), 0 16px 40px -6px rgb(0 0 0 / 0.7);
   --sb-scrim: rgb(0 0 0 / 0.6);
   --sb-terminal-bg: #0d1016;
+  --sb-code-bg: #202736;
+  --sb-diff-added: #51cf661f;
+  --sb-diff-removed: #ff6b6b1f;
+  --sb-focus-ring: #ffd43b8c;
   color-scheme: dark;
 }
 
@@ -157,6 +172,9 @@
   --color-popover: var(--sb-popover);
   --color-scrim: var(--sb-scrim);
   --color-terminal: var(--sb-terminal-bg);
+  --color-code: var(--sb-code-bg);
+  --color-diff-added: var(--sb-diff-added);
+  --color-diff-removed: var(--sb-diff-removed);
   --font-sans: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Inter', system-ui, sans-serif;
   --font-mono: 'SF Mono', ui-monospace, Menlo, monospace;
   /*
@@ -274,7 +292,7 @@ body {
   outline: none;
 }
 html[data-keyboard-nav] :is(button, a, summary, input, textarea, [contenteditable='true'], [role='menuitem'], [role='option'], [tabindex]):focus-visible {
-  outline: 2px solid color-mix(in srgb, var(--sb-accent-ink) 55%, transparent);
+  outline: 2px solid var(--sb-focus-ring);
   outline-offset: 1px;
 }
 
@@ -291,16 +309,25 @@ html[data-keyboard-nav] :is(button, a, summary, input, textarea, [contenteditabl
   background: color-mix(in srgb, var(--sb-accent) 30%, transparent);
 }
 
-/* Shiki output carries both themes as CSS variables; pick by colour scheme. */
+/*
+ * Shiki output carries both themes as CSS variables; pick by colour scheme. The background is always the
+ * theme's code-bg (on the block around it), never the syntax theme's.
+ */
 .shiki {
   background: transparent !important;
 }
 .shiki span {
   color: var(--shiki-light);
+  font-style: var(--shiki-light-font-style, inherit);
+  font-weight: var(--shiki-light-font-weight, inherit);
+  text-decoration: var(--shiki-light-text-decoration, inherit);
 }
 @media (prefers-color-scheme: dark) {
   .shiki span {
     color: var(--shiki-dark);
+    font-style: var(--shiki-dark-font-style, inherit);
+    font-weight: var(--shiki-dark-font-weight, inherit);
+    text-decoration: var(--shiki-dark-text-decoration, inherit);
   }
 }
 

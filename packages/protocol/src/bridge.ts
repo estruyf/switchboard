@@ -1,3 +1,5 @@
+import { DEFAULT_THEME_ID, type ThemeFileCheck, type ThemeState } from './themeFormat.ts';
+
 /**
  * The small API the preload script exposes on `window.switchboard`.
  * Everything else goes over the engine MessagePort, not Electron IPC.
@@ -29,6 +31,9 @@ export const IpcChannel = {
   updateState: 'switchboard:update-state',
   updateCommand: 'switchboard:update-command',
   deepLink: 'switchboard:deep-link',
+  getThemes: 'switchboard:get-themes',
+  themesChanged: 'switchboard:themes-changed',
+  themeCommand: 'switchboard:theme-command',
 } as const;
 
 /** Appearance: follow macOS, or always light or dark. */
@@ -69,6 +74,8 @@ export interface Preferences {
   focusMode: FocusMode;
   /** Also count live sessions started outside Switchboard (terminal, IDE). */
   focusCountExternal: boolean;
+  /** The colour theme: a built-in's id (`demo-time`, `github`…) or an imported theme's file name. */
+  themeId: string;
 }
 
 export const DEFAULT_PREFERENCES: Preferences = {
@@ -83,7 +90,11 @@ export const DEFAULT_PREFERENCES: Preferences = {
   focusLimit: null,
   focusMode: 'nudge',
   focusCountExternal: false,
+  themeId: DEFAULT_THEME_ID,
 };
+
+/** A theme id: lower-case letters, digits and dashes (built-in ids and the file names of imported themes). */
+export const isThemeId = (value: unknown): value is string => typeof value === 'string' && /^[a-z0-9][a-z0-9-]{0,63}$/.test(value);
 
 const oneOf = <T extends string>(values: readonly T[], value: unknown): value is T => values.includes(value as T);
 
@@ -105,6 +116,7 @@ export function sanitizePreferences(input: unknown): Partial<Preferences> {
   }
   if (oneOf(['nudge', 'strict'] as const, raw.focusMode)) out.focusMode = raw.focusMode;
   if (typeof raw.focusCountExternal === 'boolean') out.focusCountExternal = raw.focusCountExternal;
+  if (isThemeId(raw.themeId)) out.themeId = raw.themeId;
   return out;
 }
 
@@ -178,6 +190,17 @@ export type DeepLink =
 /** A link to act on, or why one was refused (shown briefly; nothing changes). */
 export type DeepLinkMessage = { link: DeepLink } | { error: string };
 
+/** What the renderer can ask main to do with themes (they live in main, next to the preferences). */
+export type ThemeCommand =
+  | { kind: 'choose-file' }
+  | { kind: 'check-file'; path: string }
+  | { kind: 'add'; raw: unknown; how: 'add' | 'replace' | 'keep-both' }
+  | { kind: 'remove'; id: string }
+  | { kind: 'duplicate'; id: string }
+  | { kind: 'export'; fileName: string; content: string }
+  | { kind: 'open-folder' }
+  | { kind: 'show-file'; id: string };
+
 /** Sent once per engine connection by the renderer. Used for startup timing and the smoke test. */
 export interface RendererReadyReport {
   /** Epoch ms when the first ping came back, i.e. when the UI could talk to the engine. */
@@ -232,4 +255,26 @@ export interface SwitchboardBridge {
   setUpdateChannel(channel: UpdateChannel): void;
   /** A `switchboard://` link was opened (main holds links until this window's renderer is ready). */
   onDeepLink(listener: (message: DeepLinkMessage) => void): () => void;
+  /** Every theme, read once when the page loads (with the preferences), so the first paint has the right colours. */
+  readonly themes: ThemeState;
+  /** Fires after a theme is added, removed, or its file in the themes folder changes. */
+  onThemesChanged(listener: (state: ThemeState) => void): () => void;
+  /** Native open dialog for a theme file. Resolves to null when cancelled. */
+  chooseThemeFile(): Promise<string | null>;
+  /** Reads and validates a theme file someone wants to import. Nothing is added yet. */
+  checkThemeFile(path: string): Promise<ThemeFileCheck>;
+  /**
+   * Adds a theme (validated again in main). `replace` overwrites the imported theme with the same name,
+   * `keep-both` saves it as "<name> 2". Resolves to the new theme's id.
+   */
+  addTheme(raw: unknown, how: 'add' | 'replace' | 'keep-both'): Promise<string>;
+  /** Moves an imported theme's file to the Trash. Built-in themes can't be removed. */
+  removeTheme(id: string): Promise<void>;
+  /** Saves a copy of any theme as a new imported one ("<name> 2"). Resolves to its id. */
+  duplicateTheme(id: string): Promise<string>;
+  /** Native save dialog for a theme, then writes `content` (validated again). Resolves to the path, or null when cancelled. */
+  exportTheme(fileName: string, content: string): Promise<string | null>;
+  openThemesFolder(): void;
+  /** Shows an imported theme's file in Finder. */
+  showThemeFile(id: string): void;
 }
