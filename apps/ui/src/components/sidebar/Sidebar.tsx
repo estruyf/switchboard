@@ -242,7 +242,11 @@ const SessionRow = memo(function SessionRow({
     <span className="grid min-w-0 flex-1 gap-px">
       <span className="flex min-w-0 items-center gap-2">
         <span className={`min-w-0 flex-1 truncate text-body leading-5 ${titleTone}`}>{data.title}</span>
-        {age}
+        {/* The pin sits with the age in the title's corner, as in the compact row. */}
+        <span className="flex shrink-0 items-center gap-1">
+          {pin}
+          {age}
+        </span>
       </span>
       <span className="flex h-4 min-w-0 items-center gap-1.5 text-meta text-faint">
         {waitingFor ? (
@@ -254,7 +258,6 @@ const SessionRow = memo(function SessionRow({
             <span className="min-w-0 flex-1 truncate">{(status === 'unread' ? ['Finished, unread', filtered ? null : projectName].filter(Boolean) : place).join(' · ')}</span>
           </>
         )}
-        {pin}
         {/* The rail and the age's colour already say needs you, working and unread; the icon is for the rest. */}
         {!statusRail && <StatusIcon status={status} />}
       </span>

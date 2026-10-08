@@ -24,6 +24,7 @@ All notable changes to Switchboard are listed here. Each release is also on the 
 
 - Project actions can no longer use ⌘B, ⌃⇥, ⌃⇧⇥ or ⌘⇧U. An action that already has one of them keeps it, and runs instead of Switchboard's shortcut.
 - A long prompt that is cut to two lines now fades out above Show more, so it's clear there is more to read.
+- The pin on a pinned session now sits next to its age in the sidebar, instead of at the end of the branch line.
 
 ### Fixed
 
