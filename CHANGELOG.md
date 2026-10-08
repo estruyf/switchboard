@@ -18,6 +18,7 @@ All notable changes to Switchboard are listed here. Each release is also on the 
 - **Move between sessions without the sidebar.** ⌃⇥ and ⌃⇧⇥ go to the next and previous session in the sidebar's order, and ⌘⇧U to the next one that needs you. With the sidebar collapsed, a short label at the top says where you landed.
 - **⌘P lists sessions like the sidebar**: Needs you, Working, Today, Yesterday and Earlier, then your projects.
 - New palette commands: *Toggle sidebar*, *Open sidebar*, *Minimize sidebar*, *Close sidebar*, *Next session*, *Previous session* and *Go to next session that needs you*.
+- Settings → Diagnostics has a button to open the Claude Code config folder and show the cache database in Finder.
 
 ### Changed
 

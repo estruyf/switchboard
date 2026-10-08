@@ -1,4 +1,5 @@
-import type { ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
+import { FolderOpen } from 'lucide-react';
 import type { LogLevel } from '@switchboard/protocol/client';
 import { useDiagnostics } from '../engine/useDiagnostics.ts';
 import { useEngineConnection } from '../engine/useEngine.ts';
@@ -47,6 +48,28 @@ function Row({ label, children }: { label: string; children: ReactNode }) {
 
 const Mono = ({ children }: { children: ReactNode }) => <span className="font-mono text-ui">{children}</span>;
 
+/** A path with a button that opens it in Finder: a folder opens, a file is selected in its folder. */
+function PathValue({ path, label, onOpen, disabled, hook }: { path: string; label: string; onOpen: (path: string) => void; disabled: boolean; hook: string }) {
+  return (
+    <span className="flex min-w-0 items-center gap-2">
+      <span className="min-w-0 truncate font-mono text-ui" data-tooltip={path}>
+        {path}
+      </span>
+      <Button
+        variant="quiet"
+        size="sm"
+        iconOnly
+        icon={<FolderOpen size={14} aria-hidden />}
+        aria-label={label}
+        onClick={() => onOpen(path)}
+        disabled={disabled}
+        data-diagnostics-reveal={hook}
+        className="shrink-0"
+      />
+    </span>
+  );
+}
+
 const logTone: Record<LogLevel, string> = {
   debug: 'text-faint',
   info: 'text-muted',
@@ -57,6 +80,14 @@ const logTone: Record<LogLevel, string> = {
 export function EngineDiagnostics() {
   const connection = useEngineConnection();
   const { info, pingMs, logs, error, refreshPing } = useDiagnostics();
+  const [openError, setOpenError] = useState<string | null>(null);
+  const client = connection.status === 'connected' ? connection.client : null;
+
+  const showInFinder = (path: string) => {
+    if (!client) return;
+    setOpenError(null);
+    client.call('editors.open', { path, editorId: 'finder' }).catch((err: unknown) => setOpenError(err instanceof Error ? err.message : String(err)));
+  };
 
   const connectionRow =
     connection.status === 'unavailable' ? (
@@ -78,6 +109,11 @@ export function EngineDiagnostics() {
     <div className="grid gap-4">
       {error && (
         <Notice tone="error">{error}</Notice>
+      )}
+      {openError && (
+        <Notice tone="error" onDismiss={() => setOpenError(null)}>
+          {openError}
+        </Notice>
       )}
 
       <Card
@@ -111,7 +147,13 @@ export function EngineDiagnostics() {
             </span>
           )}
         </Row>
-        <Row label="Config dir">{info ? <Mono>{info.paths.claudeConfigDir}</Mono> : 'Unknown'}</Row>
+        <Row label="Config dir">
+          {info ? (
+            <PathValue path={info.paths.claudeConfigDir} label="Open the config folder in Finder" onOpen={showInFinder} disabled={!client} hook="config-dir" />
+          ) : (
+            'Unknown'
+          )}
+        </Row>
         <Row label="Shell environment">
           {info ? (
             <span className="flex items-center gap-2">
@@ -129,7 +171,13 @@ export function EngineDiagnostics() {
         <Row label="Electron">{info ? <Mono>{info.versions.electron ?? 'n/a'}</Mono> : 'Unknown'}</Row>
         <Row label="Node">{info ? <Mono>{info.versions.node}</Mono> : 'Unknown'}</Row>
         <Row label="SQLite">{info ? <Mono>{info.versions.sqlite}</Mono> : 'Unknown'}</Row>
-        <Row label="Cache database">{info ? <Mono>{info.paths.database}</Mono> : 'Unknown'}</Row>
+        <Row label="Cache database">
+          {info ? (
+            <PathValue path={info.paths.database} label="Show the cache database in Finder" onOpen={showInFinder} disabled={!client} hook="database" />
+          ) : (
+            'Unknown'
+          )}
+        </Row>
       </Card>
 
       <Card title="Rendering">
