@@ -19,8 +19,9 @@ export function SidebarToggle() {
   const collapsed = usePreferences((s) => s.prefs.sidebarCollapsed);
   const open = state === 'open';
   return (
-    // While closed, the traffic lights sit where the sidebar was: the header starts after them.
-    <div className={`flex shrink-0 items-center gap-2 ${state === 'closed' ? 'ml-14' : ''}`} data-sidebar-toggle-area>
+    // While closed, the traffic lights sit where the sidebar was: the header starts after them. They end
+    // 68px in (16px inset plus their width), so this keeps the same 16px clear of them behind a px-4 header.
+    <div className={`flex shrink-0 items-center gap-2 ${state === 'closed' ? 'ml-17' : ''}`} data-sidebar-toggle-area>
       <Button
         variant="quiet"
         iconOnly

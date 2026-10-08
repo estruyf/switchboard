@@ -124,8 +124,11 @@ let notifier: Notifier;
 let focusedSession: string | null = null;
 const recordedNotifications: Array<AttentionEvent & { suppressed: boolean }> = [];
 
-/** Where the traffic lights sit: the default, or tucked into the 64px minimal sidebar (they are 54px wide). */
-const WINDOW_BUTTONS = { default: { x: 16, y: 18 }, rail: { x: 5, y: 18 } } as const;
+/**
+ * Where the traffic lights sit: the default, or inside the 80px minimal sidebar. They are 54px wide, and
+ * a few pixels more on newer macOS, so the rail leaves room on both sides instead of matching them exactly.
+ */
+const WINDOW_BUTTONS = { default: { x: 16, y: 18 }, rail: { x: 12, y: 18 } } as const;
 ipcMain.on(IpcChannel.windowButtons, (event, position: unknown) => {
   const win = BrowserWindow.fromWebContents(event.sender);
   if (process.platform !== 'darwin' || !win) return;
@@ -2336,7 +2339,7 @@ async function runSidebarStatesStep(win: BrowserWindow): Promise<string> {
   if (!(await inState('minimal'))) return '⌘B did not minimize the sidebar';
   if (!(await waitInPage(win, "document.querySelector('[data-sidebar-rail] [data-sidebar-rail-row]')", 2_000))) return 'the rail lists no sessions';
   await pause();
-  if ((await width()) !== 64) return `the rail is ${await width()}px wide, not 64`;
+  if ((await width()) !== 80) return `the rail is ${await width()}px wide, not 80`;
   const railLabel = (await js("document.querySelector('[data-sidebar-rail-row]').getAttribute('aria-label')")) as string;
   if (!railLabel) return 'a rail row has no accessible name';
   await themed('sidebar-minimal');
@@ -2387,11 +2390,11 @@ async function runSidebarStatesStep(win: BrowserWindow): Promise<string> {
   };
   await drag(edge.x, 150);
   if (!(await inState('minimal'))) return `dragging the edge to 150px did not snap to the rail (${String(await js(state))})`;
-  await drag(64, 260);
+  await drag(80, 260);
   if (!(await inState('open'))) return `dragging the rail's edge past 200px did not open the sidebar (${String(await js(state))})`;
   const reopened = await width();
   await restore();
-  return `ok: ⌘B open → minimal (64px rail) → open at ${openWidth}px, Hidden closes it with a full-width session view, the toggle reopens it, the edge snaps to the rail and back open (${reopened}px), ${navigation}, both themes captured`;
+  return `ok: ⌘B open → minimal (80px rail) → open at ${openWidth}px, Hidden closes it with a full-width session view, the toggle reopens it, the edge snaps to the rail and back open (${reopened}px), ${navigation}, both themes captured`;
 }
 
 /**

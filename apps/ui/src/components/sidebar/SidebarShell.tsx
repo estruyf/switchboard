@@ -76,7 +76,7 @@ function SidebarResizeHandle({ onDragging }: { onDragging(dragging: boolean): vo
 
 /**
  * The sidebar in its three states: open (the full list, at the width you dragged it to), minimal (the
- * 64px rail) or closed (nothing, the session view takes the window). Changing state eases the width
+ * 80px rail) or closed (nothing, the session view takes the window). Changing state eases the width
  * over 150ms (none with reduced motion), except while dragging the open edge, which follows the pointer.
  */
 export function SidebarShell() {

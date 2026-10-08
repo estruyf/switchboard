@@ -4,8 +4,8 @@ import type { SidebarCollapsed } from '@switchboard/protocol/bridge';
 export const SIDEBAR_DEFAULT_WIDTH = 320;
 export const SIDEBAR_MIN_WIDTH = 240;
 export const SIDEBAR_MAX_WIDTH = 520;
-/** The minimal rail: a status rail and a project icon per session. */
-export const SIDEBAR_RAIL_WIDTH = 64;
+/** The minimal rail: a status rail and a project icon per session, wide enough to hold the traffic lights. */
+export const SIDEBAR_RAIL_WIDTH = 80;
 /** Dragged narrower than this, the sidebar closes; between this and SNAP_OPEN it becomes the rail. */
 export const SNAP_CLOSED = 110;
 /** Dragged wider than this, the sidebar opens (at SIDEBAR_MIN_WIDTH until the pointer passes it). */

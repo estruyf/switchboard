@@ -115,7 +115,7 @@ const RailRow = memo(function RailRow({
 });
 
 /**
- * The minimal sidebar: a 64px rail with New session, Search and Home at the top, one icon per session in
+ * The minimal sidebar: an 80px rail with New session, Search and Home at the top, one icon per session in
  * the open sidebar's groups and order (a thin line between groups, archived ones left out), and the focus
  * counter and Settings at the bottom. Picking several sessions isn't possible here: ⌘- or ⇧-click opens
  * the sidebar first.
@@ -204,7 +204,7 @@ export function SidebarRail() {
   }, []);
 
   return (
-    <nav aria-label="Sidebar" className="flex h-full w-16 shrink-0 flex-col border-r border-border bg-sidebar" data-sidebar-rail>
+    <nav aria-label="Sidebar" className="flex h-full w-20 shrink-0 flex-col border-r border-border bg-sidebar" data-sidebar-rail>
       {/* The traffic lights sit in this strip, which doubles as a window drag handle. */}
       <div className="drag h-13 shrink-0" />
       <div className="flex shrink-0 flex-col items-center gap-1 pb-2">
