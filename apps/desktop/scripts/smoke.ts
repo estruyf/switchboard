@@ -78,6 +78,8 @@ console.log(`${String(result.historyResult).startsWith('ok') ? '✓' : '✗'} pr
 if (!String(result.historyResult).startsWith('ok')) process.exitCode = 1;
 console.log(`${String(result.controlsResult).startsWith('ok') ? '✓' : '✗'} controls: ${result.controlsResult}`);
 if (!String(result.controlsResult).startsWith('ok')) process.exitCode = 1;
+console.log(`${String(result.sidebarStatesResult).startsWith('ok') ? '✓' : '✗'} sidebar states: ${result.sidebarStatesResult}`);
+if (!String(result.sidebarStatesResult).startsWith('ok')) process.exitCode = 1;
 console.log(`${String(result.newSessionResult).startsWith('ok') ? '✓' : '✗'} new session view: ${result.newSessionResult}`);
 if (!String(result.newSessionResult).startsWith('ok')) process.exitCode = 1;
 console.log(`${String(result.deepLinkResult).startsWith('ok') ? '✓' : '✗'} links: ${result.deepLinkResult}`);

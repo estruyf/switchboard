@@ -32,6 +32,7 @@ import { Notice } from '../ui/Notice.tsx';
 import { SectionHeader } from '../ui/SectionHeader.tsx';
 import { Switch } from '../ui/Toggle.tsx';
 import { ProjectIcon, useProjectColor } from '../ProjectIcon.tsx';
+import { SidebarToggle } from '../sidebar/SidebarToggle.tsx';
 import { OpenInButton } from '../OpenInButton.tsx';
 import { UsageBand } from '../UsageBand.tsx';
 import { linkNoticeText } from './linkNotice.ts';
@@ -569,7 +570,8 @@ export function NewSessionView() {
   return (
     <div className="flex h-full min-h-0 flex-col" data-drop-zone>
       {/* No title bar: the heading names the view. The strip keeps the window draggable. */}
-      <div className="drag flex h-13 shrink-0 items-center justify-end px-4">
+      <div className="drag flex h-13 shrink-0 items-center justify-between px-4">
+        <SidebarToggle />
         {/* To look around the whole project before (or instead of) asking Claude. */}
         {cwd && inspection?.path === cwd && inspection.exists && <OpenInButton path={cwd} shortcut={false} />}
       </div>

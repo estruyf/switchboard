@@ -15,7 +15,7 @@ import { usePreferences } from '../../state/preferencesStore.ts';
 import { addedProjects } from '../../state/projectList.ts';
 import { useProjects } from '../../state/projectsStore.ts';
 import { toRows, useSessions, type SessionRowData } from '../../state/sessionsStore.ts';
-import { inScope } from '../../state/sidebarRows.ts';
+import { GROUP_LABEL, inScope } from '../../state/sidebarRows.ts';
 import { toast } from '../../state/toastStore.ts';
 import { rememberLimit } from '../focus/focusLimit.ts';
 import { activityByProject, latestBranches, recentFirst, tileStatus } from '../newSession/projectTiles.ts';
@@ -26,7 +26,7 @@ import { Kbd } from '../ui/Kbd.tsx';
 import { Pill } from '../ui/Pill.tsx';
 import { SectionHeader } from '../ui/SectionHeader.tsx';
 import { arrangeCommands, recentCommands, rememberCommand, visibleCommands, type CommandSection, type PaletteCommand } from './commands.ts';
-import { matchProjects, matchSessions } from './gotoItems.ts';
+import { gotoGroups, matchProjects, matchSessions } from './gotoItems.ts';
 import { createPaletteApi } from './paletteApi.ts';
 import type { PaletteContext } from './paletteContext.ts';
 import { PaletteFooter, type FooterKey } from './PaletteFooter.tsx';
@@ -61,7 +61,7 @@ interface Option {
 }
 
 /** Sessions and projects shown in go-to with nothing typed. */
-const GOTO_SESSIONS = 8;
+const GOTO_SESSIONS = 24;
 const GOTO_PROJECTS = 5;
 /** Matches shown at most once something is typed. */
 const MATCH_LIMIT = 50;
@@ -173,8 +173,20 @@ export function CommandPalette() {
 
     function gotoSections(query: string): Section[] {
       const out: Section[] = [];
-      const found = matchSessions(sessionRows, query, nameOf, query.trim() ? MATCH_LIMIT : GOTO_SESSIONS);
-      if (found.length) out.push({ id: 'sessions', label: 'Sessions', rows: found.map(({ item, indices }) => ({ kind: 'session', key: `session:${item.id}`, data: item, indices })) });
+      if (query.trim()) {
+        const found = matchSessions(sessionRows, query, nameOf, MATCH_LIMIT);
+        if (found.length) out.push({ id: 'sessions', label: 'Sessions', rows: found.map(({ item, indices }) => ({ kind: 'session', key: `session:${item.id}`, data: item, indices })) });
+      } else {
+        // Nothing typed: the sidebar's groups in its order, so ⌘P stands in for it while it's closed.
+        for (const { group, rows: inGroup } of gotoGroups(sessionRows, Date.now(), GOTO_SESSIONS)) {
+          out.push({
+            id: `sessions-${group}`,
+            label: GROUP_LABEL[group],
+            tone: group === 'needs-you' || group === 'working' ? group : 'neutral',
+            rows: inGroup.map((item) => ({ kind: 'session', key: `session:${item.id}`, data: item, indices: [] })),
+          });
+        }
+      }
       const roots = matchProjects(projectRoots, query, nameOf).slice(0, query.trim() ? MATCH_LIMIT : GOTO_PROJECTS);
       if (roots.length) out.push({ id: 'projects', label: 'Projects', rows: roots.map(({ item, indices }) => ({ kind: 'project', key: `project:${item}`, root: item, indices, number: null, compact: true })) });
       return out;

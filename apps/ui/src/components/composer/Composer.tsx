@@ -252,7 +252,8 @@ export function Composer(props: ComposerProps) {
       return;
     }
     if (palette) {
-      if (event.key === 'Enter' || event.key === 'Tab') {
+      // ⌃⇥ moves to another session; it never picks a command.
+      if (event.key === 'Enter' || (event.key === 'Tab' && !event.ctrlKey)) {
         event.preventDefault();
         choose(palette.items[palette.active]!);
         return;
@@ -280,7 +281,7 @@ export function Composer(props: ComposerProps) {
       if (document.querySelector('[role=dialog], [role=alertdialog], [role=menu], [role=listbox], [data-context-breakdown]')) return;
       event.preventDefault();
       props.onInterrupt?.();
-    } else if (event.key === 'Tab' && event.shiftKey && props.onCycleMode) {
+    } else if (event.key === 'Tab' && event.shiftKey && !event.ctrlKey && props.onCycleMode) {
       event.preventDefault();
       props.onCycleMode();
     }

@@ -22,6 +22,10 @@ export const RESERVED_SHORTCUTS = new Set([
   'cmd+shift+h',
   'cmd+shift+d',
   'cmd+shift+l',
+  'cmd+b',
+  'cmd+shift+u',
+  'ctrl+tab',
+  'ctrl+shift+tab',
   // Menu bar: Settings, Quit, Hide, Edit, View and Window
   'cmd+,',
   'cmd+q',

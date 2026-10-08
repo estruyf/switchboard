@@ -2,26 +2,21 @@ import { useVirtualizer } from '@tanstack/react-virtual';
 import { Archive, ArchiveRestore, Bookmark, Check, FolderCog, GitBranch, House, Pin, PinOff, Plus, Search, Settings, Trash2 } from 'lucide-react';
 import type { SidebarStyle } from '@switchboard/protocol/bridge';
 import type { LaterItem } from '@switchboard/protocol/client';
-import { memo, useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type MouseEvent, type PointerEvent, type ReactNode } from 'react';
-import { useEngineConnection } from '../../engine/useEngine.ts';
+import { memo, useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type MouseEvent, type ReactNode } from 'react';
 import { basename, shortAge } from '../../lib/format.ts';
 import { useCheckoutBranches } from '../../state/checkoutBranchesStore.ts';
 import { savedAgo } from '../../state/focus.ts';
-import { isActiveHost, useHosts } from '../../state/hostsStore.ts';
+import { useHosts } from '../../state/hostsStore.ts';
 import { removeFromLater, useLater } from '../../state/laterStore.ts';
 import { addedProjects } from '../../state/projectList.ts';
 import { useProjects } from '../../state/projectsStore.ts';
 import { toRows, useSessions, type SessionRowData } from '../../state/sessionsStore.ts';
 import { usePreferences } from '../../state/preferencesStore.ts';
 import { useSidebar } from '../../state/sidebarStore.ts';
-import { SIDEBAR_DEFAULT_WIDTH } from '../../state/sidebarWidth.ts';
 import { buildListRows, buildSessionList, GROUP_LABEL, inScope, isActive, laterInList, rowStatus, sessionsByHeader, waitingLabel, type HeaderKey, type RowStatus, type SessionGroup, type SidebarListRow } from '../../state/sidebarRows.ts';
 import { NO_PICKS, pickGroup, rangePick, stepPick, togglePick, visiblePicks, type Picks } from '../../state/sessionPicks.ts';
-import { ConfirmDialog } from '../ConfirmDialog.tsx';
-import { RenameSessionDialog } from '../RenameSessionDialog.tsx';
 import { FocusCounter } from '../focus/FocusCounter.tsx';
-import { Menu, type MenuEntry } from '../Menu.tsx';
-import { useOpenIn } from '../OpenInButton.tsx';
+import type { MenuEntry } from '../Menu.tsx';
 import { PROFILE_DOT } from '../profiles/ProfileBadge.tsx';
 import { useMultipleProfiles, useProfile } from '../../state/profilesStore.ts';
 import { ProjectIcon } from '../ProjectIcon.tsx';
@@ -35,43 +30,10 @@ import { claudeUpdateNotice } from '../../lib/claudeUpdate.ts';
 import { UpdatePillButton } from '../updates/UpdatePill.tsx';
 import { ClaudeUpdatePill } from '../updates/ClaudeUpdatePill.tsx';
 import { inWorktree } from '../worktree/branchMenu.ts';
-import { ProjectFilter, useProjectIconEntries } from './ProjectMenu.tsx';
+import { ProjectFilter } from './ProjectMenu.tsx';
 import { sessionRowLabel } from './rowLabel.ts';
 import { StatusIcon } from './StatusIcon.tsx';
-
-/** Drag the sidebar's right edge to resize it (clamped in the store); double-click resets the default width. */
-function SidebarResizeHandle() {
-  const setWidth = useSidebar((s) => s.setWidth);
-  const startResize = (event: PointerEvent<HTMLDivElement>) => {
-    if (event.button !== 0) return;
-    event.preventDefault();
-    const startX = event.clientX;
-    const startWidth = useSidebar.getState().width;
-    const target = event.currentTarget;
-    target.setPointerCapture(event.pointerId);
-    const move = (e: globalThis.PointerEvent) => setWidth(startWidth + (e.clientX - startX));
-    const up = () => {
-      target.removeEventListener('pointermove', move);
-      target.removeEventListener('pointerup', up);
-      target.removeEventListener('pointercancel', up);
-    };
-    target.addEventListener('pointermove', move);
-    target.addEventListener('pointerup', up);
-    target.addEventListener('pointercancel', up);
-  };
-  return (
-    <div
-      onPointerDown={startResize}
-      onDoubleClick={() => setWidth(SIDEBAR_DEFAULT_WIDTH)}
-      role="separator"
-      aria-orientation="vertical"
-      aria-label="Resize sidebar"
-      data-tooltip="Drag to resize, double-click to reset"
-      className="no-drag absolute inset-y-0 -right-[3px] z-20 w-1.5 cursor-col-resize hover:bg-accent/40"
-      data-sidebar-resize
-    />
-  );
-}
+import { ARCHIVE, useSessionMenu, type FlagChange } from './useSessionMenu.tsx';
 
 const SESSION_ROW_HEIGHT: Record<SidebarStyle, number> = { large: 52, standard: 48, compact: 34 };
 const ARCHIVED_HEADER_HEIGHT = 34;
@@ -386,8 +348,6 @@ function useWaitingAnnouncement(rows: SessionRowData[], loaded: boolean): string
 }
 
 export function Sidebar() {
-  const connection = useEngineConnection();
-  const client = connection.status === 'connected' ? connection.client : null;
   const sessions = useSessions((s) => s.sessions);
   const live = useSessions((s) => s.live);
   const hosts = useHosts((s) => s.hosts);
@@ -411,11 +371,6 @@ export function Sidebar() {
   const later = useMemo(() => laterInList(laterItems, { search, project: projectFilter }), [laterItems, search, projectFilter]);
   const { toggleArchived } = useProjects.getState();
   const noProjects = useProjects((s) => s.loaded && addedProjects(s.projects).length === 0);
-  const openIn = useOpenIn();
-  const projectIcons = useProjectIconEntries();
-  const [menu, setMenu] = useState<{ x: number; y: number; entries: MenuEntry[]; label: string } | null>(null);
-  const [deleting, setDeleting] = useState<SessionRowData[] | null>(null);
-  const [renaming, setRenaming] = useState<SessionRowData | null>(null);
   const [picks, setPicks] = useState<Picks>(NO_PICKS);
   const now = useNow();
   const sidebarStyle = usePreferences((s) => s.prefs.sidebarStyle);
@@ -459,6 +414,8 @@ export function Sidebar() {
   const pickedRows = rows.flatMap((r) => (r.kind === 'session' && picked.has(r.data.id) ? [r.data] : []));
   const multi = picked.size > 1;
   const headerSessions = useMemo(() => sessionsByHeader(rows), [rows]);
+  const menus = useSessionMenu(order, () => setPicks(NO_PICKS));
+  const { showMenu: setMenu, requestDelete: setDeleting, requestRename: setRenaming, flagAll } = menus;
   const togglePicked = (id: string) => setPicks((p) => togglePick(p, id, selectedId, order));
   /** "Select all" for a header while picking (Archived only while it's open, when its sessions are listed). */
   const selectAll = (group: HeaderKey) => {
@@ -565,13 +522,6 @@ export function Sidebar() {
     focusRow(next.id);
   };
 
-  type FlagChange = { pinned?: boolean; archived?: boolean };
-  // Only indexed sessions have flags; a session still starting has nothing to keep them against.
-  const flagAll = (targets: SessionRowData[], change: FlagChange) => {
-    for (const target of targets) if (target.summary) void client?.call('sessions.setFlags', { sessionId: target.id, ...change });
-  };
-  const ARCHIVE: FlagChange = { archived: true, pinned: false };
-
   // What the picked sessions can do: only indexed ones have flags and a transcript to delete.
   const pickTargets = pickedRows.filter((row) => row.summary);
   const pickActive = pickTargets.filter((row) => isActive(row, now));
@@ -597,28 +547,7 @@ export function Sidebar() {
   const sessionMenu = (at: { x: number; y: number }, data: SessionRowData) => {
     if (multi && picked.has(data.id)) return pickedMenu(at);
     setPicks(NO_PICKS);
-    const archivedNow = !isActive(data, Date.now());
-    const flag = (change: FlagChange) => flagAll([data], change);
-    const cwd = data.summary?.cwd ?? data.live?.cwd ?? null;
-    setMenu({
-      ...at,
-      label: `Session “${data.title}”`,
-      entries: [
-        { label: 'Rename…', hint: 'F2', onSelect: () => setRenaming(data), disabled: !data.summary, data: { 'data-rename-session': true } },
-        { label: data.pinned ? 'Unpin' : 'Pin to top', onSelect: () => flag({ pinned: !data.pinned }), disabled: !data.summary },
-        archivedNow
-          ? { label: 'Unarchive', onSelect: () => flag({ archived: false }), disabled: !data.summary }
-          : { label: 'Archive', hint: 'until new activity', onSelect: () => flag(ARCHIVE), disabled: !data.summary },
-        { label: 'Open beside', hint: '⌥-click', onSelect: () => useSessions.getState().openBeside(data.id) },
-        { label: 'Open folder in editor', onSelect: () => cwd && void openIn(cwd).catch(() => {}), disabled: !cwd },
-        { label: 'Copy session ID', onSelect: () => void navigator.clipboard.writeText(data.id) },
-        'separator',
-        // Removing the project from here read as removing the session; that lives in the project menus.
-        ...projectIcons.entries(data.projectRoot, at, { remove: false }),
-        'separator',
-        { label: 'Delete session…', hint: '⌘⌫', danger: true, disabled: !data.summary, onSelect: () => setDeleting([data]) },
-      ],
-    });
+    menus.openSessionMenu(at, data);
   };
 
   const laterMenu = (at: { x: number; y: number }, item: LaterItem) => {
@@ -643,7 +572,8 @@ export function Sidebar() {
   const hasClaudePill = useClaudeUpdate((s) => claudeUpdateNotice(s.state) !== null);
 
   return (
-    <aside aria-label="Sidebar" className="relative flex shrink-0 flex-col border-r border-border bg-sidebar" style={{ width }} data-sidebar>
+    // Drawn at the open width even while the frame around it eases narrower or wider, so it slides rather than reflows.
+    <aside aria-label="Sidebar" className="relative flex h-full shrink-0 flex-col border-r border-border bg-sidebar" style={{ width }} data-sidebar-open>
       {/* Traffic lights on the left; the bar doubles as a window drag handle. */}
       <div className="drag flex h-13 shrink-0 items-center gap-2 pl-24">
         <span className="text-body font-semibold text-text/90">Switchboard</span>
@@ -896,61 +826,10 @@ export function Sidebar() {
         />
       </footer>
 
-      {menu && <Menu x={menu.x} y={menu.y} entries={menu.entries} label={menu.label} onClose={() => setMenu(null)} />}
-      {/* Says when a session starts waiting for you; the row's icon alone can't be heard. */}
       <p className="sr-only" aria-live="polite" data-waiting-announcement>
         {waitingNotice}
       </p>
-      {deleting && (
-        <ConfirmDialog
-          title={
-            deleting.length === 1
-              ? `Delete “${deleting[0]!.title.length > 60 ? `${deleting[0]!.title.slice(0, 59)}…` : deleting[0]!.title}”?`
-              : `Delete ${deleting.length} sessions?`
-          }
-          danger
-          confirmLabel="Move to Trash"
-          blockedReason={
-            deleting.some((target) => target.live && !isActiveHost(hosts.get(target.id)))
-              ? deleting.length === 1
-                ? 'This session is open in another Claude Code window. Close it there first.'
-                : 'Some of these sessions are open in another Claude Code window. Close them there first.'
-              : null
-          }
-          body={
-            <>
-              {deleting.length === 1 ? 'The conversation and any subagent transcripts move' : 'The conversations and any subagent transcripts move'} to the Trash, so you can
-              restore them from Finder. Files Claude changed in your project are not touched.
-              {deleting.some((target) => isActiveHost(hosts.get(target.id))) &&
-                (deleting.length === 1 ? ' It is running in Switchboard and will be stopped first.' : ' Sessions running in Switchboard will be stopped first.')}
-            </>
-          }
-          onConfirm={async () => {
-            if (!client) throw new Error('Not connected to the engine');
-            const gone = new Set(deleting.map((target) => target.id));
-            // Keep the cursor in the list: the next session that stays (or the previous one at the end).
-            const index = selectedId ? order.indexOf(selectedId) : -1;
-            const next = index === -1 ? null : (order.slice(index + 1).find((id) => !gone.has(id)) ?? order.slice(0, index).reverse().find((id) => !gone.has(id)) ?? null);
-            for (const target of deleting) {
-              await client.call('session.delete', { sessionId: target.id });
-              const panes = useSessions.getState();
-              // Two panes: the other one takes the full width.
-              if (panes.splitId && (target.id === panes.mainId || target.id === panes.splitId)) panes.closePane(target.id === panes.mainId ? 'main' : 'split');
-            }
-            setPicks(NO_PICKS);
-            const current = useSessions.getState().selectedId;
-            if (current === null ? selectedId !== null && gone.has(selectedId) : gone.has(current)) {
-              if (next) select(next);
-              // Nothing left to show: close the trashed session rather than keep it on screen.
-              else useSessions.getState().closeSession();
-            }
-          }}
-          onClose={() => setDeleting(null)}
-        />
-      )}
-      {renaming && <RenameSessionDialog sessionId={renaming.id} title={renaming.title} onClose={() => setRenaming(null)} />}
-      {projectIcons.overlays}
-      <SidebarResizeHandle />
+      {menus.overlays}
     </aside>
   );
 }

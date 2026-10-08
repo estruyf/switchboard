@@ -31,6 +31,7 @@ import { WorktreeMenu } from '../worktree/WorktreeMenu.tsx';
 import { ConfirmDialog } from '../ConfirmDialog.tsx';
 import { GitButton } from '../git/GitButton.tsx';
 import { ProjectIcon } from '../ProjectIcon.tsx';
+import { SidebarToggle } from '../sidebar/SidebarToggle.tsx';
 import { Button } from '../ui/Button.tsx';
 import { Notice } from '../ui/Notice.tsx';
 import { Pill } from '../ui/Pill.tsx';
@@ -628,6 +629,8 @@ export function TranscriptView({ sessionId, pane = null, active = true }: { sess
         data-pane={pane ?? undefined}
         data-pane-active={pane ? active : undefined}
       >
+        {/* The sidebar toggle belongs to the window's left edge: in split view, only the left pane has it. */}
+        {pane !== 'split' && <SidebarToggle />}
         {projectRoot && <ProjectIcon project={project} root={projectRoot} size={22} />}
         <div className="min-w-24 flex-1">
           <h1 className="truncate text-body leading-snug font-semibold" data-tooltip={titleTooltip}>

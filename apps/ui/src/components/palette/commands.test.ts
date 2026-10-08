@@ -35,6 +35,7 @@ function context(over: Partial<PaletteContext> = {}): PaletteContext {
     canEditActions: false,
     colorScheme: 'system',
     sidebarStyle: 'standard',
+    sidebar: 'open',
     settingsSection: 'general',
     newSession: null,
     ...over,
@@ -232,5 +233,38 @@ describe('rememberIn', () => {
     let recent: string[] = [];
     for (const id of ['a', 'b', 'c', 'd', 'e', 'f', 'c']) recent = rememberIn(recent, id);
     expect(recent).toEqual(['c', 'f', 'e', 'd', 'b']);
+  });
+});
+
+describe('sidebar and session navigation', () => {
+  it('offers only the sidebar states that change something, and always the toggle', () => {
+    const open = ids(context());
+    expect(open).toEqual(expect.arrayContaining(['toggle-sidebar', 'sidebar-minimize', 'sidebar-close']));
+    expect(open).not.toContain('sidebar-open');
+    const minimal = ids(context({ sidebar: 'minimal' }));
+    expect(minimal).toEqual(expect.arrayContaining(['toggle-sidebar', 'sidebar-open', 'sidebar-close']));
+    expect(minimal).not.toContain('sidebar-minimize');
+    expect(ids(context({ sidebar: 'closed' }))).not.toContain('sidebar-close');
+  });
+
+  it('puts ⌘B on Toggle sidebar and keeps ⌘\\ for closing the other pane', () => {
+    const byShortcut = (keys: string) => COMMANDS.filter((c) => c.shortcut === keys).map((c) => c.id);
+    expect(byShortcut('⌘B')).toEqual(['toggle-sidebar']);
+    expect(byShortcut('⌘\\')).toEqual([]);
+  });
+
+  it('steps through sessions with their shortcuts', () => {
+    const api = { goToSession: vi.fn(), goToNextNeedsYou: vi.fn(), setSidebar: vi.fn(), toggleSidebar: vi.fn() } as unknown as PaletteApi;
+    const ctx = context();
+    const byId = (id: string) => COMMANDS.find((c) => c.id === id)!;
+    expect([byId('next-session').shortcut, byId('previous-session').shortcut, byId('next-needs-you').shortcut]).toEqual(['⌃⇥', '⌃⇧⇥', '⌘⇧U']);
+    byId('next-session').run!(api, ctx);
+    byId('previous-session').run!(api, ctx);
+    byId('next-needs-you').run!(api, ctx);
+    byId('sidebar-close').run!(api, ctx);
+    expect(api.goToSession).toHaveBeenNthCalledWith(1, 1);
+    expect(api.goToSession).toHaveBeenNthCalledWith(2, -1);
+    expect(api.goToNextNeedsYou).toHaveBeenCalled();
+    expect(api.setSidebar).toHaveBeenCalledWith('closed');
   });
 });

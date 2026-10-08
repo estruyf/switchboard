@@ -7,6 +7,7 @@ import { useProjects } from '../../state/projectsStore.ts';
 import { toRows, useSessions, type SessionRowData } from '../../state/sessionsStore.ts';
 import { inScope, waitingLabel } from '../../state/sidebarRows.ts';
 import { ProjectIcon } from '../ProjectIcon.tsx';
+import { SidebarToggle } from '../sidebar/SidebarToggle.tsx';
 import { Button } from '../ui/Button.tsx';
 import { SectionHeader } from '../ui/SectionHeader.tsx';
 import { activityByProject, latestBranches, recentFirst } from '../newSession/projectTiles.ts';
@@ -78,7 +79,9 @@ export function HomeView() {
   if (loaded && addedProjects(projects).length === 0) {
     return (
       <div className="flex h-full flex-col">
-        <div className="drag h-13 shrink-0" />
+        <div className="drag flex h-13 shrink-0 items-center px-4">
+          <SidebarToggle />
+        </div>
         <div className="flex flex-1 items-center justify-center px-6 pb-16">
           <Onboarding />
         </div>
@@ -89,7 +92,9 @@ export function HomeView() {
   return (
     // A container, so the columns stack when the window (or the space beside the sidebar) is narrow.
     <div className="@container flex h-full min-h-0 flex-col">
-      <div className="drag h-13 shrink-0" />
+      <div className="drag flex h-13 shrink-0 items-center px-4">
+        <SidebarToggle />
+      </div>
       <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
         <div className="mx-auto my-auto grid w-full max-w-3xl grid-cols-[minmax(0,1fr)] gap-7 px-6 pb-12" data-home>
           <header className="flex items-end justify-between gap-4">
