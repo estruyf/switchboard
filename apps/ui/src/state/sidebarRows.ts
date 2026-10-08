@@ -50,6 +50,15 @@ export function isActive(row: SessionRowData, now: number): boolean {
   return row.live?.origin === 'app' || row.unread || now - row.updatedAt < RECENT_MS;
 }
 
+/**
+ * Whether a middle-click on the row archives it: an indexed session in the main list that has finished
+ * (idle, unread or closed). Work in progress, a question, a failure or an archived row stay as they are.
+ */
+export function archivesOnMiddleClick(row: SessionRowData, now: number): boolean {
+  const status = rowStatus(row);
+  return row.summary !== null && (status === null || status === 'idle' || status === 'unread') && isActive(row, now);
+}
+
 export interface SessionListOptions {
   search: string;
   /** Only this project folder; null = all. */

@@ -2,7 +2,7 @@ import { useState, type ReactNode } from 'react';
 import { useEngineConnection } from '../../engine/useEngine.ts';
 import { isActiveHost, useHosts } from '../../state/hostsStore.ts';
 import { useSessions, type SessionRowData } from '../../state/sessionsStore.ts';
-import { isActive } from '../../state/sidebarRows.ts';
+import { archivesOnMiddleClick, isActive } from '../../state/sidebarRows.ts';
 import { ConfirmDialog } from '../ConfirmDialog.tsx';
 import { Menu, type MenuEntry } from '../Menu.tsx';
 import { useOpenIn } from '../OpenInButton.tsx';
@@ -20,6 +20,8 @@ export interface SessionMenus {
   openSessionMenu(at: { x: number; y: number }, data: SessionRowData): void;
   /** Sets flags on sessions that have a transcript (only those have flags). */
   flagAll(targets: SessionRowData[], change: FlagChange): void;
+  /** A middle-click on a row: archives the session if it has finished, and does nothing otherwise. */
+  middleClick(data: SessionRowData): void;
   /** Asks before moving sessions to the Trash. */
   requestDelete(targets: SessionRowData[]): void;
   requestRename(data: SessionRowData): void;
@@ -46,6 +48,10 @@ export function useSessionMenu(order: readonly string[], onDeleted?: () => void)
   // Only indexed sessions have flags; a session still starting has nothing to keep them against.
   const flagAll = (targets: SessionRowData[], change: FlagChange) => {
     for (const target of targets) if (target.summary) void client?.call('sessions.setFlags', { sessionId: target.id, ...change });
+  };
+
+  const middleClick = (data: SessionRowData) => {
+    if (archivesOnMiddleClick(data, Date.now())) flagAll([data], ARCHIVE);
   };
 
   const openSessionMenu = (at: { x: number; y: number }, data: SessionRowData) => {
@@ -128,5 +134,5 @@ export function useSessionMenu(order: readonly string[], onDeleted?: () => void)
     </>
   );
 
-  return { showMenu: setMenu, openSessionMenu, flagAll, requestDelete: setDeleting, requestRename: setRenaming, overlays };
+  return { showMenu: setMenu, openSessionMenu, flagAll, middleClick, requestDelete: setDeleting, requestRename: setRenaming, overlays };
 }

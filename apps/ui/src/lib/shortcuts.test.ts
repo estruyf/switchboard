@@ -104,7 +104,7 @@ describe('the shortcut registry', () => {
     for (const def of SHORTCUTS as readonly ShortcutDef[]) {
       for (const combo of def.keys) {
         for (const step of combo.split(' ')) {
-          const press = step.replace(/(\d)\.\.\d$/, '$1').replace(/\+?click$/, '').replace(/^$/, 'a');
+          const press = step.replace(/(\d)\.\.\d$/, '$1').replace(/\+?(middle)?click$/, '').replace(/^$/, 'a');
           expect(isStoredShortcut(press), `${def.id}: ${combo}`).toBe(true);
         }
       }
@@ -118,6 +118,7 @@ describe('the shortcut registry', () => {
     expect(formatKeys('1..9')).toBe('1 to 9');
     expect(formatKeys('mod+q mod+q')).toBe('⌘Q then ⌘Q');
     expect(formatKeys('alt+click')).toBe('⌥-click');
+    expect(formatKeys('middleclick')).toBe('Middle-click');
     expect(formatKeys('ctrl+shift+tab')).toBe('⌃⇧⇥');
     expect(formatKeys('mod+\\')).toBe('⌘\\');
     expect(formatKeys('escape')).toBe('Esc');
@@ -131,6 +132,7 @@ describe('the shortcut registry', () => {
     expect(spokenKeys('mod+q mod+q')).toBe('Command, Q then Command, Q');
     expect(spokenKeys('1..9')).toBe('1 to 9');
     expect(spokenKeys('alt+click')).toBe('Option, click');
+    expect(spokenKeys('middleclick')).toBe('middle click');
   });
 
   it('reads mod as ⌘ everywhere a stored shortcut is read', () => {
@@ -141,6 +143,7 @@ describe('the shortcut registry', () => {
     expect(comboPresses('mod+1..3')).toEqual(['cmd+1', 'cmd+2', 'cmd+3']);
     expect(comboPresses('mod+q mod+q')).toEqual(['cmd+q']);
     expect(comboPresses('alt+click')).toEqual([]);
+    expect(comboPresses('middleclick')).toEqual([]);
   });
 
   it('matches key presses to a shortcut and its alternatives', () => {

@@ -124,6 +124,7 @@ const SessionRow = memo(function SessionRow({
   onClick,
   onTogglePick,
   onMenu,
+  onMiddleClick,
 }: {
   data: SessionRowData;
   selected: boolean;
@@ -143,6 +144,7 @@ const SessionRow = memo(function SessionRow({
   onClick(event: MouseEvent, data: SessionRowData): void;
   onTogglePick(id: string): void;
   onMenu(at: { x: number; y: number }, data: SessionRowData): void;
+  onMiddleClick(data: SessionRowData): void;
 }) {
   const project = useProjects((s) => s.projects.get(data.projectRoot));
   const style = usePreferences((s) => s.prefs.sidebarStyle);
@@ -199,6 +201,12 @@ const SessionRow = memo(function SessionRow({
     'data-picked': picked || undefined,
     'aria-label': sessionRowLabel({ title: data.title, project: projectName, status, pinned: data.pinned, archived, picked, beside, updatedAt: data.updatedAt, now }),
     onClick: (e: MouseEvent) => onClick(e, data),
+    // A middle-click archives a finished session, as closing a tab would.
+    onAuxClick: (e: MouseEvent) => {
+      if (e.button !== 1) return;
+      e.preventDefault();
+      onMiddleClick(data);
+    },
     onContextMenu: (e: MouseEvent<HTMLElement>) => {
       e.preventDefault();
       onMenu(e.clientX === 0 && e.clientY === 0 ? menuAt(e.currentTarget) : { x: e.clientX, y: e.clientY }, data);
@@ -721,6 +729,7 @@ export function Sidebar() {
                       onClick={rowClick}
                       onTogglePick={togglePicked}
                       onMenu={sessionMenu}
+                      onMiddleClick={menus.middleClick}
                     />
                   ) : (
                     <SectionHeader

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { LaterItem, LiveSession, SessionHostInfo } from '@switchboard/protocol/client';
 import { toRows, useSessions, type SessionRowData } from './sessionsStore.ts';
-import { buildListRows, buildSessionList, groupSessions, inScope, isActive, laterInList, RECENT_MS, rowStatus, sessionGroup, sessionsByHeader, startOfDay, startupSession, waitingLabel } from './sidebarRows.ts';
+import { archivesOnMiddleClick, buildListRows, buildSessionList, groupSessions, inScope, isActive, laterInList, RECENT_MS, rowStatus, sessionGroup, sessionsByHeader, startOfDay, startupSession, waitingLabel } from './sidebarRows.ts';
 
 const NOW = Date.UTC(2026, 9, 5, 12);
 const HOUR = 3_600_000;
@@ -76,6 +76,24 @@ describe('isActive', () => {
     expect(isActive(row('a', { archivedAt: NOW - HOUR, updatedAt: NOW, live: live('idle') }), NOW)).toBe(true);
   });
 
+});
+
+describe('archivesOnMiddleClick', () => {
+  // Only indexed sessions have flags; the summary's fields don't matter here.
+  const indexed = (id: string, overrides: Partial<SessionRowData> = {}) => row(id, { summary: { id } as SessionRowData['summary'], ...overrides });
+
+  it('archives finished sessions in the main list only', () => {
+    expect(archivesOnMiddleClick(indexed('a'), NOW)).toBe(true);
+    expect(archivesOnMiddleClick(indexed('a', { unread: true }), NOW)).toBe(true);
+    expect(archivesOnMiddleClick(indexed('a', { live: live('idle') }), NOW)).toBe(true);
+    expect(archivesOnMiddleClick(indexed('a', { pinned: true }), NOW)).toBe(true);
+    expect(archivesOnMiddleClick(indexed('a', { live: live('running') }), NOW)).toBe(false);
+    expect(archivesOnMiddleClick(indexed('a', { live: live('needs-you') }), NOW)).toBe(false);
+    expect(archivesOnMiddleClick(indexed('a', { live: { ...live('idle'), background: ['npm run dev'] } }), NOW)).toBe(false);
+    expect(archivesOnMiddleClick(indexed('a', { error: true }), NOW)).toBe(false);
+    expect(archivesOnMiddleClick(indexed('a', { archivedAt: NOW }), NOW)).toBe(false);
+    expect(archivesOnMiddleClick(row('a'), NOW)).toBe(false);
+  });
 });
 
 describe('buildSessionList', () => {

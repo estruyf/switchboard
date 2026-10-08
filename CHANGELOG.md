@@ -7,6 +7,7 @@ All notable changes to Switchboard are listed here. Each release is also on the 
 ### New
 
 - **Copy a code block.** Hover a code block in Claude's reply (or Tab to it) and click the copy button in its corner to copy the code.
+- **Middle-click to archive.** Middle-click a finished session in the sidebar to archive it. Sessions that are working or waiting for you stay where they are.
 
 ### Changed
 

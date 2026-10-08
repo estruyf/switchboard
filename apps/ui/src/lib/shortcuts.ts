@@ -148,7 +148,7 @@ export interface ShortcutDef {
   id: string;
   /**
    * Alternatives, each in the stored form (`mod+shift+p`, `mod` being ⌘). `mod+1..9` is a range, `mod+q mod+q`
-   * a sequence (press it twice) and `alt+click` a click.
+   * a sequence (press it twice), `alt+click` a click and `middleclick` a click with the middle button.
    */
   keys: readonly string[];
   /** What it does, as the sheet and the README say it. */
@@ -194,6 +194,7 @@ export const SHORTCUTS = [
   { id: 'sidebar.rename', keys: ['f2'], action: 'Rename the session', section: 'sessions', context: 'In the sidebar', where: 'sidebar' },
   { id: 'sidebar.delete', keys: ['mod+backspace'], action: 'Delete the session', section: 'sessions', context: 'In the sidebar, to the Trash', where: 'sidebar' },
   { id: 'sidebar.open-beside', keys: ['alt+click'], action: 'Open beside the current session', section: 'sessions', context: 'In the sidebar', where: 'sidebar' },
+  { id: 'sidebar.archive', keys: ['middleclick'], action: 'Archive a finished session', section: 'sessions', context: 'In the sidebar', where: 'sidebar' },
   { id: 'context-menu', keys: ['shift+f10'], action: 'Open the context menu', section: 'sessions', context: 'On a session, project or file; or right-click' },
   { id: 'pane.close-other', keys: ['mod+\\'], action: 'Close the other pane', section: 'sessions', context: 'With two panes open', when: (ctx) => ctx.split },
 
@@ -288,7 +289,7 @@ export const ariaKeysFor = (id: ShortcutId) =>
     .join(' ');
 
 /** A piece of a combo as the sheet draws it: a keycap, or a word between keycaps. */
-export type KeyPiece = { cap: string; spoken: string } | { word: 'to' | 'then' | 'click' };
+export type KeyPiece = { cap: string; spoken: string } | { word: 'to' | 'then' | 'click' | 'middle-click' };
 
 const SPOKEN: Record<string, string> = {
   cmd: 'Command',
@@ -318,7 +319,7 @@ const capOf = (part: string): KeyPiece => ({ cap: KEY_GLYPHS[part] ?? part.toUpp
 const pressPieces = (press: string): KeyPiece[] =>
   normalizeShortcut(press)
     .split('+')
-    .map((part) => (part === 'click' ? { word: 'click' as const } : capOf(part)));
+    .map((part) => (part === 'click' ? { word: 'click' as const } : part === 'middleclick' ? { word: 'middle-click' as const } : capOf(part)));
 
 /** A combo as keycaps and words: `mod+1..9` is ⌘ 1 to ⌘ 9, `mod+q mod+q` is ⌘ Q then ⌘ Q, `alt+click` is ⌥ click. */
 export function keyPieces(combo: string): KeyPiece[] {
@@ -331,12 +332,14 @@ export function keyPieces(combo: string): KeyPiece[] {
   });
 }
 
-/** A combo as text: `mod+shift+p` is ⌘⇧P, `mod+1..9` ⌘1 to ⌘9, `mod+q mod+q` ⌘Q then ⌘Q, `alt+click` ⌥-click. */
+/** A combo as text: `mod+shift+p` is ⌘⇧P, `mod+1..9` ⌘1 to ⌘9, `mod+q mod+q` ⌘Q then ⌘Q, `alt+click` ⌥-click, `middleclick` Middle-click. */
 export function formatKeys(combo: string): string {
   let text = '';
   for (const piece of keyPieces(combo)) {
     if ('cap' in piece) text += piece.cap;
-    else text += piece.word === 'click' ? `${text ? '-' : ''}click` : ` ${piece.word} `;
+    else if (piece.word === 'click') text += `${text ? '-' : ''}click`;
+    else if (piece.word === 'middle-click') text += 'Middle-click';
+    else text += ` ${piece.word} `;
   }
   return text;
 }
@@ -349,6 +352,7 @@ export function spokenKeys(combo: string): string {
   for (const piece of keyPieces(combo)) {
     if ('cap' in piece) press.push(piece.spoken);
     else if (piece.word === 'click') press.push('click');
+    else if (piece.word === 'middle-click') press.push('middle click');
     else (flush(), words.push(piece.word));
   }
   flush();

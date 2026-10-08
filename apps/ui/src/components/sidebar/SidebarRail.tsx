@@ -50,6 +50,7 @@ const RailRow = memo(function RailRow({
   request,
   onClick,
   onMenu,
+  onMiddleClick,
 }: {
   data: SessionRowData;
   selected: boolean;
@@ -61,6 +62,7 @@ const RailRow = memo(function RailRow({
   request: WaitingRequest | null;
   onClick(event: MouseEvent, data: SessionRowData): void;
   onMenu(at: { x: number; y: number }, data: SessionRowData): void;
+  onMiddleClick(data: SessionRowData): void;
 }) {
   const project = useProjects((s) => s.projects.get(data.projectRoot));
   const projectName = project?.name ?? basename(data.projectRoot);
@@ -94,6 +96,11 @@ const RailRow = memo(function RailRow({
       data-tooltip-tone={line?.tone ?? 'faint'}
       data-tooltip-hint={hint}
       onClick={(e) => onClick(e, data)}
+      onAuxClick={(e) => {
+        if (e.button !== 1) return;
+        e.preventDefault();
+        onMiddleClick(data);
+      }}
       onContextMenu={(e) => {
         e.preventDefault();
         onMenu(e.clientX === 0 && e.clientY === 0 ? menuAt(e.currentTarget) : { x: e.clientX, y: e.clientY }, data);
@@ -272,6 +279,7 @@ export function SidebarRail() {
                     request={requests.get(item.data.id) ?? null}
                     onClick={rowClick}
                     onMenu={menus.openSessionMenu}
+                    onMiddleClick={menus.middleClick}
                   />
                 )}
               </div>

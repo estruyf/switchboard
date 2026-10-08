@@ -188,6 +188,7 @@ Press **⌘/** (or Help › Keyboard Shortcuts) to see every shortcut in the app
 | F2 | Rename the session (in the sidebar) |
 | ⌘⌫ | Delete the session (in the sidebar, to the Trash) |
 | ⌥-click | Open beside the current session (in the sidebar) |
+| Middle-click | Archive a finished session (in the sidebar) |
 | ⇧F10 | Open the context menu (on a session, project or file; or right-click) |
 | ⌘\\ | Close the other pane (with two panes open) |
 
@@ -244,7 +245,7 @@ Press **⌘/** (or Help › Keyboard Shortcuts) to see every shortcut in the app
 
 In the command palette, the first character picks what it lists: `>` commands, `+` a new session (pick a project, then write the prompt), `!` the session's project actions, `?` help. Commands that ask for more end in **…**: ⌫ in an empty field goes back a step, Esc closes. In the prompt step, ⌘↵ starts the session, ⌘E moves it to the full New session view, and Esc keeps what you wrote for next time.
 
-Right-click a session for more: rename it, open it beside, pin, archive, open its folder, copy its ID, or delete it. With several sessions selected, right-click one of them to archive or unarchive them all at once.
+Right-click a session for more: rename it, open it beside, pin, archive, open its folder, copy its ID, or delete it. Middle-click a finished session to archive it in one go. With several sessions selected, right-click one of them to archive or unarchive them all at once.
 
 Drag the sidebar's right edge to make it wider or narrower; double-click the edge to reset it. Drag it further in and it snaps to a narrow rail with one project icon per session (hover one to see its title and what it's doing), and further still to hide it. Drag the edge out again to open it. ⌘B, the sidebar button at the left of the header, and the command palette do the same; Settings → Sidebar chooses whether collapsing shows the rail or hides the sidebar. Switchboard remembers the width and the state. With the sidebar hidden, a pill in the header says when sessions need you, and ⌃⇥, ⌘⇧U and ⌘P take you between sessions.
 
