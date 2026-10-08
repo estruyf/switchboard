@@ -90,6 +90,8 @@ const ProfileName = z.string().trim().min(1).max(60);
 const SettingsFilePath = AbsolutePath.regex(/\.json$/i, 'Settings files end in .json');
 /** The app's preferences, which main keeps: the renderer passes them in and applies what comes back. */
 const PreferencesRecord = z.record(z.string(), z.unknown());
+/** Theme files as main keeps them (validated where they are read). */
+const ThemeFiles = z.array(z.unknown()).max(500).default([]);
 
 /** Every request the UI can make and every event the engine can push. */
 export const contract = {
@@ -428,7 +430,14 @@ export const contract = {
     // --- Settings backup -----------------------------------------------------------------------
     /** Writes the chosen kinds of user choices (never the cache) to a settings file. */
     'settings.export': {
-      params: z.object({ path: SettingsFilePath, sections: z.array(BackupSectionSchema).min(1), preferences: PreferencesRecord, appVersion: z.string().max(100) }),
+      params: z.object({
+        path: SettingsFilePath,
+        sections: z.array(BackupSectionSchema).min(1),
+        preferences: PreferencesRecord,
+        /** Main keeps imported themes; the renderer passes their files in. */
+        themes: ThemeFiles,
+        appVersion: z.string().max(100),
+      }),
       result: z.object({ path: z.string() }),
     },
     /**
@@ -444,10 +453,18 @@ export const contract = {
         relocate: z.array(FolderMapping).max(5000).default([]),
         /** The current preferences, to compare with and to back up. */
         preferences: PreferencesRecord,
+        /** The imported themes there are now (their files), to compare with and to back up. */
+        themes: ThemeFiles,
         appVersion: z.string().max(100),
         apply: z.boolean().default(false),
       }),
-      result: z.object({ preview: ImportPreview, backupPath: z.string().nullable(), preferences: PreferencesRecord.nullable() }),
+      result: z.object({
+        preview: ImportPreview,
+        backupPath: z.string().nullable(),
+        preferences: PreferencesRecord.nullable(),
+        /** Themes for the renderer to hand to main: added, or replacing the one with the same name. */
+        themes: z.array(z.object({ raw: z.unknown(), how: z.enum(['add', 'replace']) })),
+      }),
     },
 
     // --- Claude Code updates -----------------------------------------------------------------

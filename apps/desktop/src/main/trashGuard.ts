@@ -49,3 +49,14 @@ export function isTrashableRepoFile(path: string, repoRoot: string): boolean {
     return false;
   }
 }
+
+/** An imported theme's file: a `.json` file directly inside the themes folder, never the folder itself or anything through a link. */
+export function isTrashableThemeFile(path: string, themesDir: string): boolean {
+  if (resolve(path) !== path || resolve(themesDir) !== themesDir) return false;
+  if (dirname(path) !== themesDir || !/^[a-z0-9][a-z0-9-]*\.json$/.test(basename(path))) return false;
+  try {
+    return lstatSync(path, { throwIfNoEntry: false })?.isFile() ?? false;
+  } catch {
+    return false;
+  }
+}

@@ -9,6 +9,8 @@ export interface Toast {
   message: string;
   /** A small icon before the message (saved for later). */
   icon?: 'bookmark';
+  /** A coloured dot before the message instead (a theme's accent); a validated colour value. */
+  dot?: string;
   /** A one-click way back, for about five seconds. */
   undo?: () => void;
 }
@@ -36,4 +38,4 @@ export const useToasts = create<ToastState>()((set) => ({
 }));
 
 /** Shows a toast; returns its id. */
-export const toast = (message: string, options: Pick<Toast, 'undo' | 'icon'> = {}) => useToasts.getState().show({ message, ...options });
+export const toast = (message: string, options: Pick<Toast, 'undo' | 'icon' | 'dot'> = {}) => useToasts.getState().show({ message, ...options });

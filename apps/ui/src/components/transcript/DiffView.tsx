@@ -46,7 +46,7 @@ export const DiffView = memo(function DiffView({ hunks, truncated }: { hunks: Ar
   const visible = expanded ? rows : rows.slice(0, COLLAPSED_LINES);
 
   return (
-    <div className="mt-1.5 overflow-hidden rounded-md border border-border font-mono text-ui leading-[1.55] select-text" data-diff>
+    <div className="mt-1.5 overflow-hidden rounded-md border border-border bg-code font-mono text-ui leading-[1.55] select-text" data-diff>
       <div className="overflow-x-auto">
         {visible.map((row, i) =>
           row.kind === 'gap' ? (
@@ -56,7 +56,7 @@ export const DiffView = memo(function DiffView({ hunks, truncated }: { hunks: Ar
           ) : (
             <div
               key={i}
-              className={`flex whitespace-pre ${row.kind === 'add' ? 'bg-ok/12 text-text' : row.kind === 'del' ? 'bg-error/12 text-text/80' : 'text-muted'}`}
+              className={`flex whitespace-pre ${row.kind === 'add' ? 'bg-diff-added text-text' : row.kind === 'del' ? 'bg-diff-removed text-text/80' : 'text-muted'}`}
             >
               <span className={`w-5 shrink-0 text-center select-none ${row.kind === 'add' ? 'text-ok' : row.kind === 'del' ? 'text-error' : 'text-faint'}`}>
                 {row.kind === 'add' ? '+' : row.kind === 'del' ? '−' : ' '}

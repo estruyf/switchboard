@@ -1,5 +1,6 @@
 import { memo, useEffect, useState } from 'react';
 import { highlight } from '../../lib/highlight.ts';
+import { useThemes } from '../../state/themeStore.ts';
 
 const idle = (fn: () => void) => {
   if ('requestIdleCallback' in window) {
@@ -18,22 +19,24 @@ const idle = (fn: () => void) => {
 export const CodeBlock = memo(function CodeBlock({ code, language }: { code: string; language: string | undefined }) {
   // Tagged with the code it was made from: while a block is still streaming, the
   // highlight lags behind and showing it would hide the newest lines.
-  const [highlighted, setHighlighted] = useState<{ code: string; html: string | null } | null>(null);
-  const html = highlighted?.code === code ? highlighted.html : null;
+  const [highlighted, setHighlighted] = useState<{ code: string; syntaxKey: string; html: string | null } | null>(null);
+  // A new theme can bring other code colours: highlight again with them.
+  const syntaxKey = useThemes((s) => s.syntaxKey);
+  const html = highlighted?.code === code && highlighted.syntaxKey === syntaxKey ? highlighted.html : null;
 
   useEffect(() => {
     let cancelled = false;
     const cancelIdle = idle(() => {
-      void highlight(code, language).then((result) => !cancelled && setHighlighted({ code, html: result }));
+      void highlight(code, language).then((result) => !cancelled && setHighlighted({ code, syntaxKey, html: result }));
     });
     return () => {
       cancelled = true;
       cancelIdle();
     };
-  }, [code, language]);
+  }, [code, language, syntaxKey]);
 
   return (
-    <div className="code-block group relative my-2 overflow-hidden rounded-md border border-border bg-sidebar">
+    <div className="code-block group relative my-2 overflow-hidden rounded-md border border-border bg-code">
       {language && <span className="absolute top-1 right-2 text-[10px] text-faint uppercase select-none">{language}</span>}
       {html ? (
         // Shiki escapes the code; the HTML is spans with colour variables only.

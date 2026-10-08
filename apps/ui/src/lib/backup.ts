@@ -2,7 +2,8 @@ import { BACKUP_SECTIONS, type BackupSection, type ImportChange } from '@switchb
 
 /** How the export and import dialogs name each kind of data. */
 export const SECTION_INFO: Record<BackupSection, { label: string; detail: string }> = {
-  preferences: { label: 'Preferences', detail: 'Theme, sidebar, tool activity, startup and quitting, updates.' },
+  preferences: { label: 'Preferences', detail: 'Appearance and theme choice, sidebar, tool activity, startup and quitting, updates.' },
+  themes: { label: 'Themes', detail: 'Themes you imported or duplicated. The built-in ones are always there.' },
   projects: { label: 'Projects', detail: 'Your projects in order, with their names, icons and defaults for new sessions.' },
   actions: { label: 'Project actions', detail: 'Global and per-project actions, with their shortcuts and worktree setup.' },
   choices: { label: 'App choices', detail: 'Default editor, New session defaults, Claude Code update checks.' },

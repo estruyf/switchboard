@@ -6,6 +6,7 @@ import { DEFAULT_EXPORT_SECTIONS, groupChanges, hasEffect, SECTION_INFO, summari
 import { guessHome, tildify } from '../../lib/format.ts';
 import { useBackup } from '../../state/backupStore.ts';
 import { usePreferences } from '../../state/preferencesStore.ts';
+import { useThemes } from '../../state/themeStore.ts';
 import { Button } from '../ui/Button.tsx';
 import { Checkbox } from '../ui/Checkbox.tsx';
 import { Dialog } from '../ui/Dialog.tsx';
@@ -32,6 +33,9 @@ function SectionChoices({ available, selected, onChange, attr }: { available: re
   );
 }
 
+/** The imported themes' files (main keeps them; the engine writes and reads the settings file). */
+const importedThemes = () => useThemes.getState().themes.filter((t) => !t.builtIn).map((t) => t.file);
+
 /** Export settings: pick what to include, then where to save the file. */
 export function ExportDialog({ onClose }: { onClose(): void }) {
   const connection = useEngineConnection();
@@ -48,7 +52,7 @@ export function ExportDialog({ onClose }: { onClose(): void }) {
     setBusy(true);
     try {
       const path = await window.switchboard?.chooseExportFile(settingsFileName(new Date()));
-      if (path) setSaved((await client.call('settings.export', { path, sections, preferences: { ...prefs }, appVersion: appVersion() })).path);
+      if (path) setSaved((await client.call('settings.export', { path, sections, preferences: { ...prefs }, themes: importedThemes(), appVersion: appVersion() })).path);
     } catch (e) {
       setError(message(e));
     } finally {
@@ -140,6 +144,7 @@ export function ImportDialog({ onClose }: { onClose(): void }) {
       mode,
       relocate,
       preferences: { ...usePreferences.getState().prefs },
+      themes: importedThemes(),
       appVersion: appVersion(),
       apply,
     });
@@ -168,6 +173,8 @@ export function ImportDialog({ onClose }: { onClose(): void }) {
     setError(null);
     try {
       const result = await request(true);
+      // Themes first, so a theme the imported preferences pick is there when they apply.
+      for (const theme of result.themes) await window.switchboard?.addTheme(theme.raw, theme.how);
       if (result.preferences && Object.keys(result.preferences).length > 0) usePreferences.getState().update(result.preferences);
       setPreview(result.preview);
       setBackupPath(result.backupPath);

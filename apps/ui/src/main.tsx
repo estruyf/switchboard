@@ -2,6 +2,8 @@ import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { App } from './App.tsx';
 import './styles.css';
+// Applies the theme (a generated style element) before the first render.
+import './state/themeStore.ts';
 
 // Focus rings only while navigating with Tab; any pointer use hides them again (see styles.css).
 // Checked after the event has been handled: a Tab a control keeps for itself (picking a slash command,

@@ -82,7 +82,8 @@ export function SegmentedControl<T extends string>(props: RadioProps<T> | Toggle
       role={mode === 'radio' ? 'radiogroup' : 'group'}
       aria-label={label}
       onKeyDown={onKeyDown}
-      className={`inline-flex shrink-0 items-center gap-0.5 rounded-lg bg-card p-0.5 ${HEIGHT[size]} ${size === 'sm' ? 'text-meta' : 'text-ui'} ${className}`}
+      // The edge keeps the track visible where card and background are the same colour (white in light mode).
+      className={`inline-flex shrink-0 items-center gap-0.5 rounded-lg bg-card p-0.5 shadow-[inset_0_0_0_1px_var(--sb-overlay-border)] ${HEIGHT[size]} ${size === 'sm' ? 'text-meta' : 'text-ui'} ${className}`}
       {...rest}
     >
       {segments.map((segment, index) => {

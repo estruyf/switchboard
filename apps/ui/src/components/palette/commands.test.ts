@@ -34,6 +34,11 @@ function context(over: Partial<PaletteContext> = {}): PaletteContext {
     actions: [],
     canEditActions: false,
     colorScheme: 'system',
+    themes: [
+      { id: 'demo-time', name: 'Demo Time' },
+      { id: 'solarized', name: 'Solarized' },
+    ],
+    themeId: 'demo-time',
     sidebarStyle: 'standard',
     sidebar: 'open',
     settingsSection: 'general',
@@ -225,6 +230,19 @@ describe('arrangeCommands', () => {
     expect(byKeyword!.items[0]!.command.id).toBe('copy-session-id');
     expect(byKeyword!.items[0]!.indices).toEqual([]);
     expect(arrangeCommands(visibleCommands(ctx), ctx, [], 'zzzz')).toEqual([]);
+  });
+});
+
+describe('themes', () => {
+  it('offers every theme but the one in use, and import and export', () => {
+    const shown = visibleCommands(context());
+    expect(shown.map((c) => c.id)).toEqual(expect.arrayContaining(['theme:solarized', 'import-theme', 'export-theme']));
+    expect(shown.map((c) => c.id)).not.toContain('theme:demo-time');
+    expect(titleOf(shown.find((c) => c.id === 'theme:solarized')!, context())).toBe('Theme: Solarized');
+    expect(titleOf(shown.find((c) => c.id === 'theme-dark')!, context())).toBe('Appearance: Dark');
+    const api = { selectTheme: vi.fn() } as unknown as PaletteApi;
+    shown.find((c) => c.id === 'theme:solarized')!.run!(api, context());
+    expect(api.selectTheme).toHaveBeenCalledWith('solarized');
   });
 });
 

@@ -35,7 +35,7 @@ export function ToolDetails({ item, cwd, sessionId, withDiffAndImages = false }:
     <div className="grid gap-2 select-text">
       {withDiffAndImages && hunks && !failed && <DiffView hunks={hunks} truncated={item.inputTruncated} />}
       {!hunks && (
-        <pre className="max-h-64 overflow-auto rounded bg-sidebar px-2 py-1.5 font-mono text-[11.5px] leading-relaxed whitespace-pre-wrap text-muted">
+        <pre className="max-h-64 overflow-auto rounded bg-code px-2 py-1.5 font-mono text-[11.5px] leading-relaxed whitespace-pre-wrap text-muted">
           {/* A command reads better as itself than as JSON. */}
           {command !== null ? `$ ${command}` : JSON.stringify(item.input, null, 2)}
           {item.inputTruncated && '\n… (long values shortened)'}
@@ -44,7 +44,7 @@ export function ToolDetails({ item, cwd, sessionId, withDiffAndImages = false }:
       {item.result && (!hunks || failed) && (
         <pre
           className={`max-h-80 overflow-auto rounded px-2 py-1.5 font-mono text-[11.5px] leading-relaxed whitespace-pre-wrap ${
-            item.result.isError ? 'bg-error/10 text-error' : 'bg-sidebar text-text/85'
+            item.result.isError ? 'bg-error/10 text-error' : 'bg-code text-text/85'
           }`}
         >
           {item.result.text || '(no output)'}

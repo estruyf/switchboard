@@ -12,6 +12,7 @@ import { toRows, useSessions } from '../../state/sessionsStore.ts';
 import { isActive } from '../../state/sidebarRows.ts';
 import { useSidebar } from '../../state/sidebarStore.ts';
 import { useTerminals } from '../../state/terminalsStore.ts';
+import { useThemes } from '../../state/themeStore.ts';
 import { useProjectActionList } from '../actions/useActions.ts';
 import { planGit } from '../git/gitPlan.ts';
 import { inWorktree } from '../worktree/branchMenu.ts';
@@ -61,6 +62,8 @@ export function usePaletteContext(): PaletteContext {
   const projects = useProjects((s) => s.projects);
   const projectFilter = useProjects((s) => s.filter);
   const prefs = usePreferences((s) => s.prefs);
+  const themes = useThemes((s) => s.themes);
+  const activeTheme = useThemes((s) => s.active.entry.id);
   const laterCount = useLater((s) => s.items.length);
   const digest = usePaletteBus((s) => s.digest);
   const newSessionInfo = usePaletteBus((s) => s.newSessionInfo);
@@ -129,6 +132,8 @@ export function usePaletteContext(): PaletteContext {
     actions: actions.map((a) => ({ id: a.id, name: a.name, shortcut: a.shortcut ?? null, icon: a.icon })),
     canEditActions: !!projectRoot?.startsWith('/'),
     colorScheme: prefs.colorScheme,
+    themes: themes.map((t) => ({ id: t.id, name: t.file.name })),
+    themeId: activeTheme,
     sidebarStyle: prefs.sidebarStyle,
     sidebar,
     settingsSection,

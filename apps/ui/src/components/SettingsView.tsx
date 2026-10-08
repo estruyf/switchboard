@@ -1,6 +1,6 @@
 import { Activity, ArchiveRestore, Info, MessageSquare, Palette, PanelLeft, SlidersHorizontal, Target, Users, X, type LucideIcon } from 'lucide-react';
 import { useEffect, useId, useRef, type ReactNode, type RefObject } from 'react';
-import type { ColorScheme, SidebarCollapsed, SidebarStyle, StartupView, ToolActivity } from '@switchboard/protocol/bridge';
+import type { SidebarCollapsed, SidebarStyle, StartupView, ToolActivity } from '@switchboard/protocol/bridge';
 import { usePreferences } from '../state/preferencesStore.ts';
 import { useSessions, type SettingsSection } from '../state/sessionsStore.ts';
 import { useSidebar } from '../state/sidebarStore.ts';
@@ -8,40 +8,13 @@ import { BackupSettings } from './backup/BackupSettings.tsx';
 import { EngineDiagnostics } from './EngineDiagnostics.tsx';
 import { FocusSettings } from './focus/FocusSettings.tsx';
 import { ProfilesSettings } from './profiles/ProfilesSettings.tsx';
+import { ThemeSettings } from './theme/ThemeSettings.tsx';
 import { AboutSettings, SettingsVersion } from './updates/AboutSettings.tsx';
 import { Button } from './ui/Button.tsx';
 import { Choice } from './ui/Choice.tsx';
 import { Radio, RadioGroup } from './ui/Radio.tsx';
 import { SegmentedControl } from './ui/SegmentedControl.tsx';
 import { Toggle } from './ui/Toggle.tsx';
-
-/** The Demo Time palettes, fixed here so each preview shows its own theme whatever is active. */
-const PALETTE = {
-  light: { bg: '#ffffff', sidebar: '#f4f6fa', line: '#d1d5db', text: '#202736', accent: '#ffd43b' },
-  dark: { bg: '#15181f', sidebar: '#202736', line: '#374151', text: '#d9dbe1', accent: '#ffd43b' },
-};
-
-function ThemePreview({ theme }: { theme: 'light' | 'dark' }) {
-  const p = PALETTE[theme];
-  return (
-    <div className="absolute inset-0 flex" style={{ background: p.bg }}>
-      <div className="flex w-[34%] flex-col gap-1.5 p-2" style={{ background: p.sidebar }}>
-        <div className="h-1.5 w-3/4 rounded-full" style={{ background: p.text, opacity: 0.7 }} />
-        <div className="h-3 rounded" style={{ background: p.accent, opacity: 0.35 }} />
-        <div className="h-1.5 w-2/3 rounded-full" style={{ background: p.line }} />
-        <div className="h-1.5 w-1/2 rounded-full" style={{ background: p.line }} />
-      </div>
-      <div className="flex flex-1 flex-col gap-1.5 p-2.5">
-        <div className="h-1.5 w-1/2 rounded-full" style={{ background: p.text, opacity: 0.8 }} />
-        <div className="h-1.5 w-5/6 rounded-full" style={{ background: p.line }} />
-        <div className="h-1.5 w-2/3 rounded-full" style={{ background: p.line }} />
-        <div className="mt-auto h-4 rounded border" style={{ borderColor: p.line }}>
-          <div className="mt-[3px] mr-[3px] ml-auto h-2 w-5 rounded-sm" style={{ background: p.accent }} />
-        </div>
-      </div>
-    </div>
-  );
-}
 
 /** A session row in miniature, drawn with the live theme tokens. */
 function RowPreview({ style }: { style: SidebarStyle }) {
@@ -124,12 +97,6 @@ function Section({ title, description, children }: { title: string; description?
   );
 }
 
-const SCHEMES: Array<{ value: ColorScheme; label: string }> = [
-  { value: 'system', label: 'Match System' },
-  { value: 'light', label: 'Light' },
-  { value: 'dark', label: 'Dark' },
-];
-
 const ACTIVITY: Array<{ value: ToolActivity; label: string }> = [
   { value: 'summary', label: 'Summarised' },
   { value: 'steps', label: 'Every step' },
@@ -188,26 +155,7 @@ function SectionPage({ section }: { section: SettingsSection }) {
 
   switch (section) {
     case 'theme':
-      return (
-        <Section title="Theme" description="Colours from the Demo Time theme. Match System follows macOS.">
-          <RadioGroup label="Theme" className="grid grid-cols-3 gap-4">
-            {SCHEMES.map(({ value, label }) => (
-              <Choice key={value} value={value} current={prefs.colorScheme} label={label} attr="data-color-scheme" onSelect={(colorScheme) => update({ colorScheme })}>
-                {value === 'system' ? (
-                  <>
-                    <ThemePreview theme="light" />
-                    <span className="absolute inset-0" style={{ clipPath: 'polygon(100% 0, 100% 100%, 0 100%)' }}>
-                      <ThemePreview theme="dark" />
-                    </span>
-                  </>
-                ) : (
-                  <ThemePreview theme={value} />
-                )}
-              </Choice>
-            ))}
-          </RadioGroup>
-        </Section>
-      );
+      return <ThemeSettings />;
     case 'sidebar':
       return (
         <Section title="Sidebar" description="How sessions are listed. Large icons makes each session's project easy to spot.">

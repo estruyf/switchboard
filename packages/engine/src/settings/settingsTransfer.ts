@@ -19,6 +19,7 @@ import {
   type Preferences,
   type SettingsFile,
 } from '@switchboard/protocol';
+import { parseThemeFile } from '@switchboard/protocol/theme';
 import type { ActionStore } from '../actions/actionStore.ts';
 import type { AppStateStore, JsonValue } from '../db/appState.ts';
 import { parseDefaults, type ProjectRegistry, type StoredIcon } from '../projects/projectRegistry.ts';
@@ -34,7 +35,7 @@ export const CHOICE_KEYS: Record<string, string> = {
 };
 
 const PREFERENCE_LABELS: Record<keyof Preferences, string> = {
-  colorScheme: 'Theme',
+  colorScheme: 'Appearance',
   sidebarStyle: 'Sidebar style',
   sidebarCollapsed: 'When the sidebar is collapsed',
   toolActivity: 'Tool activity',
@@ -46,6 +47,7 @@ const PREFERENCE_LABELS: Record<keyof Preferences, string> = {
   focusLimit: 'Focus limit',
   focusMode: 'At the focus limit',
   focusCountExternal: 'Count terminal and IDE sessions',
+  themeId: 'Theme',
 };
 
 /** What the settings file is read from and written to. */
@@ -60,6 +62,8 @@ export interface ExportOptions {
   sections: readonly BackupSection[];
   /** Main keeps the preferences; the renderer passes them in. */
   preferences: unknown;
+  /** Main keeps imported themes too: their files. */
+  themes?: readonly unknown[];
   appVersion: string;
   now?: Date;
 }
@@ -96,6 +100,7 @@ export function exportSettings(stores: SettingsStores, options: ExportOptions): 
     exportedAt: (options.now ?? new Date()).toISOString(),
   };
   if (want.has('preferences')) file.preferences = { ...DEFAULT_PREFERENCES, ...sanitizePreferences(options.preferences) };
+  if (want.has('themes')) file.themes = (options.themes ?? []).filter((raw) => !('error' in parseThemeFile(raw)));
   if (want.has('projects')) {
     file.projects = stores.projects.addedEntries().map((entry) => ({
       path: entry.root,
@@ -175,12 +180,23 @@ export interface ImportOptions {
   relocate: readonly FolderMapping[];
   /** The current preferences (from main), to compare with. */
   preferences: unknown;
+  /** The imported themes there are now (their files, from main), to compare with. */
+  themes?: readonly unknown[];
 }
 
 export interface ImportPlan {
   preview: ImportPreview;
-  /** Applies the import. Returns the preferences for main to apply (null when they weren't imported). */
-  apply(): { preferences: Partial<Preferences> | null };
+  /**
+   * Applies the import. Returns the preferences for main to apply (null when they weren't imported), and
+   * the themes for main to add (or to replace the one with the same name).
+   */
+  apply(): { preferences: Partial<Preferences> | null; themes: ThemeToAdd[] };
+}
+
+/** A theme from a settings file, for main: added, or replacing the imported theme with the same name. */
+export interface ThemeToAdd {
+  raw: unknown;
+  how: 'add' | 'replace';
 }
 
 const isFolder = (path: string) => existsSync(path) && statSync(path).isDirectory();
@@ -194,7 +210,7 @@ const isFolder = (path: string) => existsSync(path) && statSync(path).isDirector
 export function planImport(stores: SettingsStores, file: SettingsFile, options: ImportOptions): ImportPlan {
   const replace = options.mode === 'replace';
   const want = new Set(options.sections);
-  const present = (['preferences', 'projects', 'actions', 'choices', 'sessions'] as const).filter((s) => file[s] !== undefined);
+  const present = (['preferences', 'themes', 'projects', 'actions', 'choices', 'sessions'] as const).filter((s) => file[s] !== undefined);
   const has = (section: BackupSection) => want.has(section) && file[section] !== undefined;
   const relocated = new Map(options.relocate.map((m) => [m.from, m.to]));
   const target = (path: string) => relocated.get(path) ?? path;
@@ -230,6 +246,34 @@ export function planImport(stores: SettingsStores, file: SettingsFile, options: 
         Object.assign(preferences, { [key]: value });
         note('preferences', PREFERENCE_LABELS[key], 'change', `${showValue(current[key])} → ${showValue(value)}`);
       } else note('preferences', PREFERENCE_LABELS[key], 'keep', `yours: ${showValue(current[key])}, file: ${showValue(value)}`);
+    }
+  }
+
+  // --- Themes -------------------------------------------------------------------------------
+  // Only ever added or replaced (by name), never removed: built-in themes are always there.
+  const themes: ThemeToAdd[] = [];
+  if (has('themes')) {
+    const names = new Map<string, string>();
+    for (const raw of options.themes ?? []) {
+      const parsed = parseThemeFile(raw);
+      if (!('error' in parsed)) names.set(parsed.theme.name.toLowerCase(), JSON.stringify(parsed.theme));
+    }
+    for (const [index, raw] of file.themes!.entries()) {
+      const parsed = parseThemeFile(raw);
+      if ('error' in parsed) {
+        note('themes', `Theme ${index + 1}`, 'skip', parsed.error);
+        continue;
+      }
+      const { name } = parsed.theme;
+      const existing = names.get(name.toLowerCase());
+      if (existing === undefined) {
+        note('themes', name, 'add');
+        themes.push({ raw, how: 'add' });
+      } else if (existing === JSON.stringify(parsed.theme)) unchanged++;
+      else if (replace) {
+        note('themes', name, 'change', 'replaced by the file');
+        themes.push({ raw, how: 'replace' });
+      } else note('themes', name, 'keep', 'you have a theme with this name');
     }
   }
 
@@ -434,7 +478,7 @@ export function planImport(stores: SettingsStores, file: SettingsFile, options: 
         throw error;
       }
       for (const step of after) step();
-      return { preferences };
+      return { preferences, themes };
     },
   };
 }

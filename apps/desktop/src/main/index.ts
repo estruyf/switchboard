@@ -3,18 +3,20 @@ import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync,
 import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { app, BrowserWindow, dialog, ipcMain, Menu, MessageChannelMain, nativeTheme, shell, type MenuItemConstructorOptions } from 'electron';
-import { IpcChannel, sanitizePreferences, type AppInfo, type DeepLinkMessage, type RendererReadyReport, type UpdateCommand } from '@switchboard/protocol/bridge';
+import { IpcChannel, isThemeId, sanitizePreferences, type AppInfo, type DeepLinkMessage, type RendererReadyReport, type ThemeCommand, type UpdateCommand } from '@switchboard/protocol/bridge';
+import { BUILT_IN_THEMES } from '../../../ui/src/themes/index.ts';
 import { EngineProcess } from './engineProcess.ts';
 import type { AttentionEvent } from './attention.ts';
 import { DEEP_LINK_SCHEME, linkFromArgv, parseDeepLink } from './deepLink.ts';
 import { Notifier } from './notifier.ts';
 import { setFieldValue, waitInPage } from './pageDriver.ts';
-import { PreferencesStore, windowBackground } from './preferences.ts';
+import { PreferencesStore } from './preferences.ts';
 import { QuitGuard } from './quitGuard.ts';
 import { ReloadLimiter } from './reloadLimiter.ts';
 import { RendererQueue } from './rendererQueue.ts';
 import { runScreenshotTour } from './screenshotTour.ts';
-import { isConfigDir, isTrashableRepoFile, isTrashableSessionPath } from './trashGuard.ts';
+import { ThemeStore } from './themes.ts';
+import { isConfigDir, isTrashableRepoFile, isTrashableSessionPath, isTrashableThemeFile } from './trashGuard.ts';
 import { Updater } from './updater.ts';
 import { updatesDisabledReason } from './updateState.ts';
 
@@ -70,6 +72,18 @@ const preferences = new PreferencesStore(join(app.getPath('userData'), 'preferen
 // The smoke steps need sessions to click; on the real ~/.claude most were started elsewhere.
 if (scripted) preferences.update({ sessionScope: 'all' });
 
+/** Built-in and imported themes; a change (an import, an edited file) goes to every window. */
+const themes = new ThemeStore(join(app.getPath('userData'), 'themes'), BUILT_IN_THEMES, (state) => {
+  for (const win of BrowserWindow.getAllWindows()) win.webContents.send(IpcChannel.themesChanged, state);
+  updateWindowBackgrounds();
+});
+
+/** The window's background before the page paints: the theme's background for the current mode. */
+const windowBackground = () => themes.background(preferences.get().themeId, nativeTheme.shouldUseDarkColors);
+const updateWindowBackgrounds = () => {
+  for (const win of BrowserWindow.getAllWindows()) win.setBackgroundColor(windowBackground());
+};
+
 // SWITCHBOARD_MOCK_UPDATES=1 points the updater at a local feed (scripts/mock-update-server.ts).
 const mockFeedUrl = process.env.SWITCHBOARD_MOCK_UPDATES === '1' ? (process.env.SWITCHBOARD_MOCK_UPDATES_URL ?? 'http://localhost:8484') : undefined;
 const updater = new Updater({
@@ -107,6 +121,7 @@ function updatePreferences(patch: unknown): void {
   updater.setChannel(next.updateChannel);
   const item = Menu.getApplicationMenu()?.getMenuItemById(`scheme-${next.colorScheme}`);
   if (item) item.checked = true;
+  updateWindowBackgrounds();
   for (const win of BrowserWindow.getAllWindows()) win.webContents.send(IpcChannel.preferencesChanged, next);
 }
 
@@ -115,8 +130,89 @@ ipcMain.on(IpcChannel.getPreferences, (event) => {
 });
 ipcMain.on(IpcChannel.setPreferences, (_event, patch: unknown) => updatePreferences(patch));
 // Keep the area behind the page in step (resizing shows it briefly).
-nativeTheme.on('updated', () => {
-  for (const win of BrowserWindow.getAllWindows()) win.setBackgroundColor(windowBackground());
+nativeTheme.on('updated', updateWindowBackgrounds);
+
+ipcMain.on(IpcChannel.getThemes, (event) => {
+  event.returnValue = themes.state();
+});
+
+/** The smoke run has no one to answer a file dialog: it imports the file its theme step wrote, and exports into its profile. */
+let smokeThemeFile: string | null = null;
+const smokeThemeExports = () => join(app.getPath('userData'), 'smoke-theme-export');
+
+ipcMain.handle(IpcChannel.themeCommand, async (event, command: ThemeCommand) => {
+  const win = BrowserWindow.fromWebContents(event.sender);
+  switch (command?.kind) {
+    case 'choose-file': {
+      if (smokeOutDir) return smokeThemeFile;
+      const options: Electron.OpenDialogOptions = {
+        title: 'Import a theme',
+        defaultPath: app.getPath('downloads'),
+        properties: ['openFile'],
+        filters: [{ name: 'Switchboard theme', extensions: ['json', 'jsonc'] }],
+      };
+      const result = win ? await dialog.showOpenDialog(win, options) : await dialog.showOpenDialog(options);
+      return result.canceled ? null : (result.filePaths[0] ?? null);
+    }
+    case 'check-file':
+      return typeof command.path === 'string' && command.path.startsWith('/') ? themes.check(command.path) : { ok: false, error: "Switchboard couldn't read this file.", fileName: '' };
+    case 'add':
+      return themes.add(command.raw, command.how === 'replace' || command.how === 'keep-both' ? command.how : 'add');
+    case 'duplicate':
+      return isThemeId(command.id) ? themes.duplicate(command.id) : null;
+    case 'remove': {
+      const entry = isThemeId(command.id) ? themes.get(command.id) : undefined;
+      if (!entry?.path || entry.builtIn || !isTrashableThemeFile(entry.path, themes.dir)) throw new Error('Only imported themes can be removed.');
+      // The smoke run's copies are in its throwaway profile: deleted there, so they never reach the user's Trash.
+      if (smokeOutDir) rmSync(entry.path);
+      else await shell.trashItem(entry.path);
+      themes.removed(entry.id);
+      // Removing the theme in use goes back to Demo Time.
+      if (preferences.get().themeId === entry.id) updatePreferences({ themeId: 'demo-time' });
+      return null;
+    }
+    case 'export': {
+      const content = typeof command.content === 'string' ? command.content : '';
+      // Written only when it is a valid theme, so an export can always be imported again.
+      const check = (() => {
+        try {
+          return themes.validate(JSON.parse(content));
+        } catch {
+          return 'not JSON';
+        }
+      })();
+      if (check) throw new Error(`The theme couldn't be exported: ${check}`);
+      const name = typeof command.fileName === 'string' && /^[a-z0-9][a-z0-9-]*\.json$/.test(command.fileName) ? command.fileName : 'theme.json';
+      let path: string;
+      if (smokeOutDir) {
+        mkdirSync(smokeThemeExports(), { recursive: true });
+        path = join(smokeThemeExports(), name);
+      } else {
+        const options: Electron.SaveDialogOptions = {
+          title: 'Export theme',
+          defaultPath: join(app.getPath('documents'), name),
+          filters: [{ name: 'Switchboard theme', extensions: ['json'] }],
+          properties: ['createDirectory', 'showOverwriteConfirmation'],
+        };
+        const result = win ? await dialog.showSaveDialog(win, options) : await dialog.showSaveDialog(options);
+        if (result.canceled || !result.filePath) return null;
+        path = result.filePath.toLowerCase().endsWith('.json') ? result.filePath : `${result.filePath}.json`;
+      }
+      writeFileSync(path, content.endsWith('\n') ? content : `${content}\n`);
+      return path;
+    }
+    case 'open-folder':
+      mkdirSync(themes.dir, { recursive: true });
+      void shell.openPath(themes.dir);
+      return null;
+    case 'show-file': {
+      const entry = isThemeId(command.id) ? themes.get(command.id) : undefined;
+      if (entry?.path) shell.showItemInFolder(entry.path);
+      return null;
+    }
+    default:
+      return null;
+  }
 });
 
 let engine: EngineProcess;
@@ -685,6 +781,7 @@ let projectsResult = 'not run';
 let profilesResult = 'not run';
 let aboutResult = 'not run';
 let backupResult = 'not run';
+let themeResult = 'not run';
 let newSessionResult = 'not run';
 let deepLinkResult = 'not run';
 let rendering: Record<string, number> = {};
@@ -1561,8 +1658,8 @@ async function runBackupStep(win: BrowserWindow): Promise<string> {
   } catch (error) {
     return `the exported file does not parse: ${(error as Error).message}`;
   }
-  if (exported.kind !== 'switchboard-settings' || exported.format !== 1) return `not a settings file: ${JSON.stringify(exported).slice(0, 200)}`;
-  if (typeof exported.preferences !== 'object' || !Array.isArray(exported.projects) || typeof exported.actions !== 'object' || 'sessions' in exported) {
+  if (exported.kind !== 'switchboard-settings' || exported.format !== 2) return `not a settings file: ${JSON.stringify(exported).slice(0, 200)}`;
+  if (typeof exported.preferences !== 'object' || !Array.isArray(exported.themes) || !Array.isArray(exported.projects) || typeof exported.actions !== 'object' || 'sessions' in exported) {
     return `unexpected sections: ${Object.keys(exported).join(', ')}`;
   }
   win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Escape' });
@@ -1581,6 +1678,152 @@ async function runBackupStep(win: BrowserWindow): Promise<string> {
   if (existsSync(join(app.getPath('userData'), 'backups'))) return 'a backup was written without importing';
   if (!disabled) return `importing the file just exported would change something: ${summary}`;
   return `ok (${summary})`;
+}
+
+/** `#rrggbb` as the page reports a computed colour. */
+const rgbOf = (hex: string) => `rgb(${[1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16)).join(', ')})`;
+
+/**
+ * Themes, in Settings › Theme: export Demo Time, import that file again (a copy, as Demo Time is built
+ * in), pick it, and remove it; import a minimal canvas-and-accent theme from a folder of the throwaway
+ * profile, check the sidebar and a code block's background in light and dark, and remove it; then pick
+ * every built-in in both modes and check the sidebar and code block follow it. Ends on Demo Time and
+ * Match System. Only the throwaway profile changes: the theme files are written and deleted there.
+ */
+async function runThemeStep(win: BrowserWindow): Promise<string> {
+  const js = (code: string) => win.webContents.executeJavaScript(code) as Promise<unknown>;
+  const click = (selector: string) => js(`document.querySelector(${JSON.stringify(selector)}).click()`);
+  const section = async (id: string) => {
+    await click(`[data-settings-section="${id}"]`);
+    return waitInPage(win, `document.querySelector('[data-settings-page="${id}"]')`, 2_000);
+  };
+  const sidebar = "getComputedStyle(document.querySelector('[data-sidebar-open]')).backgroundColor";
+  const rail = "getComputedStyle(document.querySelector('[data-sidebar-rail]')).backgroundColor";
+  const sidebarState = "document.querySelector('[data-sidebar]')?.dataset.sidebarState";
+  const codeBlock = "getComputedStyle(document.querySelector('[data-rendering-check] .code-block')).backgroundColor";
+  /** A token's value as the page computes it (the generated style element in use). */
+  const token = (name: string) => `(() => { const d = document.createElement('div'); d.style.background = 'var(--sb-${name})'; document.body.appendChild(d); const c = getComputedStyle(d).backgroundColor; d.remove(); return c; })()`;
+  const scheme = async (mode: 'light' | 'dark') => {
+    await click(`[data-color-scheme="${mode}"]`);
+    return waitInPage(win, `matchMedia('(prefers-color-scheme: ${mode})').matches`, 2_000);
+  };
+  const pick = async (id: string) => {
+    await click(`[data-theme-card="${id}"] [role="radio"]`);
+    return (await waitInPage(win, `document.querySelector('[data-theme-card="${id}"][data-theme-selected]')`, 2_000)) && preferences.get().themeId === id;
+  };
+  const menu = async (id: string, item: string) => {
+    await click(`[data-theme-menu="${id}"]`);
+    if (!(await waitInPage(win, `document.querySelector('[data-${item}="${id}"]')`, 2_000))) return false;
+    await click(`[data-${item}="${id}"]`);
+    return true;
+  };
+  /** The sidebar and a code block (Settings › Diagnostics renders one) against expected colours, or the live tokens. */
+  const colours = async (expected: { sidebar: string; code: string } | null) => {
+    if (!(await section('diagnostics'))) return 'Diagnostics did not open';
+    const want = expected ?? { sidebar: (await js(token('sidebar'))) as string, code: (await js(token('code-bg'))) as string };
+    const ok = await waitInPage(win, `${sidebar} === ${JSON.stringify(want.sidebar)} && ${codeBlock} === ${JSON.stringify(want.code)}`, 3_000);
+    const got = `sidebar ${await js(sidebar)}, code ${await js(codeBlock)}`;
+    await section('theme');
+    return ok ? null : `expected sidebar ${want.sidebar} and code ${want.code}, got ${got}`;
+  };
+
+  if (!(await js("Boolean(document.querySelector('[data-settings]'))"))) await click('[data-open-settings]');
+  if (!(await waitInPage(win, "document.querySelector('[data-settings-section=\"theme\"]')", 3_000))) return 'Settings has no Theme section';
+  if (!(await section('theme'))) return 'the Theme section did not open';
+  const cards = (await js("[...document.querySelectorAll('[data-theme-picker] [data-theme-card]')].map((c) => c.dataset.themeCard)")) as string[];
+  const builtIns = BUILT_IN_THEMES.map((t) => t.id);
+  if (cards.slice(0, builtIns.length).join(',') !== builtIns.join(',')) return `the picker shows ${cards.join(', ')}`;
+
+  // Export Demo Time: every token, with $schema.
+  const exportDir = smokeThemeExports();
+  rmSync(exportDir, { recursive: true, force: true });
+  if (!(await menu('demo-time', 'theme-export'))) return 'Demo Time has no Export…';
+  const exported = join(exportDir, 'demo-time.json');
+  if (!(await waitInPage(win, "document.querySelector('[data-theme-flash]')", 3_000)) || !existsSync(exported)) return 'Export did not write demo-time.json';
+  const file = JSON.parse(readFileSync(exported, 'utf8')) as { $schema?: string; dark?: { colors?: Record<string, string> } };
+  if (!file.$schema || Object.keys(file.dark?.colors ?? {}).length < 30) return 'the export is not a full theme';
+
+  // Import it again: the name is taken by the built-in, so it is kept as a copy.
+  smokeThemeFile = exported;
+  await click('[data-theme-import]');
+  if (!(await waitInPage(win, "document.querySelector('[data-theme-import-dialog]')", 3_000))) return 'the import dialog did not open';
+  await click('[data-theme-add-use]');
+  if (!(await waitInPage(win, "document.querySelector('[data-theme-keep-both]')", 2_000))) return 'no "You already have" choice for Demo Time';
+  await click('[data-theme-keep-both]');
+  if (!(await waitInPage(win, "document.querySelector('[data-theme-card=\"demo-time-2\"][data-theme-selected]')", 3_000))) return 'the copy was not added and picked';
+  for (const mode of ['light', 'dark'] as const) {
+    if (!(await scheme(mode))) return `${mode} did not apply`;
+    await shot(win, `theme-settings-${mode}.png`);
+    const demo = BUILT_IN_THEMES[0]!.raw as { [m: string]: { colors: Record<string, string> } };
+    const problem = await colours({ sidebar: rgbOf(demo[mode]!.colors.sidebar!), code: rgbOf(demo[mode]!.colors['code-bg']!) });
+    if (problem) return `the Demo Time copy, ${mode}: ${problem}`;
+  }
+  if (!(await pick('demo-time'))) return 'could not pick Demo Time again';
+  if (!(await menu('demo-time-2', 'theme-remove'))) return 'the copy has no Remove';
+  await click('[role="alertdialog"] [data-confirm]');
+  if (!(await waitInPage(win, "!document.querySelector('[data-theme-card=\"demo-time-2\"]')", 3_000))) return 'the copy was not removed';
+
+  // A minimal theme from a folder: canvas and accent only, everything else generated.
+  const sourceDir = join(app.getPath('userData'), 'smoke-theme-source');
+  mkdirSync(sourceDir, { recursive: true });
+  smokeThemeFile = join(sourceDir, 'smoke-mint.json');
+  writeFileSync(smokeThemeFile, JSON.stringify({ name: 'Smoke Mint', version: 1, light: { canvas: '#f3fbf7', accent: '#0f9d76' }, dark: { canvas: '#0f1a17', accent: '#3ddc97' } }));
+  await click('[data-theme-import]');
+  if (!(await waitInPage(win, "document.querySelector('[data-theme-import-dialog] [data-theme-report=\"generated\"]') && document.querySelector('[data-theme-terminal-strip]')", 3_000))) return 'the import report did not show what is generated';
+  await shot(win, 'theme-import.png');
+  await click('[data-theme-add-use]');
+  if (!(await waitInPage(win, "document.querySelector('[data-theme-card=\"smoke-mint\"][data-theme-selected]')", 3_000))) return 'the minimal theme was not added and picked';
+  for (const mode of ['light', 'dark'] as const) {
+    if (!(await scheme(mode))) return `${mode} did not apply`;
+    const live = { sidebar: (await js(token('sidebar'))) as string, code: (await js(token('code-bg'))) as string };
+    const demo = (BUILT_IN_THEMES[0]!.raw as { [m: string]: { colors: Record<string, string> } })[mode]!.colors;
+    if (live.sidebar === rgbOf(demo.sidebar!) || live.code === rgbOf(demo['code-bg']!)) return `the minimal theme kept Demo Time's ${mode} colours`;
+    const problem = await colours(null);
+    if (problem) return `the minimal theme, ${mode}: ${problem}`;
+  }
+  await shot(win, 'theme-settings.png');
+  if (!(await pick('demo-time'))) return 'could not pick Demo Time again';
+  if (!(await menu('smoke-mint', 'theme-remove'))) return 'the minimal theme has no Remove';
+  await click('[role="alertdialog"] [data-confirm]');
+  if (!(await waitInPage(win, "!document.querySelector('[data-theme-card=\"smoke-mint\"]')", 3_000))) return 'the minimal theme was not removed';
+
+  /**
+   * The collapsed sidebar in the theme: ⌘B down to the rail (Settings closed, a session beside it), its
+   * background and the session view's against the theme, a screenshot, then ⌘B back to the full sidebar.
+   */
+  const collapsedRail = async (id: string, mode: 'light' | 'dark', colors: Record<string, string>) => {
+    const collapsed = preferences.get().sidebarCollapsed;
+    updatePreferences({ sidebarCollapsed: 'minimal' });
+    await click('[data-close-settings]');
+    if (smokeSessionId) await js(`document.querySelector('[data-session-id="${smokeSessionId}"]')?.click()`);
+    pressKey(win, 'B', ['meta']);
+    const minimal = await waitInPage(win, `${sidebarState} === 'minimal' && document.querySelector('[data-sidebar-rail] [data-sidebar-rail-row]')`, 3_000);
+    const ok = minimal && (await waitInPage(win, `${rail} === ${JSON.stringify(rgbOf(colors.sidebar!))} && getComputedStyle(document.body).backgroundColor === ${JSON.stringify(rgbOf(colors.bg!))}`, 2_000));
+    const got = minimal ? `rail ${await js(rail)}, page ${await js('getComputedStyle(document.body).backgroundColor')}` : `sidebar ${String(await js(sidebarState))}`;
+    if (minimal) await shot(win, `theme-rail-${id}-${mode}.png`);
+    pressKey(win, 'B', ['meta']);
+    await waitInPage(win, `${sidebarState} === 'open'`, 2_000);
+    updatePreferences({ sidebarCollapsed: collapsed });
+    await click('[data-open-settings]');
+    await section('theme');
+    return ok ? null : `the collapsed sidebar does not follow the theme (${got})`;
+  };
+
+  // Every built-in, in light and dark: the open sidebar, a code block, and the rail.
+  for (const { id, raw } of BUILT_IN_THEMES) {
+    if (!(await pick(id))) return `could not pick ${id}`;
+    for (const mode of ['light', 'dark'] as const) {
+      if (!(await scheme(mode))) return `${mode} did not apply`;
+      const colors = (raw as { [m: string]: { colors: Record<string, string> } })[mode]!.colors;
+      const problem = (await colours({ sidebar: rgbOf(colors.sidebar!), code: rgbOf(colors['code-bg']!) })) ?? (await collapsedRail(id, mode, colors));
+      if (problem) return `${id}, ${mode}: ${problem}`;
+    }
+  }
+  if (preferences.get().themeId !== 'demo-time' && !(await pick('demo-time'))) return 'could not go back to Demo Time';
+  await click('[data-color-scheme="system"]');
+  await click('[data-close-settings]');
+  smokeThemeFile = null;
+  return `ok (${cards.length} themes, 2 imported and removed)`;
 }
 
 /** Tool calls are summarised by default: open the last finished group and count its steps. */
@@ -2766,6 +3009,7 @@ async function runSmokeStep(win: BrowserWindow | null): Promise<void> {
     profilesResult = await runProfilesStep(win).catch((error: Error) => `failed: ${error.message}`);
     aboutResult = await runAboutStep(win).catch((error: Error) => `failed: ${error.message}`);
     backupResult = await runBackupStep(win).catch((error: Error) => `failed: ${error.message}`);
+    themeResult = await runThemeStep(win).catch((error: Error) => `failed: ${error.message}`);
     // Diagnostics (in Settings) renders a sample through Shiki, which loads in its own chunks on first use.
     await win.webContents.executeJavaScript("document.querySelector('[data-open-settings]').click()");
     await waitInPage(win, "document.querySelector('[data-settings-section=\"diagnostics\"]')", 3_000);
@@ -2832,6 +3076,7 @@ async function runSmokeStep(win: BrowserWindow | null): Promise<void> {
         profilesResult,
         aboutResult,
         backupResult,
+        themeResult,
         highlighted,
         usageBand,
         rendering,
@@ -2865,6 +3110,7 @@ app.whenReady().then(() => {
     },
   });
   engine.start();
+  themes.watch();
   installMenu();
   notifier = new Notifier({
     engine,
@@ -2909,6 +3155,7 @@ app.on('window-all-closed', () => {
 });
 
 app.on('before-quit', () => {
+  themes.close();
   updater.stop();
   engine?.stop();
 });

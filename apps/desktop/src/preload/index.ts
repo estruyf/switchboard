@@ -1,10 +1,13 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron';
-import { ENGINE_PORT_MESSAGE, IpcChannel, type AppInfo, type DeepLinkMessage, type Preferences, type RendererReadyReport, type SwitchboardBridge, type UpdateState } from '@switchboard/protocol/bridge';
+import { ENGINE_PORT_MESSAGE, IpcChannel, type AppInfo, type DeepLinkMessage, type Preferences, type RendererReadyReport, type SwitchboardBridge, type ThemeCommand, type UpdateState } from '@switchboard/protocol/bridge';
+import type { ThemeFileCheck, ThemeState } from '@switchboard/protocol/theme-format';
 
 // MessagePorts can't cross contextBridge, so forward them to the page with window.postMessage.
 ipcRenderer.on(IpcChannel.enginePort, (event) => {
   window.postMessage(ENGINE_PORT_MESSAGE, '*', event.ports);
 });
+
+const theme = (command: ThemeCommand) => ipcRenderer.invoke(IpcChannel.themeCommand, command);
 
 const bridge: SwitchboardBridge = {
   platform: process.platform,
@@ -62,6 +65,21 @@ const bridge: SwitchboardBridge = {
     ipcRenderer.on(IpcChannel.deepLink, handler);
     return () => ipcRenderer.off(IpcChannel.deepLink, handler);
   },
+  // With the preferences, so the first paint already has the theme's colours.
+  themes: ipcRenderer.sendSync(IpcChannel.getThemes) as ThemeState,
+  onThemesChanged(listener) {
+    const handler = (_event: unknown, state: ThemeState) => listener(state);
+    ipcRenderer.on(IpcChannel.themesChanged, handler);
+    return () => ipcRenderer.off(IpcChannel.themesChanged, handler);
+  },
+  chooseThemeFile: () => theme({ kind: 'choose-file' }) as Promise<string | null>,
+  checkThemeFile: (path) => theme({ kind: 'check-file', path }) as Promise<ThemeFileCheck>,
+  addTheme: (raw, how) => theme({ kind: 'add', raw, how }) as Promise<string>,
+  removeTheme: (id) => theme({ kind: 'remove', id }) as Promise<void>,
+  duplicateTheme: (id) => theme({ kind: 'duplicate', id }) as Promise<string>,
+  exportTheme: (fileName, content) => theme({ kind: 'export', fileName, content }) as Promise<string | null>,
+  openThemesFolder: () => void theme({ kind: 'open-folder' }),
+  showThemeFile: (id) => void theme({ kind: 'show-file', id }),
 };
 
 contextBridge.exposeInMainWorld('switchboard', bridge);

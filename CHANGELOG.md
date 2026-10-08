@@ -6,6 +6,12 @@ All notable changes to Switchboard are listed here. Each release is also on the 
 
 ### New
 
+- **Themes.** Settings → Theme now has a theme picker under Light and Dark, with Demo Time and Solarized built in. A theme colours the app, code blocks, diffs and the terminal, and switching shows a toast with Undo.
+- **Import and export themes** as `.json` files. Import shows both modes, what the file sets, what is worked out from its background and accent, and text that is hard to read, before anything is added. A theme only needs a background and an accent per mode; the rest is generated to stay readable. Drop a theme file on the window to import it.
+- **Edit a theme while you look at it.** Switchboard reloads the theme in use when its file in the themes folder changes, and keeps the last working version if a change isn't valid.
+- In the command palette: *Theme: <name>*, *Import theme…* and *Export current theme…*. The Light, Dark and Match System commands are now called *Appearance: …*.
+- Settings → Backup can include the themes you imported.
+- The Light, Dark and Match System switch in Settings is easier to see in light mode.
 - **Collapse the sidebar.** ⌘B, or the sidebar button at the left of the header, turns the sidebar into a narrow rail: one project icon per session in the same groups and order, with a coloured rail for what needs you, what's working and what's unread. Hover an icon to see its title, project, branch and state. In Settings → Sidebar, choose *Hidden* to hide it completely instead, so the conversation takes the whole window.
 - **Drag the sidebar's edge to collapse it.** Drag it in and it snaps to the rail, further and it hides; drag it out again to open it at your width. The arrow keys on the edge do the same.
 - **A pill for sessions that need you** shows in the header while the sidebar is hidden. Click it to open the one waiting longest.

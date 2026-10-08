@@ -46,11 +46,13 @@ Run `npm run check` after every change, and `npm run smoke` after UI or engine c
 
 ### UI
 
-- **Colours only through theme tokens** (Demo Time palette, `apps/ui/src/styles.css`): `bg`, `sidebar`, `card`, `border`, `edge` (a border that stays visible on dialogs and popovers, for fields, chips and cards inside them), `text`, `muted`, `faint`, `ok`, `warn`, `error`, `link`, and three accents:
+- **Colours only through theme tokens** (Demo Time's values in `apps/ui/src/styles.css`, overridden by the active theme): `bg`, `sidebar`, `card`, `border`, `edge` (a border that stays visible on dialogs and popovers, for fields, chips and cards inside them), `text`, `muted`, `faint`, `ok`, `warn`, `error`, `link`, and three accents:
   - `accent` is the yellow fill (buttons, tints such as `bg-accent/15`);
   - `accent-ink` is the readable accent for text, icons, dots, spinners and borders (dark mustard in light mode);
   - `on-accent` is text on a yellow fill. Never put `text-white` on `bg-accent`.
   - `profile-<colour>` (yellow, blue, green, purple, red, orange, gray) tells Claude profiles apart; use it through `PROFILE_DOT` / `PROFILE_TEXT` in `components/profiles/ProfileBadge.tsx`.
+  - `code` (`code-bg`) is the background of code blocks, tool output and diffs; `diff-added` / `diff-removed` are the line tints in diffs. `focus-ring` is the keyboard focus outline.
+- **Themes** (`docs/themes.md`) replace every token: a theme is a JSON file validated in `packages/protocol/src/theme.ts`, resolved in `apps/ui/src/lib/themeResolve.ts` (generating what it leaves out, `themeGenerate.ts`) and applied as one generated `<style>` (`themeCss.ts`). So never hard-code a colour or assume Demo Time's: a new colour need is a new token, added to `THEME_TOKENS`, `styles.css`, `demo-time.json`, the generator and docs/themes.md in the same change. Built-in themes are in `apps/ui/src/themes/`; imported ones live in main (`apps/desktop/src/main/themes.ts`).
 - **Both light and dark mode** must work; the Settings smoke step switches between them.
 - **Narrow panes:** the session view is an `@container`; use `@max-[860px]:` variants to compact headers and bars (two sessions side by side).
 - **Form controls and tooltips** come from `apps/ui/src/components/ui/`: `Select` (not `<select>`), `Checkbox`, `Radio`/`RadioGroup`, `Switch`/`Toggle`, `Choice`. `npm run check` fails on a native `<select>`, checkbox or radio elsewhere. For a tooltip, put `data-tooltip="…"` on the element (the `TooltipLayer` shows it) instead of `title`, and give icon-only buttons an `aria-label` too.
