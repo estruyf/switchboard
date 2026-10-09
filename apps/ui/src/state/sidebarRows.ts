@@ -227,6 +227,18 @@ export function buildListRows(active: readonly SessionRowData[], archived: reado
   return list;
 }
 
+/**
+ * The room to leave above the Archived header so it sits at the bottom of the sidebar, out of the way, while the
+ * list is shorter than the viewport. Counted without the archived sessions, so opening it leaves the header in place.
+ */
+export function archivedFiller(rows: readonly SidebarListRow[], heightOf: (row: SidebarListRow) => number, viewport: number): number {
+  const index = rows.findIndex((row) => row.kind === 'archived');
+  if (index === -1) return 0;
+  let used = 0;
+  for (let i = 0; i <= index; i++) used += heightOf(rows[i]!);
+  return Math.max(0, viewport - used);
+}
+
 /** What a closed (or the Queue's) header says next to its count, in the state's colour: "1 ready", "2 unread". */
 export function headerSummary(row: Extract<SidebarListRow, { kind: 'group' | 'queue-header' }>): { text: string; tone: 'ok' | 'unread' } | null {
   if (row.kind === 'queue-header') return row.ready > 0 ? { text: `${row.ready} ready`, tone: 'ok' } : null;

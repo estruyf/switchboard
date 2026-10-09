@@ -3604,7 +3604,7 @@ async function runArchiveManyStep(win: BrowserWindow): Promise<string> {
   if (!(await waitInPage(win, "!!document.querySelector('[data-unarchive-selected]')", 2_000))) return 'no Unarchive button for two archived sessions';
   await js("document.querySelector('[data-unarchive-selected]').click()");
   await js(`${list}.scrollTop = 0`);
-  if (!(await waitInPage(win, `${inMainList(a)} && ${inMainList(b)}`, 3_000))) return 'unarchiving did not bring the sessions back';
+  if (!(await waitInPage(win, `${inMainList(a)} && ${inMainList(b)}`, 3_000))) return 'unarchiving did not bring the sessions back DEBUG ' + (await js(`JSON.stringify({ scroll: ${list}.scrollTop, h: ${list}.clientHeight, sh: ${list}.scrollHeight, a: ${row(a)}?.getBoundingClientRect().top ?? null, b: ${row(b)}?.getBoundingClientRect().top ?? null, header: document.querySelector('[data-archived-toggle]')?.getBoundingClientRect().top ?? null, bar: !!document.querySelector('[data-selection-bar]'), rows: [...document.querySelectorAll('[data-session-id]')].length })`));
   if (opened && (await js("document.querySelector('[data-archived-toggle]')?.dataset.open")) === 'true') await js("document.querySelector('[data-archived-toggle]').click()");
   if (smokeSessionId) await js(`${row(smokeSessionId)}?.click()`);
   return 'ok: ⌘-click picked two sessions, archived both from the menu and unarchived them from the selection bar';

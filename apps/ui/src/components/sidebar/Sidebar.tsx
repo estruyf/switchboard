@@ -19,7 +19,7 @@ import { toRows, useSessions, type SessionRowData } from '../../state/sessionsSt
 import { usePreferences } from '../../state/preferencesStore.ts';
 import { useSidebar } from '../../state/sidebarStore.ts';
 import { useDrafts } from '../../state/draftsStore.ts';
-import { buildListRows, buildSessionList, GROUP_LABEL, headerSummary, inScope, isActive, rowStatus, sessionsByHeader, waitingLabel, type HeaderKey, type RowStatus, type SidebarListRow } from '../../state/sidebarRows.ts';
+import { archivedFiller, buildListRows, buildSessionList, GROUP_LABEL, headerSummary, inScope, isActive, rowStatus, sessionsByHeader, waitingLabel, type HeaderKey, type RowStatus, type SidebarListRow } from '../../state/sidebarRows.ts';
 import { NO_PICKS, pickGroup, rangePick, stepPick, togglePick, visiblePicks, type Picks } from '../../state/sessionPicks.ts';
 import { FocusCounter } from '../focus/FocusCounter.tsx';
 import type { MenuEntry } from '../Menu.tsx';
@@ -46,6 +46,8 @@ const GROUP_HEADER_HEIGHT = 34;
 const HIDDEN_ROW_HEIGHT = 18;
 /** The space below each session button inside its row: picked rows fill it, so a run of picks reads as one block. */
 const SESSION_ROW_GAP: Record<SidebarStyle, number> = { large: 4, standard: 4, compact: 2 };
+/** The list's bottom padding (`pb-2`) while nothing is picked. */
+const LIST_PADDING_BOTTOM = 8;
 
 const rowHeight = (row: SidebarListRow, style: SidebarStyle) =>
   row.kind === 'session'
@@ -468,10 +470,21 @@ export function Sidebar() {
   };
 
   const scrollRef = useRef<HTMLDivElement>(null);
+  const [listHeight, setListHeight] = useState(0);
+  useEffect(() => {
+    const list = scrollRef.current;
+    if (!list) return;
+    const observer = new ResizeObserver(() => setListHeight(list.clientHeight));
+    observer.observe(list);
+    return () => observer.disconnect();
+  }, []);
+  // Archived sits at the bottom of the sidebar, out of the way, while the list is short: its row takes the room
+  // left over. Search results stay together, archived matches right under the rest.
+  const filler = search.trim() ? 0 : archivedFiller(rows, (row) => rowHeight(row, sidebarStyle), listHeight - LIST_PADDING_BOTTOM);
   const virtualizer = useVirtualizer({
     count: rows.length,
     getScrollElement: () => scrollRef.current,
-    estimateSize: (i) => rowHeight(rows[i]!, sidebarStyle),
+    estimateSize: (i) => rowHeight(rows[i]!, sidebarStyle) + (rows[i]!.kind === 'archived' ? filler : 0),
     // Keyed by row, not index: archiving or unarchiving moves the headers without changing the count,
     // and the virtualiser only recomputes positions when the count or this function changes.
     getItemKey: useCallback((i: number) => {
@@ -491,7 +504,22 @@ export function Sidebar() {
     overscan: 10,
   });
   // Row heights change with the sidebar style, and a header's height with its place (the first has less room above).
-  useEffect(() => virtualizer.measure(), [sidebarStyle, rows, virtualizer]);
+  useEffect(() => virtualizer.measure(), [sidebarStyle, rows, filler, virtualizer]);
+
+  // Opening Archived at the bottom would list its sessions below the fold: bring its header to the top instead.
+  const revealArchived = useRef(false);
+  const toggleArchivedSection = () => {
+    revealArchived.current = !archivedOpen;
+    toggleArchived();
+  };
+  useEffect(() => {
+    if (!revealArchived.current) return;
+    revealArchived.current = false;
+    const index = rows.findIndex((row) => row.kind === 'archived');
+    // Set directly rather than with scrollToIndex: that aims at the row's top (the room above the header), and keeps
+    // pulling the list back to it for a few seconds whenever the rows change, as unarchiving does.
+    if (index !== -1) scrollRef.current?.scrollTo({ top: rows.slice(0, index).reduce((top, row) => top + rowHeight(row, sidebarStyle), 0) + filler });
+  }, [rows]);
 
   // One Tab stop for the whole list: the selected row while it's rendered, else the first rendered one.
   const virtualItems = virtualizer.getVirtualItems();
@@ -794,20 +822,23 @@ export function Sidebar() {
                       onMiddleClick={menus.middleClick}
                     />
                   ) : (
-                    <SectionHeader
-                      count={row.count}
-                      toggle={{
-                        expanded: row.open,
-                        onToggle: toggleArchived,
-                        leading: true,
-                        tooltip: 'Quiet for 48 hours, or archived by you. They come back when there is something new.',
-                        data: { 'data-archived-toggle': true, 'data-open': row.open },
-                      }}
-                      action={selectAll('archived')}
-                      className="mt-2 h-[26px] pr-1 pl-2.5"
-                    >
-                      Archived
-                    </SectionHeader>
+                    // The row holds the room above the header that keeps it at the bottom; the header sits at its foot.
+                    <div className="flex h-full flex-col justify-end">
+                      <SectionHeader
+                        count={row.count}
+                        toggle={{
+                          expanded: row.open,
+                          onToggle: toggleArchivedSection,
+                          leading: true,
+                          tooltip: 'Quiet for 48 hours, or archived by you. They come back when there is something new.',
+                          data: { 'data-archived-toggle': true, 'data-open': row.open },
+                        }}
+                        action={selectAll('archived')}
+                        className="mt-2 h-[26px] shrink-0 pr-1 pl-2.5"
+                      >
+                        Archived
+                      </SectionHeader>
+                    </div>
                   )}
                 </div>
               );

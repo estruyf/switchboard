@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { LaterItem, LiveSession, SessionHostInfo } from '@switchboard/protocol/client';
 import { toRows, useSessions, type SessionRowData } from './sessionsStore.ts';
 import type { QueueEntry } from './queue.ts';
-import { archivesOnMiddleClick, buildListRows, buildSessionList, groupSessions, headerSummary, inScope, isActive, RECENT_MS, rowStatus, sectionOfSession, sessionGroup, sessionsByHeader, startOfDay, startupSession, waitingLabel } from './sidebarRows.ts';
+import { archivedFiller, archivesOnMiddleClick, buildListRows, buildSessionList, groupSessions, headerSummary, inScope, isActive, RECENT_MS, rowStatus, sectionOfSession, sessionGroup, sessionsByHeader, startOfDay, startupSession, waitingLabel } from './sidebarRows.ts';
 import { closedSections, DEFAULT_SECTIONS, parseSections, toggleAllSections } from './sidebarSections.ts';
 
 const NOW = Date.UTC(2026, 9, 5, 12);
@@ -320,6 +320,17 @@ describe('buildListRows', () => {
     const open = sessionsByHeader(buildListRows(active, archived, { now: NOW, archivedOpen: true }));
     expect([...open]).toEqual([['working', ['busy']], ['today', ['a', 'b']], ['archived', ['old']]]);
     expect(sessionsByHeader(buildListRows(active, archived, { now: NOW, archivedOpen: false })).get('archived')).toEqual([]);
+  });
+
+  it('leaves room above Archived to keep it at the bottom, whether it is open or not', () => {
+    const height = (r: ReturnType<typeof buildListRows>[number]) => (r.kind === 'session' ? 40 : 30);
+    const closed = buildListRows(active, archived, { now: NOW, archivedOpen: false });
+    // Working, Today and Archived headers and three sessions: 210px of a 400px list.
+    expect(archivedFiller(closed, height, 400)).toBe(190);
+    expect(archivedFiller(buildListRows(active, archived, { now: NOW, archivedOpen: true }), height, 400)).toBe(190);
+    // A list taller than the sidebar needs none, and nor does one without archived sessions.
+    expect(archivedFiller(closed, height, 100)).toBe(0);
+    expect(archivedFiller(buildListRows(active, [], { now: NOW, archivedOpen: false }), height, 400)).toBe(0);
   });
 });
 
