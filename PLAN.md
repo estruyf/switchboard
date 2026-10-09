@@ -251,6 +251,12 @@ Personal overrides shared, which overrides global. **Safety:** commands from a r
 - Ready logic is a pure module (`apps/ui/src/state/queue.ts`): busy means starting, running or needs you, measured on the rows the sidebar lists. Nothing starts by itself; the toast and the notification only say an item is ready.
 - Sidebar sections close (`sidebarSections.ts`, saved in app state as `ui.sidebarSections`); the open session's row stays under a closed header.
 
+### 5.9 Quick questions ✅
+
+- Sessions without a project, like a chat. They all run in one scratch folder the engine owns, `<dataDir>/questions` (so dev, smoke and the installed app each have their own), made when needed. `questions.folder` tells the UI its path. Claude Code sees an ordinary folder, so transcripts, resume, fork and search need no special cases.
+- **Never a project:** `projects.list` leaves the folder out, and `projects.add`, `rename`, `setIcon`, `setProfile` and `setDefaults` refuse it (INVALID). `session.create` refuses a worktree or branch there.
+- **UI:** the projects store adds an entry for the folder named *Questions* (never `added`, no session count), so every place that names a session's folder says Questions and no project list shows it. Pure helpers in `apps/ui/src/lib/questions.ts` (is this the folder, which options apply, the choices remembered for questions in `newSession.questionDefaults`, never a mode that skips prompts). New session (*Quick question* under the tiles, ⌘⇧N), the palette's *Quick question…* prompt step and `question=1` links all start through `startNewSession`. No git, project actions or Changes in the session view; the terminal works in the folder.
+
 ### v0.2: power features
 - ✅ **Embedded terminal** per session (xterm.js on node-pty), plus a raw `claude` TUI tab for anything the GUI doesn't cover (including mods). Built ahead of schedule; project actions will reuse it.
 - **Diff panel:** the session's git diff against its starting point, with stage, revert and **rewind to message** (`rewindFiles`).

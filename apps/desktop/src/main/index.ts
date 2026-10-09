@@ -824,6 +824,7 @@ let backupResult = 'not run';
 let themeResult = 'not run';
 let newSessionResult = 'not run';
 let deepLinkResult = 'not run';
+let quickQuestionResult = 'not run';
 let queueResult = 'not run';
 let sectionsResult = 'not run';
 let rendering: Record<string, number> = {};
@@ -2425,6 +2426,101 @@ async function runNewSessionStep(win: BrowserWindow): Promise<string> {
 }
 
 /**
+ * Quick question, read-only: ⌘⇧N opens New session with Quick question picked, which hides every git option
+ * (where, branch, worktree, Add to projects) and keeps the model, effort and mode chips, in a mode that asks.
+ * The palette's Quick question… shows the same in its prompt step. Nothing is typed or sent. A project picks
+ * again from there, and ⌘N later never opens on Quick question (it isn't remembered as New session's folder).
+ * Ends where it started: the same session, or New session as it was (with the prompt it had, which is moved out
+ * of the way first, or it would come along to Quick question as it does to another project).
+ */
+async function runQuickQuestionStep(win: BrowserWindow): Promise<string> {
+  const js = (code: string) => win.webContents.executeJavaScript(code);
+  const optionFor = (folder: string) => `document.querySelector('[data-folder-option=${JSON.stringify(JSON.stringify(folder)).slice(1, -1)}]')`;
+  // The session open now, to come back to (its row may be in a closed sidebar section): a session link opens it.
+  const session = (await js("document.querySelector('[data-current-session]')?.dataset.currentSession ?? null")) as string | null;
+  const leaveNewSession = async () => {
+    if (session) openDeepLink(`switchboard://session/${session}`);
+    else pressKey(win, 'H', ['meta', 'shift']);
+    return waitInPage(win, session ? `document.querySelector('[data-current-session=${JSON.stringify(JSON.stringify(session)).slice(1, -1)}]')` : "!document.querySelector('[data-new-session-view]')", 3_000);
+  };
+  pressKey(win, 'N', ['meta']);
+  if (!(await waitInPage(win, "document.querySelector('[data-new-session-view] [data-quick-question]')", 3_000))) return 'New session did not offer Quick question';
+  const before = (await js("document.querySelector('[data-folder-select]').dataset.value")) as string;
+  const box = '[data-new-session-view] [data-composer]';
+  const boxText = (await js(`document.querySelector(${JSON.stringify(box)})?.value ?? ''`)) as string;
+  if (boxText) await setFieldValue(win, box, '');
+  pressKey(win, 'N', ['meta', 'shift']);
+  if (!(await waitInPage(win, "document.querySelector('[data-quick-question]')?.getAttribute('aria-pressed') === 'true' && document.querySelector('[data-route-question]')", 3_000))) {
+    return '⌘⇧N did not pick Quick question';
+  }
+  // The chips settle a render after the folder changes (a question's choices replace the project's).
+  await waitInPage(win, "document.querySelector('[data-new-session-view] [data-mode-select]') && document.querySelector('[data-route-question-note]')", 2_000);
+  const state = (await js(`(() => {
+    const q = (s) => document.querySelector('[data-new-session-view] ' + s);
+    return {
+      git: ['[data-workspace-select]', '[data-branch-select]', '[data-base-select]', '[data-route-branch]', '[data-worktree-switch]', '[data-add-as-project]', '[data-save-project-defaults]'].filter((s) => q(s)),
+      chips: !!q('[data-model-select]') && !!q('[data-effort-select]') && !!q('[data-mode-select]'),
+      mode: q('[data-mode-select]')?.dataset.value ?? null,
+      submit: q('[data-composer-submit]')?.innerText.trim() ?? '',
+      frame: q('[data-project-color]')?.dataset.projectColor ?? null,
+    };
+  })()`)) as { git: string[]; chips: boolean; mode: string | null; submit: string; frame: string | null };
+  if (state.git.length) return `Quick question still shows git options: ${state.git.join(', ')}`;
+  if (!state.chips) return 'Quick question lost the model, effort or mode chip';
+  if (!state.mode || ['bypassPermissions', 'auto', 'dontAsk'].includes(state.mode)) return `Quick question starts in a mode that never asks: ${state.mode}`;
+  if (!state.submit.startsWith('Ask')) return `the message box says "${state.submit}", not Ask`;
+  if (state.frame) return `the message box wears a project colour (${state.frame})`;
+  await shot(win, 'quick-question.png');
+
+  // The palette: Quick question… goes straight to its prompt step, without a worktree switch.
+  if (!(await openPalette(win, 'K', ['meta'], 'commands'))) return '⌘K did not open the commands';
+  await setFieldValue(win, '[data-palette-input]', 'quick question');
+  if (!(await waitInPage(win, "document.querySelector('[data-command-palette] [data-palette-command]')?.dataset.paletteCommand === 'quick-question'", 2_000))) {
+    return (await closePalette(win), '"quick question" did not rank Quick question… first');
+  }
+  pressKey(win, 'Return');
+  if (!(await waitInPage(win, `${PALETTE_STEP} === 'prompt' && document.querySelector('[data-palette-route-question]') && document.activeElement?.matches('[data-palette-prompt]')`, 3_000))) {
+    return (await closePalette(win), 'Quick question… did not show its prompt step');
+  }
+  const palette = (await js(
+    "({ worktree: !!document.querySelector('[data-palette-worktree]'), branch: !!document.querySelector('[data-palette-route-branch]'), chips: !!document.querySelector('[data-command-palette] [data-palette-mode-select]'), start: document.querySelector('[data-palette-start]')?.innerText.trim() ?? '' })",
+  )) as { worktree: boolean; branch: boolean; chips: boolean; start: string };
+  await closePalette(win);
+  if (palette.worktree || palette.branch) return 'the palette prompt step still shows git options';
+  if (!palette.chips || !palette.start.startsWith('Ask')) return `the palette prompt step is missing parts: ${JSON.stringify(palette)}`;
+
+  // Picking a project from Quick question (the folder New session had; the throwaway profile may have none yet).
+  if (before) {
+    if (!(await js(`!!${optionFor(before)}`))) {
+      await js("document.querySelector('[data-folder-select]').click()");
+      if (!(await waitInPage(win, "document.querySelector('[data-folder-list] input')", 3_000))) return 'could not open the folder list from Quick question';
+      await setFieldValue(win, '[data-folder-list] input', before);
+      await waitInPage(win, optionFor(before), 3_000);
+    }
+    await js(`${optionFor(before)}?.click()`);
+    if (!(await waitInPage(win, `document.querySelector('[data-folder-select]')?.dataset.value === ${JSON.stringify(before)} && !document.querySelector('[data-route-question]')`, 3_000))) {
+      return 'could not pick a project again from Quick question';
+    }
+  }
+
+  // Away and back with ⌘N: New session opens on the folder it had, not on Quick question.
+  if (!(await leaveNewSession())) return 'could not leave New session';
+  pressKey(win, 'N', ['meta']);
+  if (!(await waitInPage(win, "document.querySelector('[data-new-session-view] [data-quick-question]')", 3_000))) return 'New session did not open again';
+  // The remembered folder arrives a moment after the view opens.
+  await new Promise((resolve) => setTimeout(resolve, 300));
+  const reopened = (await js("({ question: document.querySelector('[data-quick-question]').getAttribute('aria-pressed') === 'true', folder: document.querySelector('[data-folder-select]').dataset.value })")) as { question: boolean; folder: string };
+  if (reopened.question || reopened.folder !== before) return `⌘N reopened New session on ${reopened.question ? 'Quick question' : reopened.folder || 'no folder'}, not on ${before || 'no folder'}`;
+  if (boxText) {
+    await setFieldValue(win, box, boxText);
+    if (!(await waitInPage(win, `document.querySelector(${JSON.stringify(box)})?.value === ${JSON.stringify(boxText)}`, 2_000))) return 'could not put the prompt back in New session';
+  }
+  // Back where the step started, for the steps after it.
+  if (session && !(await leaveNewSession())) return 'could not go back to the session';
+  return `ok: ⌘⇧N picks Quick question (no git options, ${state.mode} mode, Ask), the palette's prompt step too; ${before ? 'a project picks again; ' : ''}⌘N later opens on ${before ? 'that project' : 'no folder'}`;
+}
+
+/**
  * `switchboard://` links, fed to the handler directly (no `open`, so the system's link handlers are
  * untouched). A new-session link fills in the folder and prompt and says where the prompt came from,
  * but sends nothing; a bad link shows why and changes nothing; a repo with no checkout leaves the folder
@@ -3489,6 +3585,7 @@ async function runSmokeStep(win: BrowserWindow | null): Promise<void> {
     deepLinkResult = await runDeepLinkStep(win).catch((error: Error) => `failed: ${error.message}`);
     queueResult = await runQueueStep(win).catch((error: Error) => `failed: ${error.message}`);
     sectionsResult = await runSectionsStep(win).catch((error: Error) => `failed: ${error.message}`);
+    quickQuestionResult = await runQuickQuestionStep(win).catch((error: Error) => `failed: ${error.message}`);
     usageBand = (await waitInPage(win, "document.querySelector('[data-usage-band]')", 15_000))
       ? await win.webContents.executeJavaScript("document.querySelector('[data-usage-band]').innerText.replace(/\\s+/g, ' ')")
       : null;
@@ -3568,6 +3665,7 @@ async function runSmokeStep(win: BrowserWindow | null): Promise<void> {
         sidebarStatesResult,
         newSessionResult,
         deepLinkResult,
+        quickQuestionResult,
         queueResult,
         sectionsResult,
         liveSession,

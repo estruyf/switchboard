@@ -37,7 +37,8 @@ export function ShortcutsSheet() {
   const [selection] = useState(() => document.querySelectorAll('[data-picked]').length);
   const palette = usePaletteContext();
   const ctx = useMemo(() => shortcutContext(palette, { focus, selection }), [palette, focus, selection]);
-  const projectRoot = palette.session?.projectRoot ?? null;
+  // A quick question has no project, so no project actions (`canEditActions` is false there).
+  const projectRoot = palette.canEditActions ? (palette.session?.projectRoot ?? null) : null;
   const { actions } = useProjectActionList(ctx.session ? projectRoot : null);
   const projectName = ctx.session && projectRoot?.startsWith('/') ? (palette.currentProject?.name ?? null) : null;
 

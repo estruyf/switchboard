@@ -113,6 +113,13 @@ function useShortcuts() {
       } else if (matches(event, 'session.new')) {
         event.preventDefault();
         useSessions.getState().openNewSession();
+      } else if (matches(event, 'session.question')) {
+        // New session with Quick question picked: no project, the scratch folder the engine keeps.
+        const { questionsDir, startIn } = useProjects.getState();
+        if (!questionsDir) return;
+        event.preventDefault();
+        startIn(questionsDir);
+        useSessions.getState().openNewSession();
       } else if (matches(event, 'editor.open')) {
         const { view, selectedId, sessions, live } = useSessions.getState();
         if (view !== 'session' || !selectedId) return;

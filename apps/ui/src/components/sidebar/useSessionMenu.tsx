@@ -66,6 +66,8 @@ export function useSessionMenu(order: readonly string[], onDeleted?: () => void)
     const archivedNow = !isActive(data, Date.now());
     const flag = (change: FlagChange) => flagAll([data], change);
     const cwd = data.summary?.cwd ?? data.live?.cwd ?? null;
+    // Removing the project from here read as removing the session; that lives in the project menus.
+    const projectEntries = projectIcons.entries(data.projectRoot, at, { remove: false });
     setMenu({
       ...at,
       label: `Session “${data.title}”`,
@@ -79,9 +81,7 @@ export function useSessionMenu(order: readonly string[], onDeleted?: () => void)
         { label: 'Open folder in editor', onSelect: () => cwd && void openIn(cwd).catch(() => {}), disabled: !cwd },
         { label: 'Copy session ID', onSelect: () => void navigator.clipboard.writeText(data.id) },
         'separator',
-        // Removing the project from here read as removing the session; that lives in the project menus.
-        ...projectIcons.entries(data.projectRoot, at, { remove: false }),
-        'separator',
+        ...(projectEntries.length ? [...projectEntries, 'separator' as const] : []),
         { label: 'Delete session…', hint: '⌘⌫', danger: true, disabled: !data.summary, onSelect: () => setDeleting([data]) },
       ],
     });

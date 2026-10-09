@@ -297,6 +297,11 @@ export const contract = {
     },
 
     // --- Folders, files and editors -----------------------------------------------------------
+    /**
+     * The scratch folder quick questions run in (created when missing), one for every question. It is never a
+     * project: `projects.list` leaves it out, and adding, renaming or setting defaults for it is refused (INVALID).
+     */
+    'questions.folder': { params: z.object({}), result: z.object({ path: AbsolutePath }) },
     'projects.inspect': { params: z.object({ path: AbsolutePath }), result: ProjectInspection },
     /** Fuzzy file search for @-mentions (git-tracked and untracked-but-not-ignored files). */
     'files.search': {

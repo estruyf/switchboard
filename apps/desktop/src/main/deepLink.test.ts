@@ -21,12 +21,13 @@ describe('parseDeepLink: new-session', () => {
       project: null,
       repo: null,
       autostart: false,
+      question: false,
     });
   });
 
   it('accepts q as the prompt, new lines, and nothing at all', () => {
     expect(link('switchboard://new-session?q=one%0Atwo%0D%0Athree')).toMatchObject({ prompt: 'one\ntwo\nthree', cwd: null });
-    expect(link('switchboard://new-session')).toEqual({ action: 'new-session', prompt: null, cwd: null, project: null, repo: null, autostart: false });
+    expect(link('switchboard://new-session')).toEqual({ action: 'new-session', prompt: null, cwd: null, project: null, repo: null, autostart: false, question: false });
     expect(link('switchboard://new-session/?prompt=')).toMatchObject({ prompt: null });
     expect(link('switchboard:new-session?prompt=hi')).toMatchObject({ prompt: 'hi' });
     expect(link('SWITCHBOARD://New-Session?prompt=hi')).toMatchObject({ action: 'new-session', prompt: 'hi' });
@@ -56,6 +57,13 @@ describe('parseDeepLink: new-session', () => {
     expect(error('switchboard://new-session?prompt=hi&autostart=later')).toMatch(/autostart/);
   });
 
+  it('asks a quick question, without a folder, project or repository', () => {
+    expect(link('switchboard://new-session?question=1&prompt=What%20is%20a%20monad%3F')).toMatchObject({ question: true, prompt: 'What is a monad?', cwd: null });
+    expect(link('switchboard://new-session?question&cwd=/work/pay&project=pay&repo=acme/pay')).toMatchObject({ question: true, cwd: null, project: null, repo: null });
+    expect(link('switchboard://new-session?question=0&cwd=/work/pay')).toMatchObject({ question: false, cwd: '/work/pay' });
+    expect(error('switchboard://new-session?question=maybe')).toMatch(/question/);
+  });
+
   it('drops a trailing slash from the folder and ignores unknown parameters', () => {
     expect(link('switchboard://new-session?cwd=/Users/me/dev/&model=opus&permissionMode=bypassPermissions')).toEqual({
       action: 'new-session',
@@ -64,6 +72,7 @@ describe('parseDeepLink: new-session', () => {
       project: null,
       repo: null,
       autostart: false,
+      question: false,
     });
     expect(link('switchboard://new-session?cwd=/')).toMatchObject({ cwd: '/' });
   });

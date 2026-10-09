@@ -2,12 +2,18 @@ import { useEffect } from 'react';
 import { create } from 'zustand';
 import type { ProjectInfo, SessionSummary } from '@switchboard/protocol/client';
 import { useEngineConnection } from '../engine/useEngine.ts';
+import { withQuestions } from '../lib/questions.ts';
 import { useSessions } from './sessionsStore.ts';
 
 const FILTER_KEY = 'ui.projectFilter';
 
 interface ProjectsState {
+  /** By folder: the engine's list, plus the quick questions folder (named Questions, never a project). */
   projects: Map<string, ProjectInfo>;
+  /** The list as the engine sent it. */
+  listed: ProjectInfo[];
+  /** The scratch folder quick questions run in; null until the engine has said. */
+  questionsDir: string | null;
   /** The first list has arrived. */
   loaded: boolean;
   /** Show only this project's sessions; null = all projects. */
@@ -24,6 +30,7 @@ interface ProjectsState {
   /** ...and start in a new worktree there (a session header's "New worktree…"). */
   newSessionWorktree: boolean;
   setProjects(projects: ProjectInfo[]): void;
+  setQuestionsDir(dir: string): void;
   setFilter(root: string | null): void;
   toggleArchived(): void;
   reload(): void;
@@ -34,6 +41,8 @@ interface ProjectsState {
 
 export const useProjects = create<ProjectsState>()((set) => ({
   projects: new Map(),
+  listed: [],
+  questionsDir: null,
   loaded: false,
   filter: null,
   archivedOpen: false,
@@ -42,7 +51,8 @@ export const useProjects = create<ProjectsState>()((set) => ({
   manageFocus: null,
   newSessionIn: null,
   newSessionWorktree: false,
-  setProjects: (projects) => set({ projects: new Map(projects.map((p) => [p.root, p])), loaded: true }),
+  setProjects: (listed) => set((s) => ({ listed, projects: withQuestions(listed, s.questionsDir), loaded: true })),
+  setQuestionsDir: (questionsDir) => set((s) => ({ questionsDir, projects: withQuestions(s.listed, questionsDir) })),
   setFilter: (filter) => set({ filter }),
   toggleArchived: () => set((s) => ({ archivedOpen: !s.archivedOpen })),
   reload: () => set((s) => ({ version: s.version + 1 })),
@@ -73,6 +83,12 @@ export function useProjectsSync(): void {
     if (!client) return;
     void client.call('projects.list', {}).then(({ projects }) => useProjects.getState().setProjects(projects));
   }, [client, rootsKey, version]);
+
+  // Where quick questions run (the engine makes the folder).
+  useEffect(() => {
+    if (!client) return;
+    void client.call('questions.folder', {}).then(({ path }) => useProjects.getState().setQuestionsDir(path), () => {});
+  }, [client]);
 
   // An import (in any window) can add, remove and reorder projects.
   useEffect(() => client?.on('settings.imported', () => useProjects.getState().reload()), [client]);

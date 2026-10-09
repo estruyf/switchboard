@@ -10,6 +10,7 @@ import { usePaletteBus } from '../../state/paletteBus.ts';
 import { usePreferences } from '../../state/preferencesStore.ts';
 import { addedProjects } from '../../state/projectList.ts';
 import { useProjects } from '../../state/projectsStore.ts';
+import { isQuestionsFolder } from '../../lib/questions.ts';
 import { toRows, useSessions } from '../../state/sessionsStore.ts';
 import { isActive } from '../../state/sidebarRows.ts';
 import { useSidebar } from '../../state/sidebarStore.ts';
@@ -65,6 +66,7 @@ export function usePaletteContext(): PaletteContext {
   const models = useHosts((s) => s.models);
   const projects = useProjects((s) => s.projects);
   const projectFilter = useProjects((s) => s.filter);
+  const questionsDir = useProjects((s) => s.questionsDir);
   const prefs = usePreferences((s) => s.prefs);
   const themes = useThemes((s) => s.themes);
   const activeTheme = useThemes((s) => s.active.entry.id);
@@ -110,8 +112,10 @@ export function usePaletteContext(): PaletteContext {
     };
   }, [id, sessions, live, hosts, permissions, models, digest]);
 
-  const git = useGitState(session?.cwd ?? null, session?.running ?? false);
-  const projectRoot = session?.projectRoot ?? null;
+  // A quick question has no project (no actions, no "New session in …") and no git.
+  const question = isQuestionsFolder(session?.projectRoot ?? session?.cwd, questionsDir);
+  const git = useGitState(question ? null : (session?.cwd ?? null), session?.running ?? false);
+  const projectRoot = question ? null : (session?.projectRoot ?? null);
   const { actions } = useProjectActionList(projectRoot);
 
   const added = useMemo(() => addedProjects(projects), [projects]);
@@ -122,7 +126,7 @@ export function usePaletteContext(): PaletteContext {
     view,
     connected,
     session,
-    git: session?.cwd ? git : null,
+    git: session?.cwd && !question ? git : null,
     terminal: {
       open: id !== null && openFor.has(id),
       maximized: id !== null && maximizedFor.has(id),
@@ -144,5 +148,6 @@ export function usePaletteContext(): PaletteContext {
     sidebar,
     settingsSection,
     newSession: view === 'new-session' ? newSessionInfo : null,
+    questionsDir,
   };
 }

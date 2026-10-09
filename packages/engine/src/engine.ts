@@ -33,6 +33,7 @@ import { HostManager, type SdkRuntime } from './host/hostManager.ts';
 import { createSessionSettingsStore } from './host/sessionSettings.ts';
 import { UsageMonitor } from './host/usageMonitor.ts';
 import { ProjectRegistry, type FolderActivity } from './projects/projectRegistry.ts';
+import { QuestionsFolder } from './questions/questionsFolder.ts';
 import { createAppStateStore } from './db/appState.ts';
 import { ConfigDirLane } from './profiles/configDirLane.ts';
 import { AccountWatcher } from './profiles/accountWatcher.ts';
@@ -154,6 +155,9 @@ export function createEngine(options: EngineOptions): Engine {
   const baseline = typeof storedBaseline === 'number' ? storedBaseline : Date.now();
   if (typeof storedBaseline !== 'number') appState.set('sessions.baseline', baseline);
   const projects = new ProjectRegistry(cache.db, join(options.dataDir, 'project-icons'));
+  /** Where quick questions run: never one of the projects, so it is left out of every project list. */
+  const questions = new QuestionsFolder(join(options.dataDir, 'questions'));
+  const listProjects = () => projects.list(folderActivity()).filter((p) => !questions.contains(p.root));
   const sessions = new SessionIndex({
     baseline,
     isOwned: (id) => owned.has(id),
@@ -510,6 +514,11 @@ export function createEngine(options: EngineOptions): Engine {
 
   /** Starts a new session: New session's `session.create`, and a queued item starting (`later.start`). */
   const createSession = async (params: Parameters<Handlers<Contract>['session.create']>[0]) => {
+    if (questions.contains(params.cwd)) {
+      // A quick question has no checkout to branch from or switch.
+      if (params.worktree || params.checkoutBranch) throw new RpcError('INVALID', 'Quick questions have no git options');
+      questions.ensure();
+    }
     if (!existsSync(params.cwd)) throw new RpcError('NOT_FOUND', `Folder not found: ${params.cwd}`);
     if (params.worktree && !resolver.resolve(params.cwd).gitDir) {
       throw new RpcError('NOT_A_REPO', 'Worktrees need a git repository');
@@ -593,12 +602,13 @@ export function createEngine(options: EngineOptions): Engine {
       sessions.markViewed(sessionId);
       return {};
     },
-    'projects.list': () => ({ projects: projects.list(folderActivity()) }),
+    'projects.list': () => ({ projects: listProjects() }),
     'projects.findByRepo': async ({ repo }) => {
-      const folders = projects.list(folderActivity()).filter((p) => p.exists).map((p) => p.root);
+      const folders = listProjects().filter((p) => p.exists).map((p) => p.root);
       return { root: await findCheckout(folders, repo) };
     },
     'projects.add': ({ path }) => {
+      questions.assertNotProject(path);
       projects.add(path);
       return {};
     },
@@ -607,14 +617,17 @@ export function createEngine(options: EngineOptions): Engine {
       return {};
     },
     'projects.setIcon': ({ root, icon }) => {
+      questions.assertNotProject(root);
       projects.setIcon(root, icon);
       return {};
     },
     'projects.rename': ({ root, name }) => {
+      questions.assertNotProject(root);
       projects.rename(root, name);
       return {};
     },
     'projects.setProfile': ({ root, profileId }) => {
+      questions.assertNotProject(root);
       profiles.linkProject(root, profileId);
       return {};
     },
@@ -637,6 +650,7 @@ export function createEngine(options: EngineOptions): Engine {
       return {};
     },
     'projects.setDefaults': ({ root, defaults }) => {
+      questions.assertNotProject(root);
       projects.setDefaults(root, defaults);
       return {};
     },
@@ -762,6 +776,7 @@ export function createEngine(options: EngineOptions): Engine {
       return {};
     },
     'session.prewarm': ({ cwd, profileId }) => {
+      if (questions.contains(cwd)) questions.ensure();
       const profile = profileId && profiles.has(profileId) ? profileId : folderProfile(cwd);
       if (existsSync(cwd)) void hosts.prewarm(cwd, profile).catch((error: Error) => log('debug', `Pre-warm failed: ${error.message}`));
       return {};
@@ -769,6 +784,7 @@ export function createEngine(options: EngineOptions): Engine {
     'models.list': () => ({ models: hosts.listModels() }),
     'usage.get': ({ refresh, profileId }) => usageFor(profileId && profiles.has(profileId) ? profileId : profiles.defaultId()).get(refresh),
 
+    'questions.folder': () => ({ path: questions.ensure() }),
     'projects.inspect': ({ path }) => {
       const exists = existsSync(path);
       const location = resolver.resolve(path);
@@ -1003,6 +1019,7 @@ export function createEngine(options: EngineOptions): Engine {
         }
       }
       const profileId = params.sessionId ? sessionProfile(params.sessionId) : folderProfile(params.cwd);
+      if (questions.contains(params.cwd)) questions.ensure();
       try {
         return await terminals.open({ ...params, env: profileEnv(profileId) });
       } catch (error) {

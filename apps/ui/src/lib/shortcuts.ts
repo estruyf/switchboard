@@ -231,6 +231,12 @@ export const SHORTCUTS = [
     section: "general",
   },
   {
+    id: "session.question",
+    keys: ["mod+shift+n"],
+    action: "Quick question (no project)",
+    section: "general",
+  },
+  {
     id: "palette.commands",
     keys: ["mod+k", "mod+shift+p"],
     action: "Command palette",

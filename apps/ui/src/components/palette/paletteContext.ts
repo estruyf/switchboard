@@ -86,4 +86,6 @@ export interface PaletteContext {
   settingsSection: SettingsSection;
   /** New session is on screen: what its route can do. */
   newSession: { canWorktree: boolean; canSaveDefaults: boolean; canQueue: boolean; canCatchUp: boolean } | null;
+  /** The scratch folder quick questions run in; null until the engine has said. */
+  questionsDir: string | null;
 }

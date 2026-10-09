@@ -4,6 +4,10 @@ All notable changes to Switchboard are listed here. Each release is also on the 
 
 ## [Unreleased]
 
+### New
+
+- **Quick questions.** Ask Claude something without picking a project: choose **Quick question** under the project tiles in New session, press ⌘⇧N, or run *Quick question…* in the command palette. You still pick the model, effort, permission mode and profile; there are no git options, and it starts in a mode that asks before edits. Quick questions show as *Questions* in the sidebar with their own icon, and they never show up in your projects. A link can start one too: `switchboard://new-session?question=1&prompt=…`.
+
 ### Changed
 
 - **Updates show as a message in the window's corner.** A new Switchboard or Claude Code shows in the bottom right instead of taking the sidebar's footer, with **Download**, **Restart to update** or **Update**, and **What's new** for the release notes. You see it with the sidebar closed too, and the footer keeps showing your sessions.

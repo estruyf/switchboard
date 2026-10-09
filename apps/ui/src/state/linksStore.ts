@@ -7,6 +7,21 @@ import { useSessions } from './sessionsStore.ts';
 
 export type NewSessionLink = Extract<DeepLink, { action: 'new-session' }> & { seq: number };
 
+/** The quick questions folder, once the engine has said where it is (just after the window connects); null after a while without. */
+function questionsFolder(): Promise<string | null> {
+  const known = useProjects.getState().questionsDir;
+  if (known) return Promise.resolve(known);
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => done(null), 10_000);
+    const unsubscribe = useProjects.subscribe((s) => s.questionsDir && done(s.questionsDir));
+    function done(dir: string | null) {
+      clearTimeout(timer);
+      unsubscribe();
+      resolve(dir);
+    }
+  });
+}
+
 /** Resolves once the project list has arrived (it loads just after the window connects), or after a while regardless. */
 function projectsLoaded(): Promise<void> {
   if (useProjects.getState().loaded) return Promise.resolve();
@@ -40,6 +55,12 @@ export const useLinks = create<LinksState>()((set, get) => ({
   error: null,
   seq: 0,
   open: async (link) => {
+    // A quick question runs in the scratch folder: the link names it as its folder.
+    if (link.action === 'new-session' && link.question) {
+      const dir = await questionsFolder();
+      if (!dir) return get().fail("Couldn't find where quick questions run. Try again in a moment.");
+      link = { ...link, cwd: dir };
+    }
     // A project is looked up first: a name that isn't one of yours shows why and changes nothing.
     if (link.action === 'new-session' && link.project) {
       await projectsLoaded();
