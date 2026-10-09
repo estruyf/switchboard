@@ -18,8 +18,10 @@ const command = packaged
   ? join(appDir, 'dist', 'mac-arm64', 'Switchboard.app', 'Contents', 'MacOS', 'Switchboard')
   : (createRequire(import.meta.url)('electron') as unknown as string);
 const started = performance.now();
+const childEnv = { ...process.env };
+delete childEnv.ELECTRON_RUN_AS_NODE;
 const child = spawn(command, packaged ? [] : [appDir], {
-  env: { ...process.env, SWITCHBOARD_SMOKE_OUT: outDir, ELECTRON_ENABLE_LOGGING: '0' },
+  env: { ...childEnv, SWITCHBOARD_SMOKE_OUT: outDir, ELECTRON_ENABLE_LOGGING: '0' },
   stdio: 'inherit',
 });
 
@@ -31,7 +33,8 @@ if (code !== 0) {
 
 const result = JSON.parse(readFileSync(join(outDir, 'result.json'), 'utf8'));
 console.log(`✓ UI talking to the engine ${result.connectedMs}ms after process start (diagnostics loaded at ${result.loadedMs}ms)`);
-console.log(`${result.sessionCount > 0 ? '✓' : '✗'} ${result.sessionCount} sessions listed on first load`);
+console.log(`${result.sessionsListed ? '✓' : '✗'} sessions listed after the initial scan${result.sessionCount ? ` (${result.sessionCount} in the first snapshot)` : ''}`);
+if (!result.sessionsListed) process.exitCode = 1;
 console.log(`${result.transcriptOpened ? '✓' : '✗'} newest session with messages rendered`);
 const gapOk = result.transcriptFits || (typeof result.transcriptAtBottom === 'number' && result.transcriptAtBottom >= 16 && result.transcriptAtBottom <= 60);
 console.log(`${gapOk ? '✓' : '✗'} transcript opens at the end, ${result.transcriptFits ? 'conversation shorter than the window' : `${result.transcriptAtBottom ?? '?'}px above the composer`}`);
@@ -132,7 +135,7 @@ if (result.liveSession !== null) {
   if (result.liveSession !== 'ok') process.exitCode = 1;
 }
 console.log(`✓ engine restarted and renderer reconnected in ${result.restartRecoveryMs}ms`);
-if (!result.transcriptOpened || result.sessionCount === 0) process.exitCode = 1;
+if (!result.transcriptOpened || !result.sessionsListed) process.exitCode = 1;
 console.log(`  claude ${result.reports[0].claudeVersion ?? 'not found'} · engine ping ${result.reports[0].pingMs}ms · electron ${result.versions.electron}`);
 if (packaged) console.log('  (packaged app)');
 console.log(`  total wall time ${Math.round(performance.now() - started)}ms, screenshots in ${outDir}`);
