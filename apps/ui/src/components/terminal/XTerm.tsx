@@ -102,8 +102,8 @@ export function XTerm({ id, active, exited, onClose }: { id: string; active: boo
         }
         return false;
       }
-      // ⌃⇥ and ⌃⇧⇥ move between sessions, as everywhere else in the window.
-      if (matches(event, 'session.next') || matches(event, 'session.previous')) return false;
+      // ⌃⇥ and ⌃⇧⇥ move between sessions, as everywhere else in the window; ⌃` hides the terminal, as in VS Code.
+      if (matches(event, 'session.next') || matches(event, 'session.previous') || matches(event, 'terminal.toggle')) return false;
       return !(event.metaKey && !['c', 'v', 'a'].includes(event.key.toLowerCase()));
     });
 

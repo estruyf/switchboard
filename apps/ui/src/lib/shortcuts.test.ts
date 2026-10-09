@@ -152,7 +152,8 @@ describe('the shortcut registry', () => {
     expect(matches(press('p', { metaKey: true }), 'palette.commands')).toBe(false);
     expect(matches(press('k', { metaKey: true, ctrlKey: true }), 'palette.commands')).toBe(false);
     expect(matches(press('j', { metaKey: true }), 'terminal.toggle')).toBe(true);
-    expect(matches(press('`', { metaKey: true }), 'terminal.toggle')).toBe(true);
+    expect(matches(press('`', { ctrlKey: true }), 'terminal.toggle')).toBe(true);
+    expect(matches(press('`', { metaKey: true }), 'terminal.toggle')).toBe(false);
     expect(matches(press('J', { metaKey: true, shiftKey: true }), 'terminal.toggle')).toBe(false);
     expect(matches(press('J', { metaKey: true, shiftKey: true }), 'terminal.maximize')).toBe(true);
     expect(matches(press('Tab', { ctrlKey: true }), 'session.next')).toBe(true);
