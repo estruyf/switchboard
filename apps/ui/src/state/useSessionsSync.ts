@@ -1,11 +1,12 @@
 import { useEffect } from 'react';
 import { create } from 'zustand';
-import type { SessionsSnapshot } from '@switchboard/protocol/client';
+import type { LiveSession, SessionsChanged, SessionsSnapshot } from '@switchboard/protocol/client';
 import type { EngineClient } from '../engine/connection.ts';
 import { useEngineConnection } from '../engine/useEngine.ts';
 import { usePreferences } from './preferencesStore.ts';
 import { toRows, useSessions } from './sessionsStore.ts';
 import { startupSession } from './sidebarRows.ts';
+import { createSnapshotEventQueue } from './snapshotEvents.ts';
 import { loadDrafts } from './useDraftsSync.ts';
 
 const SELECTED_KEY = 'ui.selectedSession';
@@ -45,11 +46,18 @@ export function useSessionsSync(): void {
   useEffect(() => {
     if (!client) return;
     const store = useSessions.getState();
-    // Subscribe before asking for the snapshot so no delta can fall in between.
-    const offChanged = client.on('sessions.changed', (change) => useSessions.getState().applyChanged(change));
-    const offLive = client.on('sessions.live', ({ live }) => useSessions.getState().setLive(live));
+    const events = createSnapshotEventQueue(
+      (snapshot: SessionsSnapshot) => store.applySnapshot(snapshot),
+      (event: { kind: 'changed'; change: SessionsChanged } | { kind: 'live'; live: LiveSession[] }) => {
+        if (event.kind === 'changed') store.applyChanged(event.change);
+        else store.setLive(event.live);
+      },
+    );
+    // Events can arrive before the snapshot response; replay them after it so stale data cannot win.
+    const offChanged = client.on('sessions.changed', (change) => events.event({ kind: 'changed', change }));
+    const offLive = client.on('sessions.live', ({ live }) => events.event({ kind: 'live', live }));
     // The saved drafts come in with the first list, so its rows show their unsent messages from the first paint.
-    const snapshot = Promise.all([firstSnapshot(client), loadDrafts(client)]).then(([snapshot]) => store.applySnapshot(snapshot));
+    const snapshot = Promise.all([firstSnapshot(client), loadDrafts(client)]).then(([snapshot]) => events.snapshot(snapshot));
     if (!started && !starting) {
       starting = true;
       void Promise.all([client.call('appState.get', { key: SELECTED_KEY }), snapshot])

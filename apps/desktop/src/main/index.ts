@@ -783,6 +783,7 @@ async function runLiveSessionStep(win: BrowserWindow, cwd: string): Promise<stri
  */
 let crashedAt = 0;
 let transcriptOpened = false;
+let sessionsListed = false;
 /** The session the smoke steps work in (the newest one with messages). */
 let smokeSessionId: string | null = null;
 let liveSession: string | null = null;
@@ -1045,6 +1046,7 @@ async function terminalLayoutChecks(win: BrowserWindow): Promise<string> {
   await clickLikeAUser(win, '[data-folded-meter]');
   if (!(await waitInPage(win, "document.querySelector('[data-context-breakdown]')", 2_000))) return 'failed: the ring did not open the context popup';
   await shot(win, 'terminal-ring.png');
+  await new Promise((resolve) => setTimeout(resolve, 200));
   key('Escape');
   if (!(await waitInPage(win, "!document.querySelector('[data-context-breakdown]')", 2_000))) return 'failed: Escape did not close the ring popup';
 
@@ -1074,7 +1076,15 @@ async function terminalLayoutChecks(win: BrowserWindow): Promise<string> {
   if (!side.underHeader || !side.fullHeight || !side.sendLeft) return `failed: docked right the panel is not full height beside the conversation (${JSON.stringify(side)})`;
   if (!side.footer || side.ring) return 'failed: docked right the footer row did not come back';
   if (side.handle !== 'vertical') return 'failed: docked right the handle is not on the left edge';
-  const wide = (await box())!;
+  // Docking animates and re-fits the terminal: measure once the width has stopped changing.
+  let wide = (await box())!;
+  for (let i = 0; i < 20; i++) {
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    const next = (await box())!;
+    const settled = next.width === wide.width;
+    wide = next;
+    if (settled) break;
+  }
   await js("document.querySelector('[data-terminal-resize]').focus()");
   key('Right');
   if (!(await waitInPage(win, `${PANEL_BOX}.width === ${wide.width - 24}`, 2_000))) return `failed: → on the handle did not narrow the panel (${wide.width}px)`;
@@ -1109,6 +1119,7 @@ async function terminalLayoutChecks(win: BrowserWindow): Promise<string> {
   // Let xterm refit to the new size and redraw before the picture.
   await new Promise((resolve) => setTimeout(resolve, 600));
   await shot(win, 'terminal-maximized.png');
+  await js("document.querySelector('[data-terminal-maximize]').focus()");
   key('Escape');
   if (!(await waitInPage(win, `!${PANEL_BOX}.maximized && !(${hidden})`, 2_000))) {
     const focused = await js("(() => { const el = document.activeElement; return el ? `${el.tagName.toLowerCase()}${el.closest('.xterm') ? ' in xterm' : ''}${el.closest('[data-terminal-panel]') ? ' in the panel' : ''}` : 'nothing'; })()");
@@ -2779,6 +2790,7 @@ async function runQueueStep(win: BrowserWindow): Promise<string> {
     for (const id of [first, second]) {
       await js(`document.querySelector('[data-session-list] [data-queue-item="${id}"]').focus()`);
       pressKey(win, 'Backspace');
+      if (!(await waitInPage(win, `!document.querySelector('[data-session-list] [data-queue-item="${id}"]')`, 3_000))) return 'removing an item did not take it off the queue';
     }
     if (!(await waitInPage(win, `${sidebarItems}.length === 0 && !document.querySelector('[data-queue-header]') && !document.querySelector('[data-home-queue]')`, 3_000))) return 'removing both did not empty the queue';
     if (await js(started)) return 'a session was started';
@@ -3349,7 +3361,7 @@ async function runDropStep(win: BrowserWindow): Promise<string> {
   if (!(await waitInPage(win, "document.querySelector('[data-current-session] [data-composer]') && !document.querySelector('[data-drop-overlay]')", 5_000))) return 'no session view to drag onto';
   const report = (await win.webContents.executeJavaScript(`(async () => {
     const view = document.querySelector('[data-current-session]');
-    const settle = () => new Promise((resolve) => setTimeout(resolve, 60));
+    const settle = () => new Promise((resolve) => setTimeout(resolve, 250));
     const overlay = () => { const el = view.querySelector('[data-drop-overlay]'); return el ? el.dataset.dropState + (Number(el.dataset.dropMention) > 0 ? '+mention' : '') + (el.dataset.dropOver === 'true' ? '+over' : '') : 'none'; };
     const drag = (type, target, extra = {}) => {
       const data = new DataTransfer();
@@ -3614,7 +3626,11 @@ async function runSmokeStep(win: BrowserWindow | null): Promise<void> {
   if (!smokeOutDir || !win) return;
   mkdirSync(smokeOutDir, { recursive: true });
   if (readyReports.length === 1) {
-    await waitInPage(win, "document.querySelector('[data-session-id]')", 5_000);
+    // The steps send real input and check focus, which break when another app takes focus mid-run.
+    const keepFocus = setInterval(() => { if (!win.isDestroyed() && !win.isFocused()) { win.show(); win.focus(); } }, 250);
+    keepFocus.unref();
+    win.once('closed', () => clearInterval(keepFocus));
+    sessionsListed = await waitInPage(win, "document.querySelector('[data-session-id]')", 5_000);
     writeFileSync(join(smokeOutDir, 'window.png'), (await win.webContents.capturePage()).toPNG());
     await win.webContents.executeJavaScript("document.querySelector('[data-project-filter]')?.click()");
     await new Promise((resolve) => setTimeout(resolve, 300));
@@ -3752,6 +3768,7 @@ async function runSmokeStep(win: BrowserWindow | null): Promise<void> {
         loadedMs: readyReports[0]!.loadedMs,
         restartRecoveryMs: Math.round(performance.now() - crashedAt),
         sessionCount: readyReports[0]!.sessionCount,
+        sessionsListed,
         notifications: recordedNotifications,
         transcriptOpened,
         transcriptAtBottom,
@@ -3863,7 +3880,7 @@ app.whenReady().then(() => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });
   // A watchdog for a run that hangs; the full run takes about a minute (drafts wait a moment before they count).
-  if (smokeOutDir) setTimeout(() => exitApp(2), process.env.SWITCHBOARD_SMOKE_LIVE_CWD ? 180_000 : 90_000).unref();
+  if (smokeOutDir) setTimeout(() => exitApp(2), process.env.SWITCHBOARD_SMOKE_LIVE_CWD ? 300_000 : 180_000).unref();
   if (screenshotOutDir) setTimeout(() => exitApp(2), 240_000).unref();
 });
 
