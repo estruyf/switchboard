@@ -19,17 +19,18 @@ interface TerminalsState {
   terminals: Map<string, TerminalInfo>;
   /** The engine's list has arrived, so "no terminals" really means none. */
   loaded: boolean;
-  panelOpen: boolean;
-  /** The user just opened the panel (Terminal button, ⌘J): it starts a shell when the session has none. */
-  shellWanted: boolean;
+  /** Sessions whose view shows the panel: each session view has its own, so it stays with the view it was opened in. */
+  openFor: Set<string>;
+  /** The session whose panel the user just opened (Terminal button, ⌘J): it starts a shell when the session has none. */
+  shellWanted: string | null;
   /** Docked below: its height. */
   panelHeight: number;
   /** Docked right: its width. */
   panelWidth: number;
   /** Where the user wants the panel. It still docks below while the Changes panel is on the right (`effectiveDock`). */
   dock: TerminalDock;
-  /** The panel takes the whole session view, hiding the conversation (⌘⇧J; Esc or ⌘⇧J restores it). */
-  maximized: boolean;
+  /** Sessions whose panel takes the whole session view, hiding the conversation (⌘⇧J; Esc or ⌘⇧J restores it). */
+  maximizedFor: Set<string>;
   /** When each terminal's current run started and ended, for the run strip's elapsed time. */
   runs: Map<string, RunTimes>;
   /** Selected tab per session. */
@@ -37,38 +38,50 @@ interface TerminalsState {
   /** Per session. */
   notices: Map<string, TerminalNotice>;
   setTerminals(list: TerminalInfo[]): void;
-  /** No argument: the user toggles it, and opening asks for a shell. `true`/`false`: show or hide what's there (an action's tab, a restored state). */
-  togglePanel(open?: boolean): void;
-  setShellWanted(wanted: boolean): void;
+  /** A session's panel. No `open`: the user toggles it, and opening asks for a shell. `true`/`false`: show or hide what's there (an action's tab). */
+  togglePanel(sessionId: string, open?: boolean): void;
+  /** Restores the sessions whose panel was open when the app last closed. */
+  restoreOpen(sessionIds: string[]): void;
+  /** The panel has started its shell (or didn't need one). */
+  clearShellWanted(): void;
   setNotice(sessionId: string, notice: TerminalNotice | null): void;
   setPanelHeight(height: number): void;
   setPanelWidth(width: number): void;
   setDock(dock: TerminalDock): void;
-  /** No argument: toggle. */
-  setMaximized(maximized?: boolean): void;
+  /** No `maximized`: toggle. */
+  setMaximized(sessionId: string, maximized?: boolean): void;
   setActive(sessionId: string, terminalId: string): void;
 }
 
 export const useTerminals = create<TerminalsState>()((set) => ({
   terminals: new Map(),
   loaded: false,
-  panelOpen: false,
-  shellWanted: false,
+  openFor: new Set(),
+  shellWanted: null,
   panelHeight: PANEL_DEFAULT_HEIGHT,
   panelWidth: PANEL_DEFAULT_WIDTH,
   dock: 'bottom',
-  maximized: false,
+  maximizedFor: new Set(),
   runs: new Map(),
   active: new Map(),
   notices: new Map(),
   setTerminals: (list) => set((s) => ({ terminals: new Map(list.map((t) => [t.id, t])), runs: trackRuns(s.runs, s.terminals, list, Date.now()), loaded: true })),
   // Hiding the panel also ends a maximized view, so the conversation is back the next time.
-  togglePanel: (open) =>
+  togglePanel: (sessionId, open) =>
     set((s) => {
-      const next = open ?? !s.panelOpen;
-      return { panelOpen: next, ...(open === undefined ? { shellWanted: next } : {}), ...(next ? {} : { maximized: false }) };
+      const next = open ?? !s.openFor.has(sessionId);
+      if (next === s.openFor.has(sessionId) && open !== undefined) return {};
+      const openFor = new Set(s.openFor);
+      // Last opened at the end: only the most recent ones are remembered.
+      openFor.delete(sessionId);
+      if (next) openFor.add(sessionId);
+      const maximizedFor = new Set(s.maximizedFor);
+      if (!next) maximizedFor.delete(sessionId);
+      const shellWanted = open === undefined ? (next ? sessionId : null) : s.shellWanted;
+      return { openFor, maximizedFor, shellWanted };
     }),
-  setShellWanted: (shellWanted) => set({ shellWanted }),
+  restoreOpen: (sessionIds) => set((s) => ({ openFor: new Set([...sessionIds, ...s.openFor]) })),
+  clearShellWanted: () => set({ shellWanted: null }),
   setNotice: (sessionId, notice) =>
     set((s) => {
       const notices = new Map(s.notices);
@@ -79,7 +92,15 @@ export const useTerminals = create<TerminalsState>()((set) => ({
   setPanelHeight: (height) => set({ panelHeight: clampPanelHeight(height, window.innerHeight) }),
   setPanelWidth: (width) => set({ panelWidth: clampPanelWidth(width, window.innerWidth) }),
   setDock: (dock) => set({ dock }),
-  setMaximized: (maximized) => set((s) => ({ maximized: maximized ?? !s.maximized })),
+  setMaximized: (sessionId, maximized) =>
+    set((s) => {
+      const next = maximized ?? !s.maximizedFor.has(sessionId);
+      if (next === s.maximizedFor.has(sessionId)) return {};
+      const maximizedFor = new Set(s.maximizedFor);
+      if (next) maximizedFor.add(sessionId);
+      else maximizedFor.delete(sessionId);
+      return { maximizedFor };
+    }),
   setActive: (sessionId, terminalId) => set((s) => ({ active: new Map(s.active).set(sessionId, terminalId) })),
 }));
 
@@ -92,7 +113,7 @@ export async function openTerminal(client: EngineClient, sessionId: string, cwd:
   if (kind === 'claude' && (await passFocusGate({ target: fork ? null : sessionId })) !== 'start') return;
   const state = useTerminals.getState();
   state.setNotice(sessionId, null);
-  state.togglePanel(true);
+  state.togglePanel(sessionId, true);
   try {
     const info = await client.call('terminal.open', { sessionId, cwd, kind, cols: 100, rows: 20, fork });
     useTerminals.getState().setActive(sessionId, info.id);
@@ -140,11 +161,14 @@ export async function restartTerminal(client: EngineClient, terminal: TerminalIn
   await client.call('terminal.restart', { id: terminal.id });
 }
 
-/** Keeps the terminal list current and remembers the panel's open state, size and dock. */
+/** How many sessions' open panels are remembered across launches. */
+const REMEMBER_OPEN = 50;
+
+/** Keeps the terminal list current and remembers which sessions had the panel open, its size and dock. */
 export function useTerminalsSync(): void {
   const connection = useEngineConnection();
   const client = connection.status === 'connected' ? connection.client : null;
-  const panelOpen = useTerminals((s) => s.panelOpen);
+  const openFor = useTerminals((s) => s.openFor);
   const panelHeight = useTerminals((s) => s.panelHeight);
   const panelWidth = useTerminals((s) => s.panelWidth);
   const dock = useTerminals((s) => s.dock);
@@ -158,14 +182,15 @@ export function useTerminalsSync(): void {
       if (typeof stored?.height === 'number') useTerminals.getState().setPanelHeight(stored.height);
       if (typeof stored?.width === 'number') useTerminals.getState().setPanelWidth(stored.width);
       useTerminals.getState().setDock(parseDock(stored?.dock));
-      if (typeof stored?.open === 'boolean') useTerminals.getState().togglePanel(stored.open);
+      // Before, `open` was one flag for every session; that one isn't carried over.
+      if (Array.isArray(stored?.open)) useTerminals.getState().restoreOpen(stored.open.filter((id): id is string => typeof id === 'string'));
     });
     return off;
   }, [client]);
 
   useEffect(() => {
     if (!client) return;
-    const timer = setTimeout(() => void client.call('appState.set', { key: PANEL_KEY, value: { open: panelOpen, height: panelHeight, width: panelWidth, dock } }), 300);
+    const timer = setTimeout(() => void client.call('appState.set', { key: PANEL_KEY, value: { open: [...openFor].slice(-REMEMBER_OPEN), height: panelHeight, width: panelWidth, dock } }), 300);
     return () => clearTimeout(timer);
-  }, [client, panelOpen, panelHeight, panelWidth, dock]);
+  }, [client, openFor, panelHeight, panelWidth, dock]);
 }

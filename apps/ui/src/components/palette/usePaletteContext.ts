@@ -69,8 +69,8 @@ export function usePaletteContext(): PaletteContext {
   const laterCount = useLater((s) => s.items.length);
   const digest = usePaletteBus((s) => s.digest);
   const newSessionInfo = usePaletteBus((s) => s.newSessionInfo);
-  const panelOpen = useTerminals((s) => s.panelOpen);
-  const maximized = useTerminals((s) => s.maximized);
+  const openFor = useTerminals((s) => s.openFor);
+  const maximizedFor = useTerminals((s) => s.maximizedFor);
   const dock = useTerminals((s) => s.dock);
   const terminals = useTerminals((s) => s.terminals);
   const activeTerminals = useTerminals((s) => s.active);
@@ -121,8 +121,8 @@ export function usePaletteContext(): PaletteContext {
     session,
     git: session?.cwd ? git : null,
     terminal: {
-      open: panelOpen,
-      maximized,
+      open: id !== null && openFor.has(id),
+      maximized: id !== null && maximizedFor.has(id),
       dock,
       action: activeTerminal?.kind === 'action' && activeTerminal.sessionId === id ? { running: activeTerminal.exitCode === null } : null,
     },

@@ -50,13 +50,13 @@ export function TerminalPanel({
   const storeWidth = useTerminals((s) => s.setPanelWidth);
   const setWidth = (next: number) => storeWidth(Math.min(next, maxWidth));
   const setDock = useTerminals((s) => s.setDock);
-  const maximized = useTerminals((s) => s.maximized);
-  const setMaximized = useTerminals((s) => s.setMaximized);
+  const maximized = useTerminals((s) => s.maximizedFor.has(sessionId));
+  const setMaximized = (next?: boolean) => useTerminals.getState().setMaximized(sessionId, next);
   const activeId = useTerminals((s) => s.active.get(sessionId));
   const setActive = useTerminals((s) => s.setActive);
-  const togglePanel = useTerminals((s) => s.togglePanel);
+  const togglePanel = (open?: boolean) => useTerminals.getState().togglePanel(sessionId, open);
   const loaded = useTerminals((s) => s.loaded);
-  const shellWanted = useTerminals((s) => s.shellWanted);
+  const shellWanted = useTerminals((s) => s.shellWanted === sessionId);
   const notice = useTerminals((s) => s.notices.get(sessionId) ?? null);
   const setNotice = useTerminals((s) => s.setNotice);
   const setError = (message: string) => setNotice(sessionId, { code: null, message });
@@ -85,8 +85,8 @@ export function TerminalPanel({
   useEffect(() => {
     if (!shellWanted || !loaded || !client) return;
     const store = useTerminals.getState();
-    if (!store.shellWanted) return;
-    store.setShellWanted(false);
+    if (store.shellWanted !== sessionId) return;
+    store.clearShellWanted();
     if (terminals.length === 0 && cwd) void openTerminal(client, sessionId, cwd, 'shell');
   }, [shellWanted, loaded, client, terminals.length, cwd, sessionId]);
 

@@ -21,6 +21,7 @@ All notable changes to Switchboard are listed here. Each release is also on the 
 ### Fixed
 
 - When the message box grows while you type a long prompt, the conversation stays scrolled to the end if it was there, so its last lines no longer hide under the box.
+- The terminal stays with the session you opened it in. Going to another session no longer shows an empty terminal there, and with two sessions side by side each keeps its own.
 
 ## [0.0.11] - 2026-10-08
 

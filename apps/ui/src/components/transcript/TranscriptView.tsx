@@ -191,7 +191,8 @@ export function TranscriptView({ sessionId, pane = null, active = true }: { sess
   const permissions = useMemo(() => [...permissionMap.values()].filter((p) => p.sessionId === sessionId), [permissionMap, sessionId]);
   const home = useSessions((s) => guessHome([...s.sessions.values()].slice(0, 20).flatMap((x) => (x.cwd ? [x.cwd] : []))));
   const { status, messages } = useTranscript(sessionId);
-  const panelOpen = useTerminals((s) => s.panelOpen);
+  // The terminal panel belongs to this session's view: another session doesn't show it.
+  const panelOpen = useTerminals((s) => s.openFor.has(sessionId));
   const togglePanel = useTerminals((s) => s.togglePanel);
   const terminalCount = useTerminals((s) => [...s.terminals.values()].filter((t) => t.sessionId === sessionId && t.exitCode === null).length);
 
@@ -207,7 +208,7 @@ export function TranscriptView({ sessionId, pane = null, active = true }: { sess
     const fresh = ids.filter((id) => !seenActionTerminals.current!.has(id));
     ids.forEach((id) => seenActionTerminals.current!.add(id));
     if (fresh.length) {
-      useTerminals.getState().togglePanel(true);
+      useTerminals.getState().togglePanel(sessionId, true);
       useTerminals.getState().setActive(sessionId, fresh.at(-1)!);
     }
   }, [actionTerminals, sessionId]);
@@ -273,19 +274,20 @@ export function TranscriptView({ sessionId, pane = null, active = true }: { sess
   const changesExpanded = useChangesLayout((s) => s.expanded);
   // The terminal docks below or on the right; the right side goes to Changes when both want it. Maximized, it
   // takes the whole view: the conversation (and Changes) stay mounted but hidden.
-  const terminalShown = panelOpen && active;
+  // Each pane shows its own session's terminal, so with two panes both can have one.
+  const terminalShown = panelOpen;
   const bodyRef = useRef<HTMLDivElement>(null);
   const bodyWidth = useWidth(bodyRef);
   const terminalBlocked = rightBlocked(showChanges, bodyWidth);
   const terminalDock = effectiveDock(useTerminals((s) => s.dock), terminalBlocked);
-  const terminalMaximized = useTerminals((s) => s.maximized) && terminalShown;
+  const terminalMaximized = useTerminals((s) => s.maximizedFor.has(sessionId)) && terminalShown;
   // Docked below, the terminal takes the room of the footer under the message box: a ring in the box stands in for it.
   const foldFooter = terminalShown && terminalDock === 'bottom' && !terminalMaximized;
   const usageLines = useUsageLines(profileId);
   // Opening Changes (⌘⇧D) while the terminal fills the view brings the view back, or Changes would open out of sight.
   useEffect(() => {
-    if (showChanges) useTerminals.getState().setMaximized(false);
-  }, [showChanges]);
+    if (showChanges) useTerminals.getState().setMaximized(sessionId, false);
+  }, [showChanges, sessionId]);
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       // Behind the Settings sheet the session stays mounted (inert); its shortcuts wait until Settings closes.
@@ -697,7 +699,7 @@ export function TranscriptView({ sessionId, pane = null, active = true }: { sess
           className="no-drag"
           data-panel-toggles
           pressed={[...(changesOpen ? ['changes' as const] : []), ...(panelOpen ? ['terminal' as const] : [])]}
-          onToggle={(panel) => (panel === 'changes' ? toggleChanges() : togglePanel())}
+          onToggle={(panel) => (panel === 'changes' ? toggleChanges() : togglePanel(sessionId))}
           segments={[
             ...(cwd && isRepo
               ? [
@@ -724,7 +726,7 @@ export function TranscriptView({ sessionId, pane = null, active = true }: { sess
               tooltip: `${panelOpen ? 'Hide' : 'Show'} terminal (${formatKeys(keysFor('terminal.toggle'))})${terminalCount ? ` · ${terminalCount} running` : ''}`,
               ariaLabel: `${panelOpen ? 'Hide' : 'Show'} terminal${terminalCount ? `, ${terminalCount} running` : ''} (${formatKeys(keysFor('terminal.toggle'))})`,
               kbd: keysFor('terminal.toggle'),
-              expanded: panelOpen && active,
+              expanded: panelOpen,
               data: { 'data-toggle-terminal': true },
             },
           ]}

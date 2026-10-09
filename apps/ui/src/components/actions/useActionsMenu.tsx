@@ -76,7 +76,7 @@ export function useActionsMenu({
     try {
       const result = await client.call('actions.run', { sessionId, projectRoot, cwd, id: action.id });
       if (result.kind === 'terminal') {
-        togglePanel(true);
+        togglePanel(sessionId, true);
         setActive(sessionId, result.terminalId);
       }
     } catch (e) {
