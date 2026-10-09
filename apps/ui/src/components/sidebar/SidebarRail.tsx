@@ -19,6 +19,8 @@ import { FocusCounter } from '../focus/FocusCounter.tsx';
 import { PROFILE_DOT } from '../profiles/ProfileBadge.tsx';
 import { ProjectIcon } from '../ProjectIcon.tsx';
 import { Button } from '../ui/Button.tsx';
+import { newSessionDraftTooltip, PenBadge } from '../drafts/PenBadge.tsx';
+import { openDraft, useNewSessionDraft, useUnsent } from '../drafts/useUnsent.ts';
 import { STATUS_LABEL } from './rowLabel.ts';
 import { useSessionMenu } from './useSessionMenu.tsx';
 import { matches } from '../../lib/shortcuts.ts';
@@ -118,6 +120,7 @@ const RailRow = memo(function RailRow({
   tabbable,
   now,
   request,
+  draft,
   onClick,
   onMenu,
   onMiddleClick,
@@ -130,6 +133,8 @@ const RailRow = memo(function RailRow({
   now: number;
   /** The oldest permission or question it waits on, for the tooltip's status line. */
   request: WaitingRequest | null;
+  /** The start of an unsent message typed here, or null. */
+  draft: string | null;
   onClick(event: MouseEvent, data: SessionRowData): void;
   onMenu(at: { x: number; y: number }, data: SessionRowData): void;
   onMiddleClick(data: SessionRowData): void;
@@ -157,12 +162,13 @@ const RailRow = memo(function RailRow({
       data-session-status={status ?? undefined}
       tabIndex={tabbable ? 0 : -1}
       aria-current={selected ? 'true' : undefined}
-      aria-label={[data.title || 'Untitled session', projectName, status ? STATUS_LABEL[status].toLowerCase() : null, beside ? 'open in the other pane' : null].filter(Boolean).join(', ')}
-      data-tooltip={[data.title, meta, line?.text, hint].filter(Boolean).join('\n')}
+      aria-label={[data.title || 'Untitled session', projectName, status ? STATUS_LABEL[status].toLowerCase() : null, beside ? 'open in the other pane' : null, draft !== null ? 'unsent message' : null].filter(Boolean).join(', ')}
+      data-has-draft={draft !== null || undefined}
+      data-tooltip={[data.title, meta, line?.text ?? (draft !== null ? `Draft: ${draft}` : null), hint].filter(Boolean).join('\n')}
       data-tooltip-placement="right"
       data-tooltip-title={data.title || 'Untitled session'}
       data-tooltip-meta={meta}
-      data-tooltip-status={line?.text}
+      data-tooltip-status={line?.text ?? (draft !== null ? `Draft: ${draft}` : undefined)}
       data-tooltip-tone={line?.tone ?? 'faint'}
       data-tooltip-hint={hint}
       onClick={(e) => onClick(e, data)}
@@ -185,6 +191,7 @@ const RailRow = memo(function RailRow({
     >
       {railTone && <span aria-hidden className={`absolute inset-y-2 left-0 w-[3px] rounded-full ${railTone}`} data-profile-badge={profileRail && profile ? profile.id : undefined} />}
       <ProjectIcon project={project} root={data.projectRoot} size={26} />
+      {draft !== null && <PenBadge size={14} className="absolute bottom-0.5 left-0.5" data-rail-pen />}
       {dot && (
         <span aria-hidden className={`absolute top-1 right-1 size-[9px] rounded-full ring-2 ring-sidebar ${dot} ${status === 'needs-you' ? 'animate-pulse' : ''}`} data-rail-dot={status} />
       )}
@@ -211,6 +218,9 @@ export function SidebarRail() {
   const atHome = useSessions((s) => (s.view === 'session' || (s.view === 'settings' && s.settingsFrom === 'session')) && s.mainId === null);
   const scope = usePreferences((s) => s.prefs.sessionScope);
   const now = useNow();
+  const unsent = useUnsent();
+  const draftPreviews = useMemo(() => new Map(unsent.flatMap((e) => (e.item.kind === 'session' ? [[e.item.sessionId, e.item.preview] as const] : []))), [unsent]);
+  const newDraft = useNewSessionDraft();
 
   const all = useMemo(() => toRows(sessions, live, hosts).filter((row) => inScope(row, scope)), [sessions, live, hosts, scope]);
   const groups = useMemo(() => sidebarGroups(all, { now }), [all, now]);
@@ -307,18 +317,21 @@ export function SidebarRail() {
       {/* The traffic lights sit in this strip, which doubles as a window drag handle. */}
       <div className="drag h-13 shrink-0" />
       <div className="flex shrink-0 flex-col items-center gap-1 pb-2">
-        <Button
-          variant="primary"
-          size="lg"
-          iconOnly
-          icon={<Plus size={17} strokeWidth={2.4} aria-hidden />}
-          aria-label="New session"
-          shortcut="session.new"
-          data-tooltip-placement="right"
-          data-new-session
-          onClick={() => useSessions.getState().openNewSession()}
-          className={`no-drag w-9! rounded-lg! ${view === 'new' ? 'ring-2 ring-accent/40 ring-offset-1 ring-offset-sidebar' : ''}`}
-        />
+        <span className="no-drag relative flex">
+          <Button
+            variant="primary"
+            size="lg"
+            iconOnly
+            icon={<Plus size={17} strokeWidth={2.4} aria-hidden />}
+            aria-label={newDraft ? newSessionDraftTooltip(newDraft.name) : 'New session'}
+            shortcut="session.new"
+            data-tooltip-placement="right"
+            data-new-session
+            onClick={() => (newDraft ? openDraft(newDraft.item) : useSessions.getState().openNewSession())}
+            className={`w-9! rounded-lg! ${view === 'new' ? 'ring-2 ring-accent/40 ring-offset-1 ring-offset-sidebar' : ''}`}
+          />
+          {newDraft && <PenBadge className="absolute -top-1.5 -right-1.5" data-new-session-draft={newDraft.item.root ?? ''} />}
+        </span>
         <Button
           variant="quiet"
           size="lg"
@@ -373,6 +386,7 @@ export function SidebarRail() {
                     tabbable={item.data.id === tabStopId}
                     now={now}
                     request={requests.get(item.data.id) ?? null}
+                    draft={draftPreviews.get(item.data.id) ?? null}
                     onClick={rowClick}
                     onMenu={menus.openSessionMenu}
                     onMiddleClick={menus.middleClick}

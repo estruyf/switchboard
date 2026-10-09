@@ -30,6 +30,7 @@ function context(over: Partial<PaletteContext> = {}): PaletteContext {
     split: false,
     focusLimit: null,
     queue: { count: 0, readyCount: 0, firstReady: null },
+    unsent: 0,
     projectCount: 2,
     currentProject: null,
     actions: [],

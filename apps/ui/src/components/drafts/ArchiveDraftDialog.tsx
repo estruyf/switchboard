@@ -1,0 +1,43 @@
+import { sessionsWithDrafts } from '../../state/drafts.ts';
+import { useDrafts } from '../../state/draftsStore.ts';
+import { ConfirmDialog } from '../ConfirmDialog.tsx';
+
+const shortTitle = (title: string) => (title.length > 60 ? `${title.slice(0, 59)}…` : title || 'Untitled session');
+
+/**
+ * Archives sessions, first asking when one of them holds an unsent message: archiving hides the session, and its
+ * draft would be left where you no longer see it. Confirming discards those drafts.
+ */
+export function archiveSessions(targets: ReadonlyArray<{ id: string; title: string }>, archive: () => void): void {
+  const ids = sessionsWithDrafts(
+    targets.map((t) => t.id),
+    useDrafts.getState().drafts,
+  );
+  const titles = targets.filter((t) => ids.includes(t.id)).map((t) => t.title);
+  useDrafts.getState().requestArchive({ ids, titles, archive }, ids.length > 0);
+}
+
+/** The question `archiveSessions` asks. Always mounted, like the palette's dialogs. */
+export function ArchiveDraftDialog() {
+  const prompt = useDrafts((s) => s.archivePrompt);
+  if (!prompt) return null;
+  const one = prompt.ids.length === 1;
+  return (
+    <ConfirmDialog
+      title={one ? 'Archive and discard the unsent message?' : `Archive and discard ${prompt.ids.length} unsent messages?`}
+      body={
+        one ? (
+          <>“{shortTitle(prompt.titles[0] ?? '')}” has a message you haven't sent. Archiving discards it.</>
+        ) : (
+          <>{prompt.ids.length} of these sessions have messages you haven't sent. Archiving discards them.</>
+        )
+      }
+      confirmLabel="Archive"
+      onConfirm={async () => {
+        prompt.archive();
+        useDrafts.getState().removeDrafts(prompt.ids);
+      }}
+      onClose={() => useDrafts.getState().closeArchivePrompt()}
+    />
+  );
+}

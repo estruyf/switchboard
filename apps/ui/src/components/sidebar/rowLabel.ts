@@ -41,6 +41,8 @@ export function sessionRowLabel(row: {
   /** One of several sessions picked with ⌘- or ⇧-click. */
   picked?: boolean;
   beside: boolean;
+  /** It holds a message you typed and didn't send. */
+  draft?: boolean;
   updatedAt: number;
   now: number;
 }): string {
@@ -51,6 +53,7 @@ export function sessionRowLabel(row: {
   if (row.archived) parts.push('archived');
   if (row.picked) parts.push('in the selection');
   if (row.beside) parts.push('open in the other pane');
+  if (row.draft) parts.push('unsent message');
   parts.push(`updated ${spokenAge(row.updatedAt, row.now)}`);
   return parts.join(', ');
 }

@@ -16,6 +16,7 @@ import { homeSessions, homeSummary, profileActivity, profileActivityLine, projec
 import { useProfiles } from '../../state/profilesStore.ts';
 import { ProfileUsageCard } from '../UsageBand.tsx';
 import { QueueCard } from './QueueCard.tsx';
+import { UnsentCard } from './UnsentCard.tsx';
 
 const newSession = () => useSessions.getState().openNewSession();
 const open = (id: string) => useSessions.getState().select(id);
@@ -168,6 +169,8 @@ export function HomeView() {
               </section>
             </div>
           )}
+
+          <UnsentCard now={now} />
 
           <QueueCard now={now} />
 

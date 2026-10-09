@@ -7,6 +7,9 @@ import { FocusGateDialog } from './components/focus/FocusGateDialog.tsx';
 import { useOpenIn } from './components/OpenInButton.tsx';
 import { LinkError } from './components/LinkError.tsx';
 import { QuitPrompt } from './components/QuitPrompt.tsx';
+import { ArchiveDraftDialog } from './components/drafts/ArchiveDraftDialog.tsx';
+import { UnsentList } from './components/drafts/UnsentList.tsx';
+import { useDraftsSync } from './state/useDraftsSync.ts';
 import { CommandPalette } from './components/palette/CommandPalette.tsx';
 import { PaletteDialogs } from './components/palette/PaletteDialogs.tsx';
 import { SearchDialog } from './components/search/SearchDialog.tsx';
@@ -149,6 +152,7 @@ export function App() {
   useUpdatesSync();
   useClaudeUpdateSync();
   useSidebarSync();
+  useDraftsSync();
   useUsageSync();
   usePreferencesSync();
   useThemesSync();
@@ -215,6 +219,8 @@ export function App() {
       {overlay === 'palette' && <CommandPalette />}
       {overlay === 'shortcuts' && <ShortcutsSheet />}
       <PaletteDialogs />
+      <UnsentList />
+      <ArchiveDraftDialog />
       {adding && <AddProjectDialog onClose={() => useProjects.getState().showAdd(false)} />}
       <BackupDialogs />
       <ThemeImportDialogs />

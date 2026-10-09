@@ -54,6 +54,10 @@ console.log(`${String(result.copyMessageResult).startsWith('ok') ? '✓' : '✗'
 if (!String(result.copyMessageResult).startsWith('ok')) process.exitCode = 1;
 console.log(`${String(result.draftResult).startsWith('ok') ? '✓' : '✗'} unsent drafts: ${result.draftResult}`);
 if (!String(result.draftResult).startsWith('ok')) process.exitCode = 1;
+console.log(`${String(result.unsentResult).startsWith('ok') ? '✓' : '✗'} unsent messages: ${result.unsentResult}`);
+if (!String(result.unsentResult).startsWith('ok')) process.exitCode = 1;
+console.log(`${String(result.unsentNewSessionResult).startsWith('ok') ? '✓' : '✗'} unsent New session prompt: ${result.unsentNewSessionResult}`);
+if (!String(result.unsentNewSessionResult).startsWith('ok')) process.exitCode = 1;
 console.log(`${String(result.searchResult).startsWith('ok') ? '✓' : '✗'} search: ${result.searchResult}`);
 if (!String(result.searchResult).startsWith('ok')) process.exitCode = 1;
 console.log(`${String(result.paletteResult).startsWith('ok') ? '✓' : '✗'} command palette: ${result.paletteResult}`);

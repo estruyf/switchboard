@@ -67,6 +67,8 @@ export interface PaletteContext {
   focusLimit: number | null;
   /** The queue: how many items, how many are ready, and the first ready one ("Start next in queue"). */
   queue: { count: number; readyCount: number; firstReady: { id: string; prompt: string } | null };
+  /** Unsent messages (sessions and New session prompts) that count. */
+  unsent: number;
   projectCount: number;
   /** The project a "New session in …" starts in: the open session's, else the sidebar's filter. */
   currentProject: { root: string; name: string } | null;

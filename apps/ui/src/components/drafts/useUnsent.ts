@@ -1,0 +1,75 @@
+import { useMemo } from 'react';
+import type { ProjectInfo } from '@switchboard/protocol/client';
+import { basename } from '../../lib/format.ts';
+import { draftList, draftListSignature, type DraftItem } from '../../state/drafts.ts';
+import { useDrafts } from '../../state/draftsStore.ts';
+import { useHosts } from '../../state/hostsStore.ts';
+import { useProjects } from '../../state/projectsStore.ts';
+import { toRows, useSessions, type SessionRowData } from '../../state/sessionsStore.ts';
+
+/** A draft in the Unsent list, with what its row shows. */
+export interface UnsentEntry {
+  item: DraftItem;
+  /** "New session · worklog-web", or the session's title. */
+  title: string;
+  /** The project the icon shows (New session: the folder it was written for). */
+  root: string | null;
+  project: ProjectInfo | undefined;
+  /** The session, for a session's draft. */
+  row: SessionRowData | null;
+}
+
+/** Opens what a draft was written in, with the caret at the end of its text. */
+export function openDraft(item: DraftItem): void {
+  const drafts = useDrafts.getState();
+  drafts.closeList();
+  if (item.kind === 'session') useSessions.getState().select(item.sessionId);
+  else {
+    if (item.root) useProjects.getState().startIn(item.root);
+    useSessions.getState().openNewSession();
+  }
+  drafts.requestFocus(item.key);
+}
+
+/**
+ * Every unsent message, newest first: New session prompts and sessions' drafts. A session the app no longer
+ * knows (deleted elsewhere) is left out, so the count matches the list.
+ */
+export function useUnsent(): UnsentEntry[] {
+  const items = useDraftItems();
+  const sessions = useSessions((s) => s.sessions);
+  const live = useSessions((s) => s.live);
+  const loaded = useSessions((s) => s.loaded);
+  const hosts = useHosts((s) => s.hosts);
+  const projects = useProjects((s) => s.projects);
+  return useMemo(() => {
+    const rows = new Map(toRows(sessions, live, hosts).map((row) => [row.id, row]));
+    return items.flatMap((item): UnsentEntry[] => {
+      if (item.kind === 'new') {
+        const project = item.root ? projects.get(item.root) : undefined;
+        const name = item.root ? (project?.name ?? basename(item.root)) : null;
+        return [{ item, title: name ? `New session · ${name}` : 'New session', root: item.root, project, row: null }];
+      }
+      const row = rows.get(item.sessionId) ?? null;
+      if (!row && loaded) return [];
+      return [{ item, title: row?.title || 'Untitled session', root: row?.projectRoot ?? null, project: row ? projects.get(row.projectRoot) : undefined, row }];
+    });
+  }, [items, sessions, live, hosts, projects, loaded]);
+}
+
+/** The drafts that count, newest first; changes only when the list would look different (not on every keystroke). */
+function useDraftItems(): DraftItem[] {
+  const signature = useDrafts((s) => draftListSignature(s.drafts));
+  return useMemo(() => draftList(useDrafts.getState().drafts), [signature]);
+}
+
+/** The newest New session prompt that counts, for the pen on the + button (null without one). */
+export function useNewSessionDraft(): { item: Extract<DraftItem, { kind: 'new' }>; name: string | null } | null {
+  const items = useDraftItems();
+  const projects = useProjects((s) => s.projects);
+  return useMemo(() => {
+    const item = items.find((d): d is Extract<DraftItem, { kind: 'new' }> => d.kind === 'new');
+    if (!item) return null;
+    return { item, name: item.root ? (projects.get(item.root)?.name ?? basename(item.root)) : null };
+  }, [items, projects]);
+}

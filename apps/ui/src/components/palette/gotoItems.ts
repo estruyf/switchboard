@@ -1,4 +1,5 @@
 import { fuzzyMatch } from '../../lib/fuzzy.ts';
+import type { DraftItem } from '../../state/drafts.ts';
 import type { SessionRowData } from '../../state/sessionsStore.ts';
 import { sidebarGroups } from '../../state/sidebarOrder.ts';
 import { rowStatus, type SessionGroup } from '../../state/sidebarRows.ts';
@@ -66,4 +67,25 @@ export function gotoGroups(rows: readonly SessionRowData[], now: number, limit: 
     left -= shown.length;
     return shown.length ? [{ group, rows: shown }] : [];
   });
+}
+
+/**
+ * ⌘P with nothing typed and unsent messages: an Unsent group on top (newest first, New session prompts too), then the
+ * sidebar's groups without the sessions it lists. A session that needs you stays in Needs you instead (its row has a
+ * pen there), so nothing shows twice.
+ */
+export function gotoWithDrafts(
+  rows: readonly SessionRowData[],
+  drafts: readonly DraftItem[],
+  now: number,
+  limit: number,
+): { unsent: DraftItem[]; groups: { group: SessionGroup; rows: SessionRowData[] }[] } {
+  const byId = new Map(rows.map((row) => [row.id, row]));
+  const unsent = drafts.filter((item) => {
+    if (item.kind === 'new') return true;
+    const row = byId.get(item.sessionId);
+    return !row || rowStatus(row) !== 'needs-you';
+  });
+  const listed = new Set(unsent.flatMap((item) => (item.kind === 'session' ? [item.sessionId] : [])));
+  return { unsent, groups: gotoGroups(rows.filter((row) => !listed.has(row.id)), now, limit) };
 }

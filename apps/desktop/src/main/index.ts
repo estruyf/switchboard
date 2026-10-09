@@ -800,6 +800,8 @@ let findResult = 'not run';
 let longPromptResult = 'not run';
 let copyMessageResult = 'not run';
 let draftResult = 'not run';
+let unsentResult = 'not run';
+let unsentNewSessionResult = 'not run';
 let paletteResult = 'not run';
 let shortcutsResult = 'not run';
 let paletteNewSessionResult = 'not run';
@@ -1526,6 +1528,7 @@ async function runProjectsStep(win: BrowserWindow): Promise<string> {
 
   // The command palette's New session needs a project: this is the one moment the throwaway profile has one.
   paletteNewSessionResult = await runPaletteNewSessionStep(win).catch((error: Error) => `failed: ${error.message}`);
+  unsentNewSessionResult = await runUnsentNewSessionStep(win).catch((error: Error) => `failed: ${error.message}`);
 
   await click('[data-open-projects]');
   if (!(await waitInPage(win, `${row('[data-defaults-summary]')}?.innerText.includes('low effort')`, 3_000))) return 'the saved default did not reach the Projects view';
@@ -2224,6 +2227,95 @@ async function runDraftStep(win: BrowserWindow): Promise<string> {
   return 'ok: the unsent message and its image were still there after opening another session and coming back';
 }
 
+/**
+ * Unsent messages, without sending anything: text left in the session's box shows as a pen and a "Draft:" line on its
+ * row and "1 unsent" in the footer; the Unsent list jumps back to it with the text there and the caret at its end;
+ * Discard takes the pen and the chip away. New session's part is `runUnsentNewSessionStep`, which needs a project.
+ */
+async function runUnsentStep(win: BrowserWindow): Promise<string> {
+  const js = (code: string) => win.webContents.executeJavaScript(code);
+  if (!smokeSessionId) return 'ok: no session to type in';
+  const id = smokeSessionId;
+  const text = 'Smoke unsent message, never sent';
+  const box = `[data-current-session="${id}"] [data-composer]`;
+  const row = `document.querySelector('[data-session-id="${id}"]')`;
+  const count = "Number(document.querySelector('[data-drafts-count]')?.dataset.draftsCount ?? 0)";
+  const clear = () => setFieldValue(win, box, '');
+  await js(`${row}?.click()`);
+  if (!(await waitInPage(win, `!!document.querySelector(${JSON.stringify(box)})`, 5_000))) return 'no message box in the session under test';
+  if (!(await js("!!document.querySelector('[data-sidebar-open]')"))) return 'the sidebar is not open';
+  const before = (await js(count)) as number;
+
+  // Typed, left alone for a moment, then another session opened.
+  await setFieldValue(win, box, text);
+  const other = (await js(
+    `(() => { const r = [...document.querySelectorAll('[data-session-id]')].find((r) => r.dataset.sessionId !== '${id}'); r?.click(); return r?.dataset.sessionId ?? null; })()`,
+  )) as string | null;
+  if (!other) return (await clear(), 'ok: only one session, nothing to switch to');
+  if (!(await waitInPage(win, `${row}?.hasAttribute('data-has-draft') && !!${row}?.querySelector('[data-row-pen]')`, 6_000))) return (await js(`${row}?.click()`), await clear(), 'the row did not show the pen');
+  const busy = (await js(`/Waiting for you|Claude is working/.test(${row}.getAttribute('aria-label'))`)) as boolean;
+  const compact = (await js(`!${row}.querySelector('[data-row-draft]') && ${row}.offsetHeight < 40`)) as boolean;
+  if (!busy && !compact && !(await js(`${row}.querySelector('[data-row-draft]')?.innerText.startsWith('Draft: Smoke unsent')`))) return (await js(`${row}?.click()`), await clear(), 'the row did not show the "Draft:" line');
+  if (!(await js(`${row}.getAttribute('aria-label').includes('unsent message')`))) return (await js(`${row}?.click()`), await clear(), 'the row does not say "unsent message"');
+  if (!(await waitInPage(win, `${count} === ${before + 1} && document.querySelector('[data-drafts-count]').innerText.includes('${before + 1} unsent')`, 2_000))) return (await js(`${row}?.click()`), await clear(), `the footer did not say ${before + 1} unsent`);
+  await shot(win, 'unsent-row.png');
+
+  // The list jumps back with the text in the box, the caret at its end, and the kept-for-you line.
+  await js("document.querySelector('[data-drafts-count]').click()");
+  if (!(await waitInPage(win, `!!document.querySelector('[data-unsent-list] [data-unsent-item="${id}"]')`, 2_000))) return (await js(`${row}?.click()`), await clear(), 'the chip did not open the Unsent list with the draft');
+  await shot(win, 'unsent-list.png');
+  await js(`document.querySelector('[data-unsent-list] [data-unsent-item="${id}"]').click()`);
+  const back = `document.querySelector(${JSON.stringify(box)})`;
+  if (!(await waitInPage(win, `!document.querySelector('[data-unsent-list]') && ${back}?.value === ${JSON.stringify(text)} && document.activeElement === ${back} && ${back}.selectionStart === ${text.length}`, 5_000))) {
+    return (await clear(), `the list did not open the draft with the caret at the end (${JSON.stringify(await js(`${back}?.value ?? null`))})`);
+  }
+  if (!(await waitInPage(win, `document.querySelector('[data-current-session="${id}"] [data-draft-banner]')?.innerText.includes('kept for you')`, 2_000))) return (await clear(), 'no "kept for you" line above the box');
+
+  // Discard: the box empties, the pen and the chip go.
+  await js(`document.querySelector('[data-current-session="${id}"] [data-draft-discard]').click()`);
+  if (!(await waitInPage(win, `${back}?.value === '' && !document.querySelector('[data-current-session="${id}"] [data-draft-banner]') && !${row}?.hasAttribute('data-has-draft') && ${count} === ${before}`, 3_000))) {
+    return (await clear(), 'Discard left the text, the pen or the chip');
+  }
+
+  await waitInPage(win, "document.querySelector('[data-transcript-item]')", 5_000);
+  return 'ok: pen, Draft line and "1 unsent" for a left message; the list jumped back with the caret at the end; Discard cleared the text, the pen and the chip';
+}
+
+/**
+ * A prompt left in New session puts a pen on the + button, whose tooltip names the project; clicking it opens New
+ * session on that prompt with the kept-for-you line, and Discard there takes the pen away. Starts nothing; needs a
+ * project (run while the projects step has one added), and ends on New session as it found it.
+ */
+async function runUnsentNewSessionStep(win: BrowserWindow): Promise<string> {
+  const js = (code: string) => win.webContents.executeJavaScript(code);
+  if (!smokeSessionId) return 'ok: no session to leave New session for';
+  const row = `document.querySelector('[data-session-id="${smokeSessionId}"]')`;
+  const text = 'Smoke unsent prompt, never started';
+  const prompt = "document.querySelector('[data-new-session-view] [data-composer]')";
+  win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'N', modifiers: ['meta'] });
+  if (!(await waitInPage(win, `!!document.querySelector('[data-folder-select]')?.dataset.value && ${prompt} && !${prompt}.disabled`, 5_000))) return 'New session has no folder to write a prompt for';
+  const folder = (await js("document.querySelector('[data-folder-select]').dataset.value")) as string;
+  await setFieldValue(win, '[data-new-session-view] [data-composer]', text);
+  await js(`${row}?.click()`);
+  const discard = async () => {
+    await js("document.querySelector('[data-new-session]').click()");
+    await waitInPage(win, `${prompt}?.value === ${JSON.stringify(text)}`, 3_000);
+    await setFieldValue(win, '[data-new-session-view] [data-composer]', '');
+  };
+  if (!(await waitInPage(win, `document.querySelector('[data-new-session-draft]')?.dataset.newSessionDraft === ${JSON.stringify(folder)} && document.querySelector('[data-new-session]').getAttribute('aria-label').startsWith('New session · unsent prompt in')`, 6_000))) {
+    return (await discard(), 'the + button did not get a pen for the New session prompt');
+  }
+  await shot(win, 'unsent-new-session.png');
+  // Clicking it opens New session on the prompt, with the line that says whose it is; Discard there clears it.
+  await js("document.querySelector('[data-new-session]').click()");
+  if (!(await waitInPage(win, `${prompt}?.value === ${JSON.stringify(text)} && document.querySelector('[data-new-session-view] [data-draft-banner]')?.innerText.includes('Your unsent prompt for')`, 5_000))) {
+    return (await setFieldValue(win, '[data-new-session-view] [data-composer]', ''), 'the + button did not open New session on the kept prompt');
+  }
+  await js("document.querySelector('[data-new-session-view] [data-draft-discard]').click()");
+  if (!(await waitInPage(win, `${prompt}?.value === '' && !document.querySelector('[data-new-session-draft]') && !document.querySelector('[data-draft-banner]')`, 3_000))) return 'Discard in New session left the prompt or the pen';
+  return 'ok: a prompt left in New session put a pen on the + button, which opened it with "Your unsent prompt for…"; Discard cleared it';
+}
+
 async function runSearchStep(win: BrowserWindow): Promise<string> {
   const js = (code: string) => win.webContents.executeJavaScript(code);
   win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'F', modifiers: ['meta', 'shift'] });
@@ -2686,6 +2778,8 @@ async function runPaletteNewSessionStep(win: BrowserWindow): Promise<string> {
     `({ project: document.querySelector('[data-palette-route-project]')?.dataset.paletteRouteProject ?? null, chips: !!document.querySelector('[data-command-palette] [data-palette-model-select]') && !!document.querySelector('[data-command-palette] [data-palette-mode-select]'), start: !!document.querySelector('[data-palette-start]'), width: Math.round(document.querySelector('[data-command-palette]').getBoundingClientRect().width) })`,
   )) as { project: string | null; chips: boolean; start: boolean; width: number };
   if (parts.project !== project || !parts.chips || !parts.start) return (await closePalette(win), `the prompt step is missing parts: ${JSON.stringify(parts)}`);
+  // The step shares New session's unsent prompt for the project, which an earlier step may have left: start empty.
+  await setFieldValue(win, '[data-palette-prompt]', '');
   await win.webContents.insertText(draft);
   if (!(await waitInPage(win, `document.querySelector('[data-palette-prompt]')?.value === ${JSON.stringify(draft)}`, 2_000))) return (await closePalette(win), 'typing in the prompt step did not stick');
   // Paste an image and hold a drag over the step, as in the message box; then remove the image again. Nothing is dropped.
@@ -3334,6 +3428,7 @@ async function runSmokeStep(win: BrowserWindow | null): Promise<void> {
     longPromptResult = await runLongPromptStep(win).catch((error: Error) => `failed: ${error.message}`);
     copyMessageResult = await runCopyMessageStep(win).catch((error: Error) => `failed: ${error.message}`);
     draftResult = await runDraftStep(win).catch((error: Error) => `failed: ${error.message}`);
+    unsentResult = await runUnsentStep(win).catch((error: Error) => `failed: ${error.message}`);
     searchResult = await runSearchStep(win).catch((error: Error) => `failed: ${error.message}`);
     paletteResult = await runPaletteStep(win).catch((error: Error) => `failed: ${error.message}`);
     shortcutsResult = await runShortcutsStep(win).catch((error: Error) => `failed: ${error.message}`);
@@ -3410,6 +3505,8 @@ async function runSmokeStep(win: BrowserWindow | null): Promise<void> {
         longPromptResult,
         copyMessageResult,
         draftResult,
+        unsentResult,
+        unsentNewSessionResult,
         paletteResult,
         shortcutsResult,
         paletteNewSessionResult,
@@ -3499,7 +3596,8 @@ app.whenReady().then(() => {
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });
-  if (smokeOutDir) setTimeout(() => exitApp(2), process.env.SWITCHBOARD_SMOKE_LIVE_CWD ? 180_000 : 60_000).unref();
+  // A watchdog for a run that hangs; the full run takes about a minute (drafts wait a moment before they count).
+  if (smokeOutDir) setTimeout(() => exitApp(2), process.env.SWITCHBOARD_SMOKE_LIVE_CWD ? 180_000 : 90_000).unref();
   if (screenshotOutDir) setTimeout(() => exitApp(2), 240_000).unref();
 });
 

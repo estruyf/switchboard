@@ -4,6 +4,8 @@ import { isActiveHost, useHosts } from '../../state/hostsStore.ts';
 import { useSessions, type SessionRowData } from '../../state/sessionsStore.ts';
 import { archivesOnMiddleClick, isActive } from '../../state/sidebarRows.ts';
 import { ConfirmDialog } from '../ConfirmDialog.tsx';
+import { archiveSessions } from '../drafts/ArchiveDraftDialog.tsx';
+import { useDrafts } from '../../state/draftsStore.ts';
 import { Menu, type MenuEntry } from '../Menu.tsx';
 import { useOpenIn } from '../OpenInButton.tsx';
 import { RenameSessionDialog } from '../RenameSessionDialog.tsx';
@@ -46,8 +48,14 @@ export function useSessionMenu(order: readonly string[], onDeleted?: () => void)
   const [renaming, setRenaming] = useState<SessionRowData | null>(null);
 
   // Only indexed sessions have flags; a session still starting has nothing to keep them against.
+  // Archiving a session with an unsent message asks first (and discards the message).
   const flagAll = (targets: SessionRowData[], change: FlagChange) => {
-    for (const target of targets) if (target.summary) void client?.call('sessions.setFlags', { sessionId: target.id, ...change });
+    const indexed = targets.filter((target) => target.summary);
+    const apply = () => {
+      for (const target of indexed) void client?.call('sessions.setFlags', { sessionId: target.id, ...change });
+    };
+    if (change.archived) archiveSessions(indexed, apply);
+    else apply();
   };
 
   const middleClick = (data: SessionRowData) => {
@@ -114,6 +122,7 @@ export function useSessionMenu(order: readonly string[], onDeleted?: () => void)
             const next = index === -1 ? null : (order.slice(index + 1).find((id) => !gone.has(id)) ?? order.slice(0, index).reverse().find((id) => !gone.has(id)) ?? null);
             for (const target of deleting) {
               await client.call('session.delete', { sessionId: target.id });
+              useDrafts.getState().removeDraft(target.id);
               const panes = useSessions.getState();
               // Two panes: the other one takes the full width.
               if (panes.splitId && (target.id === panes.mainId || target.id === panes.splitId)) panes.closePane(target.id === panes.mainId ? 'main' : 'split');

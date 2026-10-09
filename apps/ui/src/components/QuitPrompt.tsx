@@ -2,6 +2,9 @@ import { useEffect, useRef, useState } from 'react';
 import { isActiveHost, useHosts } from '../state/hostsStore.ts';
 import { useTerminals } from '../state/terminalsStore.ts';
 import { ConfirmDialog } from './ConfirmDialog.tsx';
+import { openUnsentList } from './drafts/UnsentList.tsx';
+import { useUnsent } from './drafts/useUnsent.ts';
+import { quitSummary } from '../state/drafts.ts';
 import { Kbd } from './ui/Kbd.tsx';
 
 const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
@@ -26,6 +29,8 @@ export function QuitPrompt() {
   const [open, setOpen] = useState(false);
   const answered = useRef(false);
   const impact = useQuitImpact();
+  const unsent = useUnsent().length;
+  const summary = quitSummary(impact, unsent);
 
   useEffect(
     () =>
@@ -43,23 +48,37 @@ export function QuitPrompt() {
     window.switchboard?.answerQuit(value);
   };
 
+  const cancel = () => {
+    answer('cancel');
+    setOpen(false);
+  };
   return (
     <ConfirmDialog
       title="Quit Switchboard?"
       body={
         <>
-          {impact && <p>{impact}</p>}
-          <p className={impact ? 'mt-2' : undefined}>
+          {summary.length > 0 && <p data-quit-unsent={unsent || undefined}>{summary.join(' ')}</p>}
+          <p className={summary.length > 0 ? 'mt-2' : undefined}>
             Press <Kbd shortcut="quit" /> again to quit.
           </p>
         </>
       }
       confirmLabel="Quit"
+      // Show unsent stays in the app and opens the list; Escape just stays.
+      secondary={
+        unsent > 0
+          ? {
+              label: 'Show unsent',
+              data: { 'data-quit-show-unsent': true },
+              onSelect: () => {
+                cancel();
+                requestAnimationFrame(openUnsentList);
+              },
+            }
+          : undefined
+      }
       onConfirm={async () => answer('quit')}
-      onClose={() => {
-        answer('cancel');
-        setOpen(false);
-      }}
+      onClose={cancel}
     />
   );
 }

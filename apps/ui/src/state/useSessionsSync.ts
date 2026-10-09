@@ -6,6 +6,7 @@ import { useEngineConnection } from '../engine/useEngine.ts';
 import { usePreferences } from './preferencesStore.ts';
 import { toRows, useSessions } from './sessionsStore.ts';
 import { startupSession } from './sidebarRows.ts';
+import { loadDrafts } from './useDraftsSync.ts';
 
 const SELECTED_KEY = 'ui.selectedSession';
 
@@ -47,7 +48,8 @@ export function useSessionsSync(): void {
     // Subscribe before asking for the snapshot so no delta can fall in between.
     const offChanged = client.on('sessions.changed', (change) => useSessions.getState().applyChanged(change));
     const offLive = client.on('sessions.live', ({ live }) => useSessions.getState().setLive(live));
-    const snapshot = firstSnapshot(client).then((snapshot) => store.applySnapshot(snapshot));
+    // The saved drafts come in with the first list, so its rows show their unsent messages from the first paint.
+    const snapshot = Promise.all([firstSnapshot(client), loadDrafts(client)]).then(([snapshot]) => store.applySnapshot(snapshot));
     if (!started && !starting) {
       starting = true;
       void Promise.all([client.call('appState.get', { key: SELECTED_KEY }), snapshot])

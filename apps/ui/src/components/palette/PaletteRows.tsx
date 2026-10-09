@@ -1,10 +1,12 @@
-import { Check, ChevronRight, FolderOpen, GitBranch, type LucideIcon } from 'lucide-react';
+import { Check, ChevronRight, FolderOpen, GitBranch, PencilLine, type LucideIcon } from 'lucide-react';
 import type { HTMLAttributes, ReactNode } from 'react';
 import type { ProjectInfo } from '@switchboard/protocol/client';
 import type { SessionRowData } from '../../state/sessionsStore.ts';
 import { rowStatus } from '../../state/sidebarRows.ts';
 import { shortAge } from '../../lib/format.ts';
 import { ProjectIcon } from '../ProjectIcon.tsx';
+import { DraftIcon } from '../drafts/UnsentList.tsx';
+import type { UnsentEntry } from '../drafts/useUnsent.ts';
 import { Kbd } from '../ui/Kbd.tsx';
 import type { TileTone } from '../newSession/projectTiles.ts';
 
@@ -92,7 +94,7 @@ const DOT: Partial<Record<NonNullable<ReturnType<typeof rowStatus>>, string>> = 
 };
 
 /** A session to go to: its status dot, project icon, title and project, and what it needs or how old it is. */
-export function SessionRow({ data, project, projectName, indices, ...common }: Common & { data: SessionRowData; project: ProjectInfo | undefined; projectName: string; indices: number[] }) {
+export function SessionRow({ data, project, projectName, indices, draft = false, ...common }: Common & { data: SessionRowData; project: ProjectInfo | undefined; projectName: string; indices: number[]; /** It holds an unsent message. */ draft?: boolean }) {
   const status = rowStatus(data);
   return (
     <RowShell {...common} data-palette-session={data.id}>
@@ -104,7 +106,23 @@ export function SessionRow({ data, project, projectName, indices, ...common }: C
       </span>
       {status === 'needs-you' && <span className="shrink-0 text-meta text-warn">Needs you</span>}
       {status === 'running' && <span className="shrink-0 text-meta text-accent-ink">Working</span>}
+      {draft && <PencilLine size={11} className="shrink-0 text-faint" aria-label="unsent message" data-palette-pen />}
       <span className="shrink-0 text-meta text-faint tabular-nums">{shortAge(data.updatedAt)}</span>
+    </RowShell>
+  );
+}
+
+/** An unsent message in go-to: its icon, where it was written, the start of it in italics, and its age. */
+export function DraftRow({ entry, ...common }: Common & { entry: UnsentEntry }) {
+  return (
+    <RowShell {...common} data-palette-draft={entry.item.key}>
+      <span aria-hidden className="size-1.5 shrink-0" />
+      <DraftIcon entry={entry} size={16} />
+      <span className="flex min-w-0 flex-1 items-baseline gap-2 truncate text-body">
+        <span className="shrink-0 truncate">{entry.title}</span>
+        <span className="min-w-0 truncate text-ui text-text/80 italic">{entry.item.preview}</span>
+      </span>
+      <span className="shrink-0 text-meta text-faint tabular-nums">{shortAge(entry.item.updatedAt)}</span>
     </RowShell>
   );
 }

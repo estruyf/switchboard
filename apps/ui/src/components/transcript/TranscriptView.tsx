@@ -1,6 +1,6 @@
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { Blocks, ChevronDown, CircleAlert, FileDiff, GitBranch, ListTodo, LoaderCircle, SquareTerminal, X } from 'lucide-react';
-import { lazy, Suspense, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type RefObject } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type RefObject } from 'react';
 import type { ChangesBase, GitChanges, ImageAttachment, PermissionRequest, RewindResult, SlashCommand } from '@switchboard/protocol/client';
 import { useEngineConnection } from '../../engine/useEngine.ts';
 import { clearFindHighlights, rangesIn, setFindHighlights } from '../../lib/findHighlights.ts';
@@ -15,6 +15,9 @@ import { usePreferences } from '../../state/preferencesStore.ts';
 import { useProjects } from '../../state/projectsStore.ts';
 import { realBranch, useSessions, type Pane } from '../../state/sessionsStore.ts';
 import { useTerminals } from '../../state/terminalsStore.ts';
+import { sessionDraftBanner } from '../../state/drafts.ts';
+import { useDrafts, type ComposerDraft } from '../../state/draftsStore.ts';
+import { DraftBanner } from '../drafts/DraftBanner.tsx';
 // xterm.js is large; it loads the first time a terminal panel opens, not at startup.
 const TerminalPanel = lazy(() => import('../terminal/TerminalPanel.tsx').then((m) => ({ default: m.TerminalPanel })));
 import { Composer } from '../composer/Composer.tsx';
@@ -49,7 +52,7 @@ import { buildDisplayItems, groupActivity, type RenderItem } from './displayItem
 import { FindBar } from './FindBar.tsx';
 import { findMatches, searchableText, startMatch } from './findInSession.ts';
 import { StreamingMarkdown } from './Markdown.tsx';
-import { MessageActionsContext, messageUuid, pendingDrafts, type MessageActions } from './messageActions.tsx';
+import { MessageActionsContext, messageUuid, type MessageActions } from './messageActions.tsx';
 import { parseTodos, TodoList } from './TodoList.tsx';
 import { TranscriptItem } from './TranscriptItem.tsx';
 import { useTranscript } from './useTranscript.ts';
@@ -519,12 +522,14 @@ export function TranscriptView({ sessionId, pane = null, active = true }: { sess
     setOpenPrompts(new Set());
   }, [sessionId]);
 
+  // A draft kept from before (switching sessions, or a restart): a quiet line above the box until it is edited or sent.
+  const [restored, setRestored] = useState<ComposerDraft | null>(null);
+  /** Discard empties the box: each one is a new preset. */
+  const [discards, setDiscards] = useState(0);
+  const onDraftLoaded = (draft: ComposerDraft) => setRestored(draft.seeded ? null : draft);
+  const onDraftText = useCallback((text: string) => setRestored((current) => (current && current.text !== text ? null : current)), []);
+
   // Fork, edit and rewind from a message.
-  const [initialText] = useState(() => {
-    const draft = pendingDrafts.get(sessionId);
-    pendingDrafts.delete(sessionId);
-    return draft;
-  });
   const [actionError, setActionError] = useState<string | null>(null);
   const [rewinding, setRewinding] = useState<{ uuid: string; preview: RewindResult | null; error: string | null } | null>(null);
   // The undo dialog opens while it is still checking, before its confirm button exists: give the
@@ -556,7 +561,7 @@ export function TranscriptView({ sessionId, pane = null, active = true }: { sess
         const before = previous.get(uuid);
         if (!before) return;
         void client.call('session.forkAt', { sessionId, messageUuid: before }).then((r) => {
-          pendingDrafts.set(r.sessionId, text);
+          useDrafts.getState().seedDraft(r.sessionId, text);
           select(r.sessionId);
         }, fail);
       },
@@ -1004,9 +1009,22 @@ export function TranscriptView({ sessionId, pane = null, active = true }: { sess
                 </Notice>
               )}
               {actionsMenu.overlays}
+              {restored && (
+                <DraftBanner
+                  text={sessionDraftBanner(restored, Date.now())}
+                  onDiscard={() => {
+                    useDrafts.getState().removeDraft(sessionId);
+                    setRestored(null);
+                    setDiscards((n) => n + 1);
+                  }}
+                />
+              )}
               <Composer
-                initialText={initialText}
                 draftKey={sessionId}
+                onDraftLoaded={onDraftLoaded}
+                onTextChange={onDraftText}
+                restored={restored !== null}
+                preset={discards ? { text: '', attachments: [], seq: discards } : undefined}
                 history={promptHistory}
                 cwd={cwd}
                 commands={commands}

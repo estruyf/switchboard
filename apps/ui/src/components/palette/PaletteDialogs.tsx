@@ -1,6 +1,7 @@
 import { useEngineConnection } from '../../engine/useEngine.ts';
 import { useCheckoutBranches } from '../../state/checkoutBranchesStore.ts';
 import { isActiveHost, useHosts } from '../../state/hostsStore.ts';
+import { useDrafts } from '../../state/draftsStore.ts';
 import { usePaletteBus } from '../../state/paletteBus.ts';
 import { useSessions } from '../../state/sessionsStore.ts';
 import { ConfirmDialog } from '../ConfirmDialog.tsx';
@@ -45,6 +46,7 @@ export function PaletteDialogs() {
           onConfirm={async () => {
             if (!client) throw new Error('Not connected to the engine');
             await client.call('session.delete', { sessionId: dialog.sessionId });
+            useDrafts.getState().removeDraft(dialog.sessionId);
             const panes = useSessions.getState();
             // Two panes: the other one takes the full width. One: back Home, rather than keep a trashed session on screen.
             if (panes.splitId && (dialog.sessionId === panes.mainId || dialog.sessionId === panes.splitId)) panes.closePane(dialog.sessionId === panes.mainId ? 'main' : 'split');

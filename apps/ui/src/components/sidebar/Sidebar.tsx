@@ -1,8 +1,12 @@
 import { useVirtualizer } from '@tanstack/react-virtual';
-import { Archive, ArchiveRestore, Check, FolderCog, GitBranch, House, ListEnd, Pin, PinOff, Plus, Search, Settings, Trash2 } from 'lucide-react';
+import { Archive, ArchiveRestore, Check, FolderCog, GitBranch, House, ListEnd, PencilLine, Pin, PinOff, Plus, Search, Settings, Trash2 } from 'lucide-react';
 import type { SidebarStyle } from '@switchboard/protocol/bridge';
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type MouseEvent, type ReactNode } from 'react';
 import { shortAge } from '../../lib/format.ts';
+import { newSessionDraftTooltip, PenBadge } from '../drafts/PenBadge.tsx';
+import { openUnsentList } from '../drafts/UnsentList.tsx';
+import { openDraft, useNewSessionDraft, useUnsent } from '../drafts/useUnsent.ts';
+import { Pill } from '../ui/Pill.tsx';
 import { useCheckoutBranches } from '../../state/checkoutBranchesStore.ts';
 import { useHosts } from '../../state/hostsStore.ts';
 import { queueInList } from '../../state/queue.ts';
@@ -14,6 +18,7 @@ import { useProjects } from '../../state/projectsStore.ts';
 import { toRows, useSessions, type SessionRowData } from '../../state/sessionsStore.ts';
 import { usePreferences } from '../../state/preferencesStore.ts';
 import { useSidebar } from '../../state/sidebarStore.ts';
+import { useDrafts } from '../../state/draftsStore.ts';
 import { buildListRows, buildSessionList, GROUP_LABEL, headerSummary, inScope, isActive, rowStatus, sessionsByHeader, waitingLabel, type HeaderKey, type RowStatus, type SidebarListRow } from '../../state/sidebarRows.ts';
 import { NO_PICKS, pickGroup, rangePick, stepPick, togglePick, visiblePicks, type Picks } from '../../state/sessionPicks.ts';
 import { FocusCounter } from '../focus/FocusCounter.tsx';
@@ -171,6 +176,7 @@ const SessionRow = memo(function SessionRow({
   now,
   tabbable,
   waitingFor,
+  draft,
   onClick,
   onTogglePick,
   onMenu,
@@ -191,6 +197,8 @@ const SessionRow = memo(function SessionRow({
   tabbable: boolean;
   /** For a session waiting for you: what it asks for ("Permission: Bash", "Question"). */
   waitingFor: string | null;
+  /** The start of an unsent message typed here (one that counts), or null. */
+  draft: string | null;
   onClick(event: MouseEvent, data: SessionRowData): void;
   onTogglePick(id: string): void;
   onMenu(at: { x: number; y: number }, data: SessionRowData): void;
@@ -226,6 +234,8 @@ const SessionRow = memo(function SessionRow({
     />
   );
   const pin = data.pinned && <Pin size={11} className="shrink-0 text-faint" aria-hidden />;
+  // An unsent message: a pen in the same corner, never in a status colour.
+  const pen = draft !== null && <PencilLine size={11} className="shrink-0 text-faint" aria-hidden data-row-pen />;
   const icon = (size: number) =>
     picking ? (
       <PickBox on={picked} size={size} onToggle={() => onTogglePick(data.id)} />
@@ -249,7 +259,8 @@ const SessionRow = memo(function SessionRow({
     // Indexed sessions have a transcript, so they can be pinned and archived.
     'data-indexed': data.summary !== null,
     'data-picked': picked || undefined,
-    'aria-label': sessionRowLabel({ title: data.title, project: projectName, status, pinned: data.pinned, archived, picked, beside, updatedAt: data.updatedAt, now }),
+    'data-has-draft': draft !== null || undefined,
+    'aria-label': sessionRowLabel({ title: data.title, project: projectName, status, pinned: data.pinned, archived, picked, beside, draft: draft !== null, updatedAt: data.updatedAt, now }),
     onClick: (e: MouseEvent) => onClick(e, data),
     // A middle-click archives a finished session, as closing a tab would.
     onAuxClick: (e: MouseEvent) => {
@@ -290,6 +301,7 @@ const SessionRow = memo(function SessionRow({
         {icon(16)}
         <span className={`min-w-0 flex-1 truncate text-body ${titleTone}`}>{data.title}</span>
         {pin}
+        {pen}
         {status ? <StatusIcon status={status} /> : age}
       </button>
     );
@@ -304,12 +316,19 @@ const SessionRow = memo(function SessionRow({
         {/* The pin sits with the age in the title's corner, as in the compact row. */}
         <span className="flex shrink-0 items-center gap-1">
           {pin}
+          {pen}
           {age}
         </span>
       </span>
       <span className="flex h-4 min-w-0 items-center gap-1.5 text-meta text-faint">
         {waitingFor ? (
           <span className="min-w-0 flex-1 truncate font-medium text-warn">{waitingFor}</span>
+        ) : draft !== null && status !== 'needs-you' && status !== 'running' ? (
+          // Nothing going on: the draft takes the line. Needs you and Working keep theirs; only the pen shows then.
+          <span className="min-w-0 flex-1 truncate" data-row-draft>
+            <span className="text-muted">Draft: </span>
+            <span className="text-text/80 italic">{draft}</span>
+          </span>
         ) : (
           <>
             {status !== 'unread' && branch && <GitBranch size={11} className={`shrink-0 ${data.isWorktree ? 'text-accent-ink/80' : ''}`} aria-hidden />}
@@ -393,6 +412,10 @@ export function Sidebar() {
   const scope = usePreferences((s) => s.prefs.sessionScope);
   const updatePrefs = usePreferences((s) => s.update);
   const width = useSidebar((s) => s.width);
+  // Unsent messages: a pen (and the draft's start) on their rows, the count in the footer, a pen on + for New session's.
+  const unsent = useUnsent();
+  const draftPreviews = useMemo(() => new Map(unsent.flatMap((e) => (e.item.kind === 'session' ? [[e.item.sessionId, e.item.preview] as const] : []))), [unsent]);
+  const newDraft = useNewSessionDraft();
 
   const all = useMemo(() => toRows(sessions, live, hosts).filter((row) => inScope(row, scope)), [sessions, live, hosts, scope]);
   const { active, archived } = useMemo(() => buildSessionList(all, { search, project: projectFilter, now }), [all, search, projectFilter, now]);
@@ -665,18 +688,22 @@ export function Sidebar() {
           aria-current={atHome ? 'page' : undefined}
           className="no-drag shrink-0 rounded-lg!"
         />
-        {/* The sidebar's one primary action: a yellow fill, like every primary button. */}
-        <Button
-          variant="primary"
-          size="lg"
-          iconOnly
-          icon={<Plus size={17} strokeWidth={2.4} aria-hidden />}
-          aria-label="New session"
-          shortcut="session.new"
-          data-new-session
-          onClick={() => useSessions.getState().openNewSession()}
-          className={`no-drag shrink-0 rounded-lg! ${view === 'new' ? 'ring-2 ring-accent/40 ring-offset-1 ring-offset-sidebar' : ''}`}
-        />
+        {/* The sidebar's one primary action: a yellow fill, like every primary button. With an unsent New session
+            prompt it carries a pen, and opens New session on that prompt's project. */}
+        <span className="no-drag relative flex shrink-0">
+          <Button
+            variant="primary"
+            size="lg"
+            iconOnly
+            icon={<Plus size={17} strokeWidth={2.4} aria-hidden />}
+            aria-label={newDraft ? newSessionDraftTooltip(newDraft.name) : 'New session'}
+            shortcut="session.new"
+            data-new-session
+            onClick={() => (newDraft ? openDraft(newDraft.item) : useSessions.getState().openNewSession())}
+            className={`rounded-lg! ${view === 'new' ? 'ring-2 ring-accent/40 ring-offset-1 ring-offset-sidebar' : ''}`}
+          />
+          {newDraft && <PenBadge className="absolute -top-1.5 -right-1.5" data-new-session-draft={newDraft.item.root ?? ''} />}
+        </span>
       </div>
 
       <ProjectFilter counts={counts} />
@@ -768,6 +795,7 @@ export function Sidebar() {
                       now={now}
                       tabbable={row.data.id === tabStopId}
                       waitingFor={rowStatus(row.data) === 'needs-you' ? waitingLabel(waitingTool.get(row.data.id)?.tool ?? null) : null}
+                      draft={draftPreviews.get(row.data.id) ?? null}
                       onClick={rowClick}
                       onTogglePick={togglePicked}
                       onMenu={sessionMenu}
@@ -860,6 +888,18 @@ export function Sidebar() {
             {waiting > 0 && <span className="text-warn">{` · ${waiting} waiting`}</span>}
             {!complete && loaded && ' · scanning…'}
           </span>
+        )}
+        {unsent.length > 0 && (
+          <Pill
+            icon={<PencilLine size={11} className="shrink-0" aria-hidden />}
+            onClick={() => (useDrafts.getState().list ? useDrafts.getState().closeList() : openUnsentList())}
+            aria-haspopup="dialog"
+            aria-label={`${unsent.length} unsent ${unsent.length === 1 ? 'message' : 'messages'}. Show them`}
+            data-drafts-count={unsent.length}
+            className="shrink-0"
+          >
+            {unsent.length} unsent
+          </Pill>
         )}
         <Button
           variant="quiet"

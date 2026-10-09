@@ -1,5 +1,5 @@
-import { ChevronDown, Clock, Folder, FolderGit2, GitBranch, Link2, ListEnd, PencilLine } from 'lucide-react';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { ChevronDown, Clock, Folder, FolderGit2, GitBranch, Link2, ListEnd } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ImageAttachment, LaterDraft, LaterItem, ProjectInspection, QueueWaitFor, SlashCommand, WorktreeStatus } from '@switchboard/protocol/client';
 import { useEngineConnection } from '../../engine/useEngine.ts';
 import { ChoiceMenu } from './ChoiceMenu.tsx';
@@ -21,7 +21,9 @@ import { useProjects } from '../../state/projectsStore.ts';
 import { toRows, useSessions } from '../../state/sessionsStore.ts';
 import { inScope, rowStatus } from '../../state/sidebarRows.ts';
 import { Composer } from '../composer/Composer.tsx';
-import { composerDrafts } from '../composer/drafts.ts';
+import { newDraftKey, newSessionDraftBanner } from '../../state/drafts.ts';
+import { useDrafts, type ComposerDraft } from '../../state/draftsStore.ts';
+import { DraftBanner } from '../drafts/DraftBanner.tsx';
 import { FocusNote } from '../focus/FocusNote.tsx';
 import { QueuedInProject } from '../queue/QueuedInProject.tsx';
 import { waitForEntries } from '../queue/queueMenu.tsx';
@@ -48,11 +50,6 @@ import { DEFAULTS_KEY, globalPatch, INITIAL_CHOICES, linkStartingChoices, readGl
 import { comboPresses, keysFor, shortcutById } from '../../lib/shortcuts.ts';
 
 const keysOf = (id: 'new-session.pick') => shortcutById(id).keys[0]!;
-
-/** The prompt typed here and not sent yet: it is still in the box after visiting a session or Settings. */
-let unsentPrompt = '';
-/** The message box keeps its images under this key, so they come back with the prompt. */
-const DRAFT_KEY = 'new-session';
 
 /**
  * Starts a new Claude Code session. The prompt is the main thing; around it sit the project, the
@@ -84,10 +81,9 @@ export function NewSessionView() {
   const [worktreeName, setWorktreeName] = useState('');
   const [nameTouched, setNameTouched] = useState(false);
   const [commands, setCommands] = useState<SlashCommand[]>([]);
-  const [draftPrompt, setDraftPrompt] = useState(unsentPrompt);
-  /** The prompt was left here earlier: say so, with a way to clear it. */
-  const [restored, setRestored] = useState(() => unsentPrompt.trim() !== '');
-  const [initialText] = useState(unsentPrompt);
+  const [draftPrompt, setDraftPrompt] = useState('');
+  /** The prompt was left here earlier (in the drafts store, per project): say so above the box, with Discard. */
+  const [restored, setRestored] = useState<ComposerDraft | null>(null);
   const [addAsProject, setAddAsProject] = useState(true);
   const [savedNote, setSavedNote] = useState<string | null>(null);
   /** A profile chosen for this session only (null: the project's, else the default). */
@@ -205,7 +201,7 @@ export function NewSessionView() {
     // Starting needs a folder the link chose; a link without one waits for the user like any other.
     setPendingStart(link.autostart && link.prompt && (link.cwd || link.repo) ? link.prompt : null);
     if (link.prompt) {
-      setRestored(false);
+      setRestored(null);
       setPreset({ text: link.prompt, seq: ++presets.current });
       setDraftPrompt(link.prompt);
       setLinkPrompt(link.prompt.length);
@@ -228,7 +224,7 @@ export function NewSessionView() {
     setProfileOverride(item.profileId);
     setCwd(item.cwd);
     setD({ model: item.model ?? '', permissionMode: item.permissionMode, effort: item.effort ?? '', workspace: item.workspace, baseRef: item.baseRef, branch: item.branch ?? '' });
-    setRestored(false);
+    setRestored(null);
     setPreset({ text: item.prompt, seq: ++presets.current });
     setDraftPrompt(item.prompt);
     setFromLater(item);
@@ -253,7 +249,7 @@ export function NewSessionView() {
     setProfileOverride(item.profileId);
     setCwd(item.root);
     setD({ ...item.choices, workspace: item.worktree ? 'worktree' : 'current' });
-    setRestored(false);
+    setRestored(null);
     setPreset({ text: item.prompt, attachments: item.attachments, seq: ++presets.current });
     setDraftPrompt(item.prompt);
   }, [handoff]);
@@ -285,10 +281,9 @@ export function NewSessionView() {
   }, [client, lookingFor]);
   // Clearing the prompt ends the notices: whatever is typed next is the user's own.
   useEffect(() => {
-    unsentPrompt = draftPrompt;
     if (draftPrompt) return;
     if (linkPrompt !== null) setLinkPrompt(null);
-    setRestored(false);
+    setRestored(null);
     setFromLater(null);
   }, [draftPrompt, linkPrompt]);
   const clearPrompt = () => {
@@ -296,8 +291,27 @@ export function NewSessionView() {
     setPreset({ text: '', attachments: [], seq: ++presets.current });
     setDraftPrompt('');
     setLinkPrompt(null);
-    setRestored(false);
+    setRestored(null);
   };
+
+  // The prompt is kept per project, with the choices made for it: picking a project with a prompt of its own brings
+  // that back (and its choices); one without takes the prompt in the box along.
+  const draftKey = newDraftKey(cwd);
+  const hasDraft = useDrafts((s) => draftKey in s.drafts);
+  const onDraftLoaded = (draft: ComposerDraft) => {
+    setRestored(draft.seeded ? null : draft);
+    if (!draft.form) return;
+    touchedFor.current = cwd;
+    setD(draft.form.choices);
+    setProfileOverride(draft.form.profileId);
+  };
+  const onPromptChange = useCallback((text: string) => {
+    setDraftPrompt(text);
+    setRestored((current) => (current && current.text !== text ? null : current));
+  }, []);
+  useEffect(() => {
+    if (hasDraft) useDrafts.getState().setForm(draftKey, { choices: d, profileId: profileOverride });
+  }, [draftKey, hasDraft, d, profileOverride]);
 
   // A new folder starts from its project's defaults (again when they arrive or change, until the user changes something).
   useEffect(() => {
@@ -459,7 +473,7 @@ export function NewSessionView() {
     if (!draft) throw new Error('Choose a folder first');
     const queuedFrom = fromLater && useLater.getState().items.some((i) => i.id === fromLater.id) ? fromLater : null;
     await addToQueue(draft, { waitFor: queueWait ?? undefined, replacing: queuedFrom });
-    unsentPrompt = '';
+    useDrafts.getState().removeDraft(newDraftKey(cwd));
     setFromLater(null);
     setQueueWait(null);
   };
@@ -499,8 +513,7 @@ export function NewSessionView() {
         addProject: (path) => client.call('projects.add', { path }).then(reloadProjects),
         open: (sessionId) => {
           // The view goes away before the composer empties itself, so forget the prompt and its images here.
-          unsentPrompt = '';
-          composerDrafts.set(DRAFT_KEY, { text: '', attachments: [] });
+          useDrafts.getState().removeDraft(newDraftKey(cwd));
           // Edited from the queue and started here: it leaves the queue, and items waiting on it follow this session.
           if (fromLater) {
             void removeFromQueue(fromLater, true, sessionId).catch(() => {});
@@ -574,7 +587,7 @@ export function NewSessionView() {
       Clear
     </Button>
   );
-  // One notice at a time, the most pressing first: a missing folder, a prompt from a link, a saved default, a restored draft.
+  // One notice at a time, the most pressing first: a missing folder, a prompt from a link, a saved default.
   const notice =
     cwd && ((inspection && !inspection.exists) || (!inspection && inspectError)) ? (
       <span className="min-w-0 truncate text-error" data-route-hint>
@@ -592,10 +605,6 @@ export function NewSessionView() {
       <span role="status" className="min-w-0 truncate text-accent-ink" data-saved-note>
         {savedNote}
       </span>
-    ) : restored ? (
-      <Notice inline icon={<PencilLine size={13} className="text-accent-ink" aria-hidden />} actions={clearButton('data-clear-draft')} data-draft-notice>
-        Your unsent prompt from before.
-      </Notice>
     ) : null;
 
   // The picked project has a session going: say what a queued prompt would wait for, and let "Wait for…" change it.
@@ -688,6 +697,17 @@ export function NewSessionView() {
               canSave={canQueue}
               onSaveForLater={() => void parkInQueue(draftPrompt.trim()).catch(() => {})}
               onStartAnyway={() => setSubmitRequest((n) => n + 1)}
+            />
+          )}
+
+          {restored && (
+            <DraftBanner
+              text={newSessionDraftBanner(projectName, restored, Date.now())}
+              className="-mb-3"
+              onDiscard={() => {
+                useDrafts.getState().removeDraft(draftKey);
+                clearPrompt();
+              }}
             />
           )}
 
@@ -833,10 +853,12 @@ export function NewSessionView() {
             </div>
 
             <Composer
-              initialText={initialText}
-              draftKey={DRAFT_KEY}
+              draftKey={draftKey}
+              carryOver
+              onDraftLoaded={onDraftLoaded}
+              restored={restored !== null}
               history={promptHistory}
-              onTextChange={setDraftPrompt}
+              onTextChange={onPromptChange}
               cwd={cwd}
               commands={commands}
               placeholder="What should Claude work on?"

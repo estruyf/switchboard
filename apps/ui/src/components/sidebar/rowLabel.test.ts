@@ -23,6 +23,10 @@ describe('sessionRowLabel', () => {
     expect(sessionRowLabel(base)).toBe('Fix the login bug, switchboard, updated 5 minutes ago');
   });
 
+  it('says when the session holds an unsent message', () => {
+    expect(sessionRowLabel({ ...base, draft: true })).toBe('Fix the login bug, switchboard, unsent message, updated 5 minutes ago');
+  });
+
   it('names what the icons and colours show', () => {
     expect(sessionRowLabel({ ...base, status: 'needs-you', pinned: true })).toBe('Fix the login bug, switchboard, Waiting for you, pinned, updated 5 minutes ago');
     expect(sessionRowLabel({ ...base, archived: true, picked: true })).toBe('Fix the login bug, switchboard, archived, in the selection, updated 5 minutes ago');

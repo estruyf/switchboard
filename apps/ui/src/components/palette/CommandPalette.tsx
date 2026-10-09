@@ -1,4 +1,4 @@
-import { GitBranchPlus, Search, SquarePen } from 'lucide-react';
+import { GitBranchPlus, PencilLine, Search, SquarePen } from 'lucide-react';
 import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 import { FOCUS_LIMIT_MAX, FOCUS_LIMIT_MIN } from '@switchboard/protocol/bridge';
 import { useEngineConnection } from '../../engine/useEngine.ts';
@@ -27,11 +27,12 @@ import { Kbd } from '../ui/Kbd.tsx';
 import { Pill } from '../ui/Pill.tsx';
 import { SectionHeader } from '../ui/SectionHeader.tsx';
 import { arrangeCommands, hintOf, recentCommands, rememberCommand, visibleCommands, type CommandSection, type PaletteCommand } from './commands.ts';
-import { gotoGroups, matchProjects, matchSessions } from './gotoItems.ts';
+import { gotoWithDrafts, matchProjects, matchSessions } from './gotoItems.ts';
+import { openDraft, useUnsent, type UnsentEntry } from '../drafts/useUnsent.ts';
 import { createPaletteApi } from './paletteApi.ts';
 import type { PaletteContext } from './paletteContext.ts';
 import { PaletteFooter, type FooterKey } from './PaletteFooter.tsx';
-import { CommandRow, FolderRow, HelpRow, OptionRow, ProjectRow, SessionRow } from './PaletteRows.tsx';
+import { CommandRow, DraftRow, FolderRow, HelpRow, OptionRow, ProjectRow, SessionRow } from './PaletteRows.tsx';
 import { back, changeProject, currentStep, initialState, PREFIXES, pushStep, switchMode, typeQuery, type PaletteMode, type PaletteState, type PaletteStep, type PickList } from './paletteState.ts';
 import { PromptStep } from './PromptStep.tsx';
 import { usePaletteContext } from './usePaletteContext.ts';
@@ -39,7 +40,8 @@ import { usePaletteContext } from './usePaletteContext.ts';
 /** A row in the list. Rows of a step's own list carry a ⌘1 to ⌘9 number. */
 type Row =
   | { kind: 'command'; key: string; command: PaletteCommand; title: string; indices: number[] }
-  | { kind: 'session'; key: string; data: SessionRowData; indices: number[] }
+  | { kind: 'session'; key: string; data: SessionRowData; indices: number[]; draft: boolean }
+  | { kind: 'draft'; key: string; entry: UnsentEntry }
   | { kind: 'project'; key: string; root: string; indices: number[]; number: number | null; compact: boolean }
   | { kind: 'folder'; key: string }
   | { kind: 'option'; key: string; value: string; title: string; detail?: string; dot?: string; current: boolean; indices: number[]; number: number | null }
@@ -48,6 +50,8 @@ type Row =
 interface Section {
   id: string;
   label: string;
+  /** Before the label (the Unsent group's pen). */
+  icon?: ReactNode;
   tone?: 'neutral' | 'needs-you' | 'working';
   rows: Row[];
 }
@@ -142,6 +146,7 @@ export function CommandPalette() {
   const projectOrder = usePreferences((s) => s.prefs.projectOrder);
   const focusLimit = usePreferences((s) => s.prefs.focusLimit);
   const queue = useQueue();
+  const unsent = useUnsent();
   const digest = usePaletteBus((s) => s.digest);
   const home = useMemo(() => guessHome(projects.keys()), [projects]);
   const nameOf = (root: string) => projects.get(root)?.name ?? basename(root);
@@ -185,17 +190,28 @@ export function CommandPalette() {
 
     function gotoSections(query: string): Section[] {
       const out: Section[] = [];
+      const drafted = new Set(unsent.flatMap((e) => (e.item.kind === 'session' ? [e.item.sessionId] : [])));
       if (query.trim()) {
         const found = matchSessions(sessionRows, query, nameOf, MATCH_LIMIT);
-        if (found.length) out.push({ id: 'sessions', label: 'Sessions', rows: found.map(({ item, indices }) => ({ kind: 'session', key: `session:${item.id}`, data: item, indices })) });
+        if (found.length) out.push({ id: 'sessions', label: 'Sessions', rows: found.map(({ item, indices }) => ({ kind: 'session', key: `session:${item.id}`, data: item, indices, draft: drafted.has(item.id) })) });
       } else {
-        // Nothing typed: the sidebar's groups in its order, so ⌘P stands in for it while it's closed.
-        for (const { group, rows: inGroup } of gotoGroups(sessionRows, Date.now(), GOTO_SESSIONS)) {
+        // Nothing typed: unsent messages first, then the sidebar's groups in its order, so ⌘P stands in for it while it's closed.
+        const { unsent: unsentItems, groups } = gotoWithDrafts(sessionRows, unsent.map((e) => e.item), Date.now(), GOTO_SESSIONS);
+        const entries = new Map(unsent.map((e) => [e.item.key, e]));
+        if (unsentItems.length) {
+          out.push({
+            id: 'unsent',
+            label: 'Unsent',
+            icon: <PencilLine size={11} aria-hidden />,
+            rows: unsentItems.map((item) => ({ kind: 'draft', key: `draft:${item.key}`, entry: entries.get(item.key)! })),
+          });
+        }
+        for (const { group, rows: inGroup } of groups) {
           out.push({
             id: `sessions-${group}`,
             label: GROUP_LABEL[group],
             tone: group === 'needs-you' || group === 'working' ? group : 'neutral',
-            rows: inGroup.map((item) => ({ kind: 'session', key: `session:${item.id}`, data: item, indices: [] })),
+            rows: inGroup.map((item) => ({ kind: 'session', key: `session:${item.id}`, data: item, indices: [], draft: drafted.has(item.id) })),
           });
         }
       }
@@ -225,7 +241,7 @@ export function CommandPalette() {
       return rows.length ? [{ id: list, label: PICK_PLACEHOLDER[list].replace(/^Pick (a |an )?/, ''), rows }] : [];
     }
     // The pick lists and project rows read these; the functions above are only called from here.
-  }, [state, step, ctx, sessionRows, projectRoots, projectOrder, projects, models, hosts, focusLimit, queue, digest]);
+  }, [state, step, ctx, sessionRows, projectRoots, projectOrder, projects, models, hosts, focusLimit, queue, digest, unsent]);
 
   /** The choices of a pick step, the current one marked. */
   function pickOptions(list: PickList): Option[] {
@@ -338,6 +354,10 @@ export function CommandPalette() {
         if (alt) useSessions.getState().openBeside(row.data.id);
         else useSessions.getState().select(row.data.id);
         return;
+      case 'draft':
+        close();
+        openDraft(row.entry.item);
+        return;
       case 'project': {
         if (step?.kind === 'projects' && step.purpose === 'rename-project') {
           close();
@@ -429,6 +449,7 @@ export function CommandPalette() {
               return sections.map((section) => (
                 <div key={section.id} role="group" aria-label={section.label} data-palette-group={section.id}>
                   <SectionHeader aria-hidden tone={section.tone} className="px-4 pt-2.5 pb-1">
+                    {section.icon}
                     {section.label}
                   </SectionHeader>
                   {section.rows.map((row) => {
@@ -561,7 +582,9 @@ function RowView({
       );
     }
     case 'session':
-      return <SessionRow {...common} data={row.data} project={projectsMap.get(row.data.projectRoot)} projectName={nameOf(row.data.projectRoot)} indices={row.indices} />;
+      return <SessionRow {...common} data={row.data} project={projectsMap.get(row.data.projectRoot)} projectName={nameOf(row.data.projectRoot)} indices={row.indices} draft={row.draft} />;
+    case 'draft':
+      return <DraftRow {...common} entry={row.entry} />;
     case 'project':
       return (
         <ProjectRow

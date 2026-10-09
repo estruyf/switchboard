@@ -5,7 +5,8 @@ import { useEngineConnection } from '../../engine/useEngine.ts';
 import { Button } from '../ui/Button.tsx';
 import { attachmentsAfterSend, textAfterSend } from './afterSend.ts';
 import { AttachmentThumbs, DropOverlay } from './Attachments.tsx';
-import { composerDrafts as drafts } from './drafts.ts';
+import { hasContent } from '../../state/drafts.ts';
+import { useDrafts, type ComposerDraft } from '../../state/draftsStore.ts';
 import { onFirstLine, onLastLine, textareaRows } from './caretLine.ts';
 import { PromptHistory, recallAnnouncement, routeArrow, type Recall } from './promptHistory.ts';
 import { tokenAtCaret } from './tokens.ts';
@@ -22,10 +23,18 @@ interface Palette {
 }
 
 export interface ComposerProps {
-  /** Text to start with (Edit and resend). */
-  initialText?: string;
-  /** Keeps what is typed and attached under this key (a session's id), so it's still there after you open another session and come back. */
+  /**
+   * Keeps what is typed and attached under this key in the drafts store (a session's id, or New session's
+   * `new:<folder>`), so it's still there after you open another session, and (the text) after a restart.
+   * When the key changes, the box shows that key's draft.
+   */
   draftKey?: string;
+  /** New session: when the key changes to one without a draft, what is in the box moves along to it rather than being left behind. */
+  carryOver?: boolean;
+  /** The box opened with a kept draft (on mount, or when the key changed to one). */
+  onDraftLoaded?(draft: ComposerDraft): void;
+  /** It holds a draft kept from before: a slightly stronger border, until it is edited. */
+  restored?: boolean;
   /** Earlier messages, newest first, that ↑ on the first line brings back. */
   history?: readonly string[];
   /** Replaces the text whenever `seq` changes (a prompt from a `switchboard://` link, or clearing it), and the images when it has `attachments` (a prompt moved over from the palette). */
@@ -79,8 +88,8 @@ function isTypingElsewhere(prompt: HTMLElement): boolean {
 export function Composer(props: ComposerProps) {
   const connection = useEngineConnection();
   const client = connection.status === 'connected' ? connection.client : null;
-  const [saved] = useState(() => (props.draftKey === undefined ? undefined : drafts.get(props.draftKey)));
-  const [text, setText] = useState(props.initialText ?? saved?.text ?? '');
+  const [saved] = useState(() => (props.draftKey === undefined ? undefined : useDrafts.getState().drafts[props.draftKey]));
+  const [text, setText] = useState(saved?.text ?? '');
   const [palette, setPalette] = useState<Palette | null>(null);
   const [sending, setSending] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
@@ -101,9 +110,21 @@ export function Composer(props: ComposerProps) {
     setPalette(null);
   };
 
+  /** The caret goes to the end of the text, once the box can take it (a kept draft, or a request from the Unsent list). */
+  const caretToEnd = (focus: boolean) =>
+    requestAnimationFrame(() => {
+      const el = ref.current;
+      if (!el || el.disabled) return;
+      if (focus) el.focus();
+      el.setSelectionRange(el.value.length, el.value.length);
+    });
+
+  /** A preset applied in this commit: the draft key changing with it (a link's folder) must not load that folder's draft over it. */
+  const presetApplied = useRef(false);
   const presetSeq = props.preset?.seq;
   useEffect(() => {
     if (presetSeq === undefined) return;
+    presetApplied.current = true;
     const value = props.preset!.text;
     setText(value);
     if (props.preset!.attachments) setAttachments(props.preset!.attachments);
@@ -124,9 +145,54 @@ export function Composer(props: ComposerProps) {
   useEffect(() => onTextChange?.(text), [text, onTextChange]);
 
   const draftKey = props.draftKey;
+  const onDraftLoaded = useRef(props.onDraftLoaded);
+  onDraftLoaded.current = props.onDraftLoaded;
+  // Opened with a kept draft: say so, with the caret at its end.
   useEffect(() => {
-    if (draftKey !== undefined) drafts.set(draftKey, { text, attachments });
+    if (saved && hasContent(saved)) {
+      onDraftLoaded.current?.(saved);
+      caretToEnd(false);
+    }
+  }, []);
+  const lastKey = useRef(draftKey);
+  useEffect(() => {
+    const store = useDrafts.getState();
+    if (draftKey === lastKey.current) {
+      if (draftKey !== undefined) store.setDraft(draftKey, { text, attachments });
+      return;
+    }
+    const previous = lastKey.current;
+    lastKey.current = draftKey;
+    const fromPreset = presetApplied.current;
+    presetApplied.current = false;
+    // The preset's text is written under the new key on the next pass.
+    if (fromPreset || draftKey === undefined) return;
+    const target = store.drafts[draftKey];
+    if (target && hasContent(target)) {
+      setText(target.text);
+      setAttachments(target.attachments);
+      history.current!.reset();
+      closePalette();
+      onDraftLoaded.current?.(target);
+      caretToEnd(false);
+    } else if (props.carryOver && previous !== undefined && store.drafts[previous]) store.moveDraft(previous, draftKey);
+    else if (!props.carryOver) {
+      setText('');
+      setAttachments([]);
+    }
   }, [draftKey, text, attachments]);
+  useEffect(() => {
+    presetApplied.current = false;
+  });
+
+  // Opened from the Unsent list or ⌘P: focus, caret at the end.
+  const focusRequest = useDrafts((s) => (draftKey !== undefined && s.focus?.key === draftKey ? s.focus.nonce : null));
+  // A box that can't take focus yet (connecting, its folder not known yet) keeps the request until it can.
+  useEffect(() => {
+    if (focusRequest === null || props.disabledReason) return;
+    useDrafts.getState().clearFocus();
+    caretToEnd(true);
+  }, [focusRequest, props.disabledReason]);
 
   // Grow with the content up to a limit, then scroll.
   useLayoutEffect(() => {
@@ -332,7 +398,7 @@ export function Composer(props: ComposerProps) {
 
       {/* Disabled dims the text, not the card: the chips' menus open from inside it and must stay readable. */}
       <div
-        className={`rounded-xl border border-border bg-card px-3 pt-2.5 pb-2 shadow-sm transition-colors ${disabled ? '' : 'focus-within:border-accent-ink/60'}`}
+        className={`rounded-xl border bg-card px-3 pt-2.5 pb-2 shadow-sm transition-colors ${props.restored ? 'border-edge' : 'border-border'} ${disabled ? '' : 'focus-within:border-accent-ink/60'}`}
         style={props.frameColor ? { borderColor: props.frameColor } : undefined}
       >
         <AttachmentThumbs

@@ -53,6 +53,7 @@ It uses the Claude Code you already have installed, with your login, settings, c
 **Stay on top of things**
 - A notification and Dock badge when a session needs you or finishes, so you can leave it running in the background.
 - A **queue** of prompts to start next, each one saying when it's ready (when its project is free). See [Queue](#queue).
+- **Unsent messages** are kept, also after you quit. See [Unsent messages](#unsent-messages).
 - An optional **focus limit**: how many sessions you want going at the same time, so starting another doesn't come at the cost of the ones already running. See [Focus limit](#focus-limit).
 - Your plan usage under the message box: how much of your 5-hour and weekly limits you've used (hover for when they reset).
 
@@ -324,6 +325,16 @@ When the project you picked in New session has a session working, a line under t
 **Where it shows.** The **Queue** section in the sidebar sits right under Working. Ready items have a green tint and a **Start** button; the others show what they wait for, with Start on hover. Home has a Queue card with every item. When an item turns ready because a session finished, a message in the corner says so ("switchboard is free") with **Start it** and **Review first**, and the "Claude finished" notification names what's next in the queue.
 
 **Working with items.** Click an item to open it in New session, filled in, to check or change it first; it stays queued until you start it or add it again. **Start** starts it straight away, through the focus limit. Right-click an item (or ⋯ on Home) for Start now, Edit in New session…, Wait for…, Move to top, Move up and down, and Remove. Drag an item to reorder it, or use ⌥↑ and ⌥↓. Removing one doesn't ask: **Undo** brings it back. *Start next in queue* and *Queue: pick one to start…* are in the command palette.
+
+## Unsent messages
+
+What you type in a message box and don't send stays there: in a session, and in New session (one prompt per project, with the model, effort, mode and route you picked for it). Switchboard keeps the text when you quit and brings it back next time. Images you attached are kept while the app runs, not after a restart; the message says how many weren't kept.
+
+**Where it shows.** A session with an unsent message has a pen next to its age in the sidebar (and on its icon in the narrow sidebar). When nothing else is going on there, its second line shows the start of the message, after *Draft:*. A New session prompt puts a pen on the **+** button; clicking it opens New session on that project with the prompt. Opening a session with an unsent message says so above the message box, with **Discard**.
+
+**Finding them all.** The sidebar's footer says how many there are ("2 unsent"); click it for the list, newest first, and pick one (or use ↑, ↓ and ↩) to go there with the cursor at the end of the text. The same list is at the top of ⌘P, under *Unsent*, on Home, and behind *Unsent messages…* in the command palette. The quit prompt counts them too, with **Show unsent**.
+
+Sending, starting the session, adding the prompt to the queue, **Discard** or deleting the session removes the message. Archiving a session with an unsent message asks first, because it discards the message.
 
 ## Back up and move your settings
 

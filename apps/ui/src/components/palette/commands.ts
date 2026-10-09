@@ -33,6 +33,7 @@ import {
   ListChecks,
   ListEnd,
   ListPlus,
+  PencilLine,
   Maximize2,
   MessageSquare,
   MessagesSquare,
@@ -94,6 +95,8 @@ export interface PaletteApi {
   showSearch(): void;
   /** The keyboard shortcuts sheet (⌘/). */
   showShortcuts(): void;
+  /** The Unsent messages list. */
+  showUnsent(): void;
   openSettings(section?: SettingsSection): void;
   setPreferences(patch: Partial<Preferences>): void;
   setSidebar(state: SidebarState): void;
@@ -305,6 +308,16 @@ export const COMMANDS: PaletteCommand[] = [
   { id: 'focus-on', title: 'Focus limit: turn on', group: 'general', icon: Target, keywords: 'limit sessions', when: (ctx) => ctx.focusLimit === null, run: (api) => api.setFocusLimit(true) },
   { id: 'focus-off', title: 'Focus limit: turn off', group: 'general', icon: Target, keywords: 'limit sessions', when: (ctx) => ctx.focusLimit !== null, run: (api) => api.setFocusLimit(false) },
   { id: 'focus-set', title: 'Focus limit: set limit…', group: 'general', icon: Target, keywords: 'limit sessions number', when: always, next: () => ({ kind: 'pick', list: 'focus-limit', chip: 'Focus limit' }) },
+  {
+    id: 'unsent',
+    title: 'Unsent messages…',
+    group: 'general',
+    icon: PencilLine,
+    keywords: 'drafts unsent kept typed not sent',
+    hint: (ctx) => `${ctx.unsent} unsent`,
+    when: (ctx) => ctx.unsent > 0,
+    run: (api) => api.showUnsent(),
+  },
   {
     id: 'queue-start-next',
     title: 'Start next in queue',

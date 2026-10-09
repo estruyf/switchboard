@@ -2,7 +2,8 @@ import { describe, expect, it } from 'vitest';
 import type { LiveSession } from '@switchboard/protocol/client';
 import type { SessionRowData } from '../../state/sessionsStore.ts';
 import { buildListRows, buildSessionList } from '../../state/sidebarRows.ts';
-import { gotoGroups, matchProjects, matchSessions, orderSessions } from './gotoItems.ts';
+import { gotoGroups, gotoWithDrafts, matchProjects, matchSessions, orderSessions } from './gotoItems.ts';
+import type { DraftItem } from '../../state/drafts.ts';
 
 const row = (id: string, updatedAt: number, over: Partial<SessionRowData> = {}): SessionRowData => ({
   id,
@@ -82,5 +83,35 @@ describe('gotoGroups', () => {
       ['working', 1],
       ['today', 1],
     ]);
+  });
+});
+
+describe('gotoWithDrafts', () => {
+  const now = new Date(2026, 9, 8, 15, 0).getTime();
+  const hour = 60 * 60 * 1000;
+  const rows = [
+    row('asking', now - 3 * hour, { live: { status: 'needs-you', origin: 'app' } as LiveSession }),
+    row('today', now - hour),
+    row('other', now - 2 * hour),
+  ];
+  const drafts: DraftItem[] = [
+    { key: 'new:/work/app', kind: 'new', root: '/work/app', preview: 'Add a page', updatedAt: now - 60_000 },
+    { key: 'today', kind: 'session', sessionId: 'today', preview: 'also check', updatedAt: now - 120_000 },
+    { key: 'asking', kind: 'session', sessionId: 'asking', preview: 'ease-out', updatedAt: now - 180_000 },
+  ];
+
+  it('puts unsent messages first and leaves a session that needs you in Needs you', () => {
+    const { unsent, groups } = gotoWithDrafts(rows, drafts, now, 20);
+    expect(unsent.map((d) => d.key)).toEqual(['new:/work/app', 'today']);
+    expect(groups.map((g) => [g.group, g.rows.map((r) => r.id)])).toEqual([
+      ['needs-you', ['asking']],
+      ['today', ['other']],
+    ]);
+  });
+
+  it('lists nothing extra without drafts', () => {
+    const { unsent, groups } = gotoWithDrafts(rows, [], now, 20);
+    expect(unsent).toEqual([]);
+    expect(groups).toEqual(gotoGroups(rows, now, 20));
   });
 });

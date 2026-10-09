@@ -14,9 +14,10 @@ import { usePaletteBus } from '../../state/paletteBus.ts';
 import { useProfiles } from '../../state/profilesStore.ts';
 import { useProjects } from '../../state/projectsStore.ts';
 import { useSessions } from '../../state/sessionsStore.ts';
+import { newDraftKey } from '../../state/drafts.ts';
+import { useDrafts } from '../../state/draftsStore.ts';
 import { AttachmentThumbs, DropOverlay } from '../composer/Attachments.tsx';
 import { ComposerChipRow } from '../composer/ComposerChips.tsx';
-import { DraftStore } from '../composer/drafts.ts';
 import { useAttachments } from '../composer/useAttachments.ts';
 import { ChoiceMenu } from '../newSession/ChoiceMenu.tsx';
 import { DEFAULTS_KEY, globalPatch, INITIAL_CHOICES, readGlobals, startingChoices, type Choices, type GlobalChoices } from '../newSession/choices.ts';
@@ -29,9 +30,12 @@ import { Switch } from '../ui/Toggle.tsx';
 import { filterBranches } from '../worktree/branchMenu.ts';
 import { PaletteFooter } from './PaletteFooter.tsx';
 
-/** Prompts written (and images attached) here and not started, per project: Esc keeps them for the next time the step opens. */
-const drafts = new DraftStore<ImageAttachment>();
-const forget = (root: string) => drafts.set(root, { text: '', attachments: [] });
+/**
+ * Prompts written (and images attached) here and not started are New session drafts of their project, shared with
+ * the New session view: Esc keeps them for the next time the step (or New session) opens there.
+ */
+const savedDraft = (root: string) => useDrafts.getState().drafts[newDraftKey(root)];
+const forget = (root: string) => useDrafts.getState().removeDraft(newDraftKey(root));
 
 /**
  * The palette's last step of New session: a small New session form with the project's defaults. The
@@ -58,7 +62,7 @@ export function PromptStep({ root, from, worktree, chip, onBack, onChangeProject
   const [gitBranches, setGitBranches] = useState<{ current: string | null; branches: string[] }>({ current: null, branches: [] });
   const [gitStatus, setGitStatus] = useState<{ remote: string | null; baseBranch: string | null; behindUpstream: number | null } | null>(null);
   const moved = from && from !== root ? from : null;
-  const [saved] = useState(() => (moved ? drafts.get(moved) : undefined) ?? drafts.get(root));
+  const [saved] = useState(() => (moved ? savedDraft(moved) : undefined) ?? savedDraft(root));
   const [text, setText] = useState(saved?.text ?? '');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -127,11 +131,11 @@ export function PromptStep({ root, from, worktree, chip, onBack, onChangeProject
   // Pasting or dropping images and files works as in the message box.
   const { attachments, setAttachments, onPaste, drop } = useAttachments({ initial: saved?.attachments, rootRef: zoneRef, textareaRef: textRef, cwd: root, disabledReason: blocked, setText, onNotice: setNotice });
   useEffect(() => {
-    drafts.set(root, { text, attachments });
+    useDrafts.getState().setDraft(newDraftKey(root), { text, attachments });
   }, [root, text, attachments]);
   // The prompt moved here from the project it was first written for.
   useEffect(() => {
-    if (moved && drafts.get(moved)) forget(moved);
+    if (moved && savedDraft(moved)) forget(moved);
   }, [moved]);
 
   // As in New session: a choice the project doesn't decide is remembered for next time.

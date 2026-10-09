@@ -17,9 +17,6 @@ export interface MessageActions {
 
 export const MessageActionsContext = createContext<MessageActions | null>(null);
 
-/** Drafts handed to a session that is about to open (Edit and resend). */
-export const pendingDrafts = new Map<string, string>();
-
 /** The message's uuid: item keys are `<uuid>` or `<uuid>:<block>`. */
 export const messageUuid = (key: string) => key.split(':')[0]!;
 

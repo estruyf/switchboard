@@ -17,6 +17,8 @@ import { toast } from '../../state/toastStore.ts';
 import { lastLimit } from '../focus/focusLimit.ts';
 import { syncStep } from '../git/gitPlan.ts';
 import { manage } from '../sidebar/ProjectMenu.tsx';
+import { archiveSessions } from '../drafts/ArchiveDraftDialog.tsx';
+import { openUnsentList } from '../drafts/UnsentList.tsx';
 import type { PaletteApi } from './commands.ts';
 import type { PaletteContext } from './paletteContext.ts';
 
@@ -50,6 +52,7 @@ export function createPaletteApi(ctx: PaletteContext, client: EngineClient | nul
     goHome: () => useSessions.getState().goHome(),
     showSearch: () => useOverlay.getState().show('search'),
     showShortcuts: () => useOverlay.getState().show('shortcuts'),
+    showUnsent: () => openUnsentList(),
     openSettings: (section) => useSessions.getState().openSettings(section),
     setPreferences: (patch) => usePreferences.getState().update(patch),
     setSidebar: (state) => useSidebar.getState().setState(state),
@@ -73,7 +76,12 @@ export function createPaletteApi(ctx: PaletteContext, client: EngineClient | nul
     setFocusLimit: (on) => usePreferences.getState().update({ focusLimit: on ? lastLimit() : null }),
 
     renameSession: () => session && usePaletteBus.getState().showDialog({ kind: 'rename-session', sessionId, title: session.title }),
-    setFlags: (change) => call('change the session', (c) => c.call('sessions.setFlags', { sessionId, ...change })),
+    setFlags: (change) => {
+      const apply = () => call('change the session', (c) => c.call('sessions.setFlags', { sessionId, ...change }));
+      // Archiving a session with an unsent message asks first.
+      if (change.archived && session) archiveSessions([{ id: sessionId, title: session.title }], apply);
+      else apply();
+    },
     // Finishing work: the focus limit never stands in the way of compacting.
     compact: () => call('compact the context', (c) => c.call('session.send', { sessionId, text: '/compact', attachments: [], fork: false })),
     copyLastReply: () => {
