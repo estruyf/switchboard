@@ -308,10 +308,10 @@ export const COMMANDS: PaletteCommand[] = [
   { id: 'rename-session', title: 'Rename session…', group: 'session', icon: Pencil, keywords: 'title name', when: indexed, run: (api) => api.renameSession() },
   {
     id: 'pin',
-    title: (ctx) => (ctx.session?.pinned ? 'Unpin' : 'Pin to top'),
+    title: (ctx) => (ctx.session?.pinned ? 'Unpin' : 'Pin'),
     group: 'session',
     icon: Pin,
-    keywords: 'unpin keep',
+    keywords: 'unpin keep top',
     when: indexed,
     run: (api, ctx) => api.setFlags({ pinned: !ctx.session!.pinned }),
   },

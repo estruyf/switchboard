@@ -112,7 +112,7 @@ describe('when(): a session is open', () => {
     const byId = (id: string) => COMMANDS.find((c) => c.id === id)!;
     expect(titleOf(byId('pin'), pinned)).toBe('Unpin');
     expect(titleOf(byId('archive'), pinned)).toBe('Unarchive');
-    expect(titleOf(byId('pin'), inSession())).toBe('Pin to top');
+    expect(titleOf(byId('pin'), inSession())).toBe('Pin');
     const api = { setFlags: vi.fn() } as unknown as PaletteApi;
     byId('archive').run!(api, pinned);
     expect(api.setFlags).toHaveBeenCalledWith({ archived: false });

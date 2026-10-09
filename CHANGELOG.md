@@ -15,6 +15,7 @@ All notable changes to Switchboard are listed here. Each release is also on the 
 
 ### Changed
 
+- **Pinned sessions have their own section** in the sidebar, below Needs you and Working. A pinned session that waits on you or is working shows there, and goes back to Pinned when it's done. The menu item is now *Pin*.
 - Switchboard opens where you left it: the same display, size and position, maximized if it was. If that display is no longer connected, it opens on the main one.
 - Sessions under **Working** (in the sidebar and on Home) no longer trade places as they write: the one you last sent a message to is at the top.
 

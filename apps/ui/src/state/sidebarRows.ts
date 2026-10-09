@@ -92,18 +92,19 @@ export function buildSessionList(
   return { active, archived };
 }
 
-/** The sections of the main list, in the order they show: what needs attention first, then by time. */
-export type SessionGroup = 'needs-you' | 'working' | 'today' | 'yesterday' | 'earlier';
+/** The sections of the main list, in the order they show: what needs attention first, then pinned, then by time. */
+export type SessionGroup = 'needs-you' | 'working' | 'pinned' | 'today' | 'yesterday' | 'earlier';
 
 export const GROUP_LABEL: Record<SessionGroup, string> = {
   'needs-you': 'Needs you',
   working: 'Working',
+  pinned: 'Pinned',
   today: 'Today',
   yesterday: 'Yesterday',
   earlier: 'Earlier',
 };
 
-const GROUP_ORDER: readonly SessionGroup[] = ['needs-you', 'working', 'today', 'yesterday', 'earlier'];
+const GROUP_ORDER: readonly SessionGroup[] = ['needs-you', 'working', 'pinned', 'today', 'yesterday', 'earlier'];
 
 /** Local midnight of the day `now` falls on, so "Today" matches the calendar rather than the last 24 hours. */
 export function startOfDay(now: number): number {
@@ -112,11 +113,15 @@ export function startOfDay(now: number): number {
   return date.getTime();
 }
 
-/** Which section a main-list session sits in. */
+/**
+ * Which section a main-list session sits in. A pinned session that waits on you or is working shows
+ * there, like any other, and goes back to Pinned when it's done.
+ */
 export function sessionGroup(row: SessionRowData, now: number): SessionGroup {
   const status = rowStatus(row);
   if (status === 'needs-you') return 'needs-you';
   if (status === 'running') return 'working';
+  if (row.pinned) return 'pinned';
   const today = startOfDay(now);
   if (row.updatedAt >= today) return 'today';
   // The day before today; a day can be 23 or 25 hours long across a clock change, hence the second midnight.
@@ -135,7 +140,7 @@ export const byWorkingSince = (a: SessionRowData, b: SessionRowData): number => 
 
 /**
  * Splits the main list into its sections, skipping empty ones. The order inside a section is the
- * order given (buildSessionList puts pinned sessions first, then newest), so pins stay on top of their section.
+ * order given (buildSessionList puts pinned sessions first, then newest), so pins stay on top of Needs you.
  * Working is the exception: it keeps the order you started its sessions in (`byWorkingSince`).
  */
 export function groupSessions(active: readonly SessionRowData[], now: number): { group: SessionGroup; rows: SessionRowData[] }[] {
