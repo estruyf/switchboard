@@ -5,7 +5,7 @@
 <h1 align="center">Switchboard for VS Code</h1>
 
 <p align="center">
-  <a href="https://visitorbadge.io/status?path=https%3A%2F%2Fgithub.com%2Festruyf%2Fswitchboard%3Fslug%3Dvscode"><img src="https://api.visitorbadge.io/api/visitors?path=https%3A%2F%2Fgithub.com%2Festruyf%2Fswitchboard%3Fslug%3Dvscode&labelColor=%2315181f&countColor=%23ffd43b" alt="Visitors"></a>
+  <a href="https://visitorbadge.io/status?path=https%3A%2F%2Fgithub.com%2Festruyf%2Fswitchboard%3Fslug%3Dvscode"><img src="https://api.visitorbadge.io/api/visitors?path=https%3A%2F%2Fgithub.com%2Festruyf%2Fswitchboard&labelColor=%2315181f&countColor=%23ffd43b&slug%3Dvscode" alt="Visitors"></a>
 </p>
 
 Send what you're looking at in VS Code to a [Switchboard](https://github.com/estruyf/switchboard) session: the open file, the selected lines, several files from the Explorer, problems, terminal output and changed files. It arrives as chips in the session's message box. Nothing is sent to Claude until you add your question and press ⌘↵ in Switchboard.
