@@ -16,26 +16,40 @@ export const INSTALL_METHOD_LABEL: Record<ClaudeInstallMethod, string> = {
   unknown: 'Unknown',
 };
 
-export interface ClaudeUpdateNotice {
-  label: string;
-  /** What clicking the notice does: run the update, open Settings → About (the command to copy, the output), or nothing. */
-  action: 'update' | 'about' | null;
-  /** Whether it has a Dismiss button. */
-  dismissible: boolean;
-  tone: 'accent' | 'muted' | 'ok';
+export interface ClaudeUpdateToast {
+  /** Changes with the status and the version, so hiding the "Updating…" toast doesn't hide "Updated". */
+  key: string;
+  title: string;
+  body: string | null;
+  tone: 'accent' | 'busy' | 'ok';
+  /** Run the update, or open Settings → About (the command to copy, the output). */
+  action: { label: string; run: 'update' | 'about'; primary: boolean } | null;
+  /** The close button dismisses this version for good (`dismiss`), or only hides the toast for now (`hide`). */
+  close: 'dismiss' | 'hide';
 }
 
 /**
- * The sidebar notice: a newer Claude Code that wasn't dismissed (unless its own auto-updater is turned off,
+ * The Claude Code toast: a newer version that wasn't dismissed (unless its own auto-updater is turned off,
  * when Settings → About still says so), an update running, or one that just finished.
  */
-export function claudeUpdateNotice(state: ClaudeUpdateState | null): ClaudeUpdateNotice | null {
+export function claudeUpdateToast(state: ClaudeUpdateState | null): ClaudeUpdateToast | null {
   if (!state) return null;
-  if (state.status === 'updating') return { label: 'Updating Claude Code…', action: 'about', dismissible: false, tone: 'muted' };
-  if (state.status === 'updated' && state.updatedTo) return { label: `Claude Code updated to v${state.updatedTo}`, action: null, dismissible: true, tone: 'ok' };
+  if (state.status === 'updating') {
+    return { key: 'updating', title: 'Updating Claude Code…', body: null, tone: 'busy', action: { label: 'Show output', run: 'about', primary: false }, close: 'hide' };
+  }
+  if (state.status === 'updated' && state.updatedTo) {
+    return { key: `updated:${state.updatedTo}`, title: `Claude Code updated to v${state.updatedTo}`, body: 'New sessions use it.', tone: 'ok', action: null, close: 'dismiss' };
+  }
   if (state.status !== 'available' || !state.latestVersion || !state.enabled || state.quiet) return null;
   if (state.dismissedVersion && !newer(state.latestVersion, state.dismissedVersion)) return null;
-  return { label: `Claude Code v${state.latestVersion} available`, action: state.canUpdate ? 'update' : 'about', dismissible: true, tone: 'accent' };
+  return {
+    key: `available:${state.latestVersion}`,
+    title: `Claude Code v${state.latestVersion} is available`,
+    body: state.installedVersion ? `You have v${state.installedVersion}.` : null,
+    tone: 'accent',
+    action: state.canUpdate ? { label: 'Update', run: 'update', primary: true } : { label: 'Show how', run: 'about', primary: false },
+    close: 'dismiss',
+  };
 }
 
 /** One line for Settings → About. */

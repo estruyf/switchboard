@@ -13,6 +13,7 @@ All notable changes to Switchboard are listed here. Each release is also on the 
 ### Changed
 
 - Dropping files and folders on the message box adds them as chips instead of `@` mentions in the text.
+- **Updates show as a message in the window's corner.** A new Switchboard or Claude Code shows in the bottom right instead of taking the sidebar's footer, with **Download**, **Restart to update** or **Update**, and **What's new** for the release notes. You see it with the sidebar closed too, and the footer keeps showing your sessions.
 
 ## [0.0.12] - 2026-10-09
 

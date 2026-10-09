@@ -29,12 +29,6 @@ import { ProjectIcon } from '../ProjectIcon.tsx';
 import { Button } from '../ui/Button.tsx';
 import { Kbd } from '../ui/Kbd.tsx';
 import { SectionHeader } from '../ui/SectionHeader.tsx';
-import { updatePill } from '../../lib/updates.ts';
-import { useUpdates } from '../../state/updatesStore.ts';
-import { useClaudeUpdate } from '../../state/claudeUpdateStore.ts';
-import { claudeUpdateNotice } from '../../lib/claudeUpdate.ts';
-import { UpdatePillButton } from '../updates/UpdatePill.tsx';
-import { ClaudeUpdatePill } from '../updates/ClaudeUpdatePill.tsx';
 import { inWorktree } from '../worktree/branchMenu.ts';
 import { ProjectFilter } from './ProjectMenu.tsx';
 import { sessionRowLabel } from './rowLabel.ts';
@@ -649,8 +643,6 @@ export function Sidebar() {
   // would make the count disagree with what's visible.
   const liveCount = all.filter((row) => row.live !== null && isActive(row, now)).length;
   const waitingNotice = useWaitingAnnouncement(all, loaded);
-  const hasUpdatePill = useUpdates((s) => updatePill(s.state) !== null);
-  const hasClaudePill = useClaudeUpdate((s) => claudeUpdateNotice(s.state) !== null);
 
   return (
     // Drawn at the open width even while the frame around it eases narrower or wider, so it slides rather than reflows.
@@ -872,23 +864,12 @@ export function Sidebar() {
       <footer className="flex h-10 shrink-0 items-center gap-2 border-t border-border px-3 text-meta text-muted">
         {/* The focus limit, while it's on: how many sessions are going, out of how many. */}
         <FocusCounter />
-        {/* An update to act on takes the footer's place (Switchboard's first); the session count is the lesser news. */}
-        {hasUpdatePill ? (
-          <div className="flex min-w-0 flex-1">
-            <UpdatePillButton />
-          </div>
-        ) : hasClaudePill ? (
-          <div className="flex min-w-0 flex-1">
-            <ClaudeUpdatePill />
-          </div>
-        ) : (
-          <span className="min-w-0 flex-1 truncate">
-            {all.length} {all.length === 1 ? 'session' : 'sessions'}{liveCount > 0 && ` · ${liveCount} open`}
-            {queue.entries.length > 0 && <span data-footer-queued>{` · ${queue.entries.length} queued`}</span>}
-            {waiting > 0 && <span className="text-warn">{` · ${waiting} waiting`}</span>}
-            {!complete && loaded && ' · scanning…'}
-          </span>
-        )}
+        <span className="min-w-0 flex-1 truncate">
+          {all.length} {all.length === 1 ? 'session' : 'sessions'}{liveCount > 0 && ` · ${liveCount} open`}
+          {queue.entries.length > 0 && <span data-footer-queued>{` · ${queue.entries.length} queued`}</span>}
+          {waiting > 0 && <span className="text-warn">{` · ${waiting} waiting`}</span>}
+          {!complete && loaded && ' · scanning…'}
+        </span>
         {unsent.length > 0 && (
           <Pill
             icon={<PencilLine size={11} className="shrink-0" aria-hidden />}
