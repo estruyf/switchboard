@@ -48,6 +48,8 @@ console.log(`${String(result.gitResult).startsWith('ok') ? '✓' : '✗'} git me
 if (!String(result.gitResult).startsWith('ok')) process.exitCode = 1;
 console.log(`${String(result.findResult).startsWith('ok') ? '✓' : '✗'} find in session: ${result.findResult}`);
 if (!String(result.findResult).startsWith('ok')) process.exitCode = 1;
+console.log(`${String(result.fileLinksResult).startsWith('ok') ? '✓' : '✗'} file links: ${result.fileLinksResult}`);
+if (!String(result.fileLinksResult).startsWith('ok')) process.exitCode = 1;
 console.log(`${String(result.longPromptResult).startsWith('ok') ? '✓' : '✗'} long prompts: ${result.longPromptResult}`);
 if (!String(result.longPromptResult).startsWith('ok')) process.exitCode = 1;
 console.log(`${String(result.copyMessageResult).startsWith('ok') ? '✓' : '✗'} copy messages: ${result.copyMessageResult}`);

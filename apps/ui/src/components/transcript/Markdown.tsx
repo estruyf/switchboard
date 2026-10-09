@@ -2,15 +2,28 @@ import { memo, useMemo } from 'react';
 import ReactMarkdown, { type Components } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { CodeBlock } from './CodeBlock.tsx';
+import { FileLink } from './FileLink.tsx';
+import { fileRefFromHref, parseFileRef } from './fileRefs.ts';
 import { healMarkdown, splitBlocks } from './streamingMarkdown.ts';
 
 const components: Components = {
-  a: ({ href, children }) => (
+  a: ({ href, children }) => {
     // The main process opens http(s) links in the browser and blocks everything else.
-    <a href={href} target="_blank" rel="noreferrer" className="text-link underline decoration-link/40 underline-offset-2">
-      {children}
-    </a>
-  ),
+    const link = (
+      <a href={href} target="_blank" rel="noreferrer" className="text-link underline decoration-link/40 underline-offset-2">
+        {children}
+      </a>
+    );
+    // A link to a file in the project (`[a.ts](src/a.ts#L12)`) opens in the editor instead.
+    const fileRef = fileRefFromHref(href);
+    return fileRef ? (
+      <FileLink fileRef={fileRef} fallback={link}>
+        {children}
+      </FileLink>
+    ) : (
+      link
+    );
+  },
   // Fenced blocks render through CodeBlock (highlighted when idle); `pre` is just a pass-through.
   pre: ({ children }) => <>{children}</>,
   code: ({ className, children }) => {
@@ -18,7 +31,16 @@ const components: Components = {
     const language = /language-([\w+#-]+)/.exec(className ?? '')?.[1];
     if (language || text.includes('\n')) return <CodeBlock code={text.replace(/\n$/, '')} language={language} />;
     // Long inline code (URLs, paths) wraps instead of pushing the pane wider.
-    return <code className="rounded bg-border/60 px-1 py-px font-mono text-[0.9em] [overflow-wrap:anywhere]">{children}</code>;
+    const code = <code className="rounded bg-border/60 px-1 py-px font-mono text-[0.9em] [overflow-wrap:anywhere]">{children}</code>;
+    // A file path (`src/a.ts:12`) becomes a link to open it in the editor, once the engine finds it.
+    const fileRef = parseFileRef(text);
+    return fileRef ? (
+      <FileLink fileRef={fileRef} fallback={code}>
+        {code}
+      </FileLink>
+    ) : (
+      code
+    );
   },
   table: ({ children }) => (
     <div className="my-2 overflow-x-auto">

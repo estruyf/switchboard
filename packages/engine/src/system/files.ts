@@ -1,7 +1,7 @@
 import { execFile } from 'node:child_process';
-import { readdir } from 'node:fs/promises';
+import { readdir, stat } from 'node:fs/promises';
 import { homedir } from 'node:os';
-import { join, relative } from 'node:path';
+import { isAbsolute, join, normalize, relative, resolve } from 'node:path';
 
 const MAX_FILES = 50_000;
 const CACHE_MS = 30_000;
@@ -104,4 +104,24 @@ export class FileIndex {
     scored.sort((a, b) => b.score - a.score || a.path.length - b.path.length);
     return scored.slice(0, limit).map((s) => s.path);
   }
+
+  /**
+   * The files or folders that `paths` name, as absolute paths, or null where none exists. A path is
+   * absolute, `~/…` or relative to `cwd`. Claude often names a file from deeper in the project
+   * (`suggestions.ts`, `search/suggestions.ts`): a relative path that isn't under `cwd` is looked up
+   * in the folder's file list, and used when exactly one file ends with it.
+   */
+  async resolve(cwd: string | null, paths: string[], home = homedir()): Promise<Array<string | null>> {
+    return Promise.all(
+      paths.map(async (path) => {
+        const direct = path === '~' ? home : path.startsWith('~/') ? join(home, path.slice(2)) : isAbsolute(path) ? normalize(path) : cwd ? resolve(cwd, path) : null;
+        if (direct && (await exists(direct))) return direct;
+        if (!cwd || path.startsWith('.') || path.startsWith('~') || isAbsolute(path)) return null;
+        const matches = (await this.list(cwd)).filter((file) => file === path || file.endsWith(`/${path}`));
+        return matches.length === 1 ? join(cwd, matches[0]!) : null;
+      }),
+    );
+  }
 }
+
+const exists = (path: string): Promise<boolean> => stat(path).then(() => true, () => false);
