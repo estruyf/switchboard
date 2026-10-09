@@ -207,5 +207,55 @@ export const TranscriptUpdate = z.object({
   /** `append` when the new messages extend what was sent before; `replace` after rewinds or compaction. */
   mode: z.enum(['append', 'replace']),
   messages: z.array(TranscriptMessage),
+  /** Set (with an empty `replace`) when the first read of the transcript failed; `transcript.diagnose` says more. */
+  error: z.string().optional(),
 });
 export type TranscriptUpdate = z.infer<typeof TranscriptUpdate>;
+
+/** One transcript file for a session, as found on disk, and what is in it. */
+export const TranscriptFileCheck = z.object({
+  path: z.string(),
+  size: z.number(),
+  modifiedAt: z.number(),
+  lines: z.number(),
+  /** Lines that aren't valid JSON (Claude Code's reader skips them). */
+  badLines: z.number(),
+  /** Your prompts and Claude's replies (and tool results) in the file, before any compaction is applied. */
+  messages: z.number(),
+  compactions: z.number(),
+  /** False when the last line has no newline yet: Claude Code may still be writing it. */
+  complete: z.boolean(),
+});
+export type TranscriptFileCheck = z.infer<typeof TranscriptFileCheck>;
+
+/** What one Claude profile's folder holds for a session, and what Claude Code's reader made of it. */
+export const TranscriptProfileCheck = z.object({
+  profileId: z.string(),
+  configDir: z.string(),
+  files: z.array(TranscriptFileCheck),
+  /** Messages the reader returned; null when it failed. */
+  read: z.number().nullable(),
+  readMs: z.number(),
+  error: z.string().nullable(),
+  /** The error's stack, shortened, for a bug report. */
+  stack: z.string().nullable(),
+});
+export type TranscriptProfileCheck = z.infer<typeof TranscriptProfileCheck>;
+
+export const TranscriptFinding = z.object({
+  tone: z.enum(['error', 'warn', 'info', 'ok']),
+  text: z.string(),
+});
+export type TranscriptFinding = z.infer<typeof TranscriptFinding>;
+
+/** Why a session's conversation shows the way it does (or doesn't): `transcript.diagnose`. */
+export const TranscriptDiagnosis = z.object({
+  sessionId: z.string(),
+  checkedAt: z.number(),
+  /** The file Switchboard's session list knows the session by, if any. */
+  indexedPath: z.string().nullable(),
+  profiles: z.array(TranscriptProfileCheck),
+  /** Plain-language conclusions, most serious first. */
+  findings: z.array(TranscriptFinding),
+});
+export type TranscriptDiagnosis = z.infer<typeof TranscriptDiagnosis>;

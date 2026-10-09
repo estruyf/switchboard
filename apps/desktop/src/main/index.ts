@@ -783,6 +783,7 @@ let toolsResult = 'not run';
 let splitResult = 'not run';
 let archiveResult = 'not run';
 let renameResult = 'not run';
+let checkTranscriptResult = 'not run';
 let archiveManyResult = 'not run';
 let dropResult = 'not run';
 let historyResult = 'not run';
@@ -1999,6 +2000,35 @@ async function runOpenInStep(win: BrowserWindow): Promise<string> {
 }
 
 /**
+ * Read-only: More → Check transcript… opens the dialog, which finds the open session's transcript file,
+ * says what Claude Code's reader returned, lists its findings, and closes on Escape. Copies nothing.
+ */
+async function runCheckTranscriptStep(win: BrowserWindow): Promise<string> {
+  const js = (code: string) => win.webContents.executeJavaScript(code);
+  const toggle = "document.querySelector('[data-current-session] [data-more-menu]')";
+  const dialog = "document.querySelector('[data-transcript-diagnosis]')";
+  if (!(await waitInPage(win, toggle, 3_000))) return 'no More menu';
+  await js(`${toggle}.click()`);
+  if (!(await waitInPage(win, "document.querySelector('[role=menuitem][data-check-transcript]:not(:disabled)')", 2_000))) return 'no Check transcript… item in the More menu';
+  await js("document.querySelector('[role=menuitem][data-check-transcript]').click()");
+  if (!(await waitInPage(win, `${dialog}?.dataset.transcriptDiagnosis === 'done'`, 15_000))) {
+    return `the check did not finish (${await js(`${dialog}?.dataset.transcriptDiagnosis ?? 'no dialog'`)})`;
+  }
+  const result = JSON.parse(
+    (await js(
+      `JSON.stringify({ files: ${dialog}.querySelectorAll('[data-diagnosis-file]').length, reads: [...${dialog}.querySelectorAll('[data-diagnosis-read]')].map((el) => el.dataset.diagnosisRead), findings: [...${dialog}.querySelectorAll('[data-diagnosis-finding]')].map((el) => el.dataset.diagnosisFinding) })`,
+    )) as string,
+  ) as { files: number; reads: string[]; findings: string[] };
+  await shot(win, 'check-transcript.png');
+  await js("document.activeElement.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))");
+  if (!(await waitInPage(win, `!${dialog}`, 2_000))) return 'Escape did not close the dialog';
+  if (result.files === 0) return 'no transcript file found for the open session';
+  if (!result.reads.some((read) => Number(read) > 0)) return `the reader returned no messages for a session that shows some (${result.reads.join(', ')})`;
+  if (result.findings.length === 0) return 'no findings';
+  return `ok: ${result.files} transcript file${result.files === 1 ? '' : 's'}, reader returned ${result.reads.join('/')} messages, findings: ${result.findings.join(', ')}; Escape closed it`;
+}
+
+/**
  * Read-only: the header's git button shows a step, its menu has the branch and where it stands, then
  * Pull, Fetch, Commit…, Ask Claude to commit, Push, Create PR (each enabled or not as git's state
  * says) and the branch items, and Escape closes it. Runs nothing.
@@ -3103,6 +3133,7 @@ async function runSmokeStep(win: BrowserWindow | null): Promise<void> {
     changesPanel = await runChangesStep(win);
     branchResult = await runBranchStep(win).catch((error: Error) => `failed: ${error.message}`);
     openInResult = await runOpenInStep(win).catch((error: Error) => `failed: ${error.message}`);
+    checkTranscriptResult = await runCheckTranscriptStep(win).catch((error: Error) => `failed: ${error.message}`);
     gitResult = await runGitStep(win).catch((error: Error) => `failed: ${error.message}`);
     findResult = await runFindStep(win).catch((error: Error) => `failed: ${error.message}`);
     longPromptResult = await runLongPromptStep(win).catch((error: Error) => `failed: ${error.message}`);
@@ -3190,6 +3221,7 @@ async function runSmokeStep(win: BrowserWindow | null): Promise<void> {
         splitResult,
         archiveResult,
         renameResult,
+        checkTranscriptResult,
         archiveManyResult,
         dropResult,
         historyResult,

@@ -38,14 +38,26 @@ export class MultiProfileSource implements SessionSource {
     return undefined;
   }
 
+  /**
+   * The first profile that has messages for the session wins. When none has any and a read
+   * threw, that error is passed on, so a transcript that can't be read doesn't look empty.
+   */
   async messages(sessionId: string): Promise<RawSessionMessage[]> {
+    let failure: unknown;
     for (const { profileId, source } of this.ordered(sessionId)) {
-      const messages = await source.messages(sessionId).catch(() => []);
+      let messages: RawSessionMessage[];
+      try {
+        messages = await source.messages(sessionId);
+      } catch (error) {
+        failure ??= error;
+        continue;
+      }
       if (messages.length) {
         this.owners.set(sessionId, profileId);
         return messages;
       }
     }
+    if (failure !== undefined) throw failure;
     return [];
   }
 

@@ -1,5 +1,5 @@
 import { useVirtualizer } from '@tanstack/react-virtual';
-import { Blocks, ChevronDown, FileDiff, GitBranch, ListTodo, LoaderCircle, SquareTerminal, X } from 'lucide-react';
+import { Blocks, ChevronDown, CircleAlert, FileDiff, GitBranch, ListTodo, LoaderCircle, SquareTerminal, X } from 'lucide-react';
 import { lazy, Suspense, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type RefObject } from 'react';
 import type { ChangesBase, GitChanges, ImageAttachment, PermissionRequest, RewindResult, SlashCommand } from '@switchboard/protocol/client';
 import { useEngineConnection } from '../../engine/useEngine.ts';
@@ -190,7 +190,7 @@ export function TranscriptView({ sessionId, pane = null, active = true }: { sess
   const commandsVersion = useHosts((s) => s.commandsVersion);
   const permissions = useMemo(() => [...permissionMap.values()].filter((p) => p.sessionId === sessionId), [permissionMap, sessionId]);
   const home = useSessions((s) => guessHome([...s.sessions.values()].slice(0, 20).flatMap((x) => (x.cwd ? [x.cwd] : []))));
-  const { status, messages } = useTranscript(sessionId);
+  const { status, messages, error: readError, retry: retryRead } = useTranscript(sessionId);
   const panelOpen = useTerminals((s) => s.panelOpen);
   const togglePanel = useTerminals((s) => s.togglePanel);
   const terminalCount = useTerminals((s) => [...s.terminals.values()].filter((t) => t.sessionId === sessionId && t.exitCode === null).length);
@@ -629,7 +629,8 @@ export function TranscriptView({ sessionId, pane = null, active = true }: { sess
     activeHost && activeHost.contextTokens !== null && activeHost.contextMax
       ? { tokens: activeHost.contextTokens, max: activeHost.contextMax, percent: activeHost.contextPercent ?? (activeHost.contextTokens / activeHost.contextMax) * 100 }
       : null;
-  const compact = activeHost ? () => void send('/compact', [], false, true).catch((e: Error) => setActionError(e.message)) : undefined;
+  const checkTranscript = () => usePaletteBus.getState().showDialog({ kind: 'transcript-diagnosis', sessionId, title: summary ? title : null });
+  const compact = activeHost ?() => void send('/compact', [], false, true).catch((e: Error) => setActionError(e.message)) : undefined;
   // One element for both docks: below it sits in the conversation's column, on the right next to it.
   const terminalPanel = (
     <Suspense fallback={<div className={`theme-dark shrink-0 bg-terminal ${terminalDock === 'right' ? 'w-90 border-l border-border' : 'h-40 border-t border-border'}`} />}>
@@ -814,8 +815,35 @@ export function TranscriptView({ sessionId, pane = null, active = true }: { sess
                 <p className="p-8 text-center text-ui text-muted" role="status">
                   Loading the conversation…
                 </p>
+              ) : status === 'error' ? (
+                <div className="mx-auto max-w-3xl p-6" data-transcript-error>
+                  <Notice
+                    tone="error"
+                    icon={<CircleAlert size={14} aria-hidden />}
+                    actions={
+                      <>
+                        <Button size="sm" onClick={checkTranscript} data-transcript-error-details>
+                          Show details
+                        </Button>
+                        <Button size="sm" variant="quiet" onClick={retryRead}>
+                          Try again
+                        </Button>
+                      </>
+                    }
+                  >
+                    Couldn't read this conversation: {readError}
+                  </Notice>
+                </div>
               ) : items.length === 0 && !activeHost ? (
-                <p className="p-8 text-center text-ui text-muted">This session has no messages yet.</p>
+                <div className="grid justify-items-center gap-2 p-8 text-center">
+                  <p className="text-ui text-muted">This session has no messages yet.</p>
+                  {/* An empty view for a session that has a transcript is worth a look. */}
+                  {summary && (
+                    <Button size="sm" variant="quiet" onClick={checkTranscript} data-transcript-empty-check>
+                      Check transcript
+                    </Button>
+                  )}
+                </div>
               ) : (
                 <div className="relative mx-auto max-w-3xl px-6" style={{ height: virtualizer.getTotalSize() }}>
                   {virtualizer.getVirtualItems().map((row) => (

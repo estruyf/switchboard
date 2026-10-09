@@ -45,6 +45,7 @@ import { SessionIndex } from './sessions/sessionIndex.ts';
 import { exportSettings, planImport, readSettingsFile, writeBackup, writeSettingsFile, type SettingsStores } from './settings/settingsTransfer.ts';
 import { TerminalManager, type SpawnPty } from './terminals/terminalManager.ts';
 import { TranscriptHub } from './sessions/transcriptHub.ts';
+import { diagnoseTranscript } from './sessions/transcriptDiagnosis.ts';
 import { detectEditors, openInEditor } from './system/editors.ts';
 import { FileIndex } from './system/files.ts';
 import { ShellEnvironment } from './system/shellEnvironment.ts';
@@ -645,6 +646,12 @@ export function createEngine(options: EngineOptions): Engine {
       const sink = transcripts.images.sink(sessionId);
       return { agentId, agentType, messages: (await source.subagentMessages(sessionId, agentId)).map((m) => normaliseMessage(m, sink)) };
     },
+    'transcript.diagnose': async ({ sessionId }) =>
+      diagnoseTranscript(
+        sessionId,
+        sessions.pathFor(sessionId),
+        profiles.runtimes().map((profile) => ({ profileId: profile.id, configDir: profile.configDir, source: sourceFor(profile) })),
+      ),
     'transcript.image': async ({ sessionId, imageId }) => {
       const image = await transcripts.image(sessionId, imageId);
       if (!image) throw new RpcError('NOT_FOUND', 'Image not found in this transcript');

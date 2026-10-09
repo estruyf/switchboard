@@ -2,13 +2,15 @@ import { appendFileSync, mkdirSync, mkdtempSync, realpathSync, rmSync, unlinkSyn
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { SessionsChanged, TranscriptMessage, TranscriptUpdate } from '@switchboard/protocol';
+import type { SessionsChanged, TranscriptFileCheck, TranscriptMessage, TranscriptProfileCheck, TranscriptUpdate } from '@switchboard/protocol';
 import { createProjectResolver } from '../claude/projectResolver.ts';
 import type { RawSessionInfo, SessionSource } from '../claude/sessionSource.ts';
 import type { RawSessionMessage } from '../claude/transcript.ts';
 import { openCacheDatabase } from '../db/database.ts';
 import { coalesce } from '../util/coalesce.ts';
 import { SessionIndex } from './sessionIndex.ts';
+import { MultiProfileSource } from '../profiles/profileSources.ts';
+import { diagnoseTranscript, transcriptFindings } from './transcriptDiagnosis.ts';
 import { diffTranscript, TranscriptHub } from './transcriptHub.ts';
 
 const cleanups: Array<() => void> = [];
@@ -319,6 +321,102 @@ describe('TranscriptHub', () => {
     const delivered = updates.reduce<string[]>((acc, u) => (u.mode === 'replace' ? uuids(u.messages) : [...acc, ...uuids(u.messages)]), []);
     expect(delivered).toEqual(['1', '2']);
     hub.stop();
+  });
+
+  it('says when the first read fails, then delivers the transcript once it can be read', async () => {
+    const { source, messages } = fakeSource([]);
+    let broken = true;
+    const flaky: SessionSource = { ...source, messages: async (id) => (broken ? Promise.reject(new Error('bad transcript')) : source.messages(id)) };
+    const hub = new TranscriptHub(flaky, () => {});
+    const updates: TranscriptUpdate[] = [];
+    hub.watch(ID_A, (u) => updates.push(u));
+    await until(() => updates.length === 1);
+    expect(updates[0]).toMatchObject({ mode: 'replace', messages: [], error: 'bad transcript' });
+
+    broken = false;
+    messages.set(ID_A, [msg('1')]);
+    hub.changed(ID_A);
+    await until(() => updates.length === 2);
+    expect(updates[1]!.error).toBeUndefined();
+    expect(uuids(updates[1]!.messages)).toEqual(['1']);
+    hub.stop();
+  });
+});
+
+describe('MultiProfileSource', () => {
+  const failing: SessionSource = { list: async () => [], info: async () => undefined, messages: async () => Promise.reject(new Error('unreadable')) };
+
+  it('passes a read error on when no profile has the messages', async () => {
+    const empty = fakeSource([]).source;
+    const multi = new MultiProfileSource(() => [
+      { profileId: 'a', source: failing },
+      { profileId: 'b', source: empty },
+    ]);
+    await expect(multi.messages(ID_A)).rejects.toThrow('unreadable');
+  });
+
+  it('uses the profile that has the messages, even when another fails', async () => {
+    const { source, messages } = fakeSource([]);
+    messages.set(ID_A, [msg('1')]);
+    const multi = new MultiProfileSource(() => [
+      { profileId: 'a', source: failing },
+      { profileId: 'b', source },
+    ]);
+    expect((await multi.messages(ID_A)).length).toBe(1);
+    expect(multi.ownerOf(ID_A)).toBe('b');
+  });
+});
+
+describe('diagnoseTranscript', () => {
+  const line = (entry: object) => `${JSON.stringify(entry)}\n`;
+
+  it('counts what is in each transcript file and reports the reader', async () => {
+    const configDir = tempDir();
+    mkdirSync(join(configDir, 'projects', '-repo'), { recursive: true });
+    const path = join(configDir, 'projects', '-repo', `${ID_A}.jsonl`);
+    writeFileSync(
+      path,
+      line({ type: 'user', uuid: 'u1' }) + line({ type: 'assistant', uuid: 'a1' }) + line({ type: 'system', subtype: 'compact_boundary', uuid: 'b1' }) + 'not json\n' + line({ type: 'user', uuid: 'u2' }) + '{"type":"assist',
+    );
+    const { source, messages } = fakeSource([]);
+    messages.set(ID_A, [msg('u2')]);
+    const result = await diagnoseTranscript(ID_A, path, [{ profileId: 'default', configDir, source }]);
+    expect(result.profiles[0]).toMatchObject({ read: 1, error: null });
+    expect(result.profiles[0]!.files).toEqual([expect.objectContaining({ path, lines: 6, badLines: 2, messages: 3, compactions: 1, complete: false })]);
+    expect(result.findings.map((f) => f.tone)).toEqual(['warn', 'info', 'info']);
+    expect(result.findings[2]!.text).toContain('compacted once');
+  });
+
+  it('finds the same session in two project folders and a reader that throws', async () => {
+    const configDir = tempDir();
+    for (const dir of ['-repo', '-repo-worktree']) {
+      mkdirSync(join(configDir, 'projects', dir), { recursive: true });
+      writeFileSync(join(configDir, 'projects', dir, `${ID_A}.jsonl`), line({ type: 'user', uuid: 'u1' }));
+    }
+    const throwing: SessionSource = { list: async () => [], info: async () => undefined, messages: async () => Promise.reject(new Error('boom')) };
+    const result = await diagnoseTranscript(ID_A, null, [{ profileId: 'default', configDir, source: throwing }]);
+    expect(result.profiles[0]!.files).toHaveLength(2);
+    expect(result.profiles[0]).toMatchObject({ read: null, error: 'boom' });
+    expect(result.profiles[0]!.stack).toContain('boom');
+    expect(result.findings.map((f) => f.tone)).toEqual(['error', 'warn']);
+  });
+});
+
+describe('transcriptFindings', () => {
+  const file = (extra: Partial<TranscriptFileCheck> = {}): TranscriptFileCheck => ({ path: '/p/a.jsonl', size: 10, modifiedAt: 0, lines: 1, badLines: 0, messages: 4, compactions: 0, complete: true, ...extra });
+  const profile = (extra: Partial<TranscriptProfileCheck> = {}): TranscriptProfileCheck => ({ profileId: 'default', configDir: '/c', files: [file()], read: 4, readMs: 1, error: null, stack: null, ...extra });
+
+  it('is fine when the reader returns the messages', () => {
+    expect(transcriptFindings([profile()], '/p/a.jsonl')).toEqual([{ tone: 'ok', text: 'The transcript reads fine: 4 messages.' }]);
+  });
+
+  it('flags a file with messages the reader returned none of', () => {
+    expect(transcriptFindings([profile({ read: 0 })], null)[0]).toMatchObject({ tone: 'error', text: expect.stringContaining('returned none') });
+  });
+
+  it('flags a missing file and a stale index entry', () => {
+    expect(transcriptFindings([profile({ files: [], read: 0 })], null)[0]!.text).toContain('no transcript file');
+    expect(transcriptFindings([profile()], '/old/a.jsonl')[0]).toMatchObject({ tone: 'warn', text: expect.stringContaining('/old/a.jsonl') });
   });
 });
 

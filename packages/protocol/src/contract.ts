@@ -24,6 +24,7 @@ import {
   SearchHit,
   SessionsChanged,
   SessionsSnapshot,
+  TranscriptDiagnosis,
   TranscriptMessage,
   TranscriptUpdate,
 } from './sessions.ts';
@@ -185,6 +186,14 @@ export const contract = {
     'transcript.subagent': {
       params: z.object({ sessionId: SessionId, toolUseId: z.string().min(1).max(200) }),
       result: z.object({ agentId: z.string().nullable(), agentType: z.string().nullable(), messages: z.array(TranscriptMessage) }),
+    },
+    /**
+     * Checks why a session's conversation shows the way it does: its transcript files in every
+     * profile's folder, what is in them, and what Claude Code's reader returns (or the error it throws).
+     */
+    'transcript.diagnose': {
+      params: z.object({ sessionId: SessionId }),
+      result: TranscriptDiagnosis,
     },
     /** Subscribes this window to `transcript.updated` for one session until unwatched or disconnected. */
     'transcript.watch': {

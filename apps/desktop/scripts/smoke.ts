@@ -72,6 +72,8 @@ console.log(`${String(result.archiveResult).startsWith('ok') ? '✓' : '✗'} ar
 if (!String(result.archiveResult).startsWith('ok')) process.exitCode = 1;
 console.log(`${String(result.renameResult).startsWith('ok') ? '✓' : '✗'} rename: ${result.renameResult}`);
 if (!String(result.renameResult).startsWith('ok')) process.exitCode = 1;
+console.log(`${String(result.checkTranscriptResult).startsWith('ok') ? '✓' : '✗'} check transcript: ${result.checkTranscriptResult}`);
+if (!String(result.checkTranscriptResult).startsWith('ok')) process.exitCode = 1;
 console.log(`${String(result.archiveManyResult).startsWith('ok') ? '✓' : '✗'} multi-select and archive: ${result.archiveManyResult}`);
 if (!String(result.archiveManyResult).startsWith('ok')) process.exitCode = 1;
 console.log(`${String(result.dropResult).startsWith('ok') ? '✓' : '✗'} drop target: ${result.dropResult}`);

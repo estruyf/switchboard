@@ -118,9 +118,16 @@ export class TranscriptHub {
     try {
       messages = await this.read(sessionId);
     } catch (error) {
-      this.log('warn', `Reading transcript ${sessionId} failed: ${(error as Error).message}`);
-      // Let later file changes deliver the whole transcript as an append.
-      if (initial) for (const watcher of targets) watcher.uuids ??= [];
+      const message = (error as Error)?.message || String(error);
+      this.log('warn', `Reading transcript ${sessionId} failed: ${message}`);
+      if (!initial) return;
+      // The window says so instead of waiting for a transcript that won't come. Later file changes
+      // still deliver the whole transcript as an append, which clears the error there.
+      for (const watcher of targets) {
+        if (watcher.uuids !== null) continue;
+        watcher.uuids = [];
+        watcher.emit({ sessionId, mode: 'replace', messages: [], error: message });
+      }
       return;
     }
     for (const watcher of targets) {

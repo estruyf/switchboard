@@ -6,11 +6,12 @@ import { useSessions } from '../../state/sessionsStore.ts';
 import { ConfirmDialog } from '../ConfirmDialog.tsx';
 import { RenameProjectDialog } from '../projects/RenameProjectDialog.tsx';
 import { RenameSessionDialog } from '../RenameSessionDialog.tsx';
+import { TranscriptDiagnosisDialog } from '../transcript/TranscriptDiagnosisDialog.tsx';
 
 const shortTitle = (title: string) => (title.length > 60 ? `${title.slice(0, 59)}…` : title);
 
 /**
- * The dialogs palette commands open (rename, delete, revert all). The palette closes before they show,
+ * The dialogs palette commands open (rename, delete, revert all, check transcript). The palette closes before they show,
  * so they live here, always mounted, and open from `usePaletteBus().dialog`.
  */
 export function PaletteDialogs() {
@@ -53,6 +54,8 @@ export function PaletteDialogs() {
         />
       );
     }
+    case 'transcript-diagnosis':
+      return <TranscriptDiagnosisDialog sessionId={dialog.sessionId} title={dialog.title} onClose={close} />;
     case 'revert-all':
       return (
         <ConfirmDialog

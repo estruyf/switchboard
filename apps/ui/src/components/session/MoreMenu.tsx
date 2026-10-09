@@ -1,6 +1,7 @@
-import { Bot, Ellipsis, Pencil, Sparkles, Square } from 'lucide-react';
+import { Bot, Ellipsis, Pencil, Sparkles, Square, Stethoscope } from 'lucide-react';
 import { useCallback, useRef, useState } from 'react';
 import { useEngineConnection } from '../../engine/useEngine.ts';
+import { usePaletteBus } from '../../state/paletteBus.ts';
 import { useMultipleProfiles, useProfile } from '../../state/profilesStore.ts';
 import { useSessions } from '../../state/sessionsStore.ts';
 import { openTerminal } from '../../state/terminalsStore.ts';
@@ -18,7 +19,7 @@ const MENU_WIDTH = 260;
 /**
  * The session header's "⋯" menu: opening the folder in an editor, terminal or Finder (⌘O opens the
  * default one), opening the session in Claude Code's terminal interface, the project's actions (and "Edit actions…"), the agents Claude
- * started, the Claude profile the session bills to, renaming the session, and stopping its Claude Code process.
+ * started, the Claude profile the session bills to, renaming the session, checking its transcript, and stopping its Claude Code process.
  * A dot on the button says agents are running. The project actions come from the session view's
  * single `useActionsMenu` (it also feeds the pills above the message box and renders the dialogs).
  */
@@ -97,6 +98,13 @@ export function MoreMenu({
       disabled: agents.length === 0,
       onSelect: () => setAgentsOpen(true),
       data: { 'data-agents-button': true },
+    },
+    {
+      label: 'Check transcript…',
+      icon: <Stethoscope size={13} />,
+      disabled: !client,
+      onSelect: () => usePaletteBus.getState().showDialog({ kind: 'transcript-diagnosis', sessionId, title }),
+      data: { 'data-check-transcript': true, 'data-tooltip': 'Why the conversation shows the way it does: the transcript files, compactions and any error reading them' },
     },
     {
       label: 'Stop session',

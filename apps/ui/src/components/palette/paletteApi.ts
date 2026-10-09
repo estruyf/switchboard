@@ -80,6 +80,7 @@ export function createPaletteApi(ctx: PaletteContext, client: EngineClient | nul
       if (reply) void navigator.clipboard.writeText(reply).catch(failed('copy the reply'));
     },
     copySessionId: () => void navigator.clipboard.writeText(sessionId).catch(failed('copy the session id')),
+    checkTranscript: () => usePaletteBus.getState().showDialog({ kind: 'transcript-diagnosis', sessionId, title: session?.title ?? null }),
     toggleTerminal: () => useTerminals.getState().togglePanel(),
     newTerminalTab: () => cwd && call('open a terminal', (c) => openTerminal(c, sessionId, cwd, 'shell')),
     toggleChanges: () => useOverlay.getState().toggleChanges(),

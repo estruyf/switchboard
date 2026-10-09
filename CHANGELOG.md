@@ -7,6 +7,7 @@ All notable changes to Switchboard are listed here. Each release is also on the 
 ### New
 
 - **Copy a code block.** Hover a code block in Claude's reply (or Tab to it) and click the copy button in its corner to copy the code.
+- **Check transcript.** When a session's conversation shows up empty or short, choose **Check transcript…** in the session's ⋯ menu (or the command palette). It shows the session's transcript files, how many messages are in them, how often the conversation was compacted and any error reading it, and **Copy details** copies it all for a bug report.
 - **Middle-click to archive.** Middle-click a finished session in the sidebar to archive it. Sessions that are working or waiting for you stay where they are.
 
 ### Changed
@@ -15,6 +16,7 @@ All notable changes to Switchboard are listed here. Each release is also on the 
 
 ### Fixed
 
+- A session whose conversation can't be read now says so, with **Show details** and **Try again**, instead of loading forever.
 - When the message box grows while you type a long prompt, the conversation stays scrolled to the end if it was there, so its last lines no longer hide under the box.
 
 ## [0.0.11] - 2026-10-08
