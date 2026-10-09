@@ -141,7 +141,7 @@ npm run mock-updates -w @switchboard/desktop -- --fake 9.9.9
 SWITCHBOARD_MOCK_UPDATES=1 npm run dev
 ```
 
-Settings → About → *Check for Updates* finds v9.9.9 with its release notes, and the sidebar shows the pill. Downloading fails, since there is no build behind a fake feed. `--fake 9.9.9-nightly.20261006.1` serves `nightly-mac.yml` for the Nightly channel. The smoke test runs one check against the mock feed when `SWITCHBOARD_MOCK_UPDATES=1` is set (it never downloads).
+Settings → About → *Check for Updates* finds v9.9.9 with its release notes, and the update message shows in the window's corner. Downloading fails, since there is no build behind a fake feed. `--fake 9.9.9-nightly.20261006.1` serves `nightly-mac.yml` for the Nightly channel. The smoke test runs one check against the mock feed when `SWITCHBOARD_MOCK_UPDATES=1` is set (it never downloads).
 
 **The whole flow** (download, restart, *Updated to vX*) needs two signed builds, since Squirrel.Mac only installs an update signed by the same Developer ID:
 

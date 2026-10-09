@@ -1629,7 +1629,7 @@ async function runAboutStep(win: BrowserWindow): Promise<string> {
     const status = (await js("document.querySelector('[data-update-status]')?.innerText ?? ''")) as string;
     if (!(await js("document.querySelector('[data-update-status=\"disabled\"]') && document.querySelector('[data-check-updates]').disabled"))) return 'updates are off but About does not say so';
     if (status !== updater.state.disabledReason) return `About says "${status}" instead of the reason updates are off`;
-    if (await js("document.querySelector('[data-update-pill]')")) return 'the sidebar shows an update pill while updates are off';
+    if (await js("document.querySelector('[data-update-toast]')")) return 'an update toast shows while updates are off';
   }
   // With the mock feed (scripts/mock-update-server.ts --fake <newer version>), check it once; never download.
   let mockCheck = '';
@@ -1637,10 +1637,10 @@ async function runAboutStep(win: BrowserWindow): Promise<string> {
     await js("document.querySelector('[data-check-updates]').click()");
     if (!(await waitInPage(win, "['available', 'up-to-date', 'error'].includes(document.querySelector('[data-update-status]')?.dataset.updateStatus)", 10_000))) return 'the mock check did not finish';
     if (updater.state.status === 'error') return `the mock check failed: ${updater.state.error}`;
-    if (updater.state.status === 'available' && !(await waitInPage(win, "document.querySelector('[data-update-pill=\"available\"]') && document.querySelector('[data-about-release-notes]')", 3_000))) {
-      return 'an update was found but the sidebar pill or the release notes did not show';
+    if (updater.state.status === 'available' && !(await waitInPage(win, "document.querySelector('[data-update-toast=\"available\"] [data-update-toast-action=\"download\"]') && document.querySelector('[data-about-release-notes]')", 3_000))) {
+      return 'an update was found but the toast or the release notes did not show';
     }
-    mockCheck = `, mock feed: ${updater.state.status === 'available' ? `v${updater.state.availableVersion} offered, pill shown` : 'up to date'}`;
+    mockCheck = `, mock feed: ${updater.state.status === 'available' ? `v${updater.state.availableVersion} offered, toast shown` : 'up to date'}`;
   }
   const claudeCheck = await checkClaudeUpdates(win);
   if (!claudeCheck.startsWith('ok')) return `Claude Code: ${claudeCheck}`;
@@ -1652,7 +1652,7 @@ async function runAboutStep(win: BrowserWindow): Promise<string> {
 
 /**
  * Settings → About's Claude Code section, checked against the mock registry (which offers v999.0.0): the installed
- * version and the update or the command to run show, the sidebar notice appears and Dismiss hides it. Update is
+ * version and the update or the command to run show, the toast appears and Dismiss hides it. Update is
  * never clicked, and the engine refuses it in smoke runs anyway (SWITCHBOARD_NO_CLAUDE_UPDATE).
  */
 async function checkClaudeUpdates(win: BrowserWindow): Promise<string> {
@@ -1673,12 +1673,11 @@ async function checkClaudeUpdates(win: BrowserWindow): Promise<string> {
   if (!how) return 'v999.0.0 is on offer but there is neither an Update button nor a command to copy';
   const quiet = (await js("document.querySelector('[data-claude-updates]')?.dataset.claudeUpdateQuiet === 'true'")) as boolean;
   if (quiet) return `ok: v${installed} installed, v999.0.0 offered (${how}), no notice (Claude Code's auto-updater is off)`;
-  // The app's own update pill takes the footer first; only look for the notice when there is none.
-  if (await js("document.querySelector('[data-update-pill]')")) return `ok: v${installed} installed, v999.0.0 offered (${how}), notice behind the app update pill`;
-  if (!(await waitInPage(win, "document.querySelector('[data-claude-update-pill=\"available\"]')", 3_000))) return 'no sidebar notice for v999.0.0';
-  await js("document.querySelector('[data-claude-update-dismiss]').click()");
-  if (!(await waitInPage(win, "!document.querySelector('[data-claude-update-pill]')", 3_000))) return 'Dismiss did not hide the notice';
-  return `ok: v${installed} installed, v999.0.0 offered (${how}), notice shown and dismissed`;
+  if (!(await waitInPage(win, "document.querySelector('[data-claude-update-toast=\"available\"]')", 3_000))) return 'no toast for v999.0.0';
+  await shot(win, 'claude-update-toast.png');
+  await js("document.querySelector('[data-claude-update-toast] [data-toast-close]').click()");
+  if (!(await waitInPage(win, "!document.querySelector('[data-claude-update-toast]')", 3_000))) return 'Dismiss did not hide the toast';
+  return `ok: v${installed} installed, v999.0.0 offered (${how}), toast shown and dismissed`;
 }
 
 /**
