@@ -2667,7 +2667,16 @@ async function runCompanionStep(win: BrowserWindow): Promise<string> {
     // Removing every chip empties the box: no unsent prompt is left behind.
     for (let i = 0; i < 3; i++) await js(`${tray}?.querySelector('[data-context-chip-remove]')?.click()`);
     if (!(await waitInPage(win, `!${tray} && !document.querySelector('[data-new-session-draft]')`, 3_000))) return 'removing the chips left something behind';
-    return `ok: hello with the token, chips from the socket showed in New session on the folder (${labels}), Start ready but not pressed, ⌘⇧A added notes.md, all removed again`;
+
+    // Settings › VS Code counts this step's socket as a connected editor and links to the extension.
+    await js("document.querySelector('[data-open-settings]').click()");
+    if (!(await waitInPage(win, "document.querySelector('[data-settings-section=\"vscode\"]')", 3_000))) return 'Settings has no VS Code section';
+    await js("document.querySelector('[data-settings-section=\"vscode\"]').click()");
+    const connected = await waitInPage(win, "document.querySelector('[data-companion-status]')?.dataset.companionStatus === 'connected' && document.querySelectorAll('[data-companion-link]').length === 3", 5_000);
+    const status = (await js("document.querySelector('[data-companion-status]')?.innerText.trim() ?? 'no status'")) as string;
+    await js("document.querySelector('[data-close-settings]').click()");
+    if (!connected) return `Settings › VS Code did not show the connected editor (${status})`;
+    return `ok: hello with the token, chips from the socket showed in New session on the folder (${labels}), Start ready but not pressed, ⌘⇧A added notes.md, all removed again; Settings › VS Code says "${status}"`;
   } finally {
     client.dispose();
     socket.destroy();
