@@ -16,13 +16,16 @@ interface LaterState {
   /** Started items and their sessions, for the items still waiting on them. */
   started: QueueStarted[];
   loaded: boolean;
-  /** New session should fill itself in from this item (a click on it, or Edit in New session). */
-  request: { item: LaterItem; seq: number } | null;
+  /**
+   * New session should fill itself in from this item (a click on it, or Edit in New session). `asNew`: it left the
+   * queue (Undo of Add to queue), and its prompt goes back into New session's box as a prompt of its own.
+   */
+  request: { item: LaterItem; asNew: boolean; seq: number } | null;
   replace(items: LaterItem[], started: QueueStarted[]): void;
   /** Opens New session filled in from an item, so it can be checked (and changed) before it starts. */
-  use(item: LaterItem): void;
+  use(item: LaterItem, options?: { asNew?: boolean }): void;
   /** New session takes the request once. */
-  take(): LaterItem | null;
+  take(): { item: LaterItem; asNew: boolean } | null;
 }
 
 let seq = 0;
@@ -33,14 +36,14 @@ export const useLater = create<LaterState>()((set, get) => ({
   loaded: false,
   request: null,
   replace: (items, started) => set({ items, started, loaded: true }),
-  use: (item) => {
-    set({ request: { item, seq: ++seq } });
+  use: (item, options = {}) => {
+    set({ request: { item, asNew: options.asNew ?? false, seq: ++seq } });
     useSessions.getState().openNewSession();
   },
   take: () => {
     const request = get().request;
     if (request) set({ request: null });
-    return request?.item ?? null;
+    return request ? { item: request.item, asNew: request.asNew } : null;
   },
 }));
 
@@ -71,7 +74,7 @@ const restore = (item: LaterItem, index = item.position) => {
 /**
  * Adds a prompt to the end of the queue and says so, with Undo (which takes it off again and brings the prompt back
  * into New session). `waitFor` defaults to any session in its project. `replacing`: an item edited in New session
- * and queued again keeps its place (and Undo brings back the item as it was).
+ * and queued again keeps its place (and Undo puts back the item as it was).
  */
 export async function addToQueue(draft: LaterDraft, options: { waitFor?: QueueWaitFor; replacing?: LaterItem | null } = {}): Promise<LaterItem> {
   const client = clientNow();
@@ -86,8 +89,10 @@ export async function addToQueue(draft: LaterDraft, options: { waitFor?: QueueWa
     icon: 'queue',
     undo: () => {
       if (replacing && index !== -1) void restore(replacing, index).catch(() => {});
-      else void client.call('later.remove', { id: item.id }).catch(() => {});
-      useLater.getState().use(item);
+      else {
+        void client.call('later.remove', { id: item.id }).catch(() => {});
+        useLater.getState().use(item, { asNew: true });
+      }
     },
   });
   return item;
@@ -117,6 +122,11 @@ export async function moveInQueue(item: LaterItem, move: -1 | 1 | 'top'): Promis
 /** Moves an item to a place in the whole queue (a drag). */
 export async function reorderQueue(id: string, toIndex: number): Promise<void> {
   await clientNow().call('later.reorder', { id, toIndex });
+}
+
+/** Keeps the edits made to an item in New session: its prompt and choices, in its place. */
+export async function updateQueued(id: string, draft: LaterDraft): Promise<void> {
+  await clientNow().call('later.update', { id, draft });
 }
 
 export async function setWaitFor(item: LaterItem, waitFor: QueueWaitFor): Promise<void> {

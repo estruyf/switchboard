@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { LaterItem, LiveSession, QueueWaitFor } from '@switchboard/protocol/client';
 import type { SessionRowData } from './sessionsStore.ts';
-import { busyInProject, dropIndex, moveTarget, projectOf, queueInList, queueStates, queueToast, readyTransitions, sameWait, type QueueEntry } from './queue.ts';
+import { busyInProject, dropIndex, moveTarget, projectOf, queueInList, queueStates, queueToast, readyTransitions, sameDraft, sameWait, type QueueEntry } from './queue.ts';
 
 const NOW = Date.UTC(2026, 9, 9, 12);
 
@@ -209,6 +209,15 @@ describe('queue helpers', () => {
     expect(sameWait({ kind: 'session', sessionId: 'a' }, { kind: 'session', sessionId: 'b' })).toBe(false);
     expect(sameWait({ kind: 'item', itemId: 'a' }, { kind: 'item', itemId: 'a' })).toBe(true);
     expect(sameWait({ kind: 'none' }, { kind: 'project' })).toBe(false);
+  });
+
+  it('tells whether an item already holds a draft', () => {
+    const queued = item('a', { prompt: 'Fix the parser', model: 'opus' });
+    const draft = { cwd: queued.cwd, prompt: 'Fix the parser ', model: 'opus', effort: null, permissionMode: 'default' as const, workspace: 'current' as const, baseRef: 'fresh' as const, branch: null, profileId: null };
+    expect(sameDraft(queued, draft)).toBe(true);
+    expect(sameDraft(queued, { ...draft, prompt: 'Fix the lexer' })).toBe(false);
+    expect(sameDraft(queued, { ...draft, workspace: 'worktree' })).toBe(false);
+    expect(sameDraft(queued, { ...draft, cwd: '/work/other' })).toBe(false);
   });
 
   it('filters by project and search, keeping the order', () => {

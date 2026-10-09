@@ -1,4 +1,4 @@
-import type { LaterItem, QueueStarted, QueueWaitFor } from '@switchboard/protocol/client';
+import type { LaterDraft, LaterItem, QueueStarted, QueueWaitFor } from '@switchboard/protocol/client';
 import type { SessionRowData } from './sessionsStore.ts';
 import { rowStatus } from './sidebarRows.ts';
 
@@ -176,6 +176,21 @@ export function sameWait(a: QueueWaitFor, b: QueueWaitFor): boolean {
   if (a.kind === 'session' && b.kind === 'session') return a.sessionId === b.sessionId;
   if (a.kind === 'item' && b.kind === 'item') return a.itemId === b.itemId;
   return true;
+}
+
+/** Whether an item already holds this prompt and these choices (New session saves edits to a queued item only when they differ). */
+export function sameDraft(item: LaterItem, draft: LaterDraft): boolean {
+  return (
+    item.cwd === draft.cwd &&
+    item.prompt === draft.prompt.trim() &&
+    item.model === (draft.model ?? null) &&
+    item.effort === (draft.effort ?? null) &&
+    item.permissionMode === (draft.permissionMode ?? 'default') &&
+    item.workspace === (draft.workspace ?? 'current') &&
+    item.baseRef === (draft.baseRef ?? 'fresh') &&
+    item.branch === (draft.branch ?? null) &&
+    item.profileId === (draft.profileId ?? null)
+  );
 }
 
 /** The index an item moves to with ⌥↑ / ⌥↓ (-1 / 1) or Move to top ('top'); null when it can't move that way. */

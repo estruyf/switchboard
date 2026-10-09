@@ -843,8 +843,8 @@ export function createEngine(options: EngineOptions): Engine {
       laterChanged();
       return {};
     },
-    'later.update': ({ id, waitFor }) => {
-      const item = later.update(id, { waitFor });
+    'later.update': ({ id, waitFor, draft }) => {
+      const item = later.update(id, { waitFor, draft });
       if (!item) throw new RpcError('NOT_FOUND', 'That item is no longer in the queue');
       laterChanged();
       return { item };

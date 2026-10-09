@@ -10,8 +10,8 @@ import { basename, guessHome, shortAge } from '../../lib/format.ts';
 import { nextMode, worktreeSlug } from '../../lib/modes.ts';
 import { passFocusGate, useFocus } from '../../state/focusGate.ts';
 import { useHosts } from '../../state/hostsStore.ts';
-import { addToQueue, removeFromQueue, useLater } from '../../state/laterStore.ts';
-import { busyInProject, promptLabel } from '../../state/queue.ts';
+import { addToQueue, removeFromQueue, setWaitFor, updateQueued, useLater } from '../../state/laterStore.ts';
+import { busyInProject, promptLabel, sameDraft } from '../../state/queue.ts';
 import { useLinks } from '../../state/linksStore.ts';
 import { usePaletteBus } from '../../state/paletteBus.ts';
 import { usePreferences } from '../../state/preferencesStore.ts';
@@ -112,8 +112,13 @@ export function NewSessionView() {
   const choicesFor = autostarting ? linkStartingChoices : startingChoices;
   /** Why the folder couldn't be checked (the engine call failed). */
   const [inspectError, setInspectError] = useState<string | null>(null);
-  /** The prompt came from the queue (Edit in New session): it stays queued until it starts (which takes it off) or is queued again (in its place). */
+  /**
+   * A queued item is open (Edit in New session): the box is the item's, not New session's prompt for the project,
+   * which is left as it was. Edits are kept on the item; it stays queued until it starts (which takes it off).
+   */
   const [fromLater, setFromLater] = useState<LaterItem | null>(null);
+  /** Edits to the open queued item not saved yet: they go to the item a moment after you stop, or when you leave it. */
+  const unsavedQueued = useRef<{ id: string; draft: LaterDraft; timer: ReturnType<typeof setTimeout> } | null>(null);
   /** What the prompt would wait for once queued, when changed with "Wait for…"; null: the item's own, else its project. */
   const [queueWait, setQueueWait] = useState<QueueWaitFor | null>(null);
   const waitMenu = useMenu();
@@ -169,11 +174,45 @@ export function NewSessionView() {
       cancelled = true;
     };
   }, [client, loaded]);
+  const forgetUnsavedQueued = () => {
+    if (unsavedQueued.current) clearTimeout(unsavedQueued.current.timer);
+    unsavedQueued.current = null;
+  };
+  const saveQueued = () => {
+    const pending = unsavedQueued.current;
+    forgetUnsavedQueued();
+    if (pending) void updateQueued(pending.id, pending.draft).catch(() => {});
+  };
+  useEffect(() => saveQueued, []);
+  /**
+   * Back from a queued item to New session: the item keeps its edits, and the box shows the project's own prompt
+   * again (remounting the composer reads it from the drafts store), with its choices or the project's defaults.
+   */
+  const leaveQueued = () => {
+    saveQueued();
+    setFromLater(null);
+    setQueueWait(null);
+    setPreset(undefined);
+    setDraftPrompt('');
+    touchedFor.current = null;
+    setProfileOverride(null);
+    setD(choicesFor(globals, projectDefaults));
+  };
+  // New session asked for again while a queued item is open (the + button, ⌘N, a project's unsent prompt): back
+  // to New session's own prompt. Opening a queued item asks for it too, and is handled below.
+  const seenFocusRequest = useRef(focusRequest);
+  useEffect(() => {
+    if (focusRequest === seenFocusRequest.current) return;
+    seenFocusRequest.current = focusRequest;
+    if (fromLater && !useLater.getState().request) leaveQueued();
+  }, [focusRequest]);
+
   // The palette or Projects view asked for a folder (a session's git menu: in a new worktree).
   /** The folder that should start on "New worktree", until its defaults are in or the user changes something. */
   const worktreeFor = useRef<string | null>(null);
   useEffect(() => {
     if (!newSessionIn) return;
+    if (fromLater) leaveQueued();
     worktreeFor.current = useProjects.getState().newSessionWorktree ? newSessionIn : null;
     setCwd(newSessionIn);
     useProjects.getState().startIn(null);
@@ -189,6 +228,7 @@ export function NewSessionView() {
     if (!linkRequest) return;
     const link = useLinks.getState().take();
     if (!link) return;
+    if (fromLater) leaveQueued();
     // The store has already turned a project name into its folder.
     folderFromLink.current = true;
     touchedFor.current = null;
@@ -207,11 +247,17 @@ export function NewSessionView() {
       setLinkPrompt(link.prompt.length);
     }
   }, [linkRequest]);
-  // A prompt from the queue: its folder, choices and prompt, to check before starting.
+  // A prompt from the queue: its folder, choices and prompt, to check before starting. It opens in a box of its own;
+  // one that left the queue (Undo of Add to queue) comes back as New session's prompt instead.
   useEffect(() => {
     if (!laterRequest) return;
-    const item = useLater.getState().take();
-    if (!item) return;
+    const request = useLater.getState().take();
+    if (!request) return;
+    const { item, asNew } = request;
+    // Already open: the box may hold edits the queue doesn't have yet.
+    if (!asNew && item.id === fromLater?.id) return;
+    if (asNew && fromLater) leaveQueued();
+    else saveQueued();
     // Like a link, it chose the folder; its own choices must not be replaced by the project's defaults.
     folderFromLink.current = true;
     touchedFor.current = item.cwd;
@@ -227,7 +273,7 @@ export function NewSessionView() {
     setRestored(null);
     setPreset({ text: item.prompt, seq: ++presets.current });
     setDraftPrompt(item.prompt);
-    setFromLater(item);
+    setFromLater(asNew ? null : item);
     setQueueWait(null);
   }, [laterRequest]);
   // The command palette's prompt step, moved here with ⌘E: its folder, choices, profile and prompt.
@@ -236,6 +282,7 @@ export function NewSessionView() {
     if (!handoff) return;
     const item = usePaletteBus.getState().takeHandoff();
     if (!item) return;
+    if (fromLater) leaveQueued();
     // Like a link, it chose the folder; the choices made in the palette must not be replaced by the project's defaults.
     folderFromLink.current = true;
     touchedFor.current = item.root;
@@ -244,7 +291,6 @@ export function NewSessionView() {
     setLinkNoFolder(false);
     setPendingStart(null);
     setLinkPrompt(null);
-    setFromLater(null);
     setAddAsProject(true);
     setProfileOverride(item.profileId);
     setCwd(item.root);
@@ -279,12 +325,12 @@ export function NewSessionView() {
       cancelled = true;
     };
   }, [client, lookingFor]);
-  // Clearing the prompt ends the notices: whatever is typed next is the user's own.
+  // Clearing the prompt ends the notices: whatever is typed next is the user's own. A queued item stays open
+  // (its box emptied to type it again); Close leaves it.
   useEffect(() => {
     if (draftPrompt) return;
     if (linkPrompt !== null) setLinkPrompt(null);
     setRestored(null);
-    setFromLater(null);
   }, [draftPrompt, linkPrompt]);
   const clearPrompt = () => {
     setPendingStart(null);
@@ -296,8 +342,9 @@ export function NewSessionView() {
 
   // The prompt is kept per project, with the choices made for it: picking a project with a prompt of its own brings
   // that back (and its choices); one without takes the prompt in the box along.
-  const draftKey = newDraftKey(cwd);
-  const hasDraft = useDrafts((s) => draftKey in s.drafts);
+  // A queued item open here is kept on the queue, not as New session's prompt: no draft key while it is.
+  const draftKey = fromLater ? undefined : newDraftKey(cwd);
+  const hasDraft = useDrafts((s) => draftKey !== undefined && draftKey in s.drafts);
   const onDraftLoaded = (draft: ComposerDraft) => {
     setRestored(draft.seeded ? null : draft);
     if (!draft.form) return;
@@ -310,7 +357,7 @@ export function NewSessionView() {
     setRestored((current) => (current && current.text !== text ? null : current));
   }, []);
   useEffect(() => {
-    if (hasDraft) useDrafts.getState().setForm(draftKey, { choices: d, profileId: profileOverride });
+    if (hasDraft && draftKey !== undefined) useDrafts.getState().setForm(draftKey, { choices: d, profileId: profileOverride });
   }, [draftKey, hasDraft, d, profileOverride]);
 
   // A new folder starts from its project's defaults (again when they arrive or change, until the user changes something).
@@ -441,7 +488,7 @@ export function NewSessionView() {
     seenRequest.current = paletteRequest.nonce;
     if (paletteRequest.kind === 'toggle-worktree' && canWorktree) update({ workspace: useWorktree ? 'current' : 'worktree' });
     else if (paletteRequest.kind === 'save-defaults' && unsaved) void saveAsProjectDefault();
-    else if (paletteRequest.kind === 'add-to-queue' && canQueue) void queuePrompt(draftPrompt.trim()).then(clearPrompt, () => {});
+    else if (paletteRequest.kind === 'add-to-queue' && canQueue) void parkInQueue(draftPrompt.trim()).catch(() => {});
     else if (paletteRequest.kind === 'catch-up' && canCatchUp) setCatchUpRequest((n) => n + 1);
   }, [paletteRequest]);
 
@@ -464,23 +511,43 @@ export function NewSessionView() {
           profileId: profileOverride,
         }
       : null;
+  // A queued item open here keeps its edits, as a session keeps its unsent message: its prompt and choices are saved
+  // to the item a moment after they change. Not before its folder is checked (until then a worktree reads as the
+  // current checkout), and not while the box is empty.
+  const queuedNow = useLater((s) => (fromLater ? (s.items.find((i) => i.id === fromLater.id) ?? null) : null));
+  const queueLoaded = useLater((s) => s.loaded);
+  useEffect(() => {
+    if (!fromLater || !queuedNow || inspection?.path !== cwd) return;
+    const draft = laterDraft(draftPrompt.trim());
+    forgetUnsavedQueued();
+    if (!draft || draft.prompt === '' || sameDraft(queuedNow, draft)) return;
+    unsavedQueued.current = { id: fromLater.id, draft, timer: setTimeout(saveQueued, 600) };
+  }, [fromLater, queuedNow, inspection, cwd, draftPrompt, d, useWorktree, profileOverride]);
+  // Started or removed somewhere else while open here: back to New session.
+  useEffect(() => {
+    if (fromLater && queueLoaded && !queuedNow) leaveQueued();
+  }, [fromLater, queueLoaded, queuedNow]);
+
   /**
    * Adds the prompt to the queue (with what "Wait for…" says), and you stay in New session. One taken from the queue
-   * goes back in its place. The caller empties the box (the message box does it itself after its own button).
+   * goes back in its place, and the box goes back to New session's own prompt. Otherwise the caller empties the box
+   * (the message box does it itself after its own button).
    */
   const queuePrompt = async (text: string) => {
     const draft = laterDraft(text);
     if (!draft) throw new Error('Choose a folder first');
     const queuedFrom = fromLater && useLater.getState().items.some((i) => i.id === fromLater.id) ? fromLater : null;
+    forgetUnsavedQueued();
     await addToQueue(draft, { waitFor: queueWait ?? undefined, replacing: queuedFrom });
-    useDrafts.getState().removeDraft(newDraftKey(cwd));
-    setFromLater(null);
+    if (fromLater) leaveQueued();
+    else useDrafts.getState().removeDraft(newDraftKey(cwd));
     setQueueWait(null);
   };
-  /** The focus note's and the gate's Add to queue: queue it and empty the box. */
+  /** The focus note's, the gate's and the palette's Add to queue: queue it and empty the box. */
   const parkInQueue = async (text: string) => {
+    const queued = fromLater;
     await queuePrompt(text);
-    clearPrompt();
+    if (!queued) clearPrompt();
   };
 
   /**
@@ -512,13 +579,15 @@ export function NewSessionView() {
         gate: passFocusGate,
         addProject: (path) => client.call('projects.add', { path }).then(reloadProjects),
         open: (sessionId) => {
-          // The view goes away before the composer empties itself, so forget the prompt and its images here.
-          useDrafts.getState().removeDraft(newDraftKey(cwd));
           // Edited from the queue and started here: it leaves the queue, and items waiting on it follow this session.
+          // New session's own prompt for the project stays.
           if (fromLater) {
+            forgetUnsavedQueued();
             void removeFromQueue(fromLater, true, sessionId).catch(() => {});
-            setFromLater(null);
+            leaveQueued();
           }
+          // The view goes away before the composer empties itself, so forget the prompt and its images here.
+          else useDrafts.getState().removeDraft(newDraftKey(cwd));
           select(sessionId);
         },
       },
@@ -598,8 +667,17 @@ export function NewSessionView() {
         {pendingStart !== null ? 'Starting a session with the prompt from an external link…' : linkNoticeText(linkPrompt)}
       </Notice>
     ) : fromLater ? (
-      <Notice inline icon={<ListEnd size={13} className="text-accent-ink" aria-hidden />} actions={clearButton('data-clear-draft')} data-later-notice>
-        From the queue. Starting it takes it off the queue.
+      <Notice
+        inline
+        icon={<ListEnd size={13} className="text-accent-ink" aria-hidden />}
+        actions={
+          <Button variant="quiet" size="sm" onClick={leaveQueued} className="-my-1 shrink-0" data-close-queued>
+            Close
+          </Button>
+        }
+        data-later-notice
+      >
+        Queued prompt. Changes stay in the queue; starting it takes it off.
       </Notice>
     ) : savedNote ? (
       <span role="status" className="min-w-0 truncate text-accent-ink" data-saved-note>
@@ -611,7 +689,7 @@ export function NewSessionView() {
   const busyHere = useMemo(() => (cwd ? busyInProject(rows, cwd) : []), [rows, cwd]);
   const queueItems = useLater((s) => s.items);
   const lastQueued = queueItems.filter((i) => i.id !== fromLater?.id).at(-1) ?? null;
-  const wait: QueueWaitFor = queueWait ?? (fromLater ? fromLater.waitFor : { kind: 'project' });
+  const wait: QueueWaitFor = queueWait ?? (fromLater ? (queuedNow ?? fromLater).waitFor : { kind: 'project' });
   const waitTitle = (id: string) => `“${promptLabel(rows.find((r) => r.id === id)?.title || 'Untitled session', 60)}”`;
   const waitText =
     wait.kind === 'none'
@@ -645,7 +723,16 @@ export function NewSessionView() {
           y={waitMenu.at.y}
           width={260}
           label="Wait for"
-          entries={waitForEntries({ current: wait, busy: busyHere, above: lastQueued, onPick: setQueueWait })}
+          entries={waitForEntries({
+            current: wait,
+            busy: busyHere,
+            above: lastQueued,
+            // A queued item open here takes the change at once, like its other edits.
+            onPick: (next) => {
+              setQueueWait(next);
+              if (queuedNow) void setWaitFor(queuedNow, next).catch(() => {});
+            },
+          })}
           onClose={waitMenu.close}
         />
       )}
@@ -705,7 +792,7 @@ export function NewSessionView() {
               text={newSessionDraftBanner(projectName, restored, Date.now())}
               className="-mb-3"
               onDiscard={() => {
-                useDrafts.getState().removeDraft(draftKey);
+                if (draftKey !== undefined) useDrafts.getState().removeDraft(draftKey);
                 clearPrompt();
               }}
             />
@@ -852,7 +939,9 @@ export function NewSessionView() {
               )}
             </div>
 
+            {/* A queued item gets a box of its own: opening or leaving one never touches New session's prompt. */}
             <Composer
+              key={fromLater ? `queued:${fromLater.id}` : 'new'}
               draftKey={draftKey}
               carryOver
               onDraftLoaded={onDraftLoaded}

@@ -88,6 +88,18 @@ describe('queue (the Later list)', () => {
     cache.close();
   });
 
+  it('edits an item in its place, keeping its age and what it waits for', () => {
+    const cache = openCacheDatabase(cachePath());
+    const later = new LaterStore(cache.db);
+    const first = later.add({ cwd: '/work/web', prompt: 'First' }, { waitFor: { kind: 'none' } });
+    const second = later.add({ cwd: '/work/web', prompt: 'Second' });
+    const edited = later.update(first.id, { draft: { cwd: '/work/api', prompt: 'First, edited', model: 'opus', permissionMode: 'plan' } });
+    expect(edited).toMatchObject({ id: first.id, cwd: '/work/api', prompt: 'First, edited', model: 'opus', permissionMode: 'plan', createdAt: first.createdAt, waitFor: { kind: 'none' } });
+    expect(later.list().map((i) => i.id)).toEqual([first.id, second.id]);
+    expect(later.update('missing', { draft: { cwd: '/work/web', prompt: 'Gone' } })).toBeNull();
+    cache.close();
+  });
+
   it('takes a started item off the queue and remembers its session while another item waits on it', () => {
     const cache = openCacheDatabase(cachePath());
     const later = new LaterStore(cache.db);

@@ -2496,6 +2496,29 @@ async function runQueueStep(win: BrowserWindow): Promise<string> {
     const [first, second] = (await js(sidebarItems)) as string[];
     if (!(await js(`document.querySelector('[data-session-list] [data-queue-item="${first}"]').closest('[data-queue-state]')?.dataset.queueState === 'ready'`))) return 'an item in a folder with nothing working was not ready';
     if (!(await js("document.querySelector('[data-queue-header]').innerText.includes('2 ready')"))) return 'the Queue header did not say 2 ready';
+
+    // A queued item opens in a box of its own: New session's prompt is left as it was, and edits stay on the item.
+    const box = '[data-new-session-view] [data-composer]';
+    const composer = `document.querySelector('${box}')`;
+    const label = (id: string | undefined) => `document.querySelector('[data-session-list] [data-queue-item="${id}"]')?.getAttribute('aria-label') ?? ''`;
+    await js(`document.querySelector('[data-session-list] [data-queue-item="${first}"]').click()`);
+    if (!(await waitInPage(win, `${composer}?.value === 'Smoke queue: first' && !!document.querySelector('[data-later-notice]')`, 3_000))) return 'clicking a queued item did not open it in New session';
+    // Longer than a draft takes to count: opening it must not leave an unsent New session prompt.
+    await new Promise((resolve) => setTimeout(resolve, 2_500));
+    // (The pen names the newest New session prompt's folder; an earlier step may have left one in another project.)
+    if (await js(`document.querySelector('[data-new-session-draft]')?.dataset.newSessionDraft === ${JSON.stringify(folder)}`)) return 'opening a queued item left an unsent New session prompt';
+    await setFieldValue(win, box, 'Smoke queue: first, edited');
+    if (!(await waitInPage(win, `${label(first)}.includes('Smoke queue: first, edited')`, 3_000))) return 'an edit to a queued item was not kept on it';
+    await js("document.querySelector('[data-close-queued]').click()");
+    if (!(await waitInPage(win, `${composer}?.value === '' && !document.querySelector('[data-later-notice]')`, 3_000))) return 'Close did not go back to an empty New session';
+    const own = 'Smoke queue: a New session prompt of its own';
+    await setFieldValue(win, box, own);
+    await js(`document.querySelector('[data-session-list] [data-queue-item="${second}"]').click()`);
+    if (!(await waitInPage(win, `${composer}?.value === 'Smoke queue: second'`, 3_000))) return 'a queued item did not open over a New session prompt';
+    await js("document.querySelector('[data-new-session]').click()");
+    if (!(await waitInPage(win, `${composer}?.value === ${JSON.stringify(own)} && !document.querySelector('[data-later-notice]')`, 3_000))) return 'the + button did not bring back New session\'s own prompt after a queued item';
+    if (!(await js(`${label(second)}.includes('Smoke queue: second')`))) return 'leaving a queued item changed it';
+    await setFieldValue(win, box, '');
     // Right under Working (or the top, without it), above Pinned and the rest.
     const placed = (await js(
       "(() => { const headers = [...document.querySelectorAll('[data-session-list] [data-session-group], [data-session-list] [data-queue-header]')]; const at = headers.findIndex((h) => h.matches('[data-queue-header]')); return headers.slice(0, at).every((h) => ['needs-you', 'working'].includes(h.dataset.sessionGroup)); })()",
@@ -2533,8 +2556,11 @@ async function runQueueStep(win: BrowserWindow): Promise<string> {
     }
     if (!(await waitInPage(win, `${sidebarItems}.length === 0 && !document.querySelector('[data-queue-header]') && !document.querySelector('[data-home-queue]')`, 3_000))) return 'removing both did not empty the queue';
     if (await js(started)) return 'a session was started';
-    return 'ok: added two from New session, ready in an idle folder, under Working, ⌥↓ moved one, Home in the same order, ⌫ and Undo, removed both, started nothing';
+    return 'ok: added two from New session, ready in an idle folder, under Working, opened one in its own box (edits kept, New session prompt untouched), ⌥↓ moved one, Home in the same order, ⌫ and Undo, removed both, started nothing';
   } finally {
+    // Leave no queued item open and no New session prompt behind.
+    if (await js("!!document.querySelector('[data-close-queued]')")) await js("document.querySelector('[data-close-queued]').click()");
+    if (await js("!!document.querySelector('[data-new-session-view] [data-composer]')?.value")) await setFieldValue(win, '[data-new-session-view] [data-composer]', '');
     // Whatever happened, nothing stays queued: remove what is left in the temp folder (through the menu, as a person would).
     for (let i = 0; i < 4 && (await js(`${sidebarItems}.length`)) > 0; i++) {
       await js("document.querySelector('[data-session-list] [data-queue-item]').focus()");

@@ -46,6 +46,7 @@ export class LaterStore {
           created_at = excluded.created_at, position = excluded.position, wait_json = excluded.wait_json`),
       setPosition: db.prepare('UPDATE later_prompts SET position = ? WHERE id = ?'),
       setWait: db.prepare('UPDATE later_prompts SET wait_json = ? WHERE id = ?'),
+      setDraft: db.prepare('UPDATE later_prompts SET cwd = ?, prompt = ?, settings_json = ? WHERE id = ?'),
       remove: db.prepare('DELETE FROM later_prompts WHERE id = ?'),
       started: db.prepare('SELECT item_id, session_id FROM later_started'),
       markStarted: db.prepare('INSERT INTO later_started (item_id, session_id, started_at) VALUES (?, ?, ?) ON CONFLICT (item_id) DO UPDATE SET session_id = excluded.session_id, started_at = excluded.started_at'),
@@ -94,10 +95,16 @@ export class LaterStore {
     return found;
   }
 
-  /** Changes what an item waits for. Null when it is gone. */
-  update(id: string, patch: { waitFor?: QueueWaitFor }): LaterItem | null {
+  /** Changes what an item waits for, or its prompt and choices; it keeps its place and age. Null when it is gone. */
+  update(id: string, patch: { waitFor?: QueueWaitFor; draft?: LaterDraft }): LaterItem | null {
     if (!this.get(id)) return null;
-    if (patch.waitFor) this.statements.setWait.run(waitJson(QueueWaitFor.parse(patch.waitFor)), id);
+    this.transaction(() => {
+      if (patch.waitFor) this.statements.setWait.run(waitJson(QueueWaitFor.parse(patch.waitFor)), id);
+      if (patch.draft) {
+        const { cwd, prompt, ...settings } = LaterDraft.parse(patch.draft);
+        this.statements.setDraft.run(cwd, prompt, JSON.stringify(settings satisfies Settings), id);
+      }
+    });
     return this.get(id);
   }
 

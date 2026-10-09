@@ -459,8 +459,11 @@ export const contract = {
     'later.remove': { params: z.object({ id: z.string().min(1).max(100), startedAs: z.string().min(1).max(100).optional() }), result: z.object({}) },
     /** Moves an item to `toIndex` in the queue (clamped to its length). */
     'later.reorder': { params: z.object({ id: z.string().min(1).max(100), toIndex: z.number().int().min(0) }), result: z.object({}) },
-    /** Changes what an item waits for. NOT_FOUND when it is gone. */
-    'later.update': { params: z.object({ id: z.string().min(1).max(100), waitFor: QueueWaitFor.optional() }), result: z.object({ item: LaterItem }) },
+    /**
+     * Changes what an item waits for, or its prompt and choices (edited in New session, kept as you type). It keeps
+     * its place. NOT_FOUND when it is gone.
+     */
+    'later.update': { params: z.object({ id: z.string().min(1).max(100), waitFor: QueueWaitFor.optional(), draft: LaterDraft.optional() }), result: z.object({ item: LaterItem }) },
     /**
      * Starts a queued item: the session is created from its draft exactly as New session creates one, then the
      * item leaves the queue. The focus limit's gate is the caller's (the UI asks before calling this).
