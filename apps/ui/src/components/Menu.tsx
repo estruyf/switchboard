@@ -1,4 +1,4 @@
-import { useEffect, useId, useState, type KeyboardEvent, type MouseEvent, type ReactNode } from 'react';
+import { useEffect, useId, useState, type KeyboardEvent, type MouseEvent, type ReactNode, type RefObject } from 'react';
 import { contextMenuPoint, isContextMenuKey, type ContextMenuPoint } from '../lib/contextMenu.ts';
 import { Popover } from './ui/Popover.tsx';
 
@@ -29,7 +29,26 @@ function menuItems(menu: HTMLElement | null): HTMLElement[] {
  * A small popup menu at a screen position (context menus and dropdowns). Closes on outside click or Esc. `above` puts its bottom edge at y.
  * The first item takes focus, ↑ ↓ Home End move between items, and closing hands focus back to the control that opened it.
  */
-export function Menu({ x, y, entries, onClose, width = 220, above = false, label }: { x: number; y: number; entries: MenuEntry[]; onClose(): void; width?: number; above?: boolean; label?: string }) {
+export function Menu({
+  x,
+  y,
+  entries,
+  onClose,
+  width = 220,
+  above = false,
+  label,
+  anchor,
+}: {
+  x: number;
+  y: number;
+  entries: MenuEntry[];
+  onClose(): void;
+  width?: number;
+  above?: boolean;
+  label?: string;
+  /** The button that opens it: a click there toggles the menu rather than closing and reopening it. */
+  anchor?: RefObject<HTMLElement | null>;
+}) {
   const id = useId();
 
   useEffect(() => {
@@ -72,7 +91,7 @@ export function Menu({ x, y, entries, onClose, width = 220, above = false, label
   const pointerOf = (event: MouseEvent) => (event.clientX || event.clientY ? { x: event.clientX, y: event.clientY } : null);
 
   return (
-    <Popover id={id} x={x} y={y} width={width} above={above} onClose={onClose} role="menu" aria-label={label} onKeyDown={onKeyDown}>
+    <Popover id={id} x={x} y={y} width={width} above={above} onClose={onClose} anchor={anchor} role="menu" aria-label={label} onKeyDown={onKeyDown}>
       {entries.map((entry, i) =>
         entry === 'separator' ? (
           <div key={i} role="separator" className="my-1 border-t border-border" />

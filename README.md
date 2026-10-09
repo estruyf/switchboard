@@ -318,7 +318,7 @@ Everything that starts work asks the same way: a message that brings back a sess
 
 The queue holds prompts you want to start later, in the order you want them. It never starts anything by itself: it tells you when an item is ready, and you start it.
 
-**Add to the queue.** In New session, write the prompt and click **Add to queue** (⌘⇧↩) next to Start. The prompt is kept with its project and settings (model, effort, mode, branch or worktree), the box empties and you stay in New session to write the next one. The command palette's New session step has a **Queue** button too, and *Add to queue…* in the palette opens New session. Images you attached aren't kept with the prompt.
+**Add to the queue.** In New session, write the prompt and choose **Add to queue** (⌘⇧↩) in Start's menu (the ▾ next to Start). The prompt is kept with its project and settings (model, effort, mode, branch or worktree), the box empties and you stay in New session to write the next one. The command palette's New session step has the same menu, and *Add to queue…* in the palette opens New session. Images you attached aren't kept with the prompt.
 
 **When it's ready.** Each item waits for something:
 - **Any session in this project** (the default): it's ready once nothing is working or waiting for you in its project (worktrees of the project included).

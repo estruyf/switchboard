@@ -21,6 +21,8 @@ import { useProjects } from '../../state/projectsStore.ts';
 import { toRows, useSessions } from '../../state/sessionsStore.ts';
 import { inScope, rowStatus } from '../../state/sidebarRows.ts';
 import { Composer } from '../composer/Composer.tsx';
+import { StartButton } from './StartButton.tsx';
+import { focusStartBlock, startButtonState } from './startMenu.ts';
 import { newDraftKey, newSessionDraftBanner } from '../../state/drafts.ts';
 import { useDrafts, type ComposerDraft } from '../../state/draftsStore.ts';
 import { DraftBanner } from '../drafts/DraftBanner.tsx';
@@ -47,7 +49,7 @@ import { activityByProject, latestBranches, orderProjects, pickUpRows, tileStatu
 import { branchLabel, branchNote, freshBase } from './trayLabels.ts';
 import { checkoutBranchFor, shouldPrewarm, startNewSession } from './startSession.ts';
 import { DEFAULTS_KEY, globalPatch, INITIAL_CHOICES, linkStartingChoices, readGlobals, sameDefaults, startingChoices, toProjectDefaults, type Choices, type GlobalChoices } from './choices.ts';
-import { comboPresses, keysFor, shortcutById } from '../../lib/shortcuts.ts';
+import { comboPresses, shortcutById } from '../../lib/shortcuts.ts';
 import { INITIAL_QUESTION_CHOICES, isQuestionsFolder, QUESTION_DEFAULTS_KEY, QUESTION_LABEL, questionPatch, questionStartingChoices, readQuestionChoices, sessionOptions, type QuestionChoices } from '../../lib/questions.ts';
 
 const keysOf = (id: 'new-session.pick') => shortcutById(id).keys[0]!;
@@ -129,6 +131,8 @@ export function NewSessionView() {
   const [submitRequest, setSubmitRequest] = useState(0);
   const focus = useFocus();
   const atLimit = focus.limit !== null && focus.count >= focus.limit;
+  /** Strict at the limit: Start waits (⌘↵ still asks, with the queue offered), Add to queue stays in Start's menu. */
+  const startBlocked = focusStartBlock(focus);
   const now = useMinute();
   const laterRequest = useLater((s) => s.request);
 
@@ -582,9 +586,10 @@ export function NewSessionView() {
    * Starts the session, after the focus limit's gate (which may ask, or save the prompt for later instead).
    * `fromLink`: started by an `autostart` link, which never adds the folder to your projects.
    * `skipGate`: Start anyway in the focus note, which already is the answer to the question.
+   * `worktree`: Start's menu can start in a new worktree for once, leaving the route (and the project's default) as it is.
    * Returns false when nothing started and the prompt should stay.
    */
-  const create = async (text: string, attachments: ImageAttachment[], { fromLink = false, skipGate = false } = {}): Promise<void | false> => {
+  const create = async (text: string, attachments: ImageAttachment[], { fromLink = false, skipGate = false, worktree = useWorktree } = {}): Promise<void | false> => {
     if (!client || !cwd) throw new Error('Choose a folder first');
     // The same path as the palette's New session: the focus limit's gate, worktree naming, then the session.
     const outcome = await startNewSession(
@@ -593,7 +598,7 @@ export function NewSessionView() {
         prompt: text,
         attachments,
         choices: d,
-        worktree: useWorktree,
+        worktree,
         worktreeName: effectiveName,
         currentBranch: gitBranches.current,
         profileId,
@@ -805,7 +810,7 @@ export function NewSessionView() {
             openRequest={pickerRequest}
           />
 
-          {/* At the focus limit: what is going, with Open, and a way to park this idea. Start stays and asks first. */}
+          {/* At the focus limit: what is going, with Open, and a way to park this idea. Start asks first (Nudge) or waits (Strict). */}
           {atLimit && (
             <FocusNote
               focus={focus}
@@ -1002,8 +1007,6 @@ export function NewSessionView() {
               cwd={cwd}
               commands={commands}
               placeholder={question ? 'Ask Claude anything' : 'What should Claude work on?'}
-              submitLabel={question ? 'Ask' : 'Start session'}
-              submitHint={keysFor('new-session.start')}
               large
               frameColor={projectColor}
               autoFocus
@@ -1014,13 +1017,16 @@ export function NewSessionView() {
               onCycleMode={() => update({ permissionMode: nextMode(d.permissionMode) })}
               disabledReason={!client ? 'Connecting to the engine…' : !cwd ? 'Choose a folder first' : inspection && !inspection.exists ? 'That folder no longer exists' : null}
               onSubmit={(text, attachments, requested) => create(text, attachments, { skipGate: requested === true })}
-              secondary={{
-                label: 'Add to queue',
-                icon: <ListEnd size={14} aria-hidden />,
-                shortcut: 'new-session.queue',
-                onSubmit: (text) => queuePrompt(text),
-                data: { 'data-queue-add': true },
-              }}
+              secondary={{ shortcut: 'new-session.queue', onSubmit: (text) => queuePrompt(text) }}
+              submitControl={(box) => (
+                <StartButton
+                  state={startButtonState({ ...box, startBlocked, canWorktree, worktree: useWorktree, question })}
+                  onAction={(action) =>
+                    action === 'queue' ? box.submitSecondary() : action === 'start-worktree' ? box.submitWith((text, attachments) => create(text, attachments, { worktree: true })) : box.submit()
+                  }
+                  data={{ 'data-composer-submit': true }}
+                />
+              )}
             />
           </div>
 

@@ -2423,6 +2423,11 @@ async function runNewSessionStep(win: BrowserWindow): Promise<string> {
     "(() => { const row = (s) => document.querySelector('[data-new-session-view] ' + s)?.getBoundingClientRect(); const m = row('[data-model-select]'), e = row('[data-effort-select]'), send = row('[data-composer-submit]'); return !!(m && e && send) && Math.abs(m.top - e.top) < 4 && Math.abs(m.top + m.height / 2 - (send.top + send.height / 2)) < 6; })()",
   )) as boolean;
   if (!sameRow) return 'the chips and Start session are not on one row';
+  // The chips shrink by dropping parts, never by cutting words: no chip is narrower than its content.
+  const clipped = (await js(
+    "[...document.querySelectorAll('[data-new-session-view] [data-composer-chips] [aria-haspopup=menu]')].filter((b) => b.scrollWidth > b.clientWidth + 1).map((b) => b.getAttribute('aria-label'))",
+  )) as string[];
+  if (clipped.length) return `chips cut off: ${clipped.join(', ')}`;
   await click('[data-mode-select]');
   if (!(await waitInPage(win, "document.querySelectorAll('[data-menu=\"mode\"] [role=menuitemradio]').length >= 4", 2_000))) return 'the permission menu did not open';
   await new Promise((resolve) => setTimeout(resolve, 200));
@@ -2703,8 +2708,11 @@ async function runQueueStep(win: BrowserWindow): Promise<string> {
     const queuePrompt = async (prompt: string) => {
       openDeepLink(`switchboard://new-session?prompt=${encodeURIComponent(prompt)}&cwd=${encodeURIComponent(folder)}`);
       const composer = "document.querySelector('[data-new-session-view] [data-composer]')";
-      if (!(await waitInPage(win, `${composer}?.value === ${JSON.stringify(prompt)} && document.querySelector('[data-folder-select]')?.dataset.value === ${JSON.stringify(folder)} && !document.querySelector('[data-queue-add]')?.disabled`, 5_000))) return false;
-      await js("document.querySelector('[data-queue-add]').click()");
+      // Add to queue is in Start's menu (the ▾ next to Start).
+      if (!(await waitInPage(win, `${composer}?.value === ${JSON.stringify(prompt)} && document.querySelector('[data-folder-select]')?.dataset.value === ${JSON.stringify(folder)} && !document.querySelector('[data-new-session-view] [data-start-menu]')?.disabled`, 5_000))) return false;
+      await js("document.querySelector('[data-new-session-view] [data-start-menu]').click()");
+      if (!(await waitInPage(win, "document.querySelector('[role=menu] [data-queue-add]') && !document.querySelector('[role=menu] [data-queue-add]').disabled && !!document.querySelector('[role=menu] [data-start-session]')", 2_000))) return false;
+      await js("document.querySelector('[role=menu] [data-queue-add]').click()");
       // Added: the box empties, you stay in New session, and the toast offers Undo.
       return waitInPage(win, `${composer}?.value === '' && !!document.querySelector('[data-new-session-view]') && [...document.querySelectorAll('[data-toast]')].some((t) => t.innerText.includes('Added to the queue'))`, 3_000);
     };

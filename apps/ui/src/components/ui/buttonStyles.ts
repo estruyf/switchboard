@@ -14,6 +14,8 @@ export interface ButtonLook {
   filled: boolean;
   /** Quiet only: a pressed toggle or the current place (Home, an open panel). */
   selected: boolean;
+  /** One half of a split button (`SplitButton`): `main` keeps its left corners, `menu` (the ▾) its right ones. */
+  segment?: 'main' | 'menu';
 }
 
 const HEIGHT: Record<ButtonSize, string> = { sm: 'h-6', md: 'h-7', lg: 'h-8' };
@@ -34,13 +36,18 @@ const VARIANT: Record<ButtonVariant, string> = {
 };
 const DANGER_FILLED = 'bg-error font-semibold text-white enabled:hover:bg-error/85';
 const QUIET_SELECTED = 'bg-selected text-text';
+// The ▾ of a split button: narrower than a square, behind a 1px line in the button's own ink.
+const MENU_WIDTH: Record<ButtonSize, string> = { sm: 'w-5', md: 'w-6', lg: 'w-7' };
+const SEGMENT_DIVIDER: Record<ButtonVariant, string> = { primary: 'border-l border-on-accent/20', secondary: '', quiet: 'border-l border-border', danger: '' };
 
 /** The classes for a button: shape, size and variant. Callers add layout (`ml-auto`, `w-full`) on top. */
-export function buttonClass({ variant, size, iconOnly, filled, selected }: ButtonLook): string {
+export function buttonClass({ variant, size, iconOnly, filled, selected, segment }: ButtonLook): string {
   const tone = variant === 'danger' && filled ? DANGER_FILLED : variant === 'quiet' && selected ? QUIET_SELECTED : VARIANT[variant];
   // btn-secondary brings its own padding; an icon-only button is square instead.
-  const box = iconOnly ? `${SQUARE[size]} px-0` : `${HEIGHT[size]} ${variant === 'quiet' ? QUIET_PAD[size] : PAD[size]}`;
-  return `inline-flex items-center justify-center gap-1.5 rounded-md text-ui whitespace-nowrap disabled:opacity-50 ${box} ${tone}`;
+  const box =
+    segment === 'menu' ? `${HEIGHT[size]} ${MENU_WIDTH[size]} px-0 ${SEGMENT_DIVIDER[variant]}` : iconOnly ? `${SQUARE[size]} px-0` : `${HEIGHT[size]} ${variant === 'quiet' ? QUIET_PAD[size] : PAD[size]}`;
+  const corners = segment === 'main' ? 'rounded-l-md' : segment === 'menu' ? 'rounded-r-md' : 'rounded-md';
+  return `inline-flex items-center justify-center gap-1.5 ${corners} text-ui whitespace-nowrap disabled:opacity-50 ${box} ${tone}`;
 }
 
 export type PillTone = 'default' | 'muted' | 'accent' | 'ok' | 'warn' | 'count';

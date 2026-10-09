@@ -1,0 +1,84 @@
+import { describe, expect, it } from 'vitest';
+import { focusStartBlock, startButtonState, submitKey, type StartButtonInput } from './startMenu.ts';
+
+const ready: StartButtonInput = { blocked: null, sending: false, hasMessage: true, hasText: true, startBlocked: null, canWorktree: true, worktree: false, question: false };
+const press = (key: string, mods: { meta?: boolean; shift?: boolean } = {}) => ({ key, metaKey: !!mods.meta, shiftKey: !!mods.shift, ctrlKey: false, altKey: false });
+
+describe('the Start button', () => {
+  it('starts from the main part, with the menu offering start, queue and a new worktree', () => {
+    const state = startButtonState(ready);
+    expect(state).toMatchObject({ label: 'Start', disabled: false, menuDisabled: false, reason: null });
+    expect(state.items.map((i) => [i.action, i.label, i.shortcut ?? null, i.disabled])).toEqual([
+      ['start', 'Start session', 'new-session.start', false],
+      ['queue', 'Add to queue', 'new-session.queue', false],
+      ['start-worktree', 'Start in a new worktree', null, false],
+    ]);
+  });
+
+  it('offers a new worktree only on the current checkout of a git repository', () => {
+    expect(startButtonState({ ...ready, worktree: true }).items.map((i) => i.action)).toEqual(['start', 'queue']);
+    expect(startButtonState({ ...ready, canWorktree: false }).items.map((i) => i.action)).toEqual(['start', 'queue']);
+  });
+
+  it('asks for a quick question', () => {
+    const state = startButtonState({ ...ready, canWorktree: false, question: true });
+    expect(state.label).toBe('Ask');
+    expect(state.items[0]!.label).toBe('Ask');
+  });
+
+  it('disables the whole button with the reason when nothing can go anywhere', () => {
+    for (const [input, reason] of [
+      [{ ...ready, blocked: 'Choose a folder first' }, 'Choose a folder first'],
+      [{ ...ready, blocked: 'Connecting to the engine…' }, 'Connecting to the engine…'],
+      [{ ...ready, hasMessage: false, hasText: false }, 'Type a message first'],
+    ] as const) {
+      const state = startButtonState(input);
+      expect(state).toMatchObject({ disabled: true, menuDisabled: true, reason });
+      expect(state.items.every((i) => i.disabled)).toBe(true);
+    }
+  });
+
+  it('keeps the menu for Add to queue when only starting is blocked', () => {
+    const state = startButtonState({ ...ready, startBlocked: 'At your focus limit' });
+    expect(state).toMatchObject({ disabled: true, menuDisabled: false, reason: 'At your focus limit' });
+    expect(state.items.filter((i) => !i.disabled).map((i) => i.action)).toEqual(['queue']);
+  });
+
+  it('starts with only images, which the queue leaves behind', () => {
+    const state = startButtonState({ ...ready, hasText: false });
+    expect(state.disabled).toBe(false);
+    expect(state.items.find((i) => i.action === 'queue')!.disabled).toBe(true);
+  });
+
+  it('waits while sending, without a reason', () => {
+    const state = startButtonState({ ...ready, sending: true });
+    expect(state).toMatchObject({ label: 'Starting…', disabled: true, menuDisabled: true, reason: null });
+  });
+});
+
+describe('focusStartBlock', () => {
+  it('blocks starting only at the limit in Strict mode', () => {
+    expect(focusStartBlock({ limit: 3, count: 3, mode: 'strict' })).toMatch(/focus limit/);
+    expect(focusStartBlock({ limit: 3, count: 4, mode: 'strict' })).toMatch(/focus limit/);
+    expect(focusStartBlock({ limit: 3, count: 2, mode: 'strict' })).toBeNull();
+    expect(focusStartBlock({ limit: 3, count: 3, mode: 'nudge' })).toBeNull();
+    expect(focusStartBlock({ limit: null, count: 9, mode: 'strict' })).toBeNull();
+  });
+});
+
+describe('submitKey', () => {
+  it('starts on ⌘↵ and ↵, queues on ⌘⇧↵', () => {
+    expect(submitKey(press('Enter', { meta: true }), 'new-session.queue')).toBe('send');
+    expect(submitKey(press('Enter'), 'new-session.queue')).toBe('send');
+    expect(submitKey(press('Enter', { meta: true, shift: true }), 'new-session.queue')).toBe('secondary');
+  });
+
+  it('leaves ⇧↵ (a new line) and other keys alone', () => {
+    expect(submitKey(press('Enter', { shift: true }), 'new-session.queue')).toBeNull();
+    expect(submitKey(press('a', { meta: true }), 'new-session.queue')).toBeNull();
+  });
+
+  it('does nothing on ⌘⇧↵ without a second action', () => {
+    expect(submitKey(press('Enter', { meta: true, shift: true }))).toBeNull();
+  });
+});

@@ -23,6 +23,9 @@ export interface ChoiceAction {
   onSelect(): void;
 }
 
+/** The pill that opens a ChoiceMenu: a quiet 28px button. Exported so a hidden copy can measure a row of them (the message box's chips). */
+export const CHOICE_PILL = 'flex h-7 max-w-full min-w-0 items-center gap-1.5 rounded-md px-2 text-ui whitespace-nowrap text-muted hover:bg-border/50 hover:text-text disabled:opacity-50';
+
 /** The items keyboard navigation moves between: the choices and the enabled actions. */
 const ITEMS = '[role=menuitemradio]:not(:disabled),[role=menuitem]:not(:disabled)';
 
@@ -36,6 +39,7 @@ export function ChoiceMenu<T extends string>({
   choices,
   onChange,
   title,
+  label,
   disabled,
   width = 240,
   heading,
@@ -54,6 +58,8 @@ export function ChoiceMenu<T extends string>({
   choices: Array<Choice<T>>;
   onChange(value: T): void;
   title?: string;
+  /** The pill's accessible name, in place of "<heading>: <choice>" (a chip that shows only an icon or a short name). */
+  label?: string;
   disabled?: boolean;
   width?: number;
   /** A small uppercase title over the choices; also names the menu, and the pill as "<heading>: <choice>". */
@@ -83,7 +89,7 @@ export function ChoiceMenu<T extends string>({
   const panel = useRef<HTMLDivElement>(null);
   const current = choices.find((c) => c.value === value);
   // The pill shows an icon, a dot or a shortened label; its accessible name says what it sets and to what.
-  const pillName = heading ? `${heading}: ${current?.label ?? value}` : undefined;
+  const pillName = label ?? (heading ? `${heading}: ${current?.label ?? value}` : undefined);
   const needle = query.trim().toLowerCase();
   const listed = needle ? choices.filter((c) => c.label.toLowerCase().includes(needle)) : choices;
 
@@ -149,7 +155,7 @@ export function ChoiceMenu<T extends string>({
           setAnchor({ left: rect.left, right: rect.right, top: rect.top, bottom: rect.bottom, upward: placement === 'up' || window.innerHeight - rect.bottom < 300 });
           setOpen((o) => !o);
         }}
-        className={`flex h-7 max-w-full min-w-0 items-center gap-1.5 rounded-md px-2 text-ui whitespace-nowrap text-muted hover:bg-border/50 hover:text-text disabled:opacity-50 ${open ? 'bg-border/50 text-text' : ''}`}
+        className={`${CHOICE_PILL} ${open ? 'bg-border/50 text-text' : ''}`}
       >
         {children}
         {chevron && <ChevronDown size={12} className="shrink-0 text-faint" aria-hidden />}

@@ -15,6 +15,7 @@ import { PromptHistory, recallAnnouncement, routeArrow, type Recall } from './pr
 import { tokenAtCaret } from './tokens.ts';
 import { useAttachments } from './useAttachments.ts';
 import { ariaKeysFor, formatKeys, keysFor, matches, type ShortcutId } from '../../lib/shortcuts.ts';
+import { submitKey } from '../newSession/startMenu.ts';
 
 type PaletteItem = { value: string; label: string; detail: string };
 interface Palette {
@@ -71,14 +72,33 @@ export interface ComposerProps {
   /** Called with the prompt's text whenever it changes (typing, completions, presets, sending). */
   onTextChange?(text: string): void;
   /**
-   * A second way to send what is in the box, left of the main button (New session's Add to queue), with its own
-   * shortcut. Like `onSubmit`, returning `false` keeps the prompt; otherwise the box empties.
+   * A second way to send what is in the box (New session's Add to queue), on its own shortcut and through
+   * `submitControl`. Like `onSubmit`, returning `false` keeps the prompt; otherwise the box empties.
    */
-  secondary?: { label: string; icon: ReactNode; shortcut: ShortcutId; onSubmit(text: string): Promise<void | false>; data?: Record<`data-${string}`, string | boolean> };
+  secondary?: { shortcut: ShortcutId; onSubmit(text: string): Promise<void | false> };
+  /** Takes the Send button's place (New session's Start with its menu), with what it needs to send what is in the box. */
+  submitControl?(api: SubmitApi): ReactNode;
   /** Returning `false` means nothing was sent (the focus limit asked and you cancelled): the prompt stays as it is. */
   onSubmit(text: string, attachments: ImageAttachment[], requested?: boolean): Promise<void | false> | void | false;
   onInterrupt?(): void;
   onCycleMode?(): void;
+}
+
+/** What `submitControl` gets from the message box. */
+export interface SubmitApi {
+  /** Why nothing can be sent (connecting, no folder yet). */
+  blocked: string | null;
+  sending: boolean;
+  /** Something to send: text, images or context. */
+  hasMessage: boolean;
+  /** Text or context: what `secondary` takes (images stay behind). */
+  hasText: boolean;
+  /** Sends as Enter does. */
+  submit(): void;
+  /** Sends through `secondary`. */
+  submitSecondary(): void;
+  /** Sends through another action (New session's Start in a new worktree); returning `false` keeps the prompt. */
+  submitWith(send: (text: string, attachments: ImageAttachment[]) => Promise<void | false>): void;
 }
 
 const NO_CHIPS: ContextChip[] = [];
@@ -366,15 +386,13 @@ export function Composer(props: ComposerProps) {
         return;
       }
     }
+    const send = submitKey(event.nativeEvent, props.secondary?.shortcut);
     if (matches(event.nativeEvent, 'composer.add-context') && addContext) {
       event.preventDefault();
       openPicker();
-    } else if (props.secondary && matches(event.nativeEvent, props.secondary.shortcut)) {
+    } else if (send) {
       event.preventDefault();
-      void submitSecondary();
-    } else if (matches(event.nativeEvent, 'composer.send')) {
-      event.preventDefault();
-      void submit();
+      void (send === 'secondary' ? submitSecondary() : submit());
     } else if (matches(event.nativeEvent, 'claude.stop') && props.running) {
       // With a dialog, menu or popover open, Escape closes that; it must never also stop Claude.
       if (document.querySelector('[role=dialog], [role=alertdialog], [role=menu], [role=listbox], [data-context-breakdown]')) return;
@@ -388,6 +406,48 @@ export function Composer(props: ComposerProps) {
 
   const disabled = !!props.disabledReason;
   const submitSecondary = () => (props.secondary ? submit(false, (value) => props.secondary!.onSubmit(value)) : Promise.resolve());
+  const hasText = !!text.trim() || chips.length > 0;
+  const hasMessage = hasText || attachments.length > 0;
+  const attach = (
+    <>
+      <input
+        ref={fileRef}
+        type="file"
+        accept="image/png,image/jpeg,image/gif,image/webp"
+        multiple
+        hidden
+        data-attach-input
+        onChange={(e) => {
+          void addFiles([...(e.target.files ?? [])]);
+          e.target.value = '';
+        }}
+      />
+      <Button
+        variant="quiet"
+        size="sm"
+        iconOnly
+        icon={<ImagePlus size={15} />}
+        onClick={() => fileRef.current?.click()}
+        disabled={disabled}
+        data-tooltip="Attach images (or paste / drop them). Dropped files and folders are added as context."
+        aria-label="Attach images"
+        data-attach
+      />
+      {addContext && (
+        <Button
+          variant="quiet"
+          size="sm"
+          iconOnly
+          icon={<Paperclip size={14} />}
+          onClick={openPicker}
+          disabled={disabled || !cwd}
+          shortcut="composer.add-context"
+          aria-label="Add context"
+          data-add-context
+        />
+      )}
+    </>
+  );
 
   return (
     <div ref={rootRef} className="relative" onFocusCapture={() => draftKey !== undefined && useComposerTargets.getState().register({ key: draftKey, cwd })}>
@@ -486,6 +546,9 @@ export function Composer(props: ComposerProps) {
           </span>
           {props.controls ? (
             <div className="-ml-1.5 flex min-w-0 flex-1 items-center">
+              {/* What goes into the message comes first; a thin line, then the chips that set how it runs. */}
+              <div className="flex shrink-0 items-center gap-0.5">{attach}</div>
+              <span aria-hidden className="mx-1.5 h-4 w-px shrink-0 bg-border" />
               {props.controls}
               {/* The keys still get read out with the message box; the chips take the hint's place on screen. */}
               <span id={`${ids}-hint`} className="sr-only">
@@ -508,76 +571,40 @@ export function Composer(props: ComposerProps) {
           <div className="flex shrink-0 items-center gap-1.5">
             {props.dropHint && !text && attachments.length === 0 && !disabled && <span className="text-meta text-muted @max-[860px]:hidden">Paste or drop images and files</span>}
             {props.actions}
-            <input
-              ref={fileRef}
-              type="file"
-              accept="image/png,image/jpeg,image/gif,image/webp"
-              multiple
-              hidden
-              data-attach-input
-              onChange={(e) => {
-                void addFiles([...(e.target.files ?? [])]);
-                e.target.value = '';
-              }}
-            />
-            <Button
-              variant="quiet"
-              size="sm"
-              iconOnly
-              icon={<ImagePlus size={15} />}
-              onClick={() => fileRef.current?.click()}
-              disabled={disabled}
-              data-tooltip="Attach images (or paste / drop them). Dropped files and folders are added as context."
-              aria-label="Attach images"
-              data-attach
-            />
-            {addContext && (
-              <Button
-                variant="quiet"
-                size="sm"
-                iconOnly
-                icon={<Paperclip size={14} />}
-                onClick={openPicker}
-                disabled={disabled || !cwd}
-                shortcut="composer.add-context"
-                aria-label="Add context"
-                data-add-context
-              />
-            )}
+            {/* Without chips the hint line holds the left; the attach buttons stay on the right. */}
+            {!props.controls && attach}
             {props.meter}
             {props.running && props.onInterrupt && (
               <Button size="lg" icon={<span className="size-2 rounded-[2px] bg-current" aria-hidden />} shortcut="claude.stop" kbdHideNarrow onClick={props.onInterrupt} data-tooltip={`Stop Claude (${formatKeys(keysFor('claude.stop'))})`} data-composer-stop>
                 Stop
               </Button>
             )}
-            {props.secondary && (
-              <Button
-                size="lg"
-                icon={props.secondary.icon}
-                shortcut={props.secondary.shortcut}
-                kbdHideNarrow
-                onClick={() => void submitSecondary()}
-                disabled={disabled || sending || (!text.trim() && chips.length === 0)}
-                className="disabled:pointer-events-none"
-                {...props.secondary.data}
-              >
-                {props.secondary.label}
-              </Button>
+            {props.submitControl ? (
+              props.submitControl({
+                blocked: props.disabledReason ?? null,
+                sending,
+                hasMessage,
+                hasText,
+                submit: () => void submit(),
+                submitSecondary: () => void submitSecondary(),
+                submitWith: (send) => void submit(false, send),
+              })
+            ) : (
+              // A disabled button gets no hover, so the reason it's unavailable sits on this wrapper.
+              <span className="flex" data-tooltip={!sending ? (props.disabledReason ?? (!hasMessage ? 'Type a message first' : undefined)) : undefined}>
+                <Button
+                  variant="primary"
+                  size="lg"
+                  kbd={props.submitHint && !sending ? props.submitHint : undefined}
+                  data-composer-submit
+                  onClick={() => void submit()}
+                  disabled={disabled || sending || !hasMessage}
+                  className="disabled:pointer-events-none"
+                >
+                  {sending ? 'Sending…' : (props.submitLabel ?? (props.running ? 'Queue' : 'Send'))}
+                </Button>
+              </span>
             )}
-            {/* A disabled button gets no hover, so the reason it's unavailable sits on this wrapper. */}
-            <span className="flex" data-tooltip={!sending ? (props.disabledReason ?? (!text.trim() && attachments.length === 0 && chips.length === 0 ? 'Type a message first' : undefined)) : undefined}>
-              <Button
-                variant="primary"
-                size="lg"
-                kbd={props.submitHint && !sending ? props.submitHint : undefined}
-                data-composer-submit
-                onClick={() => void submit()}
-                disabled={disabled || sending || (!text.trim() && attachments.length === 0 && chips.length === 0)}
-                className="disabled:pointer-events-none"
-              >
-                {sending ? 'Sending…' : (props.submitLabel ?? (props.running ? 'Queue' : 'Send'))}
-              </Button>
-            </span>
           </div>
         </div>
       </div>

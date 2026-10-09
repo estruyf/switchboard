@@ -23,6 +23,8 @@ interface BaseProps extends ButtonHTMLAttributes<HTMLButtonElement> {
    * Secondary: highlighted from the keyboard, as the last choice under a list (Add project's Choose folder…).
    */
   selected?: boolean;
+  /** Only for `SplitButton`: which half of it this is. */
+  segment?: 'main' | 'menu';
   'data-tooltip'?: string;
   ref?: Ref<HTMLButtonElement>;
 }
@@ -34,7 +36,7 @@ type ButtonProps = (BaseProps & { iconOnly: true; 'aria-label': string }) | (Bas
  * Every button in the app. Variants and sizes follow AGENTS.md (Design system); `className` is for
  * layout around it (`ml-auto`, `w-full`, `min-w-0`), not for changing its look.
  */
-export function Button({ variant = 'secondary', size = 'md', icon, iconOnly = false, kbd: keys, shortcut, kbdHideNarrow = false, filled = false, selected = false, className = '', type = 'button', children, ...rest }: ButtonProps) {
+export function Button({ variant = 'secondary', size = 'md', icon, iconOnly = false, kbd: keys, shortcut, kbdHideNarrow = false, filled = false, selected = false, segment, className = '', type = 'button', children, ...rest }: ButtonProps) {
   const kbd = shortcut ? keysFor(shortcut) : keys;
   const glyphs = kbd ? shortcutGlyphs(kbd) : null;
   const label = rest['aria-label'];
@@ -46,7 +48,7 @@ export function Button({ variant = 'secondary', size = 'md', icon, iconOnly = fa
       {...rest}
       data-tooltip={tooltip}
       data-selected={selected && variant === 'secondary' ? true : undefined}
-      className={`${buttonClass({ variant, size, iconOnly, filled, selected })} ${className}`}
+      className={`${buttonClass({ variant, size, iconOnly, filled, selected, segment })} ${className}`}
     >
       {icon}
       {/* For an icon-only button: decoration such as a status dot, not a label. */}

@@ -1,10 +1,10 @@
-import { ChevronDown, ChevronRight, Folder, FolderGit2, GitBranch, GitBranchPlus, ListEnd, SquarePen } from 'lucide-react';
+import { ChevronDown, ChevronRight, Folder, FolderGit2, GitBranch, GitBranchPlus, SquarePen } from 'lucide-react';
 import { useEffect, useId, useRef, useState } from 'react';
 import type { ImageAttachment, LaterDraft, ProjectInspection } from '@switchboard/protocol/client';
 import { useEngineConnection } from '../../engine/useEngine.ts';
 import { basename } from '../../lib/format.ts';
 import { nextMode } from '../../lib/modes.ts';
-import { passFocusGate } from '../../state/focusGate.ts';
+import { passFocusGate, useFocus } from '../../state/focusGate.ts';
 import { useHosts } from '../../state/hostsStore.ts';
 import { addToQueue } from '../../state/laterStore.ts';
 import { busyInProject } from '../../state/queue.ts';
@@ -21,11 +21,12 @@ import { AttachmentThumbs, DropOverlay } from '../composer/Attachments.tsx';
 import { ComposerChipRow } from '../composer/ComposerChips.tsx';
 import { useAttachments } from '../composer/useAttachments.ts';
 import { ChoiceMenu } from '../newSession/ChoiceMenu.tsx';
+import { StartButton } from '../newSession/StartButton.tsx';
+import { focusStartBlock, startButtonState } from '../newSession/startMenu.ts';
 import { DEFAULTS_KEY, globalPatch, INITIAL_CHOICES, readGlobals, startingChoices, type Choices, type GlobalChoices } from '../newSession/choices.ts';
 import { checkoutBranchFor, shouldPrewarm, startNewSession } from '../newSession/startSession.ts';
 import { branchLabel, branchNote, freshBase } from '../newSession/trayLabels.ts';
 import { ProjectIcon } from '../ProjectIcon.tsx';
-import { Button } from '../ui/Button.tsx';
 import { Pill } from '../ui/Pill.tsx';
 import { Switch } from '../ui/Toggle.tsx';
 import { filterBranches } from '../worktree/branchMenu.ts';
@@ -146,6 +147,7 @@ export function PromptStep({ root, from, worktree, chip, onBack, onChangeProject
   const branchOptions = d.branch && !gitBranches.branches.includes(d.branch) ? [d.branch, ...gitBranches.branches] : gitBranches.branches;
   const blocked = !client ? 'Connecting to the engine…' : inspection && !inspection.exists ? 'This folder no longer exists' : null;
   const canStart = !busy && !blocked && text.trim() !== '';
+  const focus = useFocus();
   // Pasting or dropping images and files works as in the message box.
   const { attachments, setAttachments, onPaste, drop } = useAttachments({ initial: saved?.attachments, rootRef: zoneRef, textareaRef: textRef, cwd: root, disabledReason: blocked, setText, onNotice: setNotice });
   useEffect(() => {
@@ -193,7 +195,8 @@ export function PromptStep({ root, from, worktree, chip, onBack, onChangeProject
     profileId: profileOverride,
   });
 
-  const start = async () => {
+  /** `worktree`: Start's menu can start in a new worktree for once, without turning the switch on. */
+  const start = async (worktree = useWorktree) => {
     if (!client || !canStart) return;
     const prompt = text.trim();
     setBusy(true);
@@ -209,7 +212,7 @@ export function PromptStep({ root, from, worktree, chip, onBack, onChangeProject
           prompt,
           attachments,
           choices: d,
-          worktree: useWorktree,
+          worktree,
           currentBranch: gitBranches.current,
           profileId,
           addProject: options.addAsProject && !isProject && !!inspection?.exists,
@@ -394,12 +397,12 @@ export function PromptStep({ root, from, worktree, chip, onBack, onChangeProject
             mode={{ value: d.permissionMode, onChange: (permissionMode) => update({ permissionMode }) }}
           />
         </div>
-        <Button size="lg" icon={<ListEnd size={14} aria-hidden />} disabled={!canStart} onClick={() => void queue()} data-tooltip={blocked ?? 'Add to the queue (⌘⇧↵)'} data-palette-queue>
-          Queue
-        </Button>
-        <Button variant="primary" size="lg" kbd="⌘↵" disabled={!canStart} onClick={() => void start()} data-tooltip={blocked ?? undefined} data-palette-start>
-          {busy ? 'Starting…' : question ? 'Ask' : 'Start'}
-        </Button>
+        <StartButton
+          state={startButtonState({ blocked, sending: busy, hasMessage: text.trim() !== '', hasText: text.trim() !== '', startBlocked: focusStartBlock(focus), canWorktree, worktree: useWorktree, question })}
+          onAction={(action) => void (action === 'queue' ? queue() : start(action === 'start-worktree' || useWorktree))}
+          data={{ 'data-palette-start': true }}
+          itemData={{ queue: { 'data-palette-queue': true } }}
+        />
       </div>
       {(error ?? notice) && (
         <p role="alert" className="shrink-0 px-4 pb-2 text-ui text-error">

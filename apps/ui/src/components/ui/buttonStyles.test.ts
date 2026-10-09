@@ -34,6 +34,17 @@ describe('buttonClass', () => {
   });
 });
 
+describe('split button segments', () => {
+  it('rounds only the outer corners, and parts the ▾ with a line in the ink', () => {
+    const main = classes(buttonClass(look({ variant: 'primary', size: 'lg', segment: 'main' })));
+    expect(main).toEqual(expect.arrayContaining(['rounded-l-md', 'h-8', 'bg-accent']));
+    expect(main).not.toContain('rounded-md');
+    const menu = classes(buttonClass(look({ variant: 'primary', size: 'lg', segment: 'menu' })));
+    expect(menu).toEqual(expect.arrayContaining(['rounded-r-md', 'h-8', 'w-7', 'border-l', 'border-on-accent/20']));
+    expect(menu).not.toContain('rounded-md');
+  });
+});
+
 describe('pillClass', () => {
   const pill = { tone: 'default' as const, interactive: false, dashed: false, selected: false, shrink: false };
   it('is a 24px rounded chip with a border', () => {
