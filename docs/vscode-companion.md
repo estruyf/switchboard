@@ -30,7 +30,7 @@ One JSON message per line, in the same request, response and event shape the UI 
 | Request | What it does |
 |---|---|
 | `hello` `{ token, protocol, client }` | The first message. Answers the protocol version and the app's version. |
-| `sessions.list` `{ folders, limit? }` | The sessions in these workspace folders (a session working in one of them, or whose folder holds one), what needs you first, then what is working, then the most recent. Also the session on screen in Switchboard (`focused`, wherever it is) and how many windows are open. |
+| `sessions.list` `{ folders, limit? }` | The sessions in these workspace folders (a session working in one of them, or whose folder holds one) that Switchboard's sidebar shows outside Archived, under its scope (`companion.focus` reports it), what needs you first, then what is working, then the most recent. Also the session on screen in Switchboard (`focused`, wherever it is) and how many windows are open. |
 | `sessions.watch` `{ folders }` | From now on, `sessions.changed` with the same answer whenever it changes. |
 | `context.add` `{ target, items, reveal }` | Adds context items to a session's message box (`{ kind: 'session', sessionId }`) or to New session on a folder (`{ kind: 'new', cwd }`). Resolves once a window has added them; fails with `NO_WINDOW`, `NOT_FOUND`, `NOT_ADDED` or `TIMEOUT`. `reveal` shows the session and brings Switchboard to the front. |
 | `session.reveal` `{ sessionId }` | Shows a session in Switchboard and brings it to the front (the status bar item). |

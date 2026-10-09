@@ -3,10 +3,12 @@ import { useEngineConnection } from '../engine/useEngine.ts';
 import { newDraftKey } from './drafts.ts';
 import { useDrafts } from './draftsStore.ts';
 import { useLinks } from './linksStore.ts';
+import { usePreferences } from './preferencesStore.ts';
 import { useSessions } from './sessionsStore.ts';
 
 /**
- * The VS Code companion, window side: tells the engine which session is on screen (context goes there first), adds
+ * The VS Code companion, window side: tells the engine which session is on screen (context goes there first) and
+ * which sessions the sidebar lists (the editor lists the same), adds
  * the context the editor sends as chips (to a session, or New session on a folder), and shows a session when asked.
  * Nothing is ever sent to Claude from here: the chips wait in the message box until you send.
  */
@@ -16,10 +18,11 @@ export function useCompanionSync(): void {
   const view = useSessions((s) => s.view);
   const selectedId = useSessions((s) => s.selectedId);
   const focused = view === 'session' ? selectedId : null;
+  const scope = usePreferences((s) => s.prefs.sessionScope);
 
   useEffect(() => {
-    if (client) void client.call('companion.focus', { sessionId: focused }).catch(() => {});
-  }, [client, focused]);
+    if (client) void client.call('companion.focus', { sessionId: focused, scope }).catch(() => {});
+  }, [client, focused, scope]);
 
   useEffect(() => {
     if (!client) return;

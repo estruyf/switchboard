@@ -29,12 +29,45 @@ export function companionStatus(summary: SessionSummary | null, live: LiveSessio
 
 const realBranch = (branch: string | null) => (branch && branch !== 'HEAD' ? branch : null);
 
-/** Archived by hand and nothing new since, unless it runs. */
-const archived = (summary: SessionSummary, status: CompanionStatus) =>
-  summary.archivedAt !== null && summary.archivedAt >= summary.updatedAt && (status === 'stopped' || status === 'idle');
+/** Sessions with activity in this window stay in the sidebar's main list (`RECENT_MS` in the UI). */
+export const RECENT_MS = 48 * 60 * 60 * 1000;
 
-/** Every session worth offering: indexed ones (not archived), and running ones that haven't written a transcript yet. */
-export function companionSessions(sources: SessionSources): CompanionSession[] {
+interface Listing {
+  status: CompanionStatus;
+  pinned: boolean;
+  archivedAt: number | null;
+  unread: boolean;
+  updatedAt: number;
+  /** Running in this app, or a process this app started. */
+  openInApp: boolean;
+}
+
+/**
+ * Whether Switchboard's sidebar shows the session in its main list rather than under Archived (`isActive` in the
+ * UI): what needs you, failed or is pinned; nothing archived by hand until there's news; then what works, is open
+ * in the app, is unread, or had activity in the last 48 hours.
+ */
+export function listedInSidebar(s: Listing, now: number): boolean {
+  if (s.status === 'needs-you' || s.status === 'error' || s.pinned) return true;
+  // A session archived while it works stays archived until it has finished.
+  if (s.archivedAt !== null && (s.archivedAt >= s.updatedAt || s.status === 'working')) return false;
+  if (s.status === 'working') return true;
+  return s.openInApp || s.unread || now - s.updatedAt < RECENT_MS;
+}
+
+export interface ListingOptions {
+  now?: number;
+  /** The session open in Switchboard: listed even when archived or out of scope, as the sidebar keeps it. */
+  keep?: string | null;
+  /** The sidebar's choice: only sessions from Switchboard (the default), or every session. */
+  scope?: 'switchboard' | 'all';
+}
+
+/**
+ * The sessions Switchboard's sidebar lists outside Archived, under its scope: indexed ones, and running ones that
+ * haven't written a transcript yet.
+ */
+export function companionSessions(sources: SessionSources, { now = Date.now(), keep = null, scope = 'all' }: ListingOptions = {}): CompanionSession[] {
   const live = new Map(sources.live.map((l) => [l.sessionId, l]));
   const hosts = new Map(sources.hosts.map((h) => [h.sessionId, h]));
   const out: CompanionSession[] = [];
@@ -44,7 +77,13 @@ export function companionSessions(sources: SessionSources): CompanionSession[] {
     const l = live.get(summary.id) ?? null;
     const host = hosts.get(summary.id);
     const status = companionStatus(summary, l, host);
-    if (archived(summary, status)) continue;
+    const updatedAt = Math.max(summary.updatedAt, l && l.status !== 'idle' ? (l.updatedAt ?? 0) : 0);
+    const openInApp = activeHost(host) || l?.origin === 'app';
+    const inApp = summary.inApp || l?.origin === 'app';
+    if (summary.id !== keep) {
+      if (scope === 'switchboard' && !inApp) continue;
+      if (!listedInSidebar({ status, pinned: summary.pinned, archivedAt: summary.archivedAt, unread: summary.unread, updatedAt, openInApp }, now)) continue;
+    }
     out.push({
       id: summary.id,
       title: summary.customTitle ?? (l?.name || summary.title),
@@ -52,8 +91,8 @@ export function companionSessions(sources: SessionSources): CompanionSession[] {
       projectRoot: summary.projectRoot,
       branch: summary.worktree?.branch ?? realBranch(summary.gitBranch),
       status,
-      updatedAt: Math.max(summary.updatedAt, l && l.status !== 'idle' ? (l.updatedAt ?? 0) : 0),
-      inApp: summary.inApp || l?.origin === 'app',
+      updatedAt,
+      inApp,
     });
   }
   const pending = [...sources.hosts.filter(activeHost).map((h) => ({ id: h.sessionId, cwd: h.cwd, origin: 'app' as const, name: null, at: h.startedAt })), ...sources.live.map((l) => ({ id: l.sessionId, cwd: l.cwd, origin: l.origin, name: l.name, at: l.updatedAt ?? l.startedAt ?? 0 }))];
@@ -63,13 +102,18 @@ export function companionSessions(sources: SessionSources): CompanionSession[] {
     seen.add(p.id);
     const host = hosts.get(p.id);
     const l = live.get(p.id) ?? null;
+    const status = companionStatus(null, l, host);
+    if (p.id !== keep) {
+      if (scope === 'switchboard' && p.origin !== 'app') continue;
+      if (!listedInSidebar({ status, pinned: false, archivedAt: null, unread: false, updatedAt: p.at, openInApp: p.origin === 'app' }, now)) continue;
+    }
     out.push({
       id: p.id,
       title: p.name ?? 'New session',
       cwd: p.cwd,
       projectRoot: l?.projectRoot ?? p.cwd?.replace(/\/\.claude\/worktrees\/[^/]+.*$/, '') ?? 'Unknown folder',
       branch: null,
-      status: companionStatus(null, l, host),
+      status,
       updatedAt: p.at,
       inApp: p.origin === 'app',
     });

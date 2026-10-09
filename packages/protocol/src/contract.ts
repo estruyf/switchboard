@@ -527,8 +527,11 @@ export const contract = {
     },
 
     // --- VS Code companion ---------------------------------------------------------------------
-    /** The session in this window's active pane (null on Home, New session or Settings): where the companion sends context first. */
-    'companion.focus': { params: z.object({ sessionId: SessionId.nullable() }), result: z.object({}) },
+    /**
+     * The session in this window's active pane (null on Home, New session or Settings): where the companion sends
+     * context first. `scope` is the sidebar's (`sessionScope`): the companion lists the sessions it lists.
+     */
+    'companion.focus': { params: z.object({ sessionId: SessionId.nullable(), scope: z.enum(['switchboard', 'all']).default('switchboard') }), result: z.object({}) },
     /** This window added the context of a `companion.context` event (or couldn't, and says why). */
     'companion.received': {
       params: z.object({ deliveryId: z.string().min(1).max(100), error: z.string().max(500).nullable().default(null) }),

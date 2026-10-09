@@ -8,7 +8,9 @@ import {
   type HandlerContext,
 } from '@switchboard/protocol';
 import { CompanionServer } from './companionServer.ts';
-import { companionSessions, sessionsFor, type SessionSources } from './companionSessions.ts';
+import { companionSessions, sessionsFor, type ListingOptions, type SessionSources } from './companionSessions.ts';
+
+type SessionScope = NonNullable<ListingOptions['scope']>;
 
 export interface CompanionHubOptions {
   infoDir: string;
@@ -36,8 +38,8 @@ interface Delivery {
  */
 export class CompanionHub {
   private readonly server: CompanionServer;
-  /** Windows that reported focus, the most recent last, with the session each has on screen. */
-  private readonly windowFocus: Array<{ context: HandlerContext<Contract>; sessionId: string | null }> = [];
+  /** Windows that reported focus, the most recent last, with the session each has on screen and its sidebar's scope. */
+  private readonly windowFocus: Array<{ context: HandlerContext<Contract>; sessionId: string | null; scope: SessionScope }> = [];
   private readonly deliveries = new Map<string, Delivery>();
   /** What each watching editor last got, by its folders. */
   private readonly watchers = new Map<HandlerContext<CompanionContract>, { folders: string[]; last: string }>();
@@ -103,12 +105,12 @@ export class CompanionHub {
     return this.server.infoFile;
   }
 
-  /** A window says which session is on screen in its active pane (null: none). */
-  focus(context: HandlerContext<Contract>, sessionId: string | null): void {
+  /** A window says which session is on screen in its active pane (null: none), and which sessions its sidebar lists. */
+  focus(context: HandlerContext<Contract>, sessionId: string | null, scope: SessionScope): void {
     const index = this.windowFocus.findIndex((w) => w.context === context);
     if (index === -1) context.onDispose(() => this.forget(context));
     else this.windowFocus.splice(index, 1);
-    this.windowFocus.push({ context, sessionId });
+    this.windowFocus.push({ context, sessionId, scope });
     this.sessionsChanged();
   }
 
@@ -139,8 +141,10 @@ export class CompanionHub {
   }
 
   private list(folders: string[], limit: number): CompanionSessions {
-    const all = companionSessions(this.options.sources());
-    const focusedId = this.windowFocus.at(-1)?.sessionId ?? null;
+    // The editor lists what the sidebar of the window that reported focus last lists.
+    const window = this.windowFocus.at(-1);
+    const focusedId = window?.sessionId ?? null;
+    const all = companionSessions(this.options.sources(), { keep: focusedId, scope: window?.scope ?? 'switchboard' });
     return {
       sessions: sessionsFor(all, folders, limit),
       focused: (focusedId && all.find((s) => s.id === focusedId)) || null,

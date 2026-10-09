@@ -1092,8 +1092,8 @@ export function createEngine(options: EngineOptions): Engine {
       terminals.stop(id);
       return {};
     },
-    'companion.focus': ({ sessionId }, context) => {
-      companion?.focus(context, sessionId);
+    'companion.focus': ({ sessionId, scope }, context) => {
+      companion?.focus(context, sessionId, scope);
       return {};
     },
     'companion.received': ({ deliveryId, error }) => {

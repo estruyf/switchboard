@@ -19,11 +19,12 @@ import {
 } from '@switchboard/protocol';
 import type { SessionSource } from '../claude/sessionSource.ts';
 import { createEngine } from '../engine.ts';
-import { inFolders, isWithin, sessionsFor } from './companionSessions.ts';
+import type { SessionSummary } from '@switchboard/protocol';
+import { companionSessions, inFolders, isWithin, RECENT_MS, sessionsFor } from './companionSessions.ts';
 
 const SESSION_ID = '44444444-4444-4444-8444-444444444444';
 const source: SessionSource = {
-  list: async () => [{ sessionId: SESSION_ID, summary: 'Fix the login form', lastModified: 42, cwd: '/work/web' }],
+  list: async () => [{ sessionId: SESSION_ID, summary: 'Fix the login form', lastModified: Date.now(), cwd: '/work/web' }],
   info: async () => undefined,
   messages: async () => [],
 };
@@ -129,13 +130,16 @@ describe('companion socket', () => {
     const { info, window } = await start();
     const { client } = editor(info);
     await expect(hello(client, info.token)).resolves.toMatchObject({ protocol: COMPANION_PROTOCOL, app: { version: '9.9.9' } });
+    // Started in a terminal: only listed while the sidebar shows every session.
+    expect((await client.call('sessions.list', { folders: ['/work'] })).sessions).toEqual([]);
+    await window.call('companion.focus', { sessionId: null, scope: 'all' });
     expect((await client.call('sessions.list', { folders: ['/work'] })).sessions.map((s) => s.id)).toEqual([SESSION_ID]);
     expect((await client.call('sessions.list', { folders: ['/work/web/src'] })).sessions.map((s) => s.id)).toEqual([SESSION_ID]);
     expect((await client.call('sessions.list', { folders: ['/elsewhere'] })).sessions).toEqual([]);
     expect((await client.call('sessions.list', { folders: [] })).focused).toBeNull();
-    await window.call('companion.focus', { sessionId: SESSION_ID });
+    await window.call('companion.focus', { sessionId: SESSION_ID, scope: 'all' });
     const listed = await client.call('sessions.list', { folders: ['/elsewhere'] });
-    expect(listed.focused).toMatchObject({ id: SESSION_ID, cwd: '/work/web', status: 'stopped' });
+    expect(listed.focused).toMatchObject({ id: SESSION_ID, cwd: '/work/web' });
     expect(listed.windows).toBe(1);
   });
 
@@ -213,5 +217,57 @@ describe('session matching', () => {
       ['/repo'],
     );
     expect(list.map((s) => s.id)).toEqual(['ask', 'busy', 'old', 'new']);
+  });
+});
+
+describe('which sessions are listed', () => {
+  const now = 10 * RECENT_MS;
+  const summary = (id: string, over: Partial<SessionSummary> = {}): SessionSummary => ({
+    id,
+    title: id,
+    firstPrompt: null,
+    customTitle: null,
+    cwd: '/repo',
+    projectRoot: '/repo',
+    gitBranch: 'main',
+    worktree: null,
+    origin: 'cli',
+    createdAt: null,
+    updatedAt: now - 60_000,
+    fileSize: null,
+    tag: null,
+    pinned: false,
+    archivedAt: null,
+    viewedAt: null,
+    unread: false,
+    inApp: true,
+    profileId: 'default',
+    ...over,
+  });
+  const ids = (summaries: SessionSummary[], options: Parameters<typeof companionSessions>[1] = {}) =>
+    companionSessions({ summaries, live: [], hosts: [] }, { now, scope: 'all', ...options }).map((s) => s.id);
+
+  it('leaves out what the sidebar archived, by hand or after 48 hours', () => {
+    const list = [
+      summary('recent'),
+      summary('archived-unread', { archivedAt: now - 30_000, updatedAt: now - 60_000, unread: true }),
+      summary('news-since-archived', { archivedAt: now - 90_000 }),
+      summary('old', { updatedAt: now - RECENT_MS - 1 }),
+      summary('old-unread', { updatedAt: now - RECENT_MS - 1, unread: true }),
+      summary('old-pinned', { updatedAt: now - RECENT_MS - 1, pinned: true, archivedAt: now }),
+    ];
+    expect(ids(list)).toEqual(['recent', 'news-since-archived', 'old-unread', 'old-pinned']);
+  });
+
+  it('lists only sessions from Switchboard under its default scope', () => {
+    const list = [summary('app'), summary('terminal', { inApp: false })];
+    expect(ids(list, { scope: 'switchboard' })).toEqual(['app']);
+    expect(ids(list, { scope: 'all' })).toEqual(['app', 'terminal']);
+  });
+
+  it('keeps the session open in Switchboard', () => {
+    const list = [summary('open', { archivedAt: now, inApp: false })];
+    expect(ids(list, { scope: 'switchboard' })).toEqual([]);
+    expect(ids(list, { scope: 'switchboard', keep: 'open' })).toEqual(['open']);
   });
 });
