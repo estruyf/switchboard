@@ -65,7 +65,8 @@ export interface PaletteContext {
   split: boolean;
   /** Null while the focus limit is off. */
   focusLimit: number | null;
-  laterCount: number;
+  /** The queue: how many items, how many are ready, and the first ready one ("Start next in queue"). */
+  queue: { count: number; readyCount: number; firstReady: { id: string; prompt: string } | null };
   projectCount: number;
   /** The project a "New session in …" starts in: the open session's, else the sidebar's filter. */
   currentProject: { root: string; name: string } | null;
@@ -82,5 +83,5 @@ export interface PaletteContext {
   sidebar: SidebarState;
   settingsSection: SettingsSection;
   /** New session is on screen: what its route can do. */
-  newSession: { canWorktree: boolean; canSaveDefaults: boolean; canSaveForLater: boolean; canCatchUp: boolean } | null;
+  newSession: { canWorktree: boolean; canSaveDefaults: boolean; canQueue: boolean; canCatchUp: boolean } | null;
 }

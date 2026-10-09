@@ -88,6 +88,10 @@ console.log(`${String(result.newSessionResult).startsWith('ok') ? '✓' : '✗'}
 if (!String(result.newSessionResult).startsWith('ok')) process.exitCode = 1;
 console.log(`${String(result.deepLinkResult).startsWith('ok') ? '✓' : '✗'} links: ${result.deepLinkResult}`);
 if (!String(result.deepLinkResult).startsWith('ok')) process.exitCode = 1;
+console.log(`${String(result.queueResult).startsWith('ok') ? '✓' : '✗'} queue: ${result.queueResult}`);
+if (!String(result.queueResult).startsWith('ok')) process.exitCode = 1;
+console.log(`${String(result.sectionsResult).startsWith('ok') ? '✓' : '✗'} collapsible sections: ${result.sectionsResult}`);
+if (!String(result.sectionsResult).startsWith('ok')) process.exitCode = 1;
 console.log(`${result.quitGuarded ? '✓' : '✗'} ⌘Q asks first, Cancel keeps the app open, a second ⌘Q quits`);
 console.log(`${result.settingsResult === 'ok' ? '✓' : '✗'} settings: theme, sidebar style, session scope, tool activity, startup and quit prompt apply at once and are saved${result.settingsResult === 'ok' ? '' : ` (${result.settingsResult})`}`);
 console.log(`${String(result.focusResult).startsWith('ok') ? '✓' : '✗'} focus limit: Settings › Focus turns on the counter, shown in light and dark, with its list: ${result.focusResult}`);

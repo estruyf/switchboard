@@ -1,8 +1,10 @@
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { DatabaseSync } from 'node:sqlite';
 import { afterEach, describe, expect, it } from 'vitest';
 import { openCacheDatabase } from '../db/database.ts';
+import { migrations } from '../db/migrations.ts';
 import { LaterStore } from './laterStore.ts';
 
 const dirs: string[] = [];
@@ -13,7 +15,7 @@ const cachePath = () => {
   return join(dir, 'cache.sqlite');
 };
 
-describe('Later list', () => {
+describe('queue (the Later list)', () => {
   it('saves a prompt with the choices it would start with, and fills in the rest', () => {
     const cache = openCacheDatabase(cachePath());
     const later = new LaterStore(cache.db);
@@ -28,22 +30,82 @@ describe('Later list', () => {
       baseRef: 'fresh',
       branch: null,
       profileId: 'work',
+      position: 0,
+      waitFor: { kind: 'project' },
     });
     expect(item.id).toMatch(/^[0-9a-f-]{36}$/);
     expect(later.list()).toEqual([item]);
     cache.close();
   });
 
-  it('lists newest first, all of them or one project', () => {
+  it('adds at the end and lists in queue order, all of them or one project', () => {
     const cache = openCacheDatabase(cachePath());
     const later = new LaterStore(cache.db);
-    const a = later.add({ cwd: '/work/web', prompt: 'First' }, { createdAt: 1 });
+    // Queue order, not age: the newest was added first.
+    const a = later.add({ cwd: '/work/web', prompt: 'First' }, { createdAt: 3 });
     const b = later.add({ cwd: '/work/api', prompt: 'Second' }, { createdAt: 2 });
-    const c = later.add({ cwd: '/work/web', prompt: 'Third' }, { createdAt: 3 });
-    expect(later.list().map((i) => i.id)).toEqual([c.id, b.id, a.id]);
-    expect(later.list('/work/web').map((i) => i.prompt)).toEqual(['Third', 'First']);
+    const c = later.add({ cwd: '/work/web', prompt: 'Third' }, { createdAt: 1 });
+    expect(later.list().map((i) => [i.id, i.position])).toEqual([
+      [a.id, 0],
+      [b.id, 1],
+      [c.id, 2],
+    ]);
+    expect(later.list('/work/web').map((i) => i.prompt)).toEqual(['First', 'Third']);
     expect(later.list('/work/api').map((i) => i.prompt)).toEqual(['Second']);
     expect(later.list('/work/other')).toEqual([]);
+    cache.close();
+  });
+
+  it('reorders, clamping the index, and keeps positions 0..n-1', () => {
+    const cache = openCacheDatabase(cachePath());
+    const later = new LaterStore(cache.db);
+    const [a, , c] = ['A', 'B', 'C'].map((prompt) => later.add({ cwd: '/work/web', prompt }));
+    expect(later.reorder(c!.id, 0)).toBe(true);
+    expect(later.list().map((i) => i.prompt)).toEqual(['C', 'A', 'B']);
+    expect(later.reorder(c!.id, 99)).toBe(true);
+    expect(later.list().map((i) => i.prompt)).toEqual(['A', 'B', 'C']);
+    later.reorder(a!.id, 1);
+    expect(later.list().map((i) => [i.prompt, i.position])).toEqual([
+      ['B', 0],
+      ['A', 1],
+      ['C', 2],
+    ]);
+    expect(later.reorder('missing', 0)).toBe(false);
+    cache.close();
+  });
+
+  it('changes what an item waits for, and defaults to its project', () => {
+    const cache = openCacheDatabase(cachePath());
+    const later = new LaterStore(cache.db);
+    const first = later.add({ cwd: '/work/web', prompt: 'First' });
+    const second = later.add({ cwd: '/work/web', prompt: 'Second' }, { waitFor: { kind: 'item', itemId: first.id } });
+    expect(first.waitFor).toEqual({ kind: 'project' });
+    expect(second.waitFor).toEqual({ kind: 'item', itemId: first.id });
+    expect(later.update(first.id, { waitFor: { kind: 'session', sessionId: 's-1' } })?.waitFor).toEqual({ kind: 'session', sessionId: 's-1' });
+    expect(later.update(first.id, { waitFor: { kind: 'none' } })?.waitFor).toEqual({ kind: 'none' });
+    expect(later.update(first.id, { waitFor: { kind: 'project' } })?.waitFor).toEqual({ kind: 'project' });
+    expect(later.update('missing', { waitFor: { kind: 'none' } })).toBeNull();
+    cache.close();
+  });
+
+  it('takes a started item off the queue and remembers its session while another item waits on it', () => {
+    const cache = openCacheDatabase(cachePath());
+    const later = new LaterStore(cache.db);
+    const first = later.add({ cwd: '/work/web', prompt: 'First' });
+    const second = later.add({ cwd: '/work/web', prompt: 'Second' }, { waitFor: { kind: 'item', itemId: first.id } });
+    const third = later.add({ cwd: '/work/web', prompt: 'Third' });
+    later.started(first.id, 'session-1');
+    expect(later.list().map((i) => [i.prompt, i.position])).toEqual([
+      ['Second', 0],
+      ['Third', 1],
+    ]);
+    expect(later.startedLinks()).toEqual([{ itemId: first.id, sessionId: 'session-1' }]);
+    // Nothing waits on the third one: its link isn't kept.
+    later.started(third.id, 'session-3');
+    expect(later.startedLinks()).toEqual([{ itemId: first.id, sessionId: 'session-1' }]);
+    later.started(second.id, 'session-2');
+    expect(later.list()).toEqual([]);
+    expect(later.startedLinks()).toEqual([]);
     cache.close();
   });
 
@@ -51,13 +113,16 @@ describe('Later list', () => {
     const cache = openCacheDatabase(cachePath());
     const later = new LaterStore(cache.db);
     const older = later.add({ cwd: '/work/web', prompt: 'Older' }, { createdAt: 1 });
-    const removed = later.add({ cwd: '/work/web', prompt: 'Middle', effort: 'high' }, { createdAt: 2 });
+    const removed = later.add({ cwd: '/work/web', prompt: 'Middle', effort: 'high' }, { createdAt: 2, waitFor: { kind: 'none' } });
     later.add({ cwd: '/work/web', prompt: 'Newer' }, { createdAt: 3 });
     later.remove(removed.id);
-    expect(later.list().map((i) => i.prompt)).toEqual(['Newer', 'Older']);
-    const { id, createdAt, ...draft } = removed;
-    expect(later.add(draft, { id, createdAt })).toEqual(removed);
-    expect(later.list().map((i) => i.prompt)).toEqual(['Newer', 'Middle', 'Older']);
+    expect(later.list().map((i) => [i.prompt, i.position])).toEqual([
+      ['Older', 0],
+      ['Newer', 1],
+    ]);
+    const { id, createdAt, position, waitFor, ...draft } = removed;
+    expect(later.add(draft, { id, createdAt, index: position, waitFor })).toEqual(removed);
+    expect(later.list().map((i) => i.prompt)).toEqual(['Older', 'Middle', 'Newer']);
     // Removing something that is already gone is fine.
     later.remove('missing');
     later.remove(older.id);
@@ -74,15 +139,45 @@ describe('Later list', () => {
     cache.close();
   });
 
+  it('turns saved prompts into queue items, oldest first, when upgrading', () => {
+    const path = cachePath();
+    const old = new DatabaseSync(path);
+    for (const migration of migrations.slice(0, 15)) old.exec(migration);
+    old.exec('PRAGMA user_version = 15');
+    const insert = old.prepare('INSERT INTO later_prompts (id, cwd, prompt, settings_json, created_at) VALUES (?, ?, ?, ?, ?)');
+    insert.run('newest', '/work/web', 'Newest', '{"model":"opus"}', 30);
+    insert.run('oldest', '/work/api', 'Oldest', '{}', 10);
+    insert.run('b-middle', '/work/web', 'Middle B', '{"workspace":"worktree"}', 20);
+    insert.run('a-middle', '/work/web', 'Middle A', '{}', 20);
+    old.close();
+    const cache = openCacheDatabase(path);
+    const items = new LaterStore(cache.db).list();
+    expect(items.map((i) => [i.id, i.position, i.waitFor.kind])).toEqual([
+      ['oldest', 0, 'project'],
+      ['a-middle', 1, 'project'],
+      ['b-middle', 2, 'project'],
+      ['newest', 3, 'project'],
+    ]);
+    expect(items.find((i) => i.id === 'newest')).toMatchObject({ model: 'opus', createdAt: 30 });
+    expect(items.find((i) => i.id === 'b-middle')).toMatchObject({ workspace: 'worktree' });
+    cache.close();
+  });
+
   it('survives a cache rebuild and a restart', () => {
     const path = cachePath();
     const first = openCacheDatabase(path);
-    const saved = new LaterStore(first.db).add({ cwd: '/work/web', prompt: 'Keep me', branch: 'feature/a' });
+    const store = new LaterStore(first.db);
+    const saved = store.add({ cwd: '/work/web', prompt: 'Keep me', branch: 'feature/a' });
+    const after = store.add({ cwd: '/work/web', prompt: 'After it' }, { waitFor: { kind: 'item', itemId: saved.id } });
+    store.reorder(after.id, 0);
     // What a rebuild throws away: the session cache and the search index, all derived from ~/.claude.
     first.db.exec('DELETE FROM sessions; DELETE FROM transcript_fts; DELETE FROM transcript_indexed;');
     first.close();
     const second = openCacheDatabase(path);
-    expect(new LaterStore(second.db).list()).toEqual([saved]);
+    expect(new LaterStore(second.db).list()).toEqual([
+      { ...after, position: 0 },
+      { ...saved, position: 1 },
+    ]);
     second.close();
   });
 
@@ -90,10 +185,16 @@ describe('Later list', () => {
     const cache = openCacheDatabase(cachePath());
     const later = new LaterStore(cache.db);
     later.add({ cwd: '/work/web', prompt: 'Fine' }, { createdAt: 1 });
-    cache.db.prepare('INSERT INTO later_prompts (id, cwd, prompt, settings_json, created_at) VALUES (?, ?, ?, ?, ?)').run('odd', '/work/web', 'Odd', '{"permissionMode":"sideways"}', 5);
-    cache.db.prepare('INSERT INTO later_prompts (id, cwd, prompt, settings_json, created_at) VALUES (?, ?, ?, ?, ?)').run('broken', '/work/web', 'Broken', 'not json', 6);
-    // Unreadable settings fall back to the defaults; an invalid value drops the row.
-    expect(later.list().map((i) => i.prompt)).toEqual(['Broken', 'Fine']);
+    const insert = cache.db.prepare('INSERT INTO later_prompts (id, cwd, prompt, settings_json, created_at, position, wait_json) VALUES (?, ?, ?, ?, ?, ?, ?)');
+    insert.run('odd', '/work/web', 'Odd', '{"permissionMode":"sideways"}', 5, 1, null);
+    insert.run('broken', '/work/web', 'Broken', 'not json', 6, 2, null);
+    insert.run('odd-wait', '/work/web', 'Odd wait', '{}', 7, 3, '{"kind":"someday"}');
+    // Unreadable settings fall back to the defaults; an invalid value drops the row; an unknown wait is the project.
+    expect(later.list().map((i) => [i.prompt, i.waitFor.kind])).toEqual([
+      ['Fine', 'project'],
+      ['Broken', 'project'],
+      ['Odd wait', 'project'],
+    ]);
     cache.close();
   });
 });

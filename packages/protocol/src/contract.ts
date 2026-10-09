@@ -36,7 +36,7 @@ import { Capabilities } from './capabilities.ts';
 import { ProfileColor, ProfilesSnapshot } from './profiles.ts';
 import { ClaudeUpdateState } from './claudeUpdate.ts';
 import { BackupSectionSchema, FolderMapping, ImportMode, ImportPreview } from './backup.ts';
-import { LaterDraft, LaterItem } from './later.ts';
+import { LaterDraft, LaterItem, QueueStarted, QueueWaitFor } from './later.ts';
 import { PROJECT_NAME_MAX } from './projectConstants.ts';
 
 export const ClaudeInstall = z.object({
@@ -432,15 +432,40 @@ export const contract = {
      */
     'terminal.restart': { params: z.object({ id: z.string() }), result: TerminalInfo },
 
-    // --- Later list ----------------------------------------------------------------------------
-    /** Prompts saved for later, newest first; only one folder's with `cwd`. */
-    'later.list': { params: z.object({ cwd: AbsolutePath.optional() }), result: z.object({ items: z.array(LaterItem) }) },
-    /** Saves a prompt for later. `id` and `createdAt` put a removed item back as it was (Undo). */
+    // --- Queue (the Later list, as it was first called) -------------------------------------------
+    /**
+     * The queue in order, first to start first; only one folder's with `cwd`. `started` maps queued items that
+     * were started to their sessions, for the items still waiting on them.
+     */
+    'later.list': { params: z.object({ cwd: AbsolutePath.optional() }), result: z.object({ items: z.array(LaterItem), started: z.array(QueueStarted) }) },
+    /**
+     * Queues a prompt, at the end unless `index` says where. `id`, `createdAt`, `index` and `waitFor` put a removed
+     * item back as it was (Undo).
+     */
     'later.add': {
-      params: z.object({ draft: LaterDraft, id: z.string().min(1).max(100).optional(), createdAt: z.number().optional() }),
+      params: z.object({
+        draft: LaterDraft,
+        id: z.string().min(1).max(100).optional(),
+        createdAt: z.number().optional(),
+        index: z.number().int().min(0).optional(),
+        waitFor: QueueWaitFor.optional(),
+      }),
       result: z.object({ item: LaterItem }),
     },
-    'later.remove': { params: z.object({ id: z.string().min(1).max(100) }), result: z.object({}) },
+    /**
+     * Takes an item off the queue. `startedAs`: it was started another way (edited in New session first), as this
+     * session; items waiting on it follow that session.
+     */
+    'later.remove': { params: z.object({ id: z.string().min(1).max(100), startedAs: z.string().min(1).max(100).optional() }), result: z.object({}) },
+    /** Moves an item to `toIndex` in the queue (clamped to its length). */
+    'later.reorder': { params: z.object({ id: z.string().min(1).max(100), toIndex: z.number().int().min(0) }), result: z.object({}) },
+    /** Changes what an item waits for. NOT_FOUND when it is gone. */
+    'later.update': { params: z.object({ id: z.string().min(1).max(100), waitFor: QueueWaitFor.optional() }), result: z.object({ item: LaterItem }) },
+    /**
+     * Starts a queued item: the session is created from its draft exactly as New session creates one, then the
+     * item leaves the queue. The focus limit's gate is the caller's (the UI asks before calling this).
+     */
+    'later.start': { params: z.object({ id: z.string().min(1).max(100) }), result: z.object({ sessionId: z.string() }) },
 
     // --- Settings backup -----------------------------------------------------------------------
     /** Writes the chosen kinds of user choices (never the cache) to a settings file. */
@@ -516,8 +541,8 @@ export const contract = {
     /** Full list whenever terminals start, exit or close. */
     'terminals.changed': z.object({ terminals: z.array(TerminalInfo) }),
     'claudeUpdate.changed': ClaudeUpdateState,
-    /** The whole Later list, newest first, whenever an item is added or removed. */
-    'later.changed': z.object({ items: z.array(LaterItem) }),
+    /** The whole queue, in order, whenever an item is added, moved, changed, started or removed. */
+    'later.changed': z.object({ items: z.array(LaterItem), started: z.array(QueueStarted) }),
     /** Skills were reloaded: ask for slash command lists again. */
     'commands.changed': z.object({}),
     /** Settings were imported: reload projects and actions. */

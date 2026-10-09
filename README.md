@@ -26,6 +26,7 @@ It uses the Claude Code you already have installed, with your login, settings, c
 - Select several sessions with ⌘-click or ⇧-click to archive or unarchive them together.
 - See at a glance which sessions are **working**, **waiting for you**, **finished** or **unread**.
 - Filter by one of your projects, filter by title, and pin the sessions you keep coming back to.
+- Close a section of the sidebar (Working, Queue, Pinned, Today, Yesterday, Earlier) by clicking its header, or ← and → on it; ⌥-click closes or opens them all. A closed section keeps its count and says what's unread, and the session you have open stays visible under it.
 - **Search every conversation** (⌘⇧F): your prompts and Claude's replies across all sessions, with the matching words highlighted. Pick a result to jump straight to that message.
 - **Find in a conversation** (⌘F): every match in the session you're reading is highlighted; ↩ and ⇧↩ step through them.
 - Give each project an icon. Switchboard picks one up from the repo when it can (a logo or favicon).
@@ -51,6 +52,7 @@ It uses the Claude Code you already have installed, with your login, settings, c
 
 **Stay on top of things**
 - A notification and Dock badge when a session needs you or finishes, so you can leave it running in the background.
+- A **queue** of prompts to start next, each one saying when it's ready (when its project is free). See [Queue](#queue).
 - An optional **focus limit**: how many sessions you want going at the same time, so starting another doesn't come at the cost of the ones already running. See [Focus limit](#focus-limit).
 - Your plan usage under the message box: how much of your 5-hour and weekly limits you've used (hover for when they reset).
 
@@ -189,6 +191,13 @@ Press **⌘/** (or Help › Keyboard Shortcuts) to see every shortcut in the app
 | ⌘⌫ | Delete the session (in the sidebar, to the Trash) |
 | ⌥-click | Open beside the current session (in the sidebar) |
 | Middle-click | Archive a finished session (in the sidebar) |
+| ← or → | Close or open a section (on a section header in the sidebar) |
+| ⌥-click | Close or open every section (on a section header in the sidebar) |
+| ⌘↩ | Start a queued item now (on a queued item, in the sidebar or Home) |
+| ⌘E | Edit a queued item in New session (on a queued item, in the sidebar or Home) |
+| ⌥↑ or ⌥↓ | Move a queued item up or down (on a queued item, in the sidebar or Home) |
+| ⌥⇧↑ | Move a queued item to the top (on a queued item, in the sidebar or Home) |
+| ⌫ | Remove a queued item (on a queued item, in the sidebar or Home; Undo puts it back) |
 | ⇧F10 | Open the context menu (on a session, project or file; or right-click) |
 | ⌘\\ | Close the other pane (with two panes open) |
 
@@ -234,6 +243,7 @@ Press **⌘/** (or Help › Keyboard Shortcuts) to see every shortcut in the app
 |---|---|
 | ⌘1 to ⌘9 | Pick a recent project |
 | ⌘↩ | Start the session |
+| ⌘⇧↩ | Add the prompt to the queue (Starts when you say so) |
 
 **Settings**
 
@@ -293,11 +303,27 @@ Turn it on in **Settings → Focus** and choose a number (1 to 10). A counter at
 
 **At the limit**, New session lists the sessions that count, each with **Open**, and Start asks first:
 - **Nudge** (the default): you can start anyway.
-- **Strict**: finish, read or archive a session first, or save the prompt for later.
+- **Strict**: finish, read or archive a session first, or add the prompt to the [queue](#queue).
 
 Everything that starts work asks the same way: a message that brings back a session that isn't counted, a fork, a prompt action, or Claude in the terminal. Answering a session that already counts, stopping, archiving, reviewing changes and committing are never held up.
 
-**Later list.** *Save for later* keeps the prompt with its project and settings (model, effort, mode, branch or worktree) instead of starting it. Saved prompts are listed under **Later** in the sidebar and under *Later in <project>* in New session, newest first. Pick one (or **Use**) to fill in New session so you can check it before you start it; starting it takes it off the list. Removing one doesn't ask: **Undo** brings it back. Images you attached aren't saved with the prompt.
+## Queue
+
+The queue holds prompts you want to start later, in the order you want them. It never starts anything by itself: it tells you when an item is ready, and you start it.
+
+**Add to the queue.** In New session, write the prompt and click **Add to queue** (⌘⇧↩) next to Start. The prompt is kept with its project and settings (model, effort, mode, branch or worktree), the box empties and you stay in New session to write the next one. The command palette's New session step has a **Queue** button too, and *Add to queue…* in the palette opens New session. Images you attached aren't kept with the prompt.
+
+**When it's ready.** Each item waits for something:
+- **Any session in this project** (the default): it's ready once nothing is working or waiting for you in its project (worktrees of the project included).
+- **A session**: ready when that session finishes or is closed.
+- **The item above it**: ready once that item has been started and its session has finished.
+- **Nothing (start it myself)**: it stays queued and is never marked ready.
+
+When the project you picked in New session has a session working, a line under the message box says what the prompt would wait for; **Wait for…** changes it. For a queued item, it's in its menu.
+
+**Where it shows.** The **Queue** section in the sidebar sits right under Working. Ready items have a green tint and a **Start** button; the others show what they wait for, with Start on hover. Home has a Queue card with every item. When an item turns ready because a session finished, a message in the corner says so ("switchboard is free") with **Start it** and **Review first**, and the "Claude finished" notification names what's next in the queue.
+
+**Working with items.** Click an item to open it in New session, filled in, to check or change it first; it stays queued until you start it or add it again. **Start** starts it straight away, through the focus limit. Right-click an item (or ⋯ on Home) for Start now, Edit in New session…, Wait for…, Move to top, Move up and down, and Remove. Drag an item to reorder it, or use ⌥↑ and ⌥↓. Removing one doesn't ask: **Undo** brings it back. *Start next in queue* and *Queue: pick one to start…* are in the command palette.
 
 ## Back up and move your settings
 

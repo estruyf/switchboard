@@ -69,14 +69,14 @@ const Slot = ({ children }: { children: ReactNode }) => (
 );
 
 /** A command: icon, title, then its shortcut or a note, and a chevron when it asks for more. */
-export function CommandRow({ icon: Icon, title, indices, shortcut, hint, next, commandId, ...common }: Common & { icon: LucideIcon; title: string; indices: number[]; shortcut?: string; hint?: string; next: boolean; commandId: string }) {
+export function CommandRow({ icon: Icon, title, indices, shortcut, hint, hintTone, next, commandId, ...common }: Common & { icon: LucideIcon; title: string; indices: number[]; shortcut?: string; hint?: string; hintTone?: 'ok'; next: boolean; commandId: string }) {
   return (
     <RowShell {...common} data-palette-command={commandId}>
       <Slot>
         <Icon size={14} />
       </Slot>
       <Highlight className="min-w-0 flex-1 truncate text-body" text={title} indices={indices} />
-      {hint && <span className="shrink-0 text-meta text-faint">{hint}</span>}
+      {hint && <span className={`max-w-[45%] shrink-0 truncate text-meta ${hintTone === 'ok' ? 'text-ok' : 'text-faint'}`}>{hint}</span>}
       {shortcut && <Kbd keys={shortcut} />}
       {next && <ChevronRight size={13} className="shrink-0 text-faint" aria-hidden />}
     </RowShell>

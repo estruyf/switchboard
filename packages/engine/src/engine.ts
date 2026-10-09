@@ -18,6 +18,7 @@ import {
   type SlashCommand,
   type SystemInfo,
   type Transport,
+  worktreeSlug,
 } from '@switchboard/protocol';
 import { LiveRegistry } from './claude/liveRegistry.ts';
 import { createProjectResolver } from './claude/projectResolver.ts';
@@ -403,9 +404,10 @@ export function createEngine(options: EngineOptions): Engine {
   };
 
   const actions = new ActionStore(cache.db);
+  /** The queue (first called the Later list). */
   const later = new LaterStore(cache.db);
-  /** Every window keeps the whole Later list: tell them all after a change. */
-  const laterChanged = () => broadcast('later.changed', { items: later.list() });
+  /** Every window keeps the whole queue: tell them all after a change. */
+  const laterChanged = () => broadcast('later.changed', { items: later.list(), started: later.startedLinks() });
 
   /** Runs an action's command in a terminal tab of the session and returns the terminal id. */
   const runShellAction = async (sessionId: string, cwd: string, name: string, command: string) =>
@@ -504,6 +506,30 @@ export function createEngine(options: EngineOptions): Engine {
       } else activity.set(s.projectRoot, { count: 1, lastActivity: s.updatedAt });
     }
     return activity;
+  };
+
+  /** Starts a new session: New session's `session.create`, and a queued item starting (`later.start`). */
+  const createSession = async (params: Parameters<Handlers<Contract>['session.create']>[0]) => {
+    if (!existsSync(params.cwd)) throw new RpcError('NOT_FOUND', `Folder not found: ${params.cwd}`);
+    if (params.worktree && !resolver.resolve(params.cwd).gitDir) {
+      throw new RpcError('NOT_A_REPO', 'Worktrees need a git repository');
+    }
+    const { checkoutBranch, profileId: chosenProfile, ...create } = params;
+    const profileId = requireProfile(chosenProfile ?? folderProfile(params.cwd));
+    if (checkoutBranch) {
+      if (params.worktree) throw new RpcError('INVALID', 'A new worktree gets its own branch; choose the current folder to check out a branch');
+      // Only a real switch changes files under another session; starting on the branch already checked out is fine.
+      const { current } = await listBranches(params.cwd).catch(() => ({ current: null }));
+      if (current !== checkoutBranch) await assertCheckoutIdle(params.cwd);
+      try {
+        await switchBranch(params.cwd, checkoutBranch);
+      } catch (error) {
+        throw new RpcError('GIT_FAILED', `Could not check out ${checkoutBranch}: ${(error as Error).message}`);
+      }
+    }
+    const worktree = params.worktree;
+    const setup = worktree ? (id: string) => worktreeSetup(id, params.cwd, worktree.name)?.() ?? Promise.resolve() : undefined;
+    return { sessionId: await hosts.create({ ...create, profileId, ...(setup ? { beforeFirstMessage: setup } : {}) }) };
   };
 
   const handlers: Handlers<Contract> = {
@@ -672,28 +698,7 @@ export function createEngine(options: EngineOptions): Engine {
     },
 
     'hosts.list': () => hosts.list(),
-    'session.create': async (params) => {
-      if (!existsSync(params.cwd)) throw new RpcError('NOT_FOUND', `Folder not found: ${params.cwd}`);
-      if (params.worktree && !resolver.resolve(params.cwd).gitDir) {
-        throw new RpcError('NOT_A_REPO', 'Worktrees need a git repository');
-      }
-      const { checkoutBranch, profileId: chosenProfile, ...create } = params;
-      const profileId = requireProfile(chosenProfile ?? folderProfile(params.cwd));
-      if (checkoutBranch) {
-        if (params.worktree) throw new RpcError('INVALID', 'A new worktree gets its own branch; choose the current folder to check out a branch');
-        // Only a real switch changes files under another session; starting on the branch already checked out is fine.
-        const { current } = await listBranches(params.cwd).catch(() => ({ current: null }));
-        if (current !== checkoutBranch) await assertCheckoutIdle(params.cwd);
-        try {
-          await switchBranch(params.cwd, checkoutBranch);
-        } catch (error) {
-          throw new RpcError('GIT_FAILED', `Could not check out ${checkoutBranch}: ${(error as Error).message}`);
-        }
-      }
-      const worktree = params.worktree;
-      const setup = worktree ? (id: string) => worktreeSetup(id, params.cwd, worktree.name)?.() ?? Promise.resolve() : undefined;
-      return { sessionId: await hosts.create({ ...create, profileId, ...(setup ? { beforeFirstMessage: setup } : {}) }) };
-    },
+    'session.create': createSession,
     'session.send': async (params) => {
       const sent = await hosts.send(params);
       if (sent.sessionId === params.sessionId) sessions.wake(params.sessionId);
@@ -821,16 +826,47 @@ export function createEngine(options: EngineOptions): Engine {
       actionRuns.set(terminalId, { sessionId, projectRoot, cwd, id });
       return { kind: 'terminal' as const, terminalId };
     },
-    'later.list': ({ cwd }) => ({ items: later.list(cwd) }),
-    'later.add': ({ draft, id, createdAt }) => {
-      const item = later.add(draft, { ...(id ? { id } : {}), ...(createdAt !== undefined ? { createdAt } : {}) });
+    'later.list': ({ cwd }) => ({ items: later.list(cwd), started: later.startedLinks() }),
+    'later.add': ({ draft, id, createdAt, index, waitFor }) => {
+      const item = later.add(draft, { id, createdAt, index, waitFor });
       laterChanged();
       return { item };
     },
-    'later.remove': ({ id }) => {
-      later.remove(id);
+    'later.remove': ({ id, startedAs }) => {
+      if (startedAs) later.started(id, startedAs);
+      else later.remove(id);
       laterChanged();
       return {};
+    },
+    'later.reorder': ({ id, toIndex }) => {
+      if (!later.reorder(id, toIndex)) throw new RpcError('NOT_FOUND', 'That item is no longer in the queue');
+      laterChanged();
+      return {};
+    },
+    'later.update': ({ id, waitFor }) => {
+      const item = later.update(id, { waitFor });
+      if (!item) throw new RpcError('NOT_FOUND', 'That item is no longer in the queue');
+      laterChanged();
+      return { item };
+    },
+    'later.start': async ({ id }) => {
+      const item = later.get(id);
+      if (!item) throw new RpcError('NOT_FOUND', 'That item is no longer in the queue');
+      // The same path as New session: its folder, choices and route, the worktree named from the prompt.
+      const { sessionId } = await createSession({
+        cwd: item.cwd,
+        prompt: item.prompt,
+        attachments: [],
+        model: item.model,
+        permissionMode: item.permissionMode,
+        effort: item.effort,
+        worktree: item.workspace === 'worktree' ? { name: worktreeSlug(item.prompt), baseRef: item.baseRef } : null,
+        profileId: item.profileId,
+        checkoutBranch: item.workspace === 'worktree' ? null : item.branch,
+      });
+      later.started(id, sessionId);
+      laterChanged();
+      return { sessionId };
     },
     'search.query': async ({ query, limit }) => ({ hits: search.search(query, limit), indexing: { ...search.progress } }),
     'git.changes': async ({ cwd, base }) => {

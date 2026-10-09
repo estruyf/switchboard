@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import type { LaterItem, LiveSession, SessionHostInfo } from '@switchboard/protocol/client';
 import { toRows, useSessions, type SessionRowData } from './sessionsStore.ts';
-import { archivesOnMiddleClick, buildListRows, buildSessionList, groupSessions, inScope, isActive, laterInList, RECENT_MS, rowStatus, sessionGroup, sessionsByHeader, startOfDay, startupSession, waitingLabel } from './sidebarRows.ts';
+import type { QueueEntry } from './queue.ts';
+import { archivesOnMiddleClick, buildListRows, buildSessionList, groupSessions, headerSummary, inScope, isActive, RECENT_MS, rowStatus, sectionOfSession, sessionGroup, sessionsByHeader, startOfDay, startupSession, waitingLabel } from './sidebarRows.ts';
+import { closedSections, DEFAULT_SECTIONS, parseSections, toggleAllSections } from './sidebarSections.ts';
 
 const NOW = Date.UTC(2026, 9, 5, 12);
 const HOUR = 3_600_000;
@@ -210,12 +212,14 @@ describe('buildListRows', () => {
   const shape = (rows: ReturnType<typeof buildListRows>) =>
     rows.map((r) =>
       r.kind === 'session'
-        ? r.data.id
+        ? `${r.data.id}${r.kept ? ' (kept)' : ''}`
         : r.kind === 'group'
-          ? `[${r.group} ${r.count}${r.first ? ' first' : ''}]`
-          : r.kind === 'later'
-            ? `later:${r.item.prompt}`
-            : `[${r.kind === 'later-header' ? 'later' : 'archived'} ${r.count} ${r.open ? 'open' : 'closed'}${r.kind === 'later-header' && r.first ? ' first' : ''}]`,
+          ? `[${r.group} ${r.count}${r.first ? ' first' : ''}${r.open ? '' : ' closed'}]`
+          : r.kind === 'queue'
+            ? `queue:${r.entry.item.prompt}`
+            : r.kind === 'hidden'
+              ? `+${r.count} hidden`
+              : `[${r.kind === 'queue-header' ? 'queue' : 'archived'} ${r.count} ${r.open ? 'open' : 'closed'}${r.kind === 'queue-header' && r.first ? ' first' : ''}]`,
     );
   const saved = (prompt: string, cwd = '/p/a'): LaterItem => ({
     id: prompt,
@@ -229,7 +233,11 @@ describe('buildListRows', () => {
     branch: null,
     profileId: null,
     createdAt: NOW,
+    position: 0,
+    waitFor: { kind: 'project' },
   });
+  const entry = (prompt: string, state: QueueEntry['state'] = 'waiting'): QueueEntry => ({ item: saved(prompt), state, label: null, detail: null, blockers: [] });
+  const queueOf = (...prompts: string[]) => ({ entries: prompts.map((p) => entry(p)), ready: 0 });
 
   it('puts a header above each section and the Archived toggle last', () => {
     expect(shape(buildListRows(active, archived, { now: NOW, archivedOpen: false }))).toEqual(['[working 1 first]', 'busy', '[today 2]', 'a', 'b', '[archived 1 closed]']);
@@ -243,40 +251,96 @@ describe('buildListRows', () => {
     expect(shape(buildListRows([], archived, { now: NOW, archivedOpen: true }))).toEqual(['[archived 1 open]', 'old']);
   });
 
-  it('puts prompts saved for later between the sections and Archived, collapsible', () => {
-    const later = { items: [saved('Monthly export'), saved('Speaker notes')], open: true };
-    expect(shape(buildListRows(active, archived, { now: NOW, archivedOpen: false, later }))).toEqual([
+  it('puts the Queue right under Working, above Pinned, and only when it has items', () => {
+    const pinned = row('pin', { pinned: true, updatedAt: midnight + 3 * HOUR });
+    const queue = queueOf('Monthly export', 'Speaker notes');
+    expect(shape(buildListRows([...active, pinned], archived, { now: NOW, archivedOpen: false, queue }))).toEqual([
       '[working 1 first]',
       'busy',
+      '[queue 2 open]',
+      'queue:Monthly export',
+      'queue:Speaker notes',
+      '[pinned 1]',
+      'pin',
       '[today 2]',
       'a',
       'b',
-      '[later 2 open]',
-      'later:Monthly export',
-      'later:Speaker notes',
       '[archived 1 closed]',
     ]);
-    expect(shape(buildListRows([], [], { now: NOW, archivedOpen: false, later: { ...later, open: false } }))).toEqual(['[later 2 closed first]']);
-    expect(shape(buildListRows(active, [], { now: NOW, archivedOpen: false, later: { items: [], open: true } }))).toEqual(['[working 1 first]', 'busy', '[today 2]', 'a', 'b']);
+    // Without Working, it takes Working's place: after Needs you, before the rest.
+    const waiting = row('ask', { live: live('needs-you') });
+    expect(shape(buildListRows([waiting, active[1]!], [], { now: NOW, archivedOpen: false, queue }))).toEqual(['[needs-you 1 first]', 'ask', '[queue 2 open]', 'queue:Monthly export', 'queue:Speaker notes', '[today 1]', 'a']);
+    expect(shape(buildListRows([], [], { now: NOW, archivedOpen: false, queue }))).toEqual(['[queue 2 open first]', 'queue:Monthly export', 'queue:Speaker notes']);
+    expect(shape(buildListRows(active, [], { now: NOW, archivedOpen: false, queue: { entries: [], ready: 0 } }))).toEqual(['[working 1 first]', 'busy', '[today 2]', 'a', 'b']);
   });
 
-  it('never offers saved prompts to Select all', () => {
-    const rows = buildListRows(active, archived, { now: NOW, archivedOpen: true, later: { items: [saved('Idea')], open: true } });
+  it('never offers queued prompts to Select all', () => {
+    const rows = buildListRows(active, archived, { now: NOW, archivedOpen: true, queue: queueOf('Idea') });
     expect([...sessionsByHeader(rows)]).toEqual([['working', ['busy']], ['today', ['a', 'b']], ['archived', ['old']]]);
   });
 
-  it('filters saved prompts by project and search', () => {
-    const items = [saved('Monthly export', '/p/web'), saved('Speaker notes', '/p/demo')];
-    expect(laterInList(items, { search: '', project: null })).toHaveLength(2);
-    expect(laterInList(items, { search: '', project: '/p/demo' }).map((i) => i.prompt)).toEqual(['Speaker notes']);
-    expect(laterInList(items, { search: 'EXPORT', project: null }).map((i) => i.prompt)).toEqual(['Monthly export']);
-    expect(laterInList(items, { search: 'web', project: null }).map((i) => i.prompt)).toEqual(['Monthly export']);
+  it('skips the rows of closed sections and keeps their headers and counts', () => {
+    const closed = new Set(['working', 'today', 'queue'] as const);
+    expect(shape(buildListRows(active, [], { now: NOW, archivedOpen: false, queue: queueOf('Idea'), closed }))).toEqual(['[working 1 first closed]', '[queue 1 closed]', '[today 2 closed]']);
+    // Needs you never closes.
+    const waiting = row('ask', { live: live('needs-you') });
+    expect(shape(buildListRows([waiting], [], { now: NOW, archivedOpen: false, closed: new Set(['working']) }))).toEqual(['[needs-you 1 first]', 'ask']);
+  });
+
+  it('keeps the open session under its closed header, with how many are hidden', () => {
+    const closed = new Set(['today'] as const);
+    expect(shape(buildListRows(active, [], { now: NOW, archivedOpen: false, closed, selectedId: 'b' }))).toEqual(['[working 1 first]', 'busy', '[today 2 closed]', 'b (kept)', '+1 hidden']);
+    // The only session in it: nothing else is hidden.
+    expect(shape(buildListRows(active, [], { now: NOW, archivedOpen: false, closed: new Set(['working']), selectedId: 'busy' }))).toEqual(['[working 1 first closed]', 'busy (kept)', '[today 2]', 'a', 'b']);
+  });
+
+  it('sums up a header: ready items on the Queue, unread sessions on a closed section', () => {
+    const unread = [row('u1', { unread: true, updatedAt: midnight + HOUR }), row('u2', { unread: true, updatedAt: midnight + 2 * HOUR }), row('r', { updatedAt: midnight + 3 * HOUR })];
+    const rows = buildListRows(unread, [], { now: NOW, archivedOpen: false, queue: { entries: [entry('Idea', 'ready')], ready: 1 }, closed: new Set(['today']) });
+    const headers = rows.filter((r) => r.kind === 'group' || r.kind === 'queue-header');
+    expect(headers.map((h) => headerSummary(h))).toEqual([
+      { text: '1 ready', tone: 'ok' },
+      { text: '2 unread', tone: 'unread' },
+    ]);
+    // Open, a section says nothing more than its count; the Queue says nothing with none ready.
+    const open = buildListRows(unread, [], { now: NOW, archivedOpen: false, queue: queueOf('Idea') });
+    expect(open.filter((r) => r.kind === 'group' || r.kind === 'queue-header').map((h) => headerSummary(h))).toEqual([null, null]);
+  });
+
+  it('finds the section a session sits in', () => {
+    const all = [...active, ...archived];
+    expect(sectionOfSession(all, 'busy', NOW)).toBe('working');
+    expect(sectionOfSession(all, 'a', NOW)).toBe('today');
+    expect(sectionOfSession(all, 'old', NOW)).toBeNull();
+    expect(sectionOfSession(all, 'missing', NOW)).toBeNull();
   });
 
   it('lists the sessions under each header, for Select all', () => {
     const open = sessionsByHeader(buildListRows(active, archived, { now: NOW, archivedOpen: true }));
     expect([...open]).toEqual([['working', ['busy']], ['today', ['a', 'b']], ['archived', ['old']]]);
     expect(sessionsByHeader(buildListRows(active, archived, { now: NOW, archivedOpen: false })).get('archived')).toEqual([]);
+  });
+});
+
+describe('sidebar sections', () => {
+  it('starts with Earlier closed and reads the saved state leniently', () => {
+    expect(parseSections(null)).toEqual(DEFAULT_SECTIONS);
+    expect(DEFAULT_SECTIONS.earlier).toBe(false);
+    expect(parseSections({ open: { today: false, earlier: true, 'needs-you': false, queue: 'no' } })).toEqual({ ...DEFAULT_SECTIONS, today: false, earlier: true });
+    expect(parseSections('garbage')).toEqual(DEFAULT_SECTIONS);
+  });
+
+  it('shows every section while searching or filtering by project, then the saved state again', () => {
+    const open = { ...DEFAULT_SECTIONS, today: false };
+    expect([...closedSections(open, { search: '', project: null })].sort()).toEqual(['earlier', 'today']);
+    expect([...closedSections(open, { search: 'export', project: null })]).toEqual([]);
+    expect([...closedSections(open, { search: '', project: '/p/a' })]).toEqual([]);
+    expect([...closedSections(open, { search: '  ', project: null })].sort()).toEqual(['earlier', 'today']);
+  });
+
+  it('opens or closes every section at once from one header', () => {
+    expect(Object.values(toggleAllSections(DEFAULT_SECTIONS, 'today')).every((on) => !on)).toBe(true);
+    expect(Object.values(toggleAllSections(DEFAULT_SECTIONS, 'earlier')).every((on) => on)).toBe(true);
   });
 });
 

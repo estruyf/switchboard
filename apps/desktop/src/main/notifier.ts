@@ -1,8 +1,9 @@
 import { app, MessageChannelMain, Notification, type BrowserWindow } from 'electron';
-import { createRpcClient, type Contract, type RpcClient } from '@switchboard/protocol/client';
+import { createRpcClient, type Contract, type LaterItem, type QueueStarted, type RpcClient } from '@switchboard/protocol/client';
 import { mainPortTransport } from '../shared/mainPortTransport.ts';
 import { Attention, type AttentionEvent } from './attention.ts';
 import type { EngineProcess } from './engineProcess.ts';
+import { queueHint } from './queueHint.ts';
 
 export interface NotifierOptions {
   engine: EngineProcess;
@@ -25,6 +26,8 @@ export class Notifier {
   private readonly attention: Attention;
   /** Notifications must be referenced until closed, or macOS drops their click handlers. */
   private readonly shown = new Set<Notification>();
+  /** The queue, so a finished turn can say what is next there. */
+  private queue: { items: LaterItem[]; started: QueueStarted[] } = { items: [], started: [] };
 
   constructor(private readonly options: NotifierOptions) {
     this.attention = new Attention({ external: options.showAllSessions });
@@ -48,6 +51,8 @@ export class Notifier {
     });
     client.on('sessions.live', ({ live }) => this.handle(this.attention.onLive(live)));
     client.on('terminals.changed', ({ terminals }) => this.handle(this.attention.onTerminals(terminals)));
+    client.on('later.changed', (queue) => void (this.queue = queue));
+    void client.call('later.list', {}).then((queue) => void (this.queue = queue), () => {});
 
     // Seed state silently: only changes from here on deserve a notification.
     void Promise.all([client.call('sessions.list', {}), client.call('hosts.list', {}), client.call('terminal.list', {})])
@@ -74,7 +79,9 @@ export class Notifier {
       }
       if (suppressed) continue;
       if (Notification.isSupported()) {
-        const notification = new Notification({ title: event.title, body: event.body });
+        // A finished turn says what is next in the queue there, rather than a second notification.
+        const hint = event.kind === 'finished' ? queueHint(this.queue.items, this.queue.started, { sessionId: event.sessionId, cwd: event.cwd ?? null }) : null;
+        const notification = new Notification({ title: event.title, body: hint ? `${event.body}\n${hint}` : event.body });
         notification.on('click', () => this.options.openSession(event.sessionId));
         notification.on('close', () => this.shown.delete(notification));
         this.shown.add(notification);

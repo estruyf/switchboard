@@ -10,7 +10,7 @@ import { onFirstLine, onLastLine, textareaRows } from './caretLine.ts';
 import { PromptHistory, recallAnnouncement, routeArrow, type Recall } from './promptHistory.ts';
 import { tokenAtCaret } from './tokens.ts';
 import { useAttachments } from './useAttachments.ts';
-import { ariaKeysFor, formatKeys, keysFor, matches } from '../../lib/shortcuts.ts';
+import { ariaKeysFor, formatKeys, keysFor, matches, type ShortcutId } from '../../lib/shortcuts.ts';
 
 type PaletteItem = { value: string; label: string; detail: string };
 interface Palette {
@@ -58,6 +58,11 @@ export interface ComposerProps {
   dropHint?: boolean;
   /** Called with the prompt's text whenever it changes (typing, completions, presets, sending). */
   onTextChange?(text: string): void;
+  /**
+   * A second way to send what is in the box, left of the main button (New session's Add to queue), with its own
+   * shortcut. Like `onSubmit`, returning `false` keeps the prompt; otherwise the box empties.
+   */
+  secondary?: { label: string; icon: ReactNode; shortcut: ShortcutId; onSubmit(text: string): Promise<void | false>; data?: Record<`data-${string}`, string | boolean> };
   /** Returning `false` means nothing was sent (the focus limit asked and you cancelled): the prompt stays as it is. */
   onSubmit(text: string, attachments: ImageAttachment[], requested?: boolean): Promise<void | false> | void | false;
   onInterrupt?(): void;
@@ -185,8 +190,8 @@ export function Composer(props: ComposerProps) {
     requestAnimationFrame(() => el.setSelectionRange(position, position));
   };
 
-  /** `requested`: sent through `submitRequest` rather than Enter or the button. */
-  const submit = async (requested = false) => {
+  /** `requested`: sent through `submitRequest` rather than Enter or the button. `send`: the secondary action instead of `onSubmit`. */
+  const submit = async (requested = false, send: (value: string, attachments: ImageAttachment[]) => Promise<void | false> | void | false = (value, sent) => props.onSubmit(value, sent, requested)) => {
     if (sending || props.disabledReason) return;
     const sentText = text;
     const value = text.trim();
@@ -196,7 +201,7 @@ export function Composer(props: ComposerProps) {
     setNotice(null);
     closePalette();
     try {
-      if ((await props.onSubmit(value, sentAttachments, requested)) === false) return;
+      if ((await send(value, sentAttachments)) === false) return;
       // The box stays editable while sending: keep whatever was typed or attached in the meantime.
       setText((current) => textAfterSend(current, sentText));
       history.current!.reset();
@@ -274,7 +279,10 @@ export function Composer(props: ComposerProps) {
         return;
       }
     }
-    if (matches(event.nativeEvent, 'composer.send')) {
+    if (props.secondary && matches(event.nativeEvent, props.secondary.shortcut)) {
+      event.preventDefault();
+      void submitSecondary();
+    } else if (matches(event.nativeEvent, 'composer.send')) {
       event.preventDefault();
       void submit();
     } else if (matches(event.nativeEvent, 'claude.stop') && props.running) {
@@ -289,6 +297,7 @@ export function Composer(props: ComposerProps) {
   };
 
   const disabled = !!props.disabledReason;
+  const submitSecondary = () => (props.secondary ? submit(false, (value) => props.secondary!.onSubmit(value)) : Promise.resolve());
 
   return (
     <div ref={rootRef} className="relative">
@@ -425,6 +434,20 @@ export function Composer(props: ComposerProps) {
             {props.running && props.onInterrupt && (
               <Button size="lg" icon={<span className="size-2 rounded-[2px] bg-current" aria-hidden />} shortcut="claude.stop" kbdHideNarrow onClick={props.onInterrupt} data-tooltip={`Stop Claude (${formatKeys(keysFor('claude.stop'))})`} data-composer-stop>
                 Stop
+              </Button>
+            )}
+            {props.secondary && (
+              <Button
+                size="lg"
+                icon={props.secondary.icon}
+                shortcut={props.secondary.shortcut}
+                kbdHideNarrow
+                onClick={() => void submitSecondary()}
+                disabled={disabled || sending || !text.trim()}
+                className="disabled:pointer-events-none"
+                {...props.secondary.data}
+              >
+                {props.secondary.label}
               </Button>
             )}
             {/* A disabled button gets no hover, so the reason it's unavailable sits on this wrapper. */}

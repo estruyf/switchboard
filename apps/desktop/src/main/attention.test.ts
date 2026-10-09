@@ -57,7 +57,7 @@ describe('Attention', () => {
     a.setTitle('s1', 'Fix login');
     expect(a.onHost(host('idle'))).toEqual([]);
     expect(a.onHost(host('running'))).toEqual([]);
-    expect(a.onHost(host('idle'))).toEqual([{ kind: 'finished', sessionId: 's1', title: 'Claude finished', body: 'Fix login · app' }]);
+    expect(a.onHost(host('idle'))).toEqual([{ kind: 'finished', sessionId: 's1', title: 'Claude finished', body: 'Fix login · app', cwd: expect.any(String) }]);
     expect(a.onHost(host('idle'))).toEqual([]);
   });
 

@@ -1,14 +1,14 @@
 import { GitBranchPlus, Search, SquarePen } from 'lucide-react';
 import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 import { FOCUS_LIMIT_MAX, FOCUS_LIMIT_MIN } from '@switchboard/protocol/bridge';
-import type { LaterItem } from '@switchboard/protocol/client';
 import { useEngineConnection } from '../../engine/useEngine.ts';
 import { basename, guessHome, shortAge, tildify } from '../../lib/format.ts';
 import { fuzzyMatch } from '../../lib/fuzzy.ts';
 import { findModelOption } from '../../lib/models.ts';
 import { MODE_CHOICES, MODE_DOT, MODE_LABEL } from '../../lib/modes.ts';
 import { useHosts } from '../../state/hostsStore.ts';
-import { useLater } from '../../state/laterStore.ts';
+import { startQueued } from '../../state/laterStore.ts';
+import { useQueue } from '../../state/useQueue.ts';
 import { useOverlay } from '../../state/overlayStore.ts';
 import { formatKeys, keysFor, shortcutById } from '../../lib/shortcuts.ts';
 import { usePaletteBus } from '../../state/paletteBus.ts';
@@ -26,7 +26,7 @@ import { Dialog } from '../ui/Dialog.tsx';
 import { Kbd } from '../ui/Kbd.tsx';
 import { Pill } from '../ui/Pill.tsx';
 import { SectionHeader } from '../ui/SectionHeader.tsx';
-import { arrangeCommands, recentCommands, rememberCommand, visibleCommands, type CommandSection, type PaletteCommand } from './commands.ts';
+import { arrangeCommands, hintOf, recentCommands, rememberCommand, visibleCommands, type CommandSection, type PaletteCommand } from './commands.ts';
 import { gotoGroups, matchProjects, matchSessions } from './gotoItems.ts';
 import { createPaletteApi } from './paletteApi.ts';
 import type { PaletteContext } from './paletteContext.ts';
@@ -81,7 +81,7 @@ const PICK_PLACEHOLDER: Record<PickList, string> = {
   fork: 'Fork from where',
   rewind: 'Undo file changes since which message',
   'focus-limit': 'How many sessions at once',
-  later: 'Pick a saved prompt',
+  queue: 'Pick a queued prompt to start',
 };
 /** What a command that asks for more shows next, on its row while it's highlighted. */
 const NEXT_HINT: Record<PaletteStep['kind'], string> = { projects: 'picks a project next', prompt: 'write the prompt next', pick: 'pick one next' };
@@ -141,7 +141,7 @@ export function CommandPalette() {
   const scope = usePreferences((s) => s.prefs.sessionScope);
   const projectOrder = usePreferences((s) => s.prefs.projectOrder);
   const focusLimit = usePreferences((s) => s.prefs.focusLimit);
-  const laterItems = useLater((s) => s.items);
+  const queue = useQueue();
   const digest = usePaletteBus((s) => s.digest);
   const home = useMemo(() => guessHome(projects.keys()), [projects]);
   const nameOf = (root: string) => projects.get(root)?.name ?? basename(root);
@@ -225,7 +225,7 @@ export function CommandPalette() {
       return rows.length ? [{ id: list, label: PICK_PLACEHOLDER[list].replace(/^Pick (a |an )?/, ''), rows }] : [];
     }
     // The pick lists and project rows read these; the functions above are only called from here.
-  }, [state, step, ctx, sessionRows, projectRoots, projectOrder, projects, models, hosts, focusLimit, laterItems, digest]);
+  }, [state, step, ctx, sessionRows, projectRoots, projectOrder, projects, models, hosts, focusLimit, queue, digest]);
 
   /** The choices of a pick step, the current one marked. */
   function pickOptions(list: PickList): Option[] {
@@ -259,8 +259,14 @@ export function CommandPalette() {
           title: n === 1 ? '1 session' : `${n} sessions`,
           current: focusLimit === n,
         }));
-      case 'later':
-        return laterItems.map((item: LaterItem) => ({ value: item.id, title: firstLine(item.prompt), detail: `${nameOf(item.cwd)} · ${shortAge(item.createdAt)}` }));
+      case 'queue':
+        // In queue order, each with its state: ready ones in green, waiting ones with what they wait for.
+        return queue.entries.map(({ item, state, label }) => ({
+          value: item.id,
+          title: firstLine(item.prompt),
+          detail: [nameOf(item.cwd), state === 'queued' ? `queued ${shortAge(item.createdAt)}` : state === 'ready' ? `Ready · ${label}` : label].filter(Boolean).join(' · '),
+          dot: state === 'ready' ? 'bg-ok' : state === 'waiting' ? 'bg-faint' : undefined,
+        }));
     }
   }
 
@@ -304,9 +310,9 @@ export function CommandPalette() {
         rememberLimit(Number(value));
         usePreferences.getState().update({ focusLimit: Number(value) });
         return;
-      case 'later': {
-        const item = laterItems.find((i) => i.id === value);
-        if (item) useLater.getState().use(item);
+      case 'queue': {
+        const entry = queue.entries.find((e) => e.item.id === value);
+        if (entry) void startQueued(entry.item);
         return;
       }
     }
@@ -548,7 +554,8 @@ function RowView({
           title={row.title}
           indices={row.indices}
           shortcut={command.shortcut}
-          hint={command.hint ?? (active && next ? NEXT_HINT[next.kind] : undefined)}
+          hint={hintOf(command, ctx) || (active && next ? NEXT_HINT[next.kind] : undefined)}
+          hintTone={command.hintTone}
           next={next !== null || command.mode !== undefined}
         />
       );

@@ -1,4 +1,4 @@
-import { Bookmark, X } from 'lucide-react';
+import { ListEnd, X } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { TOAST_MS, useToasts, type Toast } from '../../state/toastStore.ts';
 import { Button } from './Button.tsx';
@@ -8,7 +8,7 @@ function ToastCard({ toast }: { toast: Toast }) {
   const dismiss = () => useToasts.getState().dismiss(toast.id);
   const [hovered, setHovered] = useState(false);
   const [windowFocused, setWindowFocused] = useState(() => document.hasFocus());
-  const left = useRef(TOAST_MS);
+  const left = useRef(toast.durationMs ?? TOAST_MS);
 
   useEffect(() => {
     const on = () => setWindowFocused(true);
@@ -32,6 +32,16 @@ function ToastCard({ toast }: { toast: Toast }) {
     };
   }, [running]);
 
+  const lead = (
+    <>
+      {toast.icon === 'queue' && <ListEnd size={14} className="shrink-0 text-muted" aria-hidden />}
+      {toast.dot && <span className="size-2 shrink-0 rounded-full" style={{ background: toast.dot }} aria-hidden />}
+      {toast.tone === 'ok' && <span className="size-2 shrink-0 rounded-full bg-ok" aria-hidden />}
+    </>
+  );
+  const close = <Button variant="quiet" size="sm" iconOnly icon={<X size={13} aria-hidden />} aria-label="Dismiss" onClick={dismiss} className="shrink-0" />;
+  const card = !!toast.body || !!toast.actions?.length;
+
   return (
     <div
       role="status"
@@ -44,27 +54,57 @@ function ToastCard({ toast }: { toast: Toast }) {
         event.stopPropagation();
         dismiss();
       }}
-      className="pointer-events-auto flex min-h-11 w-[360px] max-w-[calc(100vw-32px)] items-center gap-2.5 rounded-xl border overlay py-1.5 pr-1.5 pl-3.5 text-ui text-text"
+      className={`pointer-events-auto flex w-[360px] max-w-[calc(100vw-32px)] rounded-xl border overlay text-ui text-text ${card ? 'flex-col gap-1.5 py-2.5 pr-2 pl-3.5' : 'min-h-11 items-center gap-2.5 py-1.5 pr-1.5 pl-3.5'}`}
       data-toast
+      {...toast.data}
     >
-      {toast.icon === 'bookmark' && <Bookmark size={14} className="shrink-0 text-muted" aria-hidden />}
-      {toast.dot && <span className="size-2 shrink-0 rounded-full" style={{ background: toast.dot }} aria-hidden />}
-      <span className="min-w-0 flex-1 truncate">{toast.message}</span>
-      {toast.undo && (
-        // In the link colour, like the sidebar's Select all: the one thing to do with a toast.
-        <button
-          type="button"
-          onClick={() => {
-            toast.undo?.();
-            dismiss();
-          }}
-          className="shrink-0 rounded px-1.5 text-ui font-semibold text-link hover:underline"
-          data-toast-undo
-        >
-          Undo
-        </button>
+      {card ? (
+        <>
+          <div className="flex min-w-0 items-center gap-2.5">
+            {lead}
+            <span className="min-w-0 flex-1 truncate font-semibold">{toast.message}</span>
+            {close}
+          </div>
+          {toast.body && <p className="pr-2 text-ui text-muted">{toast.body}</p>}
+          {toast.actions?.length ? (
+            <div className="mt-1 flex items-center gap-2">
+              {toast.actions.map((action) => (
+                <Button
+                  key={action.label}
+                  variant={action.primary ? 'primary' : 'secondary'}
+                  onClick={() => {
+                    dismiss();
+                    action.onSelect();
+                  }}
+                  {...action.data}
+                >
+                  {action.label}
+                </Button>
+              ))}
+            </div>
+          ) : null}
+        </>
+      ) : (
+        <>
+          {lead}
+          <span className="min-w-0 flex-1 truncate">{toast.message}</span>
+          {toast.undo && (
+            // In the link colour, like the sidebar's Select all: the one thing to do with a toast.
+            <button
+              type="button"
+              onClick={() => {
+                toast.undo?.();
+                dismiss();
+              }}
+              className="shrink-0 rounded px-1.5 text-ui font-semibold text-link hover:underline"
+              data-toast-undo
+            >
+              Undo
+            </button>
+          )}
+          {close}
+        </>
       )}
-      <Button variant="quiet" size="sm" iconOnly icon={<X size={13} aria-hidden />} aria-label="Dismiss" onClick={dismiss} />
     </div>
   );
 }

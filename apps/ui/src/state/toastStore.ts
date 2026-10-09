@@ -1,18 +1,38 @@
 import { create } from 'zustand';
 
+/** A button on a toast: the one thing to do about it ("Start it"), or a second choice ("Review first"). */
+export interface ToastAction {
+  label: string;
+  /** The yellow fill; one per toast at most. */
+  primary?: boolean;
+  onSelect(): void;
+  /** Test hooks. */
+  data?: Record<`data-${string}`, string | boolean>;
+}
+
 /**
- * A minimal toast: a short line in the window's corner, with an optional Undo, that goes away by itself.
- * Only what the Later list needs; #14 (toasts with Undo everywhere) can replace it with its own API.
+ * A toast in the window's corner that goes away by itself: one line with an optional Undo, or (with `body` or
+ * `actions`) a small card with a title, a sentence and its buttons. #14 (toasts everywhere) can grow this further.
  */
 export interface Toast {
   id: number;
+  /** The line, or the card's title. */
   message: string;
-  /** A small icon before the message (saved for later). */
-  icon?: 'bookmark';
+  /** A small icon before the message (added to the queue). */
+  icon?: 'queue';
   /** A coloured dot before the message instead (a theme's accent); a validated colour value. */
   dot?: string;
+  /** A status dot in a theme colour: `ok` for something that became free. */
+  tone?: 'ok';
+  /** The card's sentence under the title. */
+  body?: string;
   /** A one-click way back, for about five seconds. */
   undo?: () => void;
+  actions?: ToastAction[];
+  /** How long it stays while visible; `TOAST_MS` when left out. */
+  durationMs?: number;
+  /** Test hooks on the toast itself. */
+  data?: Record<`data-${string}`, string | boolean>;
 }
 
 /** How long a toast stays while visible (the timer pauses on hover and while the window is in the background). */
@@ -38,4 +58,4 @@ export const useToasts = create<ToastState>()((set) => ({
 }));
 
 /** Shows a toast; returns its id. */
-export const toast = (message: string, options: Pick<Toast, 'undo' | 'icon' | 'dot'> = {}) => useToasts.getState().show({ message, ...options });
+export const toast = (message: string, options: Omit<Toast, 'id' | 'message'> = {}) => useToasts.getState().show({ message, ...options });

@@ -42,19 +42,21 @@ export function currentVerdict(target: string | null = null): FocusVerdict {
   return focusVerdict(counted, prefs, target);
 }
 
-/** How the person answered the dialog: start anyway, keep the prompt and do nothing, save it for later, or open a session. */
+/** How the person answered the dialog: start anyway, keep the prompt and do nothing, add it to the queue, or open a session. */
 export type GateChoice = { kind: 'start' } | { kind: 'cancel' } | { kind: 'later' } | { kind: 'open'; sessionId: string };
 
-/** The dialog on screen: the verdict it shows, and whether this start can be saved for later. */
+/** The dialog on screen: the verdict it shows, and whether this start can wait in the queue instead. */
 export interface GateRequest {
   verdict: Exclude<FocusVerdict, { kind: 'allowed' }>;
   canSaveForLater: boolean;
+  /** What the queue button says: "Add to queue", or "Keep it queued" for an item started from the queue. */
+  saveLabel: string;
   resolve(choice: GateChoice): void;
 }
 
 export const useFocusGate = create<{ request: GateRequest | null }>()(() => ({ request: null }));
 
-/** What the caller should do after the gate: start, stop (the prompt stays where it is), or the prompt was saved for later. */
+/** What the caller should do after the gate: start, stop (the prompt stays where it is), or the prompt went to the queue. */
 export type GateOutcome = 'start' | 'stop' | 'saved';
 
 /**
@@ -62,9 +64,9 @@ export type GateOutcome = 'start' | 'stop' | 'saved';
  * yet (which brings it back), project actions that prompt Claude, and Claude in the terminal. Under the
  * limit (or with it off) it answers at once. At the limit it asks in an alertdialog and never starts
  * silently over it: Nudge can start anyway, Strict can't. `target` is the session the work goes to (null
- * for a new one); `saveForLater` is offered when the start has a prompt that can wait.
+ * for a new one); `saveForLater` is offered when the start has a prompt that can wait in the queue, as `saveLabel`.
  */
-export async function passFocusGate(options: { target?: string | null; saveForLater?: () => Promise<unknown> } = {}): Promise<GateOutcome> {
+export async function passFocusGate(options: { target?: string | null; saveForLater?: () => Promise<unknown>; saveLabel?: string } = {}): Promise<GateOutcome> {
   const verdict = currentVerdict(options.target ?? null);
   if (verdict.kind === 'allowed') return 'start';
   // One question at a time: a second start while the dialog is open waits for nothing and stops.
@@ -74,6 +76,7 @@ export async function passFocusGate(options: { target?: string | null; saveForLa
       request: {
         verdict,
         canSaveForLater: !!options.saveForLater,
+        saveLabel: options.saveLabel ?? 'Add to queue',
         resolve: (choice) => {
           useFocusGate.setState({ request: null });
           resolve(choice);

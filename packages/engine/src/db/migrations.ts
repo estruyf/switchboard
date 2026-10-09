@@ -238,4 +238,23 @@ export const migrations: readonly string[] = [
   `
   ALTER TABLE project_settings ADD COLUMN name TEXT;
   `,
+
+  // v16: the Later list becomes the queue: an order of its own, and what each item waits for (NULL: any session in
+  // its project). Saved prompts keep their place by age, oldest first. Started items remember their session, so an
+  // item waiting on one follows it. User choices: keep them.
+  `
+  ALTER TABLE later_prompts ADD COLUMN position INTEGER NOT NULL DEFAULT 0;
+  ALTER TABLE later_prompts ADD COLUMN wait_json TEXT;
+  UPDATE later_prompts SET position = (
+    SELECT COUNT(*) FROM later_prompts AS older
+    WHERE older.created_at < later_prompts.created_at OR (older.created_at = later_prompts.created_at AND older.id < later_prompts.id)
+  );
+  DROP INDEX later_prompts_cwd;
+  CREATE INDEX later_prompts_position ON later_prompts (position);
+  CREATE TABLE later_started (
+    item_id    TEXT PRIMARY KEY,
+    session_id TEXT NOT NULL,
+    started_at INTEGER NOT NULL
+  );
+  `,
 ];

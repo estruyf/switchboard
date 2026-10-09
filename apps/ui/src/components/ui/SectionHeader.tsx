@@ -1,5 +1,5 @@
 import { ChevronRight } from 'lucide-react';
-import type { HTMLAttributes, ReactNode } from 'react';
+import type { HTMLAttributes, MouseEvent, ReactNode } from 'react';
 import { CountBadge } from './Pill.tsx';
 
 export type SectionTone = 'neutral' | 'needs-you' | 'working';
@@ -19,8 +19,11 @@ interface SectionHeaderProps extends Omit<HTMLAttributes<HTMLDivElement>, 'child
   level?: number;
   /** The heading's id, for `aria-labelledby`. */
   headingId?: string;
-  /** Collapsible: the label becomes a button with a chevron. `data` holds its hooks. */
-  toggle?: { expanded: boolean; onToggle(): void; tooltip?: string; data?: Record<`data-${string}`, string | boolean | undefined> };
+  /**
+   * Collapsible: the label becomes a button with a chevron. `data` holds its hooks. `leading` puts the chevron in
+   * the gutter before the label (the sidebar's sections), shown on hover and focus, and always while closed.
+   */
+  toggle?: { expanded: boolean; onToggle(event: MouseEvent<HTMLButtonElement>): void; tooltip?: string; leading?: boolean; data?: Record<`data-${string}`, string | boolean | undefined> };
   /** At the end of the row, such as "Select all". */
   action?: ReactNode;
 }
@@ -44,11 +47,18 @@ export function SectionHeader({ children, tone = 'neutral', count, as, level = 2
       onClick={toggle.onToggle}
       aria-expanded={toggle.expanded}
       data-tooltip={toggle.tooltip}
-      className="flex h-full min-w-0 flex-1 items-center gap-1.5 rounded-md text-left uppercase hover:text-text"
+      className={`group/toggle flex h-full min-w-0 flex-1 items-center gap-1.5 rounded-md text-left uppercase hover:text-text ${toggle.leading ? 'relative' : ''}`}
       {...toggle.data}
     >
+      {toggle.leading && (
+        <ChevronRight
+          size={12}
+          className={`absolute right-full mr-0.5 shrink-0 transition-[transform,opacity] ${toggle.expanded ? 'rotate-90 opacity-0 group-hover/toggle:opacity-100 group-focus-visible/toggle:opacity-100' : ''}`}
+          aria-hidden
+        />
+      )}
       {label}
-      <ChevronRight size={13} className={`shrink-0 transition-transform ${toggle.expanded ? 'rotate-90' : ''}`} aria-hidden />
+      {!toggle.leading && <ChevronRight size={13} className={`shrink-0 transition-transform ${toggle.expanded ? 'rotate-90' : ''}`} aria-hidden />}
     </button>
   ) : (
     label
