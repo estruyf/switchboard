@@ -27,6 +27,8 @@ All notable changes to Switchboard are listed here. Each release is also on the 
 - A session whose conversation can't be read now says so, with **Show details** and **Try again**, instead of loading forever.
 - When the message box grows while you type a long prompt, the conversation stays scrolled to the end if it was there, so its last lines no longer hide under the box.
 - The terminal stays with the session you opened it in. Going to another session no longer shows an empty terminal there, and with two sessions side by side each keeps its own.
+- Images you attached in New session are still there, with your prompt, after you visit a session and come back. Clearing the prompt removes them too.
+- A message with several images shows them as small thumbnails side by side instead of one under the other at full width. Click one to see it full size.
 
 ## [0.0.11] - 2026-10-08
 

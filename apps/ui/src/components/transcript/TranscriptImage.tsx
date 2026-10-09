@@ -58,8 +58,8 @@ function Lightbox({ url, description, onClose }: { url: string; description: str
 
 const kb = (bytes: number) => (bytes > 1024 * 1024 ? `${(bytes / 1024 / 1024).toFixed(1)} MB` : `${Math.max(1, Math.round(bytes / 1024))} KB`);
 
-/** An image from the transcript: a thumbnail that opens full size. */
-export function TranscriptImage({ sessionId, image, maxHeight = 320 }: { sessionId: string; image: ImageRef; maxHeight?: number }) {
+/** An image from the transcript: a thumbnail that opens full size. `maxWidth` keeps several in a row (never wider than their column). */
+export function TranscriptImage({ sessionId, image, maxHeight = 320, maxWidth }: { sessionId: string; image: ImageRef; maxHeight?: number; maxWidth?: number }) {
   const { url, failed } = useImage(sessionId, image);
   const [open, setOpen] = useState(false);
   // No caption to go on, so describe what kind of image it is ("PNG image, 120 KB").
@@ -82,7 +82,7 @@ export function TranscriptImage({ sessionId, image, maxHeight = 320 }: { session
         data-transcript-image
       >
         {url ? (
-          <img src={url} alt={description} style={{ maxHeight }} className="block max-w-full object-contain" draggable={false} />
+          <img src={url} alt={description} style={{ maxHeight, maxWidth: maxWidth ? `min(100%, ${maxWidth}px)` : undefined }} className="block max-w-full object-contain" draggable={false} />
         ) : (
           <span className="block h-24 w-40 animate-pulse bg-border/40" />
         )}

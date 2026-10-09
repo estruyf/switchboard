@@ -2180,28 +2180,48 @@ async function runCopyMessageStep(win: BrowserWindow): Promise<string> {
 }
 
 /**
- * An unsent message survives opening another session and coming back. Read-only: nothing is sent, and
- * the box is emptied again at the end.
+ * An unsent message, and the image pasted with it, survive opening another session and coming back.
+ * Read-only: nothing is sent, and the box is emptied again at the end.
  */
 async function runDraftStep(win: BrowserWindow): Promise<string> {
   const js = (code: string) => win.webContents.executeJavaScript(code);
   const draft = 'Smoke draft, not sent';
   const composer = `document.querySelector('[data-current-session="${smokeSessionId}"] [data-composer]')`;
+  const thumbs = `document.querySelector('[data-current-session="${smokeSessionId}"] [data-attachments]')`;
   if (!(await waitInPage(win, `!!${composer}`, 3_000))) return 'no message box in the session under test';
   await setFieldValue(win, `[data-current-session="${smokeSessionId}"] [data-composer]`, draft);
+  await js(`(async () => {
+    const canvas = document.createElement('canvas');
+    canvas.width = canvas.height = 16;
+    const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/png'));
+    const data = new DataTransfer();
+    data.items.add(new File([blob], 'smoke.png', { type: 'image/png' }));
+    ${composer}.dispatchEvent(new ClipboardEvent('paste', { bubbles: true, cancelable: true, clipboardData: data }));
+  })()`);
+  if (!(await waitInPage(win, `!!${thumbs}?.querySelector('img')`, 2_000))) return (await setFieldValue(win, `[data-current-session="${smokeSessionId}"] [data-composer]`, ''), 'pasting an image in the message box did not attach it');
+  // Last first, so each click still names the image it removes (React drops them after the loop).
+  const removeImages = async () => {
+    await js(`[...(${thumbs}?.querySelectorAll('button') ?? [])].reverse().forEach((b) => b.click())`);
+    await waitInPage(win, `!${thumbs}`, 2_000);
+  };
   const other = (await js(
     `(() => { const row = [...document.querySelectorAll('[data-session-id]')].find((row) => row.dataset.sessionId !== '${smokeSessionId}'); row?.click(); return row?.dataset.sessionId ?? null; })()`,
   )) as string | null;
   if (!other) {
+    await removeImages();
     await setFieldValue(win, `[data-current-session="${smokeSessionId}"] [data-composer]`, '');
     return 'ok: only one session, nothing to switch to';
   }
   if (!(await waitInPage(win, `document.querySelector('[data-current-session="${other}"] [data-composer]')?.value === ''`, 5_000))) return 'the other session did not open with an empty message box';
+  if (await js(`!!document.querySelector('[data-current-session="${other}"] [data-attachments]')`)) return 'the other session opened with the pasted image';
   await js(`document.querySelector('[data-session-id="${smokeSessionId}"]').click()`);
   if (!(await waitInPage(win, `${composer}?.value === ${JSON.stringify(draft)}`, 5_000))) return `the draft was not kept (${JSON.stringify(await js(`${composer}?.value ?? null`))})`;
+  const kept = (await js(`${thumbs}?.querySelectorAll('img').length ?? 0`)) as number;
+  await removeImages();
   await setFieldValue(win, `[data-current-session="${smokeSessionId}"] [data-composer]`, '');
+  if (kept !== 1) return `the pasted image was not kept with the draft (${kept} images)`;
   await waitInPage(win, "document.querySelector('[data-transcript-item]')", 5_000);
-  return 'ok: the unsent message was still there after opening another session and coming back';
+  return 'ok: the unsent message and its image were still there after opening another session and coming back';
 }
 
 async function runSearchStep(win: BrowserWindow): Promise<string> {
