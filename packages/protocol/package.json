@@ -1,6 +1,7 @@
 {
   "name": "@switchboard/protocol",
   "version": "0.0.0",
+  "license": "MIT",
   "private": true,
   "type": "module",
   "exports": {
@@ -9,7 +10,8 @@
     "./bridge": "./src/bridge.ts",
     "./theme": "./src/theme.ts",
     "./theme-format": "./src/themeFormat.ts",
-    "./color": "./src/color.ts"
+    "./color": "./src/color.ts",
+    "./companion-client": "./src/companionClient.ts"
   },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json"

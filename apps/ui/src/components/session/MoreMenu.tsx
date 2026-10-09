@@ -1,7 +1,9 @@
-import { Bot, Ellipsis, Pencil, Sparkles, Square, Stethoscope } from 'lucide-react';
+import { Bot, Code, Ellipsis, Pencil, Sparkles, Square, Stethoscope } from 'lucide-react';
 import { useCallback, useRef, useState } from 'react';
 import { useEngineConnection } from '../../engine/useEngine.ts';
+import { useHosts } from '../../state/hostsStore.ts';
 import { usePaletteBus } from '../../state/paletteBus.ts';
+import { toast } from '../../state/toastStore.ts';
 import { useMultipleProfiles, useProfile } from '../../state/profilesStore.ts';
 import { useSessions } from '../../state/sessionsStore.ts';
 import { openTerminal } from '../../state/terminalsStore.ts';
@@ -57,6 +59,11 @@ export function MoreMenu({
   const client = connection.status === 'connected' ? connection.client : null;
 
   const openIn = useOpenInEntries(cwd);
+  const hasVSCode = useHosts((s) => s.editors.some((e) => e.id === 'vscode'));
+  const busy = useHosts((s) => {
+    const state = s.hosts.get(sessionId)?.state;
+    return state === 'starting' || state === 'running' || state === 'needs-you';
+  });
 
   // Claude Code's own terminal interface on this session, in the terminal panel: with the editors under "Open in", before Copy path.
   const claudeTui: MenuEntry = {
@@ -70,6 +77,22 @@ export function MoreMenu({
   const copyPath = openIn.entries.findIndex((e) => typeof e === 'object' && 'data' in e && e.data?.['data-copy-path']);
   const entries: MenuEntry[] = [...openIn.entries];
   entries.splice(copyPath < 0 ? entries.length : copyPath, 0, claudeTui);
+  // Hands the conversation to Claude Code's VS Code extension: it stops here, then opens there.
+  if (hasVSCode) {
+    entries.splice(entries.indexOf(claudeTui) + 1, 0, {
+      label: 'Continue in VS Code',
+      icon: <Code size={13} />,
+      disabled: !client || !cwd || title === null || busy,
+      onSelect: () =>
+        void client
+          ?.call('session.continueInEditor', { sessionId, editorId: 'vscode' })
+          .catch((error: Error) => toast(`Couldn't continue in VS Code: ${error.message}`)),
+      data: {
+        'data-continue-in-vscode': true,
+        'data-tooltip': busy ? 'Wait for Claude to finish first' : "Stop the session here and open it in Claude Code's VS Code extension, in this folder's window",
+      },
+    });
+  }
   entries.push('separator');
   entries.push(...actions.entries);
   if (actions.entries.length) entries.push('separator');

@@ -46,6 +46,8 @@ function context(over: Partial<PaletteContext> = {}): PaletteContext {
     settingsSection: 'general',
     newSession: null,
     questionsDir: '/data/questions',
+    composer: null,
+    canContinueInVSCode: false,
     ...over,
   };
 }

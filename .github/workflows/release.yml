@@ -13,6 +13,8 @@
 #
 # Nothing is ever attached unsigned: without the signing secrets the run fails.
 # See docs/building-and-signing.md for the secrets.
+#
+# Releases tagged vscode-vX.Y.Z are the VS Code companion's (release-vscode.yml); this workflow skips them.
 name: Release
 
 on:
@@ -29,6 +31,7 @@ concurrency:
 jobs:
   mac:
     name: Build, sign, notarise and attach the .dmg
+    if: ${{ !startsWith(github.event.release.tag_name, 'vscode-') }}
     runs-on: macos-15
     timeout-minutes: 60
     env:

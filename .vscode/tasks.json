@@ -1,0 +1,44 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Watch extension",
+      "detail": "Bundles the VS Code companion on every change and typechecks it (F5 starts this first)",
+      "dependsOn": ["Watch extension: bundle", "Watch extension: types"],
+      "problemMatcher": []
+    },
+    {
+      "label": "Watch extension: bundle",
+      "type": "npm",
+      "script": "watch",
+      "path": "apps/vscode-extension",
+      "isBackground": true,
+      "presentation": { "reveal": "never", "group": "extension" },
+      "problemMatcher": {
+        "owner": "esbuild",
+        "fileLocation": ["relative", "${workspaceFolder}/apps/vscode-extension"],
+        "pattern": {
+          "regexp": "^(.+?):(\\d+):(\\d+): (error|warning): (.*)$",
+          "file": 1,
+          "line": 2,
+          "column": 3,
+          "severity": 4,
+          "message": 5
+        },
+        "background": {
+          "activeAtBeginning": true,
+          "beginsPattern": "^\\[watch\\] build started",
+          "endsPattern": "^\\[watch\\] build finished"
+        }
+      }
+    },
+    {
+      "label": "Watch extension: types",
+      "type": "shell",
+      "command": "npx tsc -p apps/vscode-extension/tsconfig.json --watch --preserveWatchOutput",
+      "isBackground": true,
+      "presentation": { "reveal": "never", "group": "extension" },
+      "problemMatcher": "$tsc-watch"
+    }
+  ]
+}

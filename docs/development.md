@@ -21,7 +21,12 @@ npm run icon -w @switchboard/desktop   # regenerate the app icon from its SVG
 npm run dist       # package Switchboard.app and a .dmg (signed when a Developer ID is available)
 npm run dist:notarized   # sign, notarise and staple
 npm run smoke:packaged   # run the smoke test against the packaged app
+npm run dev:vscode       # rebuild the VS Code companion on every change
+npm run build:vscode     # build it once (apps/vscode-extension/dist)
+npm run package:vscode   # a .vsix in apps/vscode-extension
 ```
+
+To run the VS Code companion, open the repository in VS Code and press F5 (**Run Extension**): it starts the *Watch extension* task (bundle and typecheck) and opens this repository in an Extension Development Host. See [VS Code companion](vscode-companion.md#developing-the-extension).
 
 Packaging and signing are covered in [Building, signing and notarisation](building-and-signing.md).
 
@@ -79,14 +84,16 @@ The live smoke step drives the real window. It starts a session in that folder, 
 | `apps/ui` | React 19 renderer |
 | `packages/engine` | The engine: plain Node, no Electron imports. Cache DB and search index, Claude Code sessions, git, terminals, project actions, usage |
 | `packages/protocol` | zod contract + typed RPC over MessagePorts, shared by engine and UI |
+| `apps/vscode-extension` | The VS Code companion, which talks to the engine over a Unix socket. See [VS Code companion](vscode-companion.md) |
 | `spike/` | Phase 0 throwaway experiments against the Agent SDK |
 | `docs/` | These pages |
 
-`@switchboard/protocol` has three entry points:
+`@switchboard/protocol` has four main entry points:
 
 - `.` has everything, including the zod schemas. The engine uses it.
 - `./client` is the RPC client only, so the renderer bundle stays free of zod.
 - `./bridge` holds the IPC constants and preferences types for main and preload.
+- `./companion-client` is the VS Code companion's: its RPC client, the line transport for the socket and the companion contract's types, without zod.
 
 ## Preferences
 

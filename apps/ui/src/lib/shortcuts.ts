@@ -588,6 +588,15 @@ export const SHORTCUTS = [
     where: "composer",
   },
   {
+    id: "composer.add-context",
+    keys: ["mod+shift+a"],
+    action: "Add files as context",
+    section: "composer",
+    context: "Several at once; they show as chips",
+    when: inMessageBox,
+    where: "composer",
+  },
+  {
     id: "composer.history",
     keys: ["arrowup", "arrowdown"],
     action: "Bring back an earlier message",

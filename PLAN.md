@@ -251,7 +251,16 @@ Personal overrides shared, which overrides global. **Safety:** commands from a r
 - Ready logic is a pure module (`apps/ui/src/state/queue.ts`): busy means starting, running or needs you, measured on the rows the sidebar lists. Nothing starts by itself; the toast and the notification only say an item is ready.
 - Sidebar sections close (`sidebarSections.ts`, saved in app state as `ui.sidebarSections`); the open session's row stays under a closed header.
 
-### 5.9 Quick questions ✅
+### 5.9 VS Code companion and context tray ([#42](https://github.com/estruyf/switchboard/issues/42))
+
+- **Context tray** ✅: chips above the message box, kept in the drafts store with the draft (`context`), from drops, the `@` list, the Add context picker (⌘⇧A) and the companion. Sending turns them into `@path#L12-40` mentions and fenced text (`promptWithContext`).
+- **Socket and contract** ✅: `packages/engine/src/companion/` listens on a Unix socket with a token in `engine.json` (`0600` in `0700`); the contract is `packages/protocol/src/companion.ts` (`hello`, `sessions.list`, `sessions.watch`, `context.add`, `session.reveal`, `sessions.changed`). Windows report focus (`companion.focus`), receive `companion.context` and confirm with `companion.received`.
+- **Extension** ✅ (`apps/vscode-extension`): selection, file, Explorer multi-select, open editors and tab groups, problems, terminal selection, Source Control; the focused session or a quick pick with New session; a status bar item; launching Switchboard when it isn't running. Text from files excluded in VS Code, ignored by git or denied by `Read` rules is never sent.
+- **Continue in VS Code** ✅: `session.continueInEditor` stops the host, waits for it to exit, opens the folder, then `vscode://anthropic.claude-code/open?session=<id>`.
+- **Release** ✅: `release-vscode.yml` publishes to the Marketplace and Open VSX on a `vscode-v*` release, a `#release #vscode` commit on main, or by hand.
+- Later: "Ask about these lines" from the Changes panel, the terminal's selection or a failed action's output as chips, closing the Claude Code tab when continuing in Switchboard, and a test against the Claude Code extension's own `ide` server.
+
+### 5.10 Quick questions ✅
 
 - Sessions without a project, like a chat. They all run in one scratch folder the engine owns, `<dataDir>/questions` (so dev, smoke and the installed app each have their own), made when needed. `questions.folder` tells the UI its path. Claude Code sees an ordinary folder, so transcripts, resume, fork and search need no special cases.
 - **Never a project:** `projects.list` leaves the folder out, and `projects.add`, `rename`, `setIcon`, `setProfile` and `setDefaults` refuse it (INVALID). `session.create` refuses a worktree or branch there.

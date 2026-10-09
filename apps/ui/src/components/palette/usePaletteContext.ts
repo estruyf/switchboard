@@ -16,6 +16,7 @@ import { isActive } from '../../state/sidebarRows.ts';
 import { useSidebar } from '../../state/sidebarStore.ts';
 import { useTerminals } from '../../state/terminalsStore.ts';
 import { useThemes } from '../../state/themeStore.ts';
+import { activeComposer, useComposerTargets } from '../../state/composerTargets.ts';
 import { useProjectActionList } from '../actions/useActions.ts';
 import { planGit } from '../git/gitPlan.ts';
 import { inWorktree } from '../worktree/branchMenu.ts';
@@ -80,6 +81,8 @@ export function usePaletteContext(): PaletteContext {
   const terminals = useTerminals((s) => s.terminals);
   const activeTerminals = useTerminals((s) => s.active);
   const sidebar = useSidebar((s) => s.state);
+  const boxes = useComposerTargets((s) => s.boxes);
+  const editors = useHosts((s) => s.editors);
 
   const view: PaletteView = mainView === 'new' ? 'new-session' : mainView === 'settings' ? 'settings' : mainView === 'projects' ? 'projects' : selectedId ? 'session' : 'home';
   const id = view === 'session' ? selectedId : null;
@@ -149,5 +152,7 @@ export function usePaletteContext(): PaletteContext {
     settingsSection,
     newSession: view === 'new-session' ? newSessionInfo : null,
     questionsDir,
+    composer: activeComposer(boxes, view === 'session' ? 'session' : view === 'new-session' ? 'new' : 'other', selectedId),
+    canContinueInVSCode: editors.some((e) => e.id === 'vscode'),
   };
 }

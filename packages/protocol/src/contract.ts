@@ -38,6 +38,9 @@ import { ClaudeUpdateState } from './claudeUpdate.ts';
 import { BackupSectionSchema, FolderMapping, ImportMode, ImportPreview } from './backup.ts';
 import { LaterDraft, LaterItem, QueueStarted, QueueWaitFor } from './later.ts';
 import { PROJECT_NAME_MAX } from './projectConstants.ts';
+import { ContextItems } from './context.ts';
+import { CompanionTarget } from './companion.ts';
+import { CONTINUE_EDITORS } from './companionConstants.ts';
 
 export const ClaudeInstall = z.object({
   path: z.string(),
@@ -523,6 +526,26 @@ export const contract = {
       }),
     },
 
+    // --- VS Code companion ---------------------------------------------------------------------
+    /** The session in this window's active pane (null on Home, New session or Settings): where the companion sends context first. */
+    'companion.focus': { params: z.object({ sessionId: SessionId.nullable() }), result: z.object({}) },
+    /** This window added the context of a `companion.context` event (or couldn't, and says why). */
+    'companion.received': {
+      params: z.object({ deliveryId: z.string().min(1).max(100), error: z.string().max(500).nullable().default(null) }),
+      result: z.object({}),
+    },
+    /** Whether the companion socket is listening, and how many editors are connected to it. */
+    'companion.status': { params: z.object({}), result: z.object({ listening: z.boolean(), clients: z.number(), error: z.string().nullable() }) },
+    /**
+     * Continues a session in an editor's Claude Code extension: stops it here and waits for its process to exit,
+     * opens its folder in the editor, then the session in the extension (it only resumes sessions of the folder
+     * that's open). Refused (SESSION_BUSY_ELSEWHERE) when another Claude Code process has it open.
+     */
+    'session.continueInEditor': {
+      params: z.object({ sessionId: SessionId, editorId: z.enum(CONTINUE_EDITORS).default('vscode') }),
+      result: z.object({}),
+    },
+
     // --- Claude Code updates -----------------------------------------------------------------
     'claudeUpdate.get': { params: z.object({}), result: ClaudeUpdateState },
     /** Compares the installed Claude Code with the newest on its channel now. The result arrives through `claudeUpdate.changed`. */
@@ -563,6 +586,13 @@ export const contract = {
     'commands.changed': z.object({}),
     /** Settings were imported: reload projects and actions. */
     'settings.imported': z.object({}),
+    /**
+     * Context from the VS Code companion, for this window to add as chips (to a session's message box, or New session
+     * on a folder) and confirm with `companion.received`. Sent to the window that reported focus last.
+     */
+    'companion.context': z.object({ deliveryId: z.string(), target: CompanionTarget, items: ContextItems, reveal: z.boolean() }),
+    /** The companion asked to show a session (its status bar item): select it and bring the window forward. */
+    'companion.reveal': z.object({ sessionId: z.string() }),
   },
 } as const satisfies ContractShape;
 

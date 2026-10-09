@@ -94,6 +94,8 @@ console.log(`${String(result.newSessionResult).startsWith('ok') ? '✓' : '✗'}
 if (!String(result.newSessionResult).startsWith('ok')) process.exitCode = 1;
 console.log(`${String(result.deepLinkResult).startsWith('ok') ? '✓' : '✗'} links: ${result.deepLinkResult}`);
 if (!String(result.deepLinkResult).startsWith('ok')) process.exitCode = 1;
+console.log(`${String(result.companionResult).startsWith('ok') ? '✓' : '✗'} VS Code companion: ${result.companionResult}`);
+if (!String(result.companionResult).startsWith('ok')) process.exitCode = 1;
 console.log(`${String(result.queueResult).startsWith('ok') ? '✓' : '✗'} queue: ${result.queueResult}`);
 if (!String(result.queueResult).startsWith('ok')) process.exitCode = 1;
 console.log(`${String(result.sectionsResult).startsWith('ok') ? '✓' : '✗'} collapsible sections: ${result.sectionsResult}`);

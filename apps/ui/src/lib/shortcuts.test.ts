@@ -213,6 +213,7 @@ describe('the shortcut registry', () => {
       'composer.commands': [at({ view: 'new-session' }), at({ view: 'projects' })],
       'composer.mention': [SESSION, HOME],
       'composer.history': [SESSION, at({ view: 'new-session' })],
+      'composer.add-context': [at({ view: 'new-session' }), HOME],
       'permission.allow': [{ ...SESSION, pending: 'permission' }, SESSION],
       'permission.deny': [{ ...SESSION, pending: 'question' }, SESSION],
       'permission.pick': [{ ...SESSION, pending: 'question' }, { ...SESSION, pending: 'permission' }],

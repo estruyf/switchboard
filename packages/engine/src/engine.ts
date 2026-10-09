@@ -4,6 +4,7 @@ import { dirname, join } from 'node:path';
 import {
   BACKUP_SECTIONS,
   BUILTIN_PROFILE_ID,
+  COMPANION_DIR,
   contract,
   RpcError,
   serveRpc,
@@ -48,7 +49,8 @@ import { exportSettings, planImport, readSettingsFile, writeBackup, writeSetting
 import { TerminalManager, type SpawnPty } from './terminals/terminalManager.ts';
 import { TranscriptHub } from './sessions/transcriptHub.ts';
 import { diagnoseTranscript } from './sessions/transcriptDiagnosis.ts';
-import { detectEditors, openInEditor } from './system/editors.ts';
+import { continueInEditor, detectEditors, openInEditor } from './system/editors.ts';
+import { CompanionHub } from './companion/companionHub.ts';
 import { FileIndex } from './system/files.ts';
 import { ShellEnvironment } from './system/shellEnvironment.ts';
 import { detectTerminalFont } from './system/terminalFont.ts';
@@ -85,6 +87,12 @@ export interface EngineOptions {
    * `allowUpdate: false` refuses to run an update command (the smoke test).
    */
   claudeUpdates?: Pick<ClaudeUpdaterOptions, 'registryUrl' | 'allowUpdate' | 'run'> & { automatic?: boolean };
+  /**
+   * Listens for the VS Code companion on a Unix socket and writes where to `<dataDir>/companion/engine.json`. Off
+   * when left out (tests). `appVersion` is the app's, for the extension; `socketParent` is where the socket's folder
+   * is made (the temporary folder by default).
+   */
+  companion?: { appVersion: string; socketParent?: string };
 }
 
 export type TrashScope = { configDir: string } | { repoRoot: string };
@@ -114,8 +122,11 @@ export function createEngine(options: EngineOptions): Engine {
     for (const server of servers) server.emit('engine.log', entry);
   };
 
+  /** The VS Code companion's socket, when this engine listens for it. */
+  let companion: CompanionHub | null = null;
   const broadcast: RpcServer<Contract>['emit'] = (name, payload) => {
     for (const server of servers) server.emit(name, payload);
+    if (name === 'sessions.changed' || name === 'sessions.live' || name === 'session.host') companion?.sessionsChanged();
   };
 
   // Slow-ish (login shell), so start it now and await on demand. Before any transcript is read: the
@@ -541,6 +552,18 @@ export function createEngine(options: EngineOptions): Engine {
     return { sessionId: await hosts.create({ ...create, profileId, ...(setup ? { beforeFirstMessage: setup } : {}) }) };
   };
 
+  if (options.companion) {
+    companion = new CompanionHub({
+      infoDir: join(options.dataDir, COMPANION_DIR),
+      appVersion: options.companion.appVersion,
+      ...(options.companion.socketParent ? { socketParent: options.companion.socketParent } : {}),
+      sources: () => ({ summaries: sessions.snapshot().sessions, live: liveList(), hosts: hosts.list().hosts }),
+      windows: () => servers.size,
+      log,
+    });
+    void companion.start();
+  }
+
   const handlers: Handlers<Contract> = {
     'system.info': async (): Promise<SystemInfo> => {
       const described = await shell.describe();
@@ -755,6 +778,17 @@ export function createEngine(options: EngineOptions): Engine {
     },
     'session.close': ({ sessionId }) => {
       hosts.close(sessionId);
+      return {};
+    },
+    'session.continueInEditor': async ({ sessionId, editorId }) => {
+      if (!hosts.has(sessionId) && liveList().some((l) => l.sessionId === sessionId)) {
+        throw new RpcError('SESSION_BUSY_ELSEWHERE', 'This session is open in another Claude Code window. Close it there first.');
+      }
+      const cwd = sessions.get(sessionId)?.cwd ?? hosts.list().hosts.find((h) => h.sessionId === sessionId)?.cwd ?? null;
+      if (!cwd || !existsSync(cwd)) throw new RpcError('NOT_FOUND', 'The folder of this session is gone');
+      // The editor's extension won't open a session another process still has: stop it here first.
+      await hosts.release(sessionId);
+      await continueInEditor(editorId, cwd, sessionId, await editorEnv());
       return {};
     },
     'session.respond': ({ requestId, decision }) => {
@@ -1058,6 +1092,15 @@ export function createEngine(options: EngineOptions): Engine {
       terminals.stop(id);
       return {};
     },
+    'companion.focus': ({ sessionId }, context) => {
+      companion?.focus(context, sessionId);
+      return {};
+    },
+    'companion.received': ({ deliveryId, error }) => {
+      companion?.received(deliveryId, error);
+      return {};
+    },
+    'companion.status': () => companion?.status() ?? { listening: false, clients: 0, error: null },
     'claudeUpdate.get': () => claudeUpdater.state,
     'claudeUpdate.check': () => {
       void claudeUpdater.check();
@@ -1129,6 +1172,7 @@ export function createEngine(options: EngineOptions): Engine {
     },
     log,
     close() {
+      companion?.stop();
       for (const server of servers) server.dispose();
       servers.clear();
       hosts.closeAll();

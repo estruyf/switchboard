@@ -36,6 +36,7 @@ export const IpcChannel = {
   themesChanged: 'switchboard:themes-changed',
   themeCommand: 'switchboard:theme-command',
   windowButtons: 'switchboard:window-buttons',
+  focusWindow: 'switchboard:focus-window',
 } as const;
 
 /** Appearance: follow macOS, or always light or dark. */
@@ -237,6 +238,8 @@ export interface SwitchboardBridge {
   pickFolder(defaultPath?: string): Promise<string | null>;
   /** Tells main which session is on screen, so it doesn't notify about what you're already watching. */
   reportFocus(sessionId: string | null): void;
+  /** Brings the window to the front (context arrived from the VS Code companion, which asked for it). */
+  focusWindow(): void;
   /** Main asks to show a session (e.g. a notification was clicked). */
   onSelectSession(listener: (sessionId: string) => void): () => void;
   /** Native image picker (for project icons). Resolves to null when cancelled. */

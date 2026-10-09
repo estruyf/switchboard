@@ -1,4 +1,6 @@
+import type { ContextItem } from '@switchboard/protocol/client';
 import type { Choices } from '../components/newSession/choices.ts';
+import { addChips, chipsSummary, type ContextChip } from '../components/composer/contextItems.ts';
 import { spokenAge } from '../components/sidebar/rowLabel.ts';
 
 /** How long a draft has to stay put before it counts as unsent, so a stray keystroke doesn't mark a session. */
@@ -36,10 +38,13 @@ export interface Draft<A = unknown> {
   seeded?: boolean;
   /** New session: its choices. */
   form?: DraftForm;
+  /** Files, lines and text added as context (the chips above the text), sent with it. */
+  context?: ContextChip[];
 }
 
-/** There is something to send: text, or images without text. */
-export const hasContent = (draft: { text: string; attachments: readonly unknown[] }) => draft.text.trim() !== '' || draft.attachments.length > 0;
+/** There is something to send: text, or images or context without text. */
+export const hasContent = (draft: { text: string; attachments: readonly unknown[]; context?: readonly unknown[] }) =>
+  draft.text.trim() !== '' || draft.attachments.length > 0 || (draft.context?.length ?? 0) > 0;
 
 /** Whether a draft shows as unsent: something to send, which counted already or hasn't changed for `DRAFT_SETTLE_MS`. */
 export function isCountingDraft(draft: Pick<Draft, 'text' | 'attachments' | 'updatedAt' | 'counted'>, now: number): boolean {
@@ -59,9 +64,11 @@ const sameAttachments = (a: readonly unknown[], b: readonly unknown[]) => a.leng
  * changed (a box mounting with its draft writes it back), else the new text with a fresh time. Emptying the
  * box ends counting; editing a draft that counted keeps it counted, so its pen doesn't blink while you type.
  */
-export function nextDraft<A>(previous: Draft<A> | undefined, next: { text: string; attachments: A[] }, now: number): Draft<A> | null {
-  if (!hasContent(next)) return null;
-  if (previous && previous.text === next.text && sameAttachments(previous.attachments, next.attachments)) return previous;
+export function nextDraft<A>(previous: Draft<A> | undefined, next: { text: string; attachments: A[]; context?: ContextChip[] }, now: number): Draft<A> | null {
+  // The message box only says what is typed and attached; the chips change on their own (added from the editor).
+  const context = next.context ?? previous?.context;
+  if (!hasContent({ ...next, context })) return null;
+  if (previous && previous.text === next.text && sameAttachments(previous.attachments, next.attachments) && sameAttachments(previous.context ?? [], context ?? [])) return previous;
   return {
     text: next.text,
     attachments: next.attachments,
@@ -70,6 +77,7 @@ export function nextDraft<A>(previous: Draft<A> | undefined, next: { text: strin
     // The note about images that weren't kept, and the Edit-and-resend mark, last until it's edited.
     lostImages: 0,
     form: previous?.form,
+    ...(context?.length ? { context } : {}),
   };
 }
 
@@ -82,7 +90,7 @@ export function draftList(drafts: Readonly<Record<string, Draft>>): DraftItem[] 
     .filter(([, draft]) => draft.counted && hasContent(draft))
     .sort(([, a], [, b]) => b.updatedAt - a.updatedAt)
     .map(([key, draft]): DraftItem => {
-      const base = { key, preview: draftPreview(draft.text) || imagesOnly(draft.attachments.length), updatedAt: draft.updatedAt };
+      const base = { key, preview: draftPreview(draft.text) || (draft.attachments.length ? imagesOnly(draft.attachments.length) : chipsSummary(draft.context ?? [])), updatedAt: draft.updatedAt };
       return isNewDraftKey(key) ? { ...base, kind: 'new', root: draftRoot(key) } : { ...base, kind: 'session', sessionId: key };
     });
 }
@@ -113,20 +121,55 @@ interface StoredDraft {
   updatedAt: number;
   images: number;
   form?: DraftForm;
+  context?: ContextItem[];
 }
 export interface StoredDrafts {
   version: 1;
   drafts: Record<string, StoredDraft>;
 }
 
-/** What is saved: drafts with text (images stay behind; a box with only images has nothing to keep). */
+/** What is saved: drafts with text or context (images stay behind; a box with only images has nothing to keep). */
 export function serializeDrafts(drafts: Readonly<Record<string, Draft>>): StoredDrafts {
   const out: Record<string, StoredDraft> = {};
   for (const [key, draft] of Object.entries(drafts)) {
-    if (draft.text.trim() === '') continue;
-    out[key] = { text: draft.text, updatedAt: draft.updatedAt, images: draft.attachments.length + draft.lostImages, ...(draft.form ? { form: draft.form } : {}) };
+    if (draft.text.trim() === '' && !draft.context?.length) continue;
+    // Chips get new ids when they are read back.
+    const context = draft.context?.map(({ id: _id, ...item }) => item as ContextItem);
+    out[key] = {
+      text: draft.text,
+      updatedAt: draft.updatedAt,
+      images: draft.attachments.length + draft.lostImages,
+      ...(draft.form ? { form: draft.form } : {}),
+      ...(context?.length ? { context } : {}),
+    };
   }
   return { version: 1, drafts: out };
+}
+
+const isRange = (value: unknown): value is { start: number; end: number } =>
+  isRecord(value) && Number.isInteger(value.start) && Number.isInteger(value.end) && (value.start as number) >= 1 && (value.end as number) >= (value.start as number);
+
+/** Saved context that still reads as context items; anything else is left out. */
+function parseContext(value: unknown): ContextItem[] {
+  if (!Array.isArray(value)) return [];
+  const out: ContextItem[] = [];
+  for (const raw of value) {
+    if (!isRecord(raw) || (raw.range !== undefined && !isRange(raw.range))) continue;
+    const range = raw.range === undefined ? {} : { range: raw.range as { start: number; end: number } };
+    if (raw.kind === 'file' && typeof raw.path === 'string' && raw.path.startsWith('/')) out.push({ kind: 'file', path: raw.path, directory: raw.directory === true, ...range });
+    else if (raw.kind === 'text' && typeof raw.label === 'string' && typeof raw.text === 'string' && (raw.source === 'selection' || raw.source === 'problems' || raw.source === 'terminal' || raw.source === 'output')) {
+      out.push({
+        kind: 'text',
+        source: raw.source,
+        label: raw.label,
+        text: raw.text,
+        ...(typeof raw.path === 'string' && raw.path.startsWith('/') ? { path: raw.path } : {}),
+        ...(typeof raw.language === 'string' ? { language: raw.language } : {}),
+        ...range,
+      });
+    }
+  }
+  return out;
 }
 
 const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -150,7 +193,9 @@ export function parseDrafts(value: unknown): Record<string, Draft<never>> {
   const out: Record<string, Draft<never>> = {};
   if (!isRecord(value) || value.version !== 1 || !isRecord(value.drafts)) return out;
   for (const [key, raw] of Object.entries(value.drafts)) {
-    if (!key || !isRecord(raw) || typeof raw.text !== 'string' || raw.text.trim() === '' || typeof raw.updatedAt !== 'number') continue;
+    if (!key || !isRecord(raw) || typeof raw.text !== 'string' || typeof raw.updatedAt !== 'number') continue;
+    const context = addChips([], parseContext(raw.context));
+    if (raw.text.trim() === '' && context.length === 0) continue;
     const form = parseForm(raw.form);
     out[key] = {
       text: raw.text,
@@ -159,6 +204,7 @@ export function parseDrafts(value: unknown): Record<string, Draft<never>> {
       counted: true,
       lostImages: typeof raw.images === 'number' && raw.images > 0 ? Math.floor(raw.images) : 0,
       ...(form ? { form } : {}),
+      ...(context.length ? { context } : {}),
     };
   }
   return out;

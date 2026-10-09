@@ -26,9 +26,13 @@ const trash = (paths: string[], scope: TrashScope) =>
     process.parentPort.postMessage({ type: 'trash', id, paths, ...scope });
   });
 
+const appVersion = argValue('--app-version') ?? '0.0.0';
+
 const engine = createEngine({
   dataDir,
   trash,
+  // The VS Code companion connects over a socket; SWITCHBOARD_NO_COMPANION=1 leaves it closed.
+  ...(process.env.SWITCHBOARD_NO_COMPANION === '1' ? {} : { companion: { appVersion } }),
   // The smoke test points the Claude Code check at a mock registry and must never run an update.
   claudeUpdates: { allowUpdate: process.env.SWITCHBOARD_NO_CLAUDE_UPDATE !== '1' },
   onLog: (entry) => console.error(`[engine] ${entry.level}: ${entry.message}`),

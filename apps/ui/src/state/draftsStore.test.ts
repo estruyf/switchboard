@@ -107,3 +107,32 @@ describe('restart', () => {
     expect(store().drafts['s-2']!.text).toBe('typed while loading');
   });
 });
+
+describe('context chips', () => {
+  const file = (path: string) => ({ kind: 'file' as const, path, directory: false });
+
+  it('keeps chips in a draft of their own, and through typing', () => {
+    store().addContext('s-1', [file('/repo/a.ts'), file('/repo/a.ts')]);
+    expect(store().drafts['s-1']!.context).toHaveLength(1);
+    type('s-1', 'Why?');
+    expect(store().drafts['s-1']!.context).toHaveLength(1);
+    type('s-1', '');
+    // Still something to send: the chip.
+    expect(store().drafts['s-1']!.context).toHaveLength(1);
+  });
+
+  it('forgets a draft once its last chip goes and nothing is typed', () => {
+    store().addContext('s-1', [file('/repo/a.ts')]);
+    const [chip] = store().drafts['s-1']!.context!;
+    store().removeContext('s-1', [chip!.id]);
+    expect(store().drafts['s-1']).toBeUndefined();
+  });
+
+  it('saves chips with the draft and reads them back', () => {
+    store().addContext(newDraftKey('/repo'), [file('/repo/a.ts'), { kind: 'text', source: 'terminal', label: 'Terminal', text: 'npm ERR!' }]);
+    const restored = parseDrafts(JSON.parse(JSON.stringify(serializeDrafts(store().drafts))));
+    const context = restored[newDraftKey('/repo')]!.context!;
+    expect(context.map(({ id: _id, ...item }) => item)).toEqual([file('/repo/a.ts'), { kind: 'text', source: 'terminal', label: 'Terminal', text: 'npm ERR!' }]);
+    expect(context.every((chip) => typeof chip.id === 'string')).toBe(true);
+  });
+});

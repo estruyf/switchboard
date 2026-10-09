@@ -25,6 +25,7 @@ const bridge: SwitchboardBridge = {
   // File.path is gone from Electron; webUtils is how a sandboxed page learns where a dropped file lives.
   getPathForFile: (file: File) => webUtils.getPathForFile(file),
   reportFocus: (sessionId: string | null) => ipcRenderer.send(IpcChannel.focusSession, sessionId),
+  focusWindow: () => ipcRenderer.send(IpcChannel.focusWindow),
   onSelectSession(listener) {
     const handler = (_event: unknown, sessionId: string) => listener(sessionId);
     ipcRenderer.on(IpcChannel.selectSession, handler);
