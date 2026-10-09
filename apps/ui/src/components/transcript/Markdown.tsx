@@ -6,6 +6,9 @@ import { FileLink } from './FileLink.tsx';
 import { fileRefFromHref, parseFileRef } from './fileRefs.ts';
 import { healMarkdown, splitBlocks } from './streamingMarkdown.ts';
 
+/** Fenced-block languages that get a Preview | Source switch. */
+const MARKDOWN = new Set(['markdown', 'md']);
+
 const components: Components = {
   a: ({ href, children }) => {
     // The main process opens http(s) links in the browser and blocks everything else.
@@ -29,7 +32,11 @@ const components: Components = {
   code: ({ className, children }) => {
     const text = String(children ?? '');
     const language = /language-([\w+#-]+)/.exec(className ?? '')?.[1];
-    if (language || text.includes('\n')) return <CodeBlock code={text.replace(/\n$/, '')} language={language} />;
+    if (language || text.includes('\n')) {
+      const code = text.replace(/\n$/, '');
+      // Markdown Claude writes out (a README, a PR description) opens rendered, with its source a click away.
+      return <CodeBlock code={code} language={language} preview={language && MARKDOWN.has(language.toLowerCase()) ? <Block text={code} /> : undefined} />;
+    }
     // Long inline code (URLs, paths) wraps instead of pushing the pane wider.
     const code = <code className="rounded bg-border/60 px-1 py-px font-mono text-[0.9em] [overflow-wrap:anywhere]">{children}</code>;
     // A file path (`src/a.ts:12`) becomes a link to open it in the editor, once the engine finds it.

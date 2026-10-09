@@ -126,11 +126,12 @@ console.log(`${String(result.themeResult).startsWith('ok') ? '✓' : '✗'} them
 if (!String(result.themeResult).startsWith('ok')) process.exitCode = 1;
 console.log(`${result.highlighted ? '✓' : '✗'} syntax highlighting loaded and coloured a code block`);
 console.log(`${result.codeCopy ? '✓' : '✗'} code blocks have a copy button`);
+console.log(`${result.markdownPreview ? '✓' : '✗'} markdown blocks open rendered and switch to their source`);
 console.log(`${result.diagnosticsReveal ? '✓' : '✗'} diagnostics can show the config folder and cache database in Finder`);
 console.log(`${result.usageBand ? '✓' : '✗'} usage band above the composer: ${result.usageBand ?? 'not shown'}`);
 console.log(`  rendering on screen: ${JSON.stringify(result.rendering)}`);
 if (result.notifications.length) console.log(`  notifications: ${result.notifications.map((n: { kind: string; title: string; suppressed: boolean }) => `${n.kind} "${n.title}"${n.suppressed ? ' (suppressed: you were looking)' : ''}`).join('; ')}`);
-if (!result.quitGuarded || result.settingsResult !== 'ok' || !result.terminalOpened || !result.actionRan || !result.highlighted || !result.codeCopy || !result.diagnosticsReveal) process.exitCode = 1;
+if (!result.quitGuarded || result.settingsResult !== 'ok' || !result.terminalOpened || !result.actionRan || !result.highlighted || !result.codeCopy || !result.markdownPreview || !result.diagnosticsReveal) process.exitCode = 1;
 if (result.liveSession !== null) {
   console.log(`${result.liveSession === 'ok' ? '✓' : '✗'} live session through the UI: ${result.liveSession}`);
   if (result.liveSession !== 'ok') process.exitCode = 1;
