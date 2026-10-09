@@ -2,7 +2,7 @@ import { spawn } from 'node:child_process';
 import { accessSync, constants, existsSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { delimiter, dirname, join } from 'node:path';
-import type { EditorInfo } from '@switchboard/protocol';
+import type { ContinueEditor, EditorInfo } from '@switchboard/protocol';
 
 interface EditorSpec extends EditorInfo {
   /** macOS app bundle name (without .app). */
@@ -100,4 +100,36 @@ export function openInEditor(editorId: string, path: string, line: number | unde
   const child = spawn(command, args, { env, detached: true, stdio: 'ignore' });
   child.on('error', () => {});
   child.unref();
+}
+
+/** The link that opens a session in an editor's Claude Code extension (the extension's own `open` handler). */
+export function claudeExtensionUrl(editorId: ContinueEditor, sessionId: string): string {
+  return `${editorId}://anthropic.claude-code/open?session=${encodeURIComponent(sessionId)}`;
+}
+
+/** Runs a command and waits for it to exit (at most `limitMs`); a command that can't start counts as done. */
+function run(command: string, args: string[], env: Record<string, string>, limitMs = 15_000): Promise<void> {
+  return new Promise((resolve) => {
+    const child = spawn(command, args, { env, stdio: 'ignore' });
+    const timer = setTimeout(resolve, limitMs);
+    const done = () => {
+      clearTimeout(timer);
+      resolve();
+    };
+    child.on('error', done);
+    child.on('exit', done);
+  });
+}
+
+/**
+ * Continues a session in an editor's Claude Code extension: opens the folder first (the extension only resumes
+ * sessions of the folder that's open), waits for the window, then opens the session there.
+ */
+export async function continueInEditor(editorId: ContinueEditor, cwd: string, sessionId: string, env: Record<string, string>, settleMs = 1_500): Promise<void> {
+  const spec = EDITOR_SPECS.find((e) => e.id === editorId)!;
+  const cli = spec.cli ? findOnPath(spec.cli, env) : null;
+  if (cli) await run(cli, [cwd], env);
+  else await run('open', ['-a', spec.app!, cwd], env);
+  await new Promise((resolve) => setTimeout(resolve, settleMs));
+  await run('open', [claudeExtensionUrl(editorId, sessionId)], env);
 }

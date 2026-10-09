@@ -1,0 +1,216 @@
+{
+  "name": "switchboard-vscode",
+  "displayName": "Switchboard",
+  "description": "Send the open file, selected lines, problems and terminal output from VS Code to a Switchboard session.",
+  "version": "0.1.0",
+  "license": "MIT",
+  "publisher": "eliostruyf",
+  "author": "Elio Struyf",
+  "icon": "assets/icon.png",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/estruyf/switchboard",
+    "directory": "apps/vscode-extension"
+  },
+  "bugs": {
+    "url": "https://github.com/estruyf/switchboard/issues"
+  },
+  "homepage": "https://github.com/estruyf/switchboard/blob/main/docs/vscode-companion.md",
+  "type": "module",
+  "engines": {
+    "vscode": "^1.95.0"
+  },
+  "categories": [
+    "AI",
+    "Other"
+  ],
+  "keywords": [
+    "claude",
+    "claude code",
+    "switchboard",
+    "context",
+    "ai"
+  ],
+  "extensionKind": [
+    "ui"
+  ],
+  "capabilities": {
+    "untrustedWorkspaces": {
+      "supported": true
+    },
+    "virtualWorkspaces": false
+  },
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./dist/extension.cjs",
+  "contributes": {
+    "commands": [
+      {
+        "command": "switchboard.addSelection",
+        "title": "Add Selection to Switchboard",
+        "category": "Switchboard",
+        "icon": "$(comment-discussion)"
+      },
+      {
+        "command": "switchboard.addFile",
+        "title": "Add to Switchboard",
+        "category": "Switchboard",
+        "icon": "$(comment-discussion)"
+      },
+      {
+        "command": "switchboard.addOpenEditors",
+        "title": "Add Open Editors to Switchboard",
+        "category": "Switchboard"
+      },
+      {
+        "command": "switchboard.addEditorGroup",
+        "title": "Add Editors in This Group to Switchboard",
+        "category": "Switchboard"
+      },
+      {
+        "command": "switchboard.addProblems",
+        "title": "Add Problems in This File to Switchboard",
+        "category": "Switchboard"
+      },
+      {
+        "command": "switchboard.addWorkspaceProblems",
+        "title": "Add Problems in the Workspace to Switchboard",
+        "category": "Switchboard"
+      },
+      {
+        "command": "switchboard.addTerminalSelection",
+        "title": "Add Terminal Selection to Switchboard",
+        "category": "Switchboard"
+      },
+      {
+        "command": "switchboard.addChanges",
+        "title": "Add Changes to Switchboard",
+        "category": "Switchboard"
+      },
+      {
+        "command": "switchboard.showSessions",
+        "title": "Show Sessions",
+        "category": "Switchboard"
+      },
+      {
+        "command": "switchboard.reconnect",
+        "title": "Reconnect",
+        "category": "Switchboard"
+      }
+    ],
+    "menus": {
+      "editor/context": [
+        {
+          "command": "switchboard.addSelection",
+          "group": "switchboard@1",
+          "when": "resourceScheme == file || resourceScheme == untitled"
+        },
+        {
+          "command": "switchboard.addProblems",
+          "group": "switchboard@2",
+          "when": "resourceScheme == file"
+        }
+      ],
+      "editor/title": [
+        {
+          "command": "switchboard.addSelection",
+          "group": "navigation@100",
+          "when": "resourceScheme == file && config.switchboard.editorTitleButton"
+        }
+      ],
+      "editor/title/context": [
+        {
+          "command": "switchboard.addFile",
+          "group": "switchboard@1",
+          "when": "resourceScheme == file"
+        },
+        {
+          "command": "switchboard.addEditorGroup",
+          "group": "switchboard@2"
+        }
+      ],
+      "explorer/context": [
+        {
+          "command": "switchboard.addFile",
+          "group": "switchboard@1",
+          "when": "resourceScheme == file"
+        }
+      ],
+      "terminal/context": [
+        {
+          "command": "switchboard.addTerminalSelection",
+          "group": "switchboard@1"
+        }
+      ],
+      "scm/resourceState/context": [
+        {
+          "command": "switchboard.addChanges",
+          "group": "switchboard@1",
+          "when": "scmProvider == git"
+        }
+      ],
+      "scm/resourceGroup/context": [
+        {
+          "command": "switchboard.addChanges",
+          "group": "switchboard@1",
+          "when": "scmProvider == git"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "switchboard.addFile",
+          "when": "resourceScheme == file"
+        }
+      ]
+    },
+    "keybindings": [
+      {
+        "command": "switchboard.addSelection",
+        "key": "alt+shift+k",
+        "when": "editorTextFocus"
+      },
+      {
+        "command": "switchboard.addTerminalSelection",
+        "key": "alt+shift+k",
+        "when": "terminalFocus && terminalTextSelected"
+      }
+    ],
+    "configuration": {
+      "title": "Switchboard",
+      "properties": {
+        "switchboard.bringToFront": {
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "Bring Switchboard to the front on the session when you add something to it. Turn off to add context quietly; it waits in the session's message box."
+        },
+        "switchboard.statusBar": {
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "Show what needs you in Switchboard (for this workspace) in the status bar."
+        },
+        "switchboard.editorTitleButton": {
+          "type": "boolean",
+          "default": false,
+          "markdownDescription": "Show a button in the editor title bar that adds the selection (or the file) to Switchboard."
+        },
+        "switchboard.appDataFolder": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "Where Switchboard keeps its data, when it isn't in the usual place (a build started with `SWITCHBOARD_DATA_DIR`). Leave empty to find the installed app, then a development build."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "build": "node scripts/build.ts",
+    "watch": "node scripts/build.ts --watch",
+    "typecheck": "tsc -p tsconfig.json",
+    "package": "node scripts/build.ts --production && npx --yes @vscode/vsce@4 package --no-dependencies"
+  },
+  "devDependencies": {
+    "@switchboard/protocol": "*",
+    "@types/vscode": "~1.95.0",
+    "esbuild": "^0.28.2"
+  }
+}

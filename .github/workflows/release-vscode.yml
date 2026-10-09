@@ -1,0 +1,178 @@
+# Publishes the VS Code companion (apps/vscode-extension) to the Visual Studio Marketplace and Open VSX.
+#
+# Three ways to release it, like Demo Time:
+# - publish a GitHub release tagged vscode-vX.Y.Z (the version comes from the tag, and the .vsix is attached to it);
+# - push a commit to main whose message has both #release and #vscode (the version in the extension's package.json);
+# - run this workflow by hand (Actions → Release VS Code extension → Run workflow), from any branch.
+#
+# Releases tagged vX.Y.Z are the desktop app (release.yml) and never reach this workflow's jobs.
+# A version that is already on a marketplace is skipped there, so running it twice is harmless.
+#
+# Secrets: VSCE_PAT (an Azure DevOps token with Marketplace › Manage for the eliostruyf publisher) and OPEN_VSX_PAT.
+# See docs/vscode-companion.md.
+name: Release VS Code extension
+
+on:
+  release:
+    types: [published]
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      pre-release:
+        description: Publish as a pre-release
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-vscode-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  MS_URL: https://marketplace.visualstudio.com/items?itemName=eliostruyf.switchboard-vscode
+  VSX_URL: https://open-vsx.org/extension/eliostruyf/switchboard-vscode
+
+jobs:
+  build:
+    name: Build, test and package the .vsix
+    if: >-
+      (github.event_name == 'release' && startsWith(github.event.release.tag_name, 'vscode-v')) ||
+      (github.event_name == 'push' && contains(github.event.head_commit.message, '#release') && contains(github.event.head_commit.message, '#vscode')) ||
+      github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      vsix: ${{ steps.package.outputs.vsix }}
+    defaults:
+      run:
+        working-directory: apps/vscode-extension
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'release' && github.event.release.tag_name || github.ref }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install
+        working-directory: .
+        run: npm ci
+
+      - name: Version
+        id: version
+        env:
+          TAG: ${{ github.event.release.tag_name }}
+        run: |
+          if [ "${{ github.event_name }}" == "release" ]; then
+            version="${TAG#vscode-v}"
+            if ! [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+              echo "::error::The release tag '$TAG' is not a version like vscode-v1.2.3 (the Marketplace takes no pre-release suffixes)."
+              exit 1
+            fi
+            npm pkg set version="$version"
+          fi
+          echo "version=$(node -p "require('./package.json').version")" >> "$GITHUB_OUTPUT"
+
+      - name: Typecheck and unit tests
+        working-directory: .
+        run: |
+          npm run typecheck -w @switchboard/protocol -w switchboard-vscode
+          npx vitest run apps/vscode-extension packages/protocol
+
+      - name: Package
+        id: package
+        env:
+          PRE_RELEASE: ${{ inputs.pre-release && '--pre-release' || '' }}
+        run: |
+          node scripts/build.ts --production
+          vsix="switchboard-vscode-${{ steps.version.outputs.version }}.vsix"
+          npx --yes @vscode/vsce@4 package --no-dependencies $PRE_RELEASE --out "$vsix"
+          echo "vsix=$vsix" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: vsix
+          path: apps/vscode-extension/${{ steps.package.outputs.vsix }}
+          if-no-files-found: error
+
+  release-ms:
+    name: Publish to the Visual Studio Marketplace
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: Microsoft Marketplace
+      url: ${{ env.MS_URL }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: vsix
+      - name: Publish
+        env:
+          VSCE_PAT: ${{ secrets.VSCE_PAT }}
+          PRE_RELEASE: ${{ inputs.pre-release && '--pre-release' || '' }}
+        run: |
+          if [ -z "$VSCE_PAT" ]; then
+            echo "::error::VSCE_PAT is not set. See docs/vscode-companion.md."
+            exit 1
+          fi
+          npx --yes @vscode/vsce@4 publish --packagePath "${{ needs.build.outputs.vsix }}" --skip-duplicate $PRE_RELEASE
+
+  release-vsx:
+    name: Publish to Open VSX
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: Open VSX
+      url: ${{ env.VSX_URL }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: vsix
+      - name: Publish
+        env:
+          OVSX_PAT: ${{ secrets.OPEN_VSX_PAT }}
+          PRE_RELEASE: ${{ inputs.pre-release && '--pre-release' || '' }}
+        run: |
+          if [ -z "$OVSX_PAT" ]; then
+            echo "::error::OPEN_VSX_PAT is not set. See docs/vscode-companion.md."
+            exit 1
+          fi
+          npx --yes ovsx publish "${{ needs.build.outputs.vsix }}" --skip-duplicate $PRE_RELEASE
+
+  attach:
+    name: Attach the .vsix and notes to the GitHub release
+    needs: build
+    if: github.event_name == 'release'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.release.tag_name }}
+      - uses: actions/download-artifact@v4
+        with:
+          name: vsix
+      - name: Attach, and fill in empty notes from the extension's changelog
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event.release.tag_name }}
+          BODY: ${{ github.event.release.body }}
+          VERSION: ${{ needs.build.outputs.version }}
+        run: |
+          gh release upload "$TAG" "${{ needs.build.outputs.vsix }}" --clobber --repo "$GITHUB_REPOSITORY"
+          if [ -n "$(echo "$BODY" | tr -d '[:space:]')" ]; then exit 0; fi
+          awk -v v="$VERSION" '
+            index($0, "## [" v "]") == 1 { on = 1; next }
+            on && /^## \[/ { exit }
+            on { print }
+          ' apps/vscode-extension/CHANGELOG.md > notes.md
+          if [ -s notes.md ]; then
+            gh release edit "$TAG" --notes-file notes.md --repo "$GITHUB_REPOSITORY"
+          else
+            echo "::warning::apps/vscode-extension/CHANGELOG.md has no section for $VERSION; the release notes stay empty."
+          fi

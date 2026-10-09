@@ -1,5 +1,6 @@
 {
   "name": "switchboard",
+  "license": "MIT",
   "private": true,
   "type": "module",
   "workspaces": [
@@ -11,6 +12,9 @@
   },
   "scripts": {
     "dev": "npm run dev -w @switchboard/desktop",
+    "dev:vscode": "npm run watch -w switchboard-vscode",
+    "build:vscode": "npm run build -w switchboard-vscode",
+    "package:vscode": "npm run package -w switchboard-vscode",
     "build": "npm run build -w @switchboard/desktop",
     "smoke": "npm run smoke -w @switchboard/desktop",
     "screenshots": "npm run screenshots -w @switchboard/desktop",

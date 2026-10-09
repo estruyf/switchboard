@@ -1,5 +1,6 @@
 import { useState, type ClipboardEvent, type Dispatch, type RefObject, type SetStateAction } from 'react';
-import type { ImageAttachment } from '@switchboard/protocol/client';
+import type { ContextItem, ImageAttachment } from '@switchboard/protocol/client';
+import { droppedItems } from './contextItems.ts';
 import { dropVerdict, MAX_ATTACHMENTS, mergeAttachments, planDrop, readImage } from './images.ts';
 import { insertMentions, mentionFor } from './mentions.ts';
 import { useDropTarget, type DropState } from './useDropTarget.ts';
@@ -16,6 +17,8 @@ export interface AttachmentsOptions {
   setText(text: string): void;
   /** What was left out of a paste or drop; null clears it. */
   onNotice(notice: string | null): void;
+  /** Dropped files and folders become context chips through this; without it, `@` mentions in the text. */
+  onContext?(items: ContextItem[]): void;
 }
 
 export interface Attachments {
@@ -32,7 +35,7 @@ export interface Attachments {
  * and the palette's New session step behave the same way.
  */
 export function useAttachments(options: AttachmentsOptions): Attachments {
-  const { rootRef, textareaRef, cwd, disabledReason, setText, onNotice } = options;
+  const { rootRef, textareaRef, cwd, disabledReason, setText, onNotice, onContext } = options;
   const [attachments, setAttachments] = useState<ImageAttachment[]>(options.initial ?? []);
 
   const addFiles = async (files: File[]) => {
@@ -62,7 +65,7 @@ export function useAttachments(options: AttachmentsOptions): Attachments {
     }
   };
 
-  /** A drop: images are attached while there is room; other files, folders and the images past the limit become @ mentions. */
+  /** A drop: images are attached while there is room; other files, folders and the images past the limit become context chips (or @ mentions). */
   const dropFiles = async (files: File[], directories: boolean[]) => {
     const dropped = files.map((file, i) => ({ type: file.type, size: file.size, directory: directories[i] ?? false, path: pathOf(file) }));
     const plan = planDrop(dropped, attachments.length);
@@ -73,7 +76,10 @@ export function useAttachments(options: AttachmentsOptions): Attachments {
     const images = read.filter((a): a is ImageAttachment => a !== null);
     if (images.length) setAttachments((current) => [...current, ...images].slice(0, MAX_ATTACHMENTS));
     const el = textareaRef.current;
-    if (mentioned.length && el) {
+    if (mentioned.length && onContext) {
+      onContext(droppedItems(mentioned));
+      el?.focus();
+    } else if (mentioned.length && el) {
       const caret = document.activeElement === el ? el.selectionEnd : el.value.length;
       const next = insertMentions(el.value, caret, mentioned.map((f) => mentionFor(f.path, cwd, f.directory)));
       setText(next.text);

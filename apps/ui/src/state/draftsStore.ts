@@ -1,5 +1,6 @@
 import { create } from 'zustand';
-import type { ImageAttachment } from '@switchboard/protocol/client';
+import type { ContextItem, ImageAttachment } from '@switchboard/protocol/client';
+import { addChips } from '../components/composer/contextItems.ts';
 import { DRAFT_SETTLE_MS, isCountingDraft, nextDraft, type Draft, type DraftForm } from './drafts.ts';
 
 export type ComposerDraft = Draft<ImageAttachment>;
@@ -23,6 +24,10 @@ interface DraftsState {
   archivePrompt: ArchivePrompt | null;
   /** The message box changed: keeps it (or forgets an empty one). */
   setDraft(key: string, draft: { text: string; attachments: ImageAttachment[] }): void;
+  /** Adds context chips to a box (from the editor, a drop, the Add context picker); one that is there already isn't added again. */
+  addContext(key: string, items: readonly ContextItem[]): void;
+  /** Removes chips by id (the × on a chip, or the ones that were just sent). */
+  removeContext(key: string, ids: readonly string[]): void;
   /** Puts text in a box for you (Edit and resend): it shows no "kept for you" line. */
   seedDraft(key: string, text: string): void;
   /** New session's choices for the prompt under `key`, kept with it while there is one. */
@@ -73,6 +78,20 @@ export const useDrafts = create<DraftsState>()((set, get) => {
     );
   };
 
+  /** The draft under `key` with these chips (forgotten when nothing is left in it). */
+  const writeContext = (key: string, previous: ComposerDraft | undefined, context: ComposerDraft['context'] & object) => {
+    const next = nextDraft(previous, { text: previous?.text ?? '', attachments: previous?.attachments ?? [], context }, Date.now());
+    if (next === previous) return;
+    // Chips sent from the editor into an empty box are put there for you: no "kept for you" line when it opens.
+    const draft = next && (!previous || previous.seeded) ? { ...next, seeded: true } : next;
+    if (!draft) {
+      set((s) => ({ drafts: without(s.drafts, [key]) }));
+      return;
+    }
+    set((s) => ({ drafts: { ...s.drafts, [key]: draft } }));
+    settleLater(key, draft);
+  };
+
   return {
     drafts: {},
     loaded: false,
@@ -89,6 +108,20 @@ export const useDrafts = create<DraftsState>()((set, get) => {
       }
       set((s) => ({ drafts: { ...s.drafts, [key]: draft } }));
       settleLater(key, draft);
+    },
+    addContext: (key, items) => {
+      const previous = get().drafts[key];
+      const context = addChips(previous?.context ?? [], items);
+      writeContext(key, previous, context);
+    },
+    removeContext: (key, ids) => {
+      const previous = get().drafts[key];
+      if (!previous?.context?.some((chip) => ids.includes(chip.id))) return;
+      writeContext(
+        key,
+        previous,
+        previous.context.filter((chip) => !ids.includes(chip.id)),
+      );
     },
     seedDraft: (key, text) => {
       const draft: ComposerDraft = { text, attachments: [], updatedAt: Date.now(), counted: false, lostImages: 0, seeded: true };

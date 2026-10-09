@@ -45,6 +45,8 @@ function context(over: Partial<PaletteContext> = {}): PaletteContext {
     sidebar: 'open',
     settingsSection: 'general',
     newSession: null,
+    composer: null,
+    canContinueInVSCode: false,
     ...over,
   };
 }

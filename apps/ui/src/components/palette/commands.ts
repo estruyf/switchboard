@@ -40,6 +40,7 @@ import {
   Monitor,
   Moon,
   Palette,
+  Paperclip,
   PanelBottom,
   PanelLeft,
   PanelLeftClose,
@@ -126,6 +127,10 @@ export interface PaletteApi {
   showTools(): void;
   openInEditor(): void;
   revealInFinder(): void;
+  /** The Add context picker, for the message box on screen. */
+  addContext(): void;
+  /** Stops the session here and continues it in VS Code's Claude Code extension. */
+  continueInVSCode(): void;
   closeSession(): void;
   deleteSession(): void;
   stop(): void;
@@ -403,6 +408,25 @@ export const COMMANDS: PaletteCommand[] = [
   { id: 'tools', title: 'Tools: MCP servers, skills, agents, plugins', group: 'session', icon: Blocks, keywords: 'mcp extensions capabilities', when: withCwd, run: (api) => api.showTools() },
   { id: 'open-in-editor', title: 'Open folder in editor', group: 'session', shortcut: keysFor('editor.open'), icon: Code, keywords: 'vscode cursor', when: withCwd, run: (api) => api.openInEditor() },
   { id: 'reveal-in-finder', title: 'Reveal folder in Finder', group: 'session', icon: Folder, keywords: 'show files', when: withCwd, run: (api) => api.revealInFinder() },
+  {
+    id: 'add-context',
+    title: 'Add context…',
+    group: 'session',
+    shortcut: keysFor('composer.add-context'),
+    icon: Paperclip,
+    keywords: 'files attach mention @ chips several',
+    when: (ctx) => ctx.composer !== null && ctx.connected,
+    run: (api) => api.addContext(),
+  },
+  {
+    id: 'continue-in-vscode',
+    title: 'Continue in VS Code',
+    group: 'session',
+    icon: Code,
+    keywords: 'editor claude code extension hand off move',
+    when: (ctx) => indexed(ctx) && withCwd(ctx) && !session(ctx)!.running && ctx.canContinueInVSCode && ctx.connected,
+    run: (api) => api.continueInVSCode(),
+  },
   { id: 'close-session', title: 'Close session', group: 'session', icon: X, keywords: 'home', when: (ctx) => session(ctx) !== null, run: (api) => api.closeSession() },
   { id: 'delete-session', title: 'Delete session…', group: 'session', icon: Trash2, keywords: 'trash remove', when: (ctx) => indexed(ctx) && ctx.connected, run: (api) => api.deleteSession() },
   { id: 'stop', title: 'Stop Claude', group: 'session', shortcut: keysFor('claude.stop'), icon: StopCircle, keywords: 'interrupt cancel', when: (ctx) => !!session(ctx)?.running && !!session(ctx)?.host && ctx.connected, run: (api) => api.stop() },

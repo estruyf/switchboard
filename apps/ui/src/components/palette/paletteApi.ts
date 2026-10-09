@@ -13,6 +13,7 @@ import { useSessions } from '../../state/sessionsStore.ts';
 import { useSidebar } from '../../state/sidebarStore.ts';
 import { openTerminal, restartTerminal, useTerminals } from '../../state/terminalsStore.ts';
 import { useThemes } from '../../state/themeStore.ts';
+import { useComposerTargets } from '../../state/composerTargets.ts';
 import { toast } from '../../state/toastStore.ts';
 import { lastLimit } from '../focus/focusLimit.ts';
 import { syncStep } from '../git/gitPlan.ts';
@@ -96,6 +97,11 @@ export function createPaletteApi(ctx: PaletteContext, client: EngineClient | nul
     // After the palette's own close, so the Tools dialog isn't closed along with it.
     showTools: () => setTimeout(() => useOverlay.getState().show('tools')),
     openInEditor: () => cwd && void openIn(cwd).catch(failed('open the folder')),
+    addContext: () => {
+      // After the palette's own close, so the picker isn't closed along with it.
+      if (ctx.composer) setTimeout(() => useComposerTargets.getState().openPicker(ctx.composer!));
+    },
+    continueInVSCode: () => call('continue in VS Code', (c) => c.call('session.continueInEditor', { sessionId, editorId: 'vscode' })),
     revealInFinder: () =>
       cwd &&
       call('show the folder in Finder', async (c) => {

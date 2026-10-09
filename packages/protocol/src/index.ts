@@ -15,3 +15,7 @@ export * from './backup.ts';
 export * from './later.ts';
 export * from './projectConstants.ts';
 export * from './worktreeSlug.ts';
+export * from './context.ts';
+export * from './companion.ts';
+export * from './companionConstants.ts';
+export * from './lineTransport.ts';

@@ -57,11 +57,11 @@ export function dropMessage(verdict: DropVerdict): string {
   switch (verdict.kind) {
     case 'ok': {
       const { attach, mention, full } = verdict;
-      if (!attach && !mention) return 'Drop to attach images or mention files';
-      if (full && !attach) return `${MAX_ATTACHMENTS} images attached already: drop to mention ${mention === 1 ? 'it' : 'them'} as ${mention === 1 ? 'a file' : 'files'}`;
+      if (!attach && !mention) return 'Drop to attach images or add files';
+      if (full && !attach) return `${MAX_ATTACHMENTS} images attached already: drop to add ${mention === 1 ? 'it' : 'them'} as ${mention === 1 ? 'a file' : 'files'}`;
       if (!mention) return attach > 1 ? `Drop ${attach} images to attach` : 'Drop images to attach';
-      if (!attach) return mention > 1 ? `Drop to mention ${mention} files` : 'Drop to mention this file';
-      return `Drop to attach ${plural(attach, 'image')} and mention ${plural(mention, 'file')}`;
+      if (!attach) return mention > 1 ? `Drop to add ${mention} files` : 'Drop to add this file';
+      return `Drop to attach ${plural(attach, 'image')} and add ${plural(mention, 'file')}`;
     }
     case 'unsupported':
       return SKIPPED_NOTICE;

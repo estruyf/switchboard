@@ -36,7 +36,8 @@ It uses the Claude Code you already have installed, with your login, settings, c
 **Work with Claude**
 - Start a session in a folder (⌘N): pick a project by typing a few letters, then work on the current branch (or check out another one first) or in a **new worktree**, just like `claude --worktree`.
 - **Projects** are the folders you choose to work in. Add them from the folders you've used Claude Code in, or any folder, then reorder, rename or remove them in the **Projects** view (the folder icon at the bottom of the sidebar). Renaming only changes the name Switchboard shows; the folder keeps its own. Give a project its own defaults for new sessions: model, effort, permission mode, worktree or current folder, and a branch. The New session view starts from them; change something there for one session, or click *Save as project default*.
-- Chat as you would in the terminal. You get streaming replies, `/` commands (your own commands and skills included), `@` file mentions, and images you paste, drop or attach. Drag files anywhere over a session and the message box shows what a drop does: images are attached, other files and folders are added as `@` mentions.
+- Chat as you would in the terminal. You get streaming replies, `/` commands (your own commands and skills included), `@` file mentions, and images you paste, drop or attach. Drag files anywhere over a session and the message box shows what a drop does: images are attached, other files and folders are added as context.
+- **Context** shows as chips above the message: files you drop, pick from the `@` list, or choose several at once with **Add context** (⌘⇧A, or the paperclip). Remove one with its ×. Files go to Claude as references it reads itself, so a large file stays small. With the [VS Code companion](#vs-code-companion) you can send the lines you have selected in VS Code, problems and terminal output too.
 - Approve or deny permission requests, answer Claude's questions and review plans in the conversation.
 - Follow what Claude does without the noise: each run of tool calls is one line ("Reading src/app.ts…", then "Ran 3 commands and edited 2 files"), and a click shows every step, with diffs, command output, to-do lists and subagent runs.
 - Images Claude reads or you attach are shown in the conversation.
@@ -71,6 +72,7 @@ It uses the Claude Code you already have installed, with your login, settings, c
 - A built-in terminal per session: ⌘J (or **Terminal** in the header) opens a shell in the session's folder. **⋯ → Open in → Claude Code** opens the session in the full Claude Code terminal interface.
 - **Project actions**: one-click buttons for things like *Commit*, *Test* or *Publish*, running a command or sending Claude a prompt. See [Project actions](docs/project-actions.md).
 - **Open in** your editor, terminal or Finder (⌘O), or on GitHub, and click any file path in the conversation to open it at that line.
+- **Continue in VS Code** (under **⋯** in the session header): stops the session in Switchboard and opens it in Claude Code's VS Code extension, in the window for its folder.
 - **Links** that open Switchboard: `switchboard://new-session?project=payments&prompt=…` (or `cwd=/path`, or `repo=owner/name`) opens New session with the project and prompt filled in, and `switchboard://session/<id>` opens a session. Put them in runbooks, alerts, READMEs or Raycast and Alfred scripts. By default you read the prompt and press Enter; add `autostart=1` to start right away. See [Links](docs/deep-links.md).
 - Delete sessions you don't need. They go to the Trash, so you can get them back.
 
@@ -228,6 +230,7 @@ Press **⌘/** (or Help › Keyboard Shortcuts) to see every shortcut in the app
 | ⇧↩ | New line |
 | / | Commands and skills (at the start of the message) |
 | @ | Mention a file |
+| ⌘⇧A | Add files as context (Several at once; they show as chips) |
 | ↑ or ↓ | Bring back an earlier message (from the first line; Esc goes back to what you were typing) |
 
 **Permissions and questions**
@@ -336,6 +339,27 @@ What you type in a message box and don't send stays there: in a session, and in 
 
 Sending, starting the session, adding the prompt to the queue, **Discard** or deleting the session removes the message. Archiving a session with an unsent message asks first, because it discards the message.
 
+## VS Code companion
+
+The **Switchboard** extension for VS Code (also Cursor and Windsurf) sends what you're looking at in the editor to a Switchboard session. Install it from the [Visual Studio Marketplace](https://marketplace.visualstudio.com/items?itemName=eliostruyf.switchboard-vscode) or [Open VSX](https://open-vsx.org/extension/eliostruyf/switchboard-vscode).
+
+| From VS Code | Arrives in Switchboard as |
+|---|---|
+| Selected lines (⌥⇧K, or right-click in the editor) | `auth.ts:12-40` |
+| The active file, nothing selected | `auth.ts` |
+| Files and folders in the Explorer, several at once | one chip each |
+| Open editors, all or one tab group | one chip per file |
+| Problems in a file or the workspace | the errors and warnings, as text |
+| Selected terminal output (⌥⇧K in the terminal) | the output, as text |
+| Files in Source Control | the changed files |
+
+- **Where it goes.** To the session you have open in Switchboard when its folder holds the files. Otherwise VS Code asks which of this workspace's sessions, with what each is doing, or **New session** on the folder.
+- **Nothing is sent to Claude** until you add your question and press ⌘↵. A selection in a file with unsaved changes goes as text (Claude would read the saved version); the text of files you keep from Claude (excluded in VS Code, ignored by git, or denied by `Read` rules in Claude Code's settings) never goes.
+- **Status bar.** *Switchboard: 1 needs you* says a session in this workspace waits for you; click it to go there.
+- If Switchboard isn't running, the extension opens it.
+
+How the connection works: [VS Code companion](docs/vscode-companion.md).
+
 ## Back up and move your settings
 
 To move to a new Mac, restore your setup after a reset, or share a set of actions with someone, use **Settings → Backup** (or *Export settings…* and *Import settings…* in the command palette).
@@ -354,11 +378,16 @@ Switchboard reads the session files Claude Code already keeps in `~/.claude` (an
 - [Themes](docs/themes.md): the theme file format, every colour and where it shows, and code colours.
 - [Project actions](docs/project-actions.md): add buttons for your own commands and prompts, and share them with your team.
 - [Links](docs/deep-links.md): open Switchboard from a `switchboard://` URL, with examples for the shell, READMEs, Raycast, Alfred and alerts.
+- [VS Code companion](docs/vscode-companion.md): how the extension talks to Switchboard, what it keeps private, and how it is released.
 - [Building, signing and notarisation](docs/building-and-signing.md): packaging the app, and signing it with an Apple Developer ID.
 - [Development](docs/development.md): running from source, tests, and how the code is organised.
 - [Homebrew](docs/homebrew.md): the cask and how each release updates the tap.
 - [Changelog](CHANGELOG.md): what's new in each release.
 - [Plan](PLAN.md): the roadmap and design decisions.
+
+## License
+
+Switchboard and its VS Code companion are released under the [MIT License](LICENSE).
 
 ## Credits
 

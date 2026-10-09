@@ -1,9 +1,11 @@
 import { execFileSync } from 'node:child_process';
 import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
+import { createConnection } from 'node:net';
 import { join } from 'node:path';
 import { app, BrowserWindow, dialog, ipcMain, Menu, MessageChannelMain, nativeTheme, screen, shell, type MenuItemConstructorOptions } from 'electron';
 import { IpcChannel, isThemeId, sanitizePreferences, type AppInfo, type DeepLinkMessage, type RendererReadyReport, type ThemeCommand, type UpdateCommand } from '@switchboard/protocol/bridge';
+import { COMPANION_DIR, COMPANION_INFO_FILE, COMPANION_PROTOCOL, createRpcClient, lineTransport, type CompanionContract, type CompanionInfo } from '@switchboard/protocol/companion-client';
 import { BUILT_IN_THEMES } from '../../../ui/src/themes/index.ts';
 import { EngineProcess } from './engineProcess.ts';
 import type { AttentionEvent } from './attention.ts';
@@ -234,6 +236,16 @@ ipcMain.on(IpcChannel.windowButtons, (event, position: unknown) => {
 
 ipcMain.on(IpcChannel.focusSession, (_event, sessionId: unknown) => {
   focusedSession = typeof sessionId === 'string' ? sessionId : null;
+});
+
+// The VS Code companion sent context and asked to see it: the editor is in front, so take focus from it.
+ipcMain.on(IpcChannel.focusWindow, (event) => {
+  const win = BrowserWindow.fromWebContents(event.sender);
+  if (!win || win.isDestroyed()) return;
+  if (win.isMinimized()) win.restore();
+  win.show();
+  if (process.platform === 'darwin') app.focus({ steal: true });
+  win.focus();
 });
 
 function openSession(sessionId: string): void {
@@ -824,6 +836,7 @@ let backupResult = 'not run';
 let themeResult = 'not run';
 let newSessionResult = 'not run';
 let deepLinkResult = 'not run';
+let companionResult = 'not run';
 let queueResult = 'not run';
 let sectionsResult = 'not run';
 let rendering: Record<string, number> = {};
@@ -2487,6 +2500,87 @@ async function runDeepLinkStep(win: BrowserWindow): Promise<string> {
 }
 
 /**
+ * The VS Code companion, the way the extension uses it: connect to the engine's socket with the token from
+ * engine.json, then send a reference to some lines and a piece of terminal output to New session on a folder inside
+ * the throwaway profile. They must show as chips there. The Add context picker (⌘⇧A) then adds a file from the same
+ * folder, and every chip is removed again. Nothing is ever sent to Claude.
+ */
+async function runCompanionStep(win: BrowserWindow): Promise<string> {
+  const js = (code: string) => win.webContents.executeJavaScript(code);
+  const key = (keyCode: string, modifiers: Array<'meta' | 'shift'> = []) => {
+    win.webContents.sendInputEvent({ type: 'keyDown', keyCode, modifiers });
+    win.webContents.sendInputEvent({ type: 'keyUp', keyCode, modifiers });
+  };
+  const folder = join(app.getPath('userData'), 'smoke-companion');
+  mkdirSync(folder, { recursive: true });
+  writeFileSync(join(folder, 'auth.ts'), 'export const token = 1;\n');
+  writeFileSync(join(folder, 'notes.md'), '# Notes\n');
+  const infoFile = join(app.getPath('userData'), COMPANION_DIR, COMPANION_INFO_FILE);
+  for (let i = 0; i < 50 && !existsSync(infoFile); i++) await new Promise((resolve) => setTimeout(resolve, 100));
+  if (!existsSync(infoFile)) return 'the engine wrote no engine.json';
+  const info = JSON.parse(readFileSync(infoFile, 'utf8')) as CompanionInfo;
+  const socket = createConnection(info.socket);
+  socket.setEncoding('utf8');
+  socket.on('error', () => {});
+  const client = createRpcClient<CompanionContract>(
+    lineTransport({
+      write: (text) => void socket.write(text),
+      onData(listener) {
+        socket.on('data', listener);
+        return () => socket.off('data', listener);
+      },
+      close: () => socket.destroy(),
+    }),
+    { timeoutMs: 10_000 },
+  );
+  const tray = "document.querySelector('[data-new-session-view] [data-context-tray]')";
+  const chips = `(${tray}?.querySelectorAll('[data-context-chip]').length ?? 0)`;
+  try {
+    await client.call('hello', { token: info.token, protocol: COMPANION_PROTOCOL, client: { name: 'smoke', version: '0' } });
+    const listed = await client.call('sessions.list', { folders: [folder] });
+    if (listed.windows < 1) return 'the engine says no window is connected';
+    if (listed.sessions.length) return 'a folder made for this step already has sessions';
+    await client.call('context.add', {
+      target: { kind: 'new', cwd: folder },
+      items: [
+        { kind: 'file', path: join(folder, 'auth.ts'), range: { start: 1, end: 1 } },
+        { kind: 'text', source: 'terminal', label: 'Terminal: zsh', text: '$ npm test\nFAIL auth.test.ts' },
+      ],
+      reveal: true,
+    });
+    if (!(await waitInPage(win, `document.querySelector('[data-folder-select]')?.dataset.value === ${JSON.stringify(folder)} && ${chips} === 2`, 5_000))) {
+      return `the chips did not show in New session on the folder (${String(await js(`${chips} + ' chips in ' + document.querySelector('[data-folder-select]')?.dataset.value`))})`;
+    }
+    const labels = (await js(`[...${tray}.querySelectorAll('[data-context-chip]')].map((c) => c.innerText.trim()).join(', ')`)) as string;
+    // Chips alone are something to send, so Start is ready; it is never pressed.
+    if (!(await waitInPage(win, "!document.querySelector('[data-new-session-view] [data-composer-submit]')?.disabled", 3_000))) return 'Start session stayed disabled with only chips in the box';
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    await shot(win, 'context-tray.png');
+
+    // The picker: ⌘⇧A in the message box, type to filter, Space picks the file, Enter adds it.
+    await js("document.querySelector('[data-new-session-view] [data-composer]').focus()");
+    key('A', ['meta', 'shift']);
+    if (!(await waitInPage(win, "document.querySelector('[data-add-context-dialog] [data-add-context-file=\"notes.md\"]')", 5_000))) return "the Add context picker did not list the folder's files";
+    await setFieldValue(win, '[data-add-context-search]', 'notes');
+    if (!(await waitInPage(win, "document.querySelector('[data-add-context-file][data-active=\"true\"]')?.dataset.addContextFile === 'notes.md'", 3_000))) return 'filtering the picker did not put notes.md first';
+    key('Space');
+    if (!(await waitInPage(win, "document.querySelector('[data-add-context-file=\"notes.md\"]')?.getAttribute('aria-selected') === 'true'", 2_000))) return 'Space did not pick the file';
+    await shot(win, 'add-context.png');
+    key('Return');
+    if (!(await waitInPage(win, `!document.querySelector('[data-add-context-dialog]') && ${chips} === 3`, 3_000))) return 'Enter did not add the picked file as a chip';
+
+    // Removing every chip empties the box: no unsent prompt is left behind.
+    for (let i = 0; i < 3; i++) await js(`${tray}?.querySelector('[data-context-chip-remove]')?.click()`);
+    if (!(await waitInPage(win, `!${tray} && !document.querySelector('[data-new-session-draft]')`, 3_000))) return 'removing the chips left something behind';
+    return `ok: hello with the token, chips from the socket showed in New session on the folder (${labels}), Start ready but not pressed, ⌘⇧A added notes.md, all removed again`;
+  } finally {
+    client.dispose();
+    socket.destroy();
+    if (smokeSessionId) await js(`document.querySelector('[data-session-id="${smokeSessionId}"]')?.click()`);
+  }
+}
+
+/**
  * The queue, in the throwaway profile and against a temp folder: two prompts go in from New session (Add to queue,
  * filled in by a link), show in the sidebar's Queue (ready: nothing works there) and on Home, ⌥↓ moves the first
  * one down, ⌫ removes it and Undo puts it back, and both are removed at the end. Nothing is ever started.
@@ -3488,6 +3582,7 @@ async function runSmokeStep(win: BrowserWindow | null): Promise<void> {
     sidebarStatesResult = await runSidebarStatesStep(win).catch((error: Error) => `failed: ${error.message}`);
     newSessionResult = await runNewSessionStep(win).catch((error: Error) => `failed: ${error.message}`);
     deepLinkResult = await runDeepLinkStep(win).catch((error: Error) => `failed: ${error.message}`);
+    companionResult = await runCompanionStep(win).catch((error: Error) => `failed: ${error.message}`);
     queueResult = await runQueueStep(win).catch((error: Error) => `failed: ${error.message}`);
     sectionsResult = await runSectionsStep(win).catch((error: Error) => `failed: ${error.message}`);
     usageBand = (await waitInPage(win, "document.querySelector('[data-usage-band]')", 15_000))
@@ -3569,6 +3664,7 @@ async function runSmokeStep(win: BrowserWindow | null): Promise<void> {
         sidebarStatesResult,
         newSessionResult,
         deepLinkResult,
+        companionResult,
         queueResult,
         sectionsResult,
         liveSession,
@@ -3613,6 +3709,7 @@ app.whenReady().then(() => {
   engine = new EngineProcess({
     entry: join(here, 'engine.js'),
     dataDir: app.getPath('userData'),
+    appVersion: app.getVersion(),
     onRequest: handleEngineRequest,
     onRestarted: () => {
       for (const win of BrowserWindow.getAllWindows()) win.webContents.send(IpcChannel.engineRestarted);

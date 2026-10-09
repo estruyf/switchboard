@@ -86,4 +86,8 @@ export interface PaletteContext {
   settingsSection: SettingsSection;
   /** New session is on screen: what its route can do. */
   newSession: { canWorktree: boolean; canSaveDefaults: boolean; canQueue: boolean; canCatchUp: boolean } | null;
+  /** The message box Add context… adds to (the session's, or New session's), once its folder is known. */
+  composer: { key: string; cwd: string } | null;
+  /** VS Code is installed, so a session can continue in its Claude Code extension. */
+  canContinueInVSCode: boolean;
 }

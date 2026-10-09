@@ -1,10 +1,13 @@
-import { ImagePlus } from 'lucide-react';
+import { ImagePlus, Paperclip } from 'lucide-react';
 import { useEffect, useId, useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
-import type { ImageAttachment, SlashCommand } from '@switchboard/protocol/client';
+import type { ContextItem, ImageAttachment, SlashCommand } from '@switchboard/protocol/client';
 import { useEngineConnection } from '../../engine/useEngine.ts';
 import { Button } from '../ui/Button.tsx';
 import { attachmentsAfterSend, textAfterSend } from './afterSend.ts';
 import { AttachmentThumbs, DropOverlay } from './Attachments.tsx';
+import { promptWithContext, type ContextChip } from './contextItems.ts';
+import { ContextTray } from './ContextTray.tsx';
+import { useComposerTargets } from '../../state/composerTargets.ts';
 import { hasContent } from '../../state/drafts.ts';
 import { useDrafts, type ComposerDraft } from '../../state/draftsStore.ts';
 import { onFirstLine, onLastLine, textareaRows } from './caretLine.ts';
@@ -78,6 +81,8 @@ export interface ComposerProps {
   onCycleMode?(): void;
 }
 
+const NO_CHIPS: ContextChip[] = [];
+
 /** Focus is in another text field, or in a menu or dialog: a late focus request must not take it away. */
 function isTypingElsewhere(prompt: HTMLElement): boolean {
   const active = document.activeElement as HTMLElement | null;
@@ -97,7 +102,11 @@ export function Composer(props: ComposerProps) {
   const fileRef = useRef<HTMLInputElement>(null);
   const rootRef = useRef<HTMLDivElement>(null);
   const listRef = useRef<HTMLUListElement>(null);
-  const { attachments, setAttachments, addFiles, onPaste, drop } = useAttachments({ initial: saved?.attachments, rootRef, textareaRef: ref, cwd: props.cwd, disabledReason: props.disabledReason, setText, onNotice: setNotice });
+  const draftKey = props.draftKey;
+  // The chips live in the drafts store, not here: context from the editor arrives there while the box isn't on screen.
+  const chips = useDrafts((s) => (draftKey !== undefined ? s.drafts[draftKey]?.context : undefined)) ?? NO_CHIPS;
+  const addContext = draftKey !== undefined ? (items: readonly ContextItem[]) => useDrafts.getState().addContext(draftKey, items) : undefined;
+  const { attachments, setAttachments, addFiles, onPaste, drop } = useAttachments({ initial: saved?.attachments, rootRef, textareaRef: ref, cwd: props.cwd, disabledReason: props.disabledReason, setText, onNotice: setNotice, onContext: addContext });
   /** Bumped whenever the palette's input moves on: a file search that answers after that is dropped. */
   const searchSeq = useRef(0);
   const ids = useId();
@@ -144,7 +153,6 @@ export function Composer(props: ComposerProps) {
   const onTextChange = props.onTextChange;
   useEffect(() => onTextChange?.(text), [text, onTextChange]);
 
-  const draftKey = props.draftKey;
   const onDraftLoaded = useRef(props.onDraftLoaded);
   onDraftLoaded.current = props.onDraftLoaded;
   // Opened with a kept draft: say so, with the caret at its end.
@@ -243,10 +251,30 @@ export function Composer(props: ComposerProps) {
     );
   };
 
+  // The palette's Add context… and the picker add to this box while it is on screen.
+  const cwd = props.cwd;
+  useEffect(() => {
+    if (draftKey === undefined) return;
+    useComposerTargets.getState().register({ key: draftKey, cwd });
+    return () => useComposerTargets.getState().unregister(draftKey);
+  }, [draftKey, cwd]);
+  const openPicker = () => {
+    if (draftKey !== undefined && cwd && !props.disabledReason) useComposerTargets.getState().openPicker({ key: draftKey, cwd });
+  };
+
   const choose = (item: PaletteItem) => {
     const el = ref.current;
     if (!el || !palette) return;
     const caret = el.selectionStart;
+    // A file from the @ list becomes a chip; the @ and what was typed after it go.
+    if (palette.kind === 'file' && addContext && cwd) {
+      const next = `${text.slice(0, palette.start)}${text.slice(caret).replace(/^ /, '')}`;
+      setText(next);
+      closePalette();
+      addContext([{ kind: 'file', path: `${cwd.replace(/\/+$/, '')}/${item.value.slice(1)}`, directory: false }]);
+      requestAnimationFrame(() => el.setSelectionRange(palette.start, palette.start));
+      return;
+    }
     const next = `${text.slice(0, palette.start)}${item.value} ${text.slice(caret)}`;
     setText(next);
     closePalette();
@@ -258,7 +286,9 @@ export function Composer(props: ComposerProps) {
   const submit = async (requested = false, send: (value: string, attachments: ImageAttachment[]) => Promise<void | false> | void | false = (value, sent) => props.onSubmit(value, sent, requested)) => {
     if (sending || props.disabledReason) return;
     const sentText = text;
-    const value = text.trim();
+    const sentChips = chips;
+    // The chips go with the message: files as @ mentions after what you typed, text in fenced blocks.
+    const value = promptWithContext(text, sentChips, cwd);
     const sentAttachments = attachments;
     if (!value && sentAttachments.length === 0) return;
     setSending(true);
@@ -266,6 +296,7 @@ export function Composer(props: ComposerProps) {
     closePalette();
     try {
       if ((await send(value, sentAttachments)) === false) return;
+      if (draftKey !== undefined && sentChips.length) useDrafts.getState().removeContext(draftKey, sentChips.map((chip) => chip.id));
       // The box stays editable while sending: keep whatever was typed or attached in the meantime.
       setText((current) => textAfterSend(current, sentText));
       history.current!.reset();
@@ -343,7 +374,10 @@ export function Composer(props: ComposerProps) {
         return;
       }
     }
-    if (props.secondary && matches(event.nativeEvent, props.secondary.shortcut)) {
+    if (matches(event.nativeEvent, 'composer.add-context') && addContext) {
+      event.preventDefault();
+      openPicker();
+    } else if (props.secondary && matches(event.nativeEvent, props.secondary.shortcut)) {
       event.preventDefault();
       void submitSecondary();
     } else if (matches(event.nativeEvent, 'composer.send')) {
@@ -364,7 +398,7 @@ export function Composer(props: ComposerProps) {
   const submitSecondary = () => (props.secondary ? submit(false, (value) => props.secondary!.onSubmit(value)) : Promise.resolve());
 
   return (
-    <div ref={rootRef} className="relative">
+    <div ref={rootRef} className="relative" onFocusCapture={() => draftKey !== undefined && useComposerTargets.getState().register({ key: draftKey, cwd })}>
       <DropOverlay drop={drop} />
       {palette && (
         // Focus stays in the message box (aria-activedescendant points at the highlighted option), so the
@@ -401,6 +435,15 @@ export function Composer(props: ComposerProps) {
         className={`rounded-xl border bg-card px-3 pt-2.5 pb-2 shadow-sm transition-colors ${props.restored ? 'border-edge' : 'border-border'} ${disabled ? '' : 'focus-within:border-accent-ink/60'}`}
         style={props.frameColor ? { borderColor: props.frameColor } : undefined}
       >
+        <ContextTray
+          chips={chips}
+          cwd={cwd}
+          className="mb-2"
+          onRemove={(id) => {
+            if (draftKey !== undefined) useDrafts.getState().removeContext(draftKey, [id]);
+            ref.current?.focus();
+          }}
+        />
         <AttachmentThumbs
           attachments={attachments}
           className="mb-2"
@@ -490,10 +533,23 @@ export function Composer(props: ComposerProps) {
               icon={<ImagePlus size={15} />}
               onClick={() => fileRef.current?.click()}
               disabled={disabled}
-              data-tooltip="Attach images (or paste / drop them). Dropped files and folders become @ mentions."
+              data-tooltip="Attach images (or paste / drop them). Dropped files and folders are added as context."
               aria-label="Attach images"
               data-attach
             />
+            {addContext && (
+              <Button
+                variant="quiet"
+                size="sm"
+                iconOnly
+                icon={<Paperclip size={14} />}
+                onClick={openPicker}
+                disabled={disabled || !cwd}
+                shortcut="composer.add-context"
+                aria-label="Add context"
+                data-add-context
+              />
+            )}
             {props.meter}
             {props.running && props.onInterrupt && (
               <Button size="lg" icon={<span className="size-2 rounded-[2px] bg-current" aria-hidden />} shortcut="claude.stop" kbdHideNarrow onClick={props.onInterrupt} data-tooltip={`Stop Claude (${formatKeys(keysFor('claude.stop'))})`} data-composer-stop>
@@ -507,7 +563,7 @@ export function Composer(props: ComposerProps) {
                 shortcut={props.secondary.shortcut}
                 kbdHideNarrow
                 onClick={() => void submitSecondary()}
-                disabled={disabled || sending || !text.trim()}
+                disabled={disabled || sending || (!text.trim() && chips.length === 0)}
                 className="disabled:pointer-events-none"
                 {...props.secondary.data}
               >
@@ -515,14 +571,14 @@ export function Composer(props: ComposerProps) {
               </Button>
             )}
             {/* A disabled button gets no hover, so the reason it's unavailable sits on this wrapper. */}
-            <span className="flex" data-tooltip={!sending ? (props.disabledReason ?? (!text.trim() && attachments.length === 0 ? 'Type a message first' : undefined)) : undefined}>
+            <span className="flex" data-tooltip={!sending ? (props.disabledReason ?? (!text.trim() && attachments.length === 0 && chips.length === 0 ? 'Type a message first' : undefined)) : undefined}>
               <Button
                 variant="primary"
                 size="lg"
                 kbd={props.submitHint && !sending ? props.submitHint : undefined}
                 data-composer-submit
                 onClick={() => void submit()}
-                disabled={disabled || sending || (!text.trim() && attachments.length === 0)}
+                disabled={disabled || sending || (!text.trim() && attachments.length === 0 && chips.length === 0)}
                 className="disabled:pointer-events-none"
               >
                 {sending ? 'Sending…' : (props.submitLabel ?? (props.running ? 'Queue' : 'Send'))}

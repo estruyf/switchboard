@@ -16,7 +16,7 @@ describe('dropVerdict', () => {
   it('mentions files and folders (no type) that are not images', () => {
     const verdict = dropVerdict({ files: true, types: ['application/pdf', ''] }, can);
     expect(verdict).toEqual({ kind: 'ok', attach: 0, mention: 2, full: false });
-    expect(dropMessage(verdict!)).toBe('Drop to mention 2 files');
+    expect(dropMessage(verdict!)).toBe('Drop to add 2 files');
   });
 
   it('refuses a drag where every file would be skipped when mentions are not possible', () => {
@@ -30,7 +30,7 @@ describe('dropVerdict', () => {
   it('mentions images past the limit, or says the message is full when it cannot', () => {
     const verdict = dropVerdict({ files: true, types: ['image/png'] }, { attached: MAX_ATTACHMENTS, canMention: true });
     expect(verdict).toEqual({ kind: 'ok', attach: 0, mention: 1, full: true });
-    expect(dropMessage(verdict!)).toBe(`${MAX_ATTACHMENTS} images attached already: drop to mention it as a file`);
+    expect(dropMessage(verdict!)).toBe(`${MAX_ATTACHMENTS} images attached already: drop to add it as a file`);
     expect(dropVerdict({ files: true, types: ['image/png'] }, { attached: MAX_ATTACHMENTS, canMention: false })).toEqual({ kind: 'full' });
   });
 
@@ -41,7 +41,7 @@ describe('dropVerdict', () => {
   });
 
   it('describes a mixed drop', () => {
-    expect(dropMessage({ kind: 'ok', attach: 1, mention: 3, full: false })).toBe('Drop to attach 1 image and mention 3 files');
+    expect(dropMessage({ kind: 'ok', attach: 1, mention: 3, full: false })).toBe('Drop to attach 1 image and add 3 files');
   });
 });
 

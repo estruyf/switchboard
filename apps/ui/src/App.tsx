@@ -10,6 +10,8 @@ import { QuitPrompt } from './components/QuitPrompt.tsx';
 import { ArchiveDraftDialog } from './components/drafts/ArchiveDraftDialog.tsx';
 import { UnsentList } from './components/drafts/UnsentList.tsx';
 import { useDraftsSync } from './state/useDraftsSync.ts';
+import { useCompanionSync } from './state/useCompanionSync.ts';
+import { AddContextDialogHost } from './components/composer/AddContextDialog.tsx';
 import { CommandPalette } from './components/palette/CommandPalette.tsx';
 import { PaletteDialogs } from './components/palette/PaletteDialogs.tsx';
 import { SearchDialog } from './components/search/SearchDialog.tsx';
@@ -159,6 +161,7 @@ export function App() {
   useLaterSync();
   useQueueToasts();
   useSidebarSectionsSync();
+  useCompanionSync();
   // Listen for links before telling main the window is ready: main hands over waiting links then.
   useLinksSync();
   useReadyReport();
@@ -219,6 +222,7 @@ export function App() {
       {overlay === 'palette' && <CommandPalette />}
       {overlay === 'shortcuts' && <ShortcutsSheet />}
       <PaletteDialogs />
+      <AddContextDialogHost />
       <UnsentList />
       <ArchiveDraftDialog />
       {adding && <AddProjectDialog onClose={() => useProjects.getState().showAdd(false)} />}

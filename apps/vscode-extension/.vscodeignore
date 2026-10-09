@@ -1,0 +1,8 @@
+# Only the bundle, the icon and the docs go into the .vsix; esbuild bundles everything else into dist/.
+**
+!dist/extension.cjs
+!assets/icon.png
+!package.json
+!README.md
+!CHANGELOG.md
+!LICENSE

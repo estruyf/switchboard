@@ -2,6 +2,18 @@
 
 All notable changes to Switchboard are listed here. Each release is also on the [releases page](https://github.com/estruyf/switchboard/releases), with the `.dmg` to download.
 
+## [Unreleased]
+
+### New
+
+- **Context chips in the message box.** Files you drop on a session, pick from the `@` list, or choose with **Add context** (⌘⇧A, the paperclip, or *Add context…* in the command palette) show as chips above your message, each with a × to remove it. Pick several files at once in Add context with Space. Claude gets them as references and reads them itself; chips are kept with an unsent message.
+- **VS Code companion.** A new extension, *Switchboard* on the Visual Studio Marketplace and Open VSX, sends the lines you have selected, the open file, Explorer files and folders, open editors, problems, terminal output and changed files to a session as chips. It goes to the session you have open when its folder holds the files, or asks which one (or New session). Nothing is sent to Claude until you press send. Its status bar item says when a session in the workspace needs you.
+- **Continue in VS Code.** Under **⋯** in the session header (and in the command palette): stops the session here and opens it in Claude Code's VS Code extension, in the window for its folder.
+
+### Changed
+
+- Dropping files and folders on the message box adds them as chips instead of `@` mentions in the text.
+
 ## [0.0.12] - 2026-10-09
 
 ### New

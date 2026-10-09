@@ -1,0 +1,13 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Run Extension",
+      "type": "extensionHost",
+      "request": "launch",
+      // Opens this repository in the Extension Development Host, so there is something to send to Switchboard.
+      "args": ["--extensionDevelopmentPath=${workspaceFolder}/apps/vscode-extension", "${workspaceFolder}"],
+      "outFiles": ["${workspaceFolder}/apps/vscode-extension/dist/**/*.cjs"],
+    }
+  ]
+}
