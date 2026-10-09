@@ -10,6 +10,11 @@ interface EditorSpec extends EditorInfo {
   /** CLI that can jump to a line, when on PATH. */
   cli?: string;
   gotoArgs?: (path: string, line: number | undefined) => string[];
+  /**
+   * Opens a file in the window of the folder given before it (focusing that window when it's already
+   * open) instead of the window used last.
+   */
+  folderFirst?: boolean;
 }
 
 const dashG = (path: string, line: number | undefined) => ['-g', line ? `${path}:${line}` : path];
@@ -18,11 +23,11 @@ const jetbrains = (path: string, line: number | undefined) => (line ? ['--line',
 
 /** Known apps, in the order they are offered. Only installed ones are shown. */
 export const EDITOR_SPECS: readonly EditorSpec[] = [
-  { id: 'vscode', name: 'VS Code', kind: 'editor', app: 'Visual Studio Code', cli: 'code', gotoArgs: dashG },
-  { id: 'vscode-insiders', name: 'VS Code Insiders', kind: 'editor', app: 'Visual Studio Code - Insiders', cli: 'code-insiders', gotoArgs: dashG },
-  { id: 'cursor', name: 'Cursor', kind: 'editor', app: 'Cursor', cli: 'cursor', gotoArgs: dashG },
-  { id: 'windsurf', name: 'Windsurf', kind: 'editor', app: 'Windsurf', cli: 'windsurf', gotoArgs: dashG },
-  { id: 'zed', name: 'Zed', kind: 'editor', app: 'Zed', cli: 'zed', gotoArgs: colon },
+  { id: 'vscode', name: 'VS Code', kind: 'editor', app: 'Visual Studio Code', cli: 'code', gotoArgs: dashG, folderFirst: true },
+  { id: 'vscode-insiders', name: 'VS Code Insiders', kind: 'editor', app: 'Visual Studio Code - Insiders', cli: 'code-insiders', gotoArgs: dashG, folderFirst: true },
+  { id: 'cursor', name: 'Cursor', kind: 'editor', app: 'Cursor', cli: 'cursor', gotoArgs: dashG, folderFirst: true },
+  { id: 'windsurf', name: 'Windsurf', kind: 'editor', app: 'Windsurf', cli: 'windsurf', gotoArgs: dashG, folderFirst: true },
+  { id: 'zed', name: 'Zed', kind: 'editor', app: 'Zed', cli: 'zed', gotoArgs: colon, folderFirst: true },
   { id: 'sublime', name: 'Sublime Text', kind: 'editor', app: 'Sublime Text', cli: 'subl', gotoArgs: colon },
   { id: 'webstorm', name: 'WebStorm', kind: 'editor', app: 'WebStorm', cli: 'webstorm', gotoArgs: jetbrains },
   { id: 'idea', name: 'IntelliJ IDEA', kind: 'editor', app: 'IntelliJ IDEA', cli: 'idea', gotoArgs: jetbrains },
@@ -67,27 +72,31 @@ export function detectEditors(env: Record<string, string>, home = homedir()): Ed
   );
 }
 
-/** The command that opens `path` (optionally at `line`) in an editor. Pure, for testing. */
+/**
+ * The command that opens `path` (optionally at `line`) in an editor. `folder` is the project the file
+ * belongs to: editors that can, open the file in that project's window. Pure, for testing.
+ */
 export function openCommand(
   editorId: string,
   path: string,
   line: number | undefined,
   env: Record<string, string>,
   isDirectory: boolean,
+  folder?: string,
 ): { command: string; args: string[] } {
   const spec = EDITOR_SPECS.find((e) => e.id === editorId);
   if (!spec) throw new Error(`Unknown editor: ${editorId}`);
   if (spec.kind === 'finder') return { command: 'open', args: isDirectory ? [path] : ['-R', path] };
   if (spec.kind === 'terminal') return { command: 'open', args: ['-a', spec.app!, isDirectory ? path : dirname(path)] };
   const cli = spec.cli ? findOnPath(spec.cli, env) : null;
-  if (cli && spec.gotoArgs) return { command: cli, args: spec.gotoArgs(path, line) };
+  if (cli && spec.gotoArgs) return { command: cli, args: [...(spec.folderFirst && folder && !isDirectory ? [folder] : []), ...spec.gotoArgs(path, line)] };
   // Without the CLI we can still open the file or folder, just not jump to a line.
   return { command: 'open', args: ['-a', spec.app!, path] };
 }
 
-export function openInEditor(editorId: string, path: string, line: number | undefined, env: Record<string, string>): void {
+export function openInEditor(editorId: string, path: string, line: number | undefined, env: Record<string, string>, folder?: string): void {
   const isDirectory = statSync(path, { throwIfNoEntry: false })?.isDirectory() ?? false;
-  const { command, args } = openCommand(editorId, path, line, env, isDirectory);
+  const { command, args } = openCommand(editorId, path, line, env, isDirectory, folder);
   const child = spawn(command, args, { env, detached: true, stdio: 'ignore' });
   child.on('error', () => {});
   child.unref();

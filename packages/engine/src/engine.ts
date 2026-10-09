@@ -1,6 +1,6 @@
 import { existsSync, readdirSync, readFileSync, rmSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import {
   BACKUP_SECTIONS,
   BUILTIN_PROFILE_ID,
@@ -788,7 +788,10 @@ export function createEngine(options: EngineOptions): Engine {
       const id = editorId ?? (typeof stored === 'string' ? stored : detectEditors(env).find((e) => e.kind === 'editor')?.id);
       if (!id) throw new RpcError('NO_EDITOR', 'No editor found. Install one or pick one in the Open in menu.');
       if (!existsSync(path)) throw new RpcError('NOT_FOUND', `Not found: ${path}`);
-      openInEditor(id, path, line, env);
+      // A file opens in the window of its checkout (the worktree, or the repository), not whichever window was used last.
+      const location = resolver.resolve(dirname(path));
+      const folder = location.gitDir ? (location.worktree?.path ?? location.root) : undefined;
+      openInEditor(id, path, line, env, folder);
       if (editorId && (detectEditors(env).find((e) => e.id === editorId)?.kind === 'editor')) appState.set(defaultEditorKey, editorId);
       return {};
     },

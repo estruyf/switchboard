@@ -23,6 +23,19 @@ describe('openCommand', () => {
     expect(openCommand('vscode', '/repo/a.ts', 12, { PATH: bin }, false)).toEqual({ command: join(bin, 'code'), args: ['-g', '/repo/a.ts:12'] });
   });
 
+  it('opens a file in its project window where the editor can', () => {
+    const bin = tempDir();
+    for (const cli of ['code', 'zed', 'idea']) {
+      writeFileSync(join(bin, cli), '#!/bin/sh\n');
+      chmodSync(join(bin, cli), 0o755);
+    }
+    expect(openCommand('vscode', '/repo/src/a.ts', 12, { PATH: bin }, false, '/repo').args).toEqual(['/repo', '-g', '/repo/src/a.ts:12']);
+    expect(openCommand('zed', '/repo/src/a.ts', undefined, { PATH: bin }, false, '/repo').args).toEqual(['/repo', '/repo/src/a.ts']);
+    // A folder opens on its own; JetBrains IDEs find the open project themselves.
+    expect(openCommand('vscode', '/repo', undefined, { PATH: bin }, true, '/repo').args).toEqual(['-g', '/repo']);
+    expect(openCommand('idea', '/repo/src/a.ts', 3, { PATH: bin }, false, '/repo').args).toEqual(['--line', '3', '/repo/src/a.ts']);
+  });
+
   it('falls back to `open -a` without the CLI, and handles Finder and terminals', () => {
     expect(openCommand('cursor', '/repo', undefined, { PATH: '' }, true)).toEqual({ command: 'open', args: ['-a', 'Cursor', '/repo'] });
     expect(openCommand('finder', '/repo/a.ts', undefined, {}, false)).toEqual({ command: 'open', args: ['-R', '/repo/a.ts'] });
