@@ -1,4 +1,8 @@
-import { DEFAULT_THEME_ID, type ThemeFileCheck, type ThemeState } from './themeFormat.ts';
+import {
+  DEFAULT_THEME_ID,
+  type ThemeFileCheck,
+  type ThemeState,
+} from "./themeFormat.ts";
 
 /**
  * The small API the preload script exposes on `window.switchboard`.
@@ -6,57 +10,57 @@ import { DEFAULT_THEME_ID, type ThemeFileCheck, type ThemeState } from './themeF
  */
 
 /** `window.postMessage` tag the preload uses to hand the engine port to the page. */
-export const ENGINE_PORT_MESSAGE = 'switchboard:engine-port';
+export const ENGINE_PORT_MESSAGE = "switchboard:engine-port";
 
 /** IPC channel names shared by main and preload. */
 export const IpcChannel = {
-  requestEnginePort: 'switchboard:request-engine-port',
-  enginePort: 'switchboard:engine-port',
-  engineRestarted: 'switchboard:engine-restarted',
-  rendererReady: 'switchboard:renderer-ready',
-  pickFolder: 'switchboard:pick-folder',
-  pickImage: 'switchboard:pick-image',
-  chooseExportFile: 'switchboard:choose-export-file',
-  chooseImportFile: 'switchboard:choose-import-file',
-  focusSession: 'switchboard:focus-session',
-  selectSession: 'switchboard:select-session',
-  quitRequested: 'switchboard:quit-requested',
-  quitAnswer: 'switchboard:quit-answer',
-  getPreferences: 'switchboard:get-preferences',
-  setPreferences: 'switchboard:set-preferences',
-  preferencesChanged: 'switchboard:preferences-changed',
-  openSettings: 'switchboard:open-settings',
-  toggleShortcuts: 'switchboard:toggle-shortcuts',
-  getAppInfo: 'switchboard:get-app-info',
-  getUpdateState: 'switchboard:get-update-state',
-  updateState: 'switchboard:update-state',
-  updateCommand: 'switchboard:update-command',
-  deepLink: 'switchboard:deep-link',
-  getThemes: 'switchboard:get-themes',
-  themesChanged: 'switchboard:themes-changed',
-  themeCommand: 'switchboard:theme-command',
-  windowButtons: 'switchboard:window-buttons',
-  focusWindow: 'switchboard:focus-window',
+  requestEnginePort: "switchboard:request-engine-port",
+  enginePort: "switchboard:engine-port",
+  engineRestarted: "switchboard:engine-restarted",
+  rendererReady: "switchboard:renderer-ready",
+  pickFolder: "switchboard:pick-folder",
+  pickImage: "switchboard:pick-image",
+  chooseExportFile: "switchboard:choose-export-file",
+  chooseImportFile: "switchboard:choose-import-file",
+  focusSession: "switchboard:focus-session",
+  selectSession: "switchboard:select-session",
+  quitRequested: "switchboard:quit-requested",
+  quitAnswer: "switchboard:quit-answer",
+  getPreferences: "switchboard:get-preferences",
+  setPreferences: "switchboard:set-preferences",
+  preferencesChanged: "switchboard:preferences-changed",
+  openSettings: "switchboard:open-settings",
+  toggleShortcuts: "switchboard:toggle-shortcuts",
+  getAppInfo: "switchboard:get-app-info",
+  getUpdateState: "switchboard:get-update-state",
+  updateState: "switchboard:update-state",
+  updateCommand: "switchboard:update-command",
+  deepLink: "switchboard:deep-link",
+  getThemes: "switchboard:get-themes",
+  themesChanged: "switchboard:themes-changed",
+  themeCommand: "switchboard:theme-command",
+  windowButtons: "switchboard:window-buttons",
+  focusWindow: "switchboard:focus-window",
 } as const;
 
 /** Appearance: follow macOS, or always light or dark. */
-export type ColorScheme = 'system' | 'light' | 'dark';
+export type ColorScheme = "system" | "light" | "dark";
 /** Sidebar rows: a large project icon beside three lines, three lines, or one line. */
-export type SidebarStyle = 'large' | 'standard' | 'compact';
+export type SidebarStyle = "large" | "standard" | "compact";
 /** What collapsing the sidebar (⌘B) does: the narrow rail of project icons, or hide it. */
-export type SidebarCollapsed = 'minimal' | 'closed';
+export type SidebarCollapsed = "minimal" | "closed";
 /** Tool calls in a conversation: one summary line per run (click for the steps), or every step. */
-export type ToolActivity = 'summary' | 'steps';
+export type ToolActivity = "summary" | "steps";
 /** Sessions in the sidebar: only those started or continued in Switchboard, or every Claude Code session. */
-export type SessionScope = 'switchboard' | 'all';
+export type SessionScope = "switchboard" | "all";
 /** What a new window shows: Home, the session open last time, or New session. */
-export type StartupView = 'home' | 'last' | 'new';
+export type StartupView = "home" | "last" | "new";
 /** Which releases to update to: published releases, or the nightly pre-releases too. */
-export type UpdateChannel = 'stable' | 'nightly';
+export type UpdateChannel = "stable" | "nightly";
 /** How New session, Home and the palette list your projects: most recently used first, or in the order you set. */
-export type ProjectOrder = 'recent' | 'yours';
+export type ProjectOrder = "recent" | "yours";
 /** At the focus limit: ask first and allow going over (`nudge`), or wait until a session is finished (`strict`). */
-export type FocusMode = 'nudge' | 'strict';
+export type FocusMode = "nudge" | "strict";
 
 /** The focus limit's range: at least one session, at most ten. */
 export const FOCUS_LIMIT_MIN = 1;
@@ -88,47 +92,67 @@ export interface Preferences {
 }
 
 export const DEFAULT_PREFERENCES: Preferences = {
-  colorScheme: 'system',
-  sidebarStyle: 'standard',
-  sidebarCollapsed: 'minimal',
-  toolActivity: 'summary',
+  colorScheme: "system",
+  sidebarStyle: "standard",
+  sidebarCollapsed: "minimal",
+  toolActivity: "summary",
   confirmQuit: true,
-  sessionScope: 'switchboard',
-  startupView: 'home',
-  projectOrder: 'recent',
+  sessionScope: "switchboard",
+  startupView: "home",
+  projectOrder: "recent",
   autoUpdate: true,
-  updateChannel: 'stable',
+  updateChannel: "stable",
   focusLimit: null,
-  focusMode: 'nudge',
+  focusMode: "nudge",
   focusCountExternal: false,
   themeId: DEFAULT_THEME_ID,
 };
 
 /** A theme id: lower-case letters, digits and dashes (built-in ids and the file names of imported themes). */
-export const isThemeId = (value: unknown): value is string => typeof value === 'string' && /^[a-z0-9][a-z0-9-]{0,63}$/.test(value);
+export const isThemeId = (value: unknown): value is string =>
+  typeof value === "string" && /^[a-z0-9][a-z0-9-]{0,63}$/.test(value);
 
-const oneOf = <T extends string>(values: readonly T[], value: unknown): value is T => values.includes(value as T);
+const oneOf = <T extends string>(
+  values: readonly T[],
+  value: unknown,
+): value is T => values.includes(value as T);
 
 /** Keeps only valid fields (for files on disk and values from the renderer). */
 export function sanitizePreferences(input: unknown): Partial<Preferences> {
   const raw = (input ?? {}) as Record<string, unknown>;
   const out: Partial<Preferences> = {};
-  if (oneOf(['system', 'light', 'dark'] as const, raw.colorScheme)) out.colorScheme = raw.colorScheme;
-  if (oneOf(['large', 'standard', 'compact'] as const, raw.sidebarStyle)) out.sidebarStyle = raw.sidebarStyle;
-  if (oneOf(['minimal', 'closed'] as const, raw.sidebarCollapsed)) out.sidebarCollapsed = raw.sidebarCollapsed;
-  if (oneOf(['summary', 'steps'] as const, raw.toolActivity)) out.toolActivity = raw.toolActivity;
-  if (typeof raw.confirmQuit === 'boolean') out.confirmQuit = raw.confirmQuit;
-  if (oneOf(['switchboard', 'all'] as const, raw.sessionScope)) out.sessionScope = raw.sessionScope;
-  if (oneOf(['home', 'last', 'new'] as const, raw.startupView)) out.startupView = raw.startupView;
-  if (oneOf(['recent', 'yours'] as const, raw.projectOrder)) out.projectOrder = raw.projectOrder;
-  if (typeof raw.autoUpdate === 'boolean') out.autoUpdate = raw.autoUpdate;
-  if (oneOf(['stable', 'nightly'] as const, raw.updateChannel)) out.updateChannel = raw.updateChannel;
+  if (oneOf(["system", "light", "dark"] as const, raw.colorScheme))
+    out.colorScheme = raw.colorScheme;
+  if (oneOf(["large", "standard", "compact"] as const, raw.sidebarStyle))
+    out.sidebarStyle = raw.sidebarStyle;
+  if (oneOf(["minimal", "closed"] as const, raw.sidebarCollapsed))
+    out.sidebarCollapsed = raw.sidebarCollapsed;
+  if (oneOf(["summary", "steps"] as const, raw.toolActivity))
+    out.toolActivity = raw.toolActivity;
+  if (typeof raw.confirmQuit === "boolean") out.confirmQuit = raw.confirmQuit;
+  if (oneOf(["switchboard", "all"] as const, raw.sessionScope))
+    out.sessionScope = raw.sessionScope;
+  if (oneOf(["home", "last", "new"] as const, raw.startupView))
+    out.startupView = raw.startupView;
+  if (oneOf(["recent", "yours"] as const, raw.projectOrder))
+    out.projectOrder = raw.projectOrder;
+  if (typeof raw.autoUpdate === "boolean") out.autoUpdate = raw.autoUpdate;
+  if (oneOf(["stable", "nightly"] as const, raw.updateChannel))
+    out.updateChannel = raw.updateChannel;
   if (raw.focusLimit === null) out.focusLimit = null;
-  else if (typeof raw.focusLimit === 'number' && Number.isFinite(raw.focusLimit)) {
-    out.focusLimit = Math.min(FOCUS_LIMIT_MAX, Math.max(FOCUS_LIMIT_MIN, Math.round(raw.focusLimit)));
+  else if (
+    typeof raw.focusLimit === "number" &&
+    Number.isFinite(raw.focusLimit)
+  ) {
+    out.focusLimit = Math.min(
+      FOCUS_LIMIT_MAX,
+      Math.max(FOCUS_LIMIT_MIN, Math.round(raw.focusLimit)),
+    );
   }
-  if (oneOf(['nudge', 'strict'] as const, raw.focusMode)) out.focusMode = raw.focusMode;
-  if (typeof raw.focusCountExternal === 'boolean') out.focusCountExternal = raw.focusCountExternal;
+  if (oneOf(["nudge", "strict"] as const, raw.focusMode))
+    out.focusMode = raw.focusMode;
+  if (typeof raw.focusCountExternal === "boolean")
+    out.focusCountExternal = raw.focusCountExternal;
   if (isThemeId(raw.themeId)) out.themeId = raw.themeId;
   return out;
 }
@@ -144,21 +168,33 @@ export interface AppInfo {
 }
 
 /** `releases/tag/v…` for a version, where its release notes are. */
-export const releaseUrl = (version: string) => `https://github.com/estruyf/switchboard/releases/tag/v${version}`;
-export const CHANGELOG_URL = 'https://github.com/estruyf/switchboard/blob/main/CHANGELOG.md';
+export const releaseUrl = (version: string) =>
+  `https://github.com/estruyf/switchboard/releases/tag/v${version}`;
+export const CHANGELOG_URL =
+  "https://github.com/estruyf/switchboard/blob/main/CHANGELOG.md";
 
 /** Where the VS Code companion is published: the Marketplace for VS Code, Open VSX for Cursor and Windsurf. */
 export const VSCODE_EXTENSION_URLS = {
-  marketplace: 'https://marketplace.visualstudio.com/items?itemName=eliostruyf.switchboard-vscode',
-  openVsx: 'https://open-vsx.org/extension/eliostruyf/switchboard-vscode',
-  guide: 'https://github.com/estruyf/switchboard#vs-code-companion',
+  marketplace:
+    "https://marketplace.visualstudio.com/items?itemName=eliostruyf.switchboard-companion",
+  openVsx: "https://open-vsx.org/extension/eliostruyf/switchboard-companion",
+  guide: "https://github.com/estruyf/switchboard#vs-code-companion",
 } as const;
 
 /**
  * Where the updater is. `idle` hasn't checked yet; `disabled` never will (see `disabledReason`).
  * `error` keeps what was known before it failed, so Retry knows what to try again.
  */
-export type UpdateStatus = 'idle' | 'checking' | 'up-to-date' | 'available' | 'downloading' | 'downloaded' | 'installing' | 'error' | 'disabled';
+export type UpdateStatus =
+  | "idle"
+  | "checking"
+  | "up-to-date"
+  | "available"
+  | "downloading"
+  | "downloaded"
+  | "installing"
+  | "error"
+  | "disabled";
 
 /** The updater's whole state: one plain object that main pushes to every window on each change. */
 export interface UpdateState {
@@ -185,7 +221,12 @@ export interface UpdateState {
 }
 
 /** What the renderer can ask the updater to do. `retry` repeats whatever failed; `dismiss` clears "Updated to vX". */
-export type UpdateCommand = 'check' | 'download' | 'install' | 'retry' | 'dismiss';
+export type UpdateCommand =
+  | "check"
+  | "download"
+  | "install"
+  | "retry"
+  | "dismiss";
 
 /**
  * A validated `switchboard://` link, from main to the renderer. It opens New session with the folder and
@@ -193,7 +234,7 @@ export type UpdateCommand = 'check' | 'download' | 'install' | 'retry' | 'dismis
  */
 export type DeepLink =
   | {
-      action: 'new-session';
+      action: "new-session";
       /** Text for the message box (at most 5,000 characters). */
       prompt: string | null;
       /** An absolute local folder. */
@@ -207,21 +248,21 @@ export type DeepLink =
       /** A quick question: no project, in the scratch folder the engine keeps (`cwd`, `project` and `repo` are null). */
       question: boolean;
     }
-  | { action: 'session'; sessionId: string };
+  | { action: "session"; sessionId: string };
 
 /** A link to act on, or why one was refused (shown briefly; nothing changes). */
 export type DeepLinkMessage = { link: DeepLink } | { error: string };
 
 /** What the renderer can ask main to do with themes (they live in main, next to the preferences). */
 export type ThemeCommand =
-  | { kind: 'choose-file' }
-  | { kind: 'check-file'; path: string }
-  | { kind: 'add'; raw: unknown; how: 'add' | 'replace' | 'keep-both' }
-  | { kind: 'remove'; id: string }
-  | { kind: 'duplicate'; id: string }
-  | { kind: 'export'; fileName: string; content: string }
-  | { kind: 'open-folder' }
-  | { kind: 'show-file'; id: string };
+  | { kind: "choose-file" }
+  | { kind: "check-file"; path: string }
+  | { kind: "add"; raw: unknown; how: "add" | "replace" | "keep-both" }
+  | { kind: "remove"; id: string }
+  | { kind: "duplicate"; id: string }
+  | { kind: "export"; fileName: string; content: string }
+  | { kind: "open-folder" }
+  | { kind: "show-file"; id: string };
 
 /** Sent once per engine connection by the renderer. Used for startup timing and the smoke test. */
 export interface RendererReadyReport {
@@ -259,15 +300,17 @@ export interface SwitchboardBridge {
   getPathForFile(file: File): string;
   /** ⌘Q was pressed: show the quit prompt. Pressing ⌘Q again while it's open quits without it. */
   onQuitRequested(listener: () => void): () => void;
-  answerQuit(answer: 'quit' | 'cancel'): void;
+  answerQuit(answer: "quit" | "cancel"): void;
   /** Read once when the page loads, so the first paint already uses them. */
   readonly preferences: Preferences;
   /** Applies at once (the colour scheme flips prefers-color-scheme) and is remembered. */
   setPreferences(patch: Partial<Preferences>): void;
   /** Fires in every window after any change, including from the menu bar. */
-  onPreferencesChanged(listener: (preferences: Preferences) => void): () => void;
+  onPreferencesChanged(
+    listener: (preferences: Preferences) => void,
+  ): () => void;
   /** Switchboard → Settings… (⌘,) in the menu bar, or Check for Updates… (which opens About). */
-  onOpenSettings(listener: (section: 'about' | null) => void): () => void;
+  onOpenSettings(listener: (section: "about" | null) => void): () => void;
   /** Help › Keyboard Shortcuts (⌘/) in the menu bar: open the shortcuts sheet, or close it. */
   onToggleShortcuts(listener: () => void): () => void;
   /** Read once when the page loads. */
@@ -283,7 +326,7 @@ export interface SwitchboardBridge {
    * Where the window's traffic lights sit: `rail` tucks them into the 64px minimal sidebar, `default`
    * puts them back. macOS only; elsewhere it does nothing.
    */
-  setWindowButtons(position: 'default' | 'rail'): void;
+  setWindowButtons(position: "default" | "rail"): void;
   /** A `switchboard://` link was opened (main holds links until this window's renderer is ready). */
   onDeepLink(listener: (message: DeepLinkMessage) => void): () => void;
   /** Every theme, read once when the page loads (with the preferences), so the first paint has the right colours. */
@@ -298,7 +341,7 @@ export interface SwitchboardBridge {
    * Adds a theme (validated again in main). `replace` overwrites the imported theme with the same name,
    * `keep-both` saves it as "<name> 2". Resolves to the new theme's id.
    */
-  addTheme(raw: unknown, how: 'add' | 'replace' | 'keep-both'): Promise<string>;
+  addTheme(raw: unknown, how: "add" | "replace" | "keep-both"): Promise<string>;
   /** Moves an imported theme's file to the Trash. Built-in themes can't be removed. */
   removeTheme(id: string): Promise<void>;
   /** Saves a copy of any theme as a new imported one ("<name> 2"). Resolves to its id. */

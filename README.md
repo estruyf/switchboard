@@ -344,7 +344,7 @@ Sending, starting the session, adding the prompt to the queue, **Discard** or de
 
 ## VS Code companion
 
-The **Switchboard** extension for VS Code (also Cursor and Windsurf) sends what you're looking at in the editor to a Switchboard session. Install it from the [Visual Studio Marketplace](https://marketplace.visualstudio.com/items?itemName=eliostruyf.switchboard-vscode) or [Open VSX](https://open-vsx.org/extension/eliostruyf/switchboard-vscode).
+The **Switchboard** extension for VS Code (also Cursor and Windsurf) sends what you're looking at in the editor to a Switchboard session. Install it from the [Visual Studio Marketplace](https://marketplace.visualstudio.com/items?itemName=eliostruyf.switchboard-companion) or [Open VSX](https://open-vsx.org/extension/eliostruyf/switchboard-companion).
 
 | From VS Code | Arrives in Switchboard as |
 |---|---|
