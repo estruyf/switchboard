@@ -1,7 +1,7 @@
 # Publishes the VS Code companion (apps/vscode-extension) to the Visual Studio Marketplace and Open VSX.
 #
 # Three ways to release it, like Demo Time:
-# - publish a GitHub release tagged vscode-vX.Y.Z (the version comes from the tag, and the .vsix is attached to it);
+# - publish a GitHub release tagged vscode-vX.Y.Z (the version comes from the tag);
 # - push a commit to main whose message has both #release and #vscode (the version in the extension's package.json);
 # - run this workflow by hand (Actions → Release VS Code extension → Run workflow), from any branch.
 #
@@ -145,8 +145,8 @@ jobs:
           fi
           npx --yes ovsx publish "${{ needs.build.outputs.vsix }}" --skip-duplicate $PRE_RELEASE
 
-  attach:
-    name: Attach the .vsix and notes to the GitHub release
+  release-notes:
+    name: Fill in empty GitHub release notes
     needs: build
     if: github.event_name == 'release'
     runs-on: ubuntu-latest
@@ -154,17 +154,13 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: ${{ github.event.release.tag_name }}
-      - uses: actions/download-artifact@v4
-        with:
-          name: vsix
-      - name: Attach, and fill in empty notes from the extension's changelog
+      - name: Fill in empty notes from the extension's changelog
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.event.release.tag_name }}
           BODY: ${{ github.event.release.body }}
           VERSION: ${{ needs.build.outputs.version }}
         run: |
-          gh release upload "$TAG" "${{ needs.build.outputs.vsix }}" --clobber --repo "$GITHUB_REPOSITORY"
           if [ -n "$(echo "$BODY" | tr -d '[:space:]')" ]; then exit 0; fi
           awk -v v="$VERSION" '
             index($0, "## [" v "]") == 1 { on = 1; next }
