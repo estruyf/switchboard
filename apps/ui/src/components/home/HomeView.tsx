@@ -10,7 +10,7 @@ import { ProjectIcon } from '../ProjectIcon.tsx';
 import { SidebarToggle } from '../sidebar/SidebarToggle.tsx';
 import { Button } from '../ui/Button.tsx';
 import { SectionHeader } from '../ui/SectionHeader.tsx';
-import { activityByProject, latestBranches, recentFirst } from '../newSession/projectTiles.ts';
+import { activityByProject, latestBranches, orderProjects } from '../newSession/projectTiles.ts';
 import { WorkingDots } from '../transcript/ActivityGroup.tsx';
 import { homeSessions, homeSummary, profileActivity, profileActivityLine, projectMeta } from './homeModel.ts';
 import { useProfiles } from '../../state/profilesStore.ts';
@@ -43,10 +43,11 @@ function where(row: SessionRowData, name: string) {
 
 /**
  * What the window shows when no session is open: what needs you, what is working, and a quick start
- * in your most recent projects. Without projects it asks you to add the first one.
+ * in your first projects (most recent, or in your order). Without projects it asks you to add the first one.
  */
 export function HomeView() {
   const scope = usePreferences((s) => s.prefs.sessionScope);
+  const projectOrder = usePreferences((s) => s.prefs.projectOrder);
   const sessions = useSessions((s) => s.sessions);
   const live = useSessions((s) => s.live);
   const hosts = useHosts((s) => s.hosts);
@@ -60,8 +61,8 @@ export function HomeView() {
   const branches = useMemo(() => latestBranches(sessions.values()), [sessions]);
   const yours = useMemo(() => addedProjects(projects).filter((p) => p.exists), [projects]);
   const tiles = useMemo(
-    () => recentFirst(yours.map((p) => p.root), (root) => Math.max(projects.get(root)?.lastActivity ?? 0, activity.get(root)?.lastActivity ?? 0) || null).slice(0, 4),
-    [yours, projects, activity],
+    () => orderProjects(yours.map((p) => p.root), projectOrder, (root) => Math.max(projects.get(root)?.lastActivity ?? 0, activity.get(root)?.lastActivity ?? 0) || null).slice(0, 4),
+    [yours, projectOrder, projects, activity],
   );
   // The oldest open request per session: what it waits for.
   const asks = useMemo(() => {

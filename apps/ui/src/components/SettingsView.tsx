@@ -1,6 +1,6 @@
 import { Activity, ArchiveRestore, Info, MessageSquare, Palette, PanelLeft, SlidersHorizontal, Target, Users, X, type LucideIcon } from 'lucide-react';
 import { useEffect, useId, useRef, type ReactNode, type RefObject } from 'react';
-import type { SidebarCollapsed, SidebarStyle, StartupView, ToolActivity } from '@switchboard/protocol/bridge';
+import type { ProjectOrder, SidebarCollapsed, SidebarStyle, StartupView, ToolActivity } from '@switchboard/protocol/bridge';
 import { usePreferences } from '../state/preferencesStore.ts';
 import { useSessions, type SettingsSection } from '../state/sessionsStore.ts';
 import { useSidebar } from '../state/sidebarStore.ts';
@@ -235,6 +235,25 @@ function SectionPage({ section }: { section: SettingsSection }) {
                 </Radio>
               ))}
             </RadioGroup>
+          </Section>
+          <Section title="Projects">
+            <div className="flex items-center justify-between gap-4">
+              <span>
+                <span className="block text-ui">Project order</span>
+                <span className="block text-meta text-muted">How New session, Home and the command palette list your projects: the ones you used last first, or the order you set in Projects.</span>
+              </span>
+              <SegmentedControl<ProjectOrder>
+                mode="radio"
+                label="Project order"
+                value={prefs.projectOrder}
+                onChange={(projectOrder) => update({ projectOrder })}
+                segments={[
+                  { value: 'recent', label: 'Recent', data: { 'data-project-order': 'recent' } },
+                  { value: 'yours', label: 'Your order', data: { 'data-project-order': 'yours' } },
+                ]}
+                className="shrink-0"
+              />
+            </div>
           </Section>
           <Section title="Quitting">
             <Toggle

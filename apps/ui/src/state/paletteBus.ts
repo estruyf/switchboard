@@ -20,6 +20,8 @@ export interface NewSessionInfo {
   canWorktree: boolean;
   canSaveDefaults: boolean;
   canSaveForLater: boolean;
+  /** The picked folder is a git checkout with a remote: it can fetch, and pull when behind. */
+  canCatchUp: boolean;
 }
 
 /** Dialogs a palette command opens after the palette has closed. `PaletteDialogs` renders them. */

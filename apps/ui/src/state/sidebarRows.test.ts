@@ -157,13 +157,21 @@ describe('groupSessions', () => {
     expect(sessionGroup(row('x', { live: { ...live('idle'), background: ['npm test'] } }), NOW)).toBe('today');
   });
 
+  it('puts pinned sessions in Pinned, unless they wait on you or are working', () => {
+    expect(sessionGroup(rows[0]!, NOW)).toBe('pinned');
+    expect(sessionGroup(row('x', { pinned: true, live: live('needs-you') }), NOW)).toBe('needs-you');
+    expect(sessionGroup(row('x', { pinned: true, live: live('running') }), NOW)).toBe('working');
+    expect(sessionGroup(row('x', { pinned: true, unread: true }), NOW)).toBe('pinned');
+  });
+
   it('keeps the given order inside a section and skips empty sections', () => {
     const groups = groupSessions(rows, NOW);
     expect(groups.map((g) => [g.group, ids(g.rows)])).toEqual([
       ['needs-you', ['waiting']],
       ['working', ['busy']],
+      ['pinned', ['pinned-yesterday']],
       ['today', ['today', 'failed-today']],
-      ['yesterday', ['pinned-yesterday', 'yesterday']],
+      ['yesterday', ['yesterday']],
       ['earlier', ['earlier']],
     ]);
     expect(groupSessions([rows[1]!], NOW).map((g) => g.group)).toEqual(['today']);
@@ -178,9 +186,20 @@ describe('groupSessions', () => {
     expect(groupSessions(list.active, NOW).map((g) => ids(g.rows))).toEqual([['pin', 'second', 'first']]);
   });
 
-  it('keeps pinned sessions at the top of their section', () => {
-    const list = buildSessionList([row('new', { updatedAt: NOW - 60_000 }), row('pin', { updatedAt: midnight + 1, pinned: true })], { search: '', project: null, now: NOW });
-    expect(groupSessions(list.active, NOW).map((g) => ids(g.rows))).toEqual([['pin', 'new']]);
+  it('lists pinned sessions above the days, newest first', () => {
+    const list = buildSessionList(
+      [row('new', { updatedAt: NOW - 60_000 }), row('pin', { updatedAt: midnight + 1, pinned: true }), row('old-pin', { updatedAt: old, pinned: true })],
+      { search: '', project: null, now: NOW },
+    );
+    expect(groupSessions(list.active, NOW).map((g) => [g.group, ids(g.rows)])).toEqual([
+      ['pinned', ['pin', 'old-pin']],
+      ['today', ['new']],
+    ]);
+  });
+
+  it('keeps pinned sessions at the top of Needs you', () => {
+    const list = buildSessionList([row('ask', { updatedAt: NOW, live: live('needs-you') }), row('pin', { updatedAt: old, pinned: true, live: live('needs-you') })], { search: '', project: null, now: NOW });
+    expect(groupSessions(list.active, NOW).map((g) => ids(g.rows))).toEqual([['pin', 'ask']]);
   });
 });
 

@@ -19,10 +19,13 @@ export function modeForPrefix(char: string | undefined): Exclude<PaletteMode, 'g
 /** Lists a `pick` step chooses from. */
 export type PickList = 'model' | 'effort' | 'mode' | 'fork' | 'rewind' | 'focus-limit' | 'later';
 
-/** One step of a command that needs more input. `chip` is how it shows in the input. */
+/**
+ * One step of a command that needs more input. `chip` is how it shows in the input; `from` is the
+ * project a prompt was written for before its project was changed, so the prompt moves along.
+ */
 export type PaletteStep =
-  | { kind: 'projects'; purpose: 'new-session' | 'rename-project'; worktree: boolean; chip: string }
-  | { kind: 'prompt'; root: string; worktree: boolean; chip: string }
+  | { kind: 'projects'; purpose: 'new-session' | 'rename-project'; worktree: boolean; chip: string; from?: string }
+  | { kind: 'prompt'; root: string; worktree: boolean; chip: string; from?: string }
   | { kind: 'pick'; list: PickList; chip: string };
 
 export interface PaletteState {
@@ -77,4 +80,20 @@ export function back(state: PaletteState): PaletteState | null {
   }
   if (state.mode !== 'goto') return initialState('goto');
   return null;
+}
+
+/**
+ * The project in the prompt step was clicked: pick another one from the whole list, taking the
+ * prompt along (`from`). Back to the project list it came from, or one in its place when the step
+ * was opened straight for a project (New session in this project).
+ */
+export function changeProject(state: PaletteState): PaletteState {
+  const step = currentStep(state);
+  if (step?.kind !== 'prompt') return state;
+  const before = state.steps.at(-2);
+  if (before?.kind === 'projects' && before.purpose === 'new-session') {
+    return { ...state, steps: [...state.steps.slice(0, -2), { ...before, from: step.root }], saved: state.saved.slice(0, -1), query: '' };
+  }
+  const projects: PaletteStep = { kind: 'projects', purpose: 'new-session', worktree: step.worktree, chip: step.chip, from: step.root };
+  return { ...state, steps: [...state.steps.slice(0, -1), projects], query: '' };
 }

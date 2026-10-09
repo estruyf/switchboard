@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { WorktreeStatus } from '@switchboard/protocol/client';
-import { gitSummary, planGit, stepCount, syncStep } from './gitPlan.ts';
+import { catchUpStep, gitSummary, planGit, stepCount, syncStep } from './gitPlan.ts';
 
 const base: WorktreeStatus = {
   path: '/repo',
@@ -106,5 +106,14 @@ describe('syncStep: Sync with remote', () => {
 
   it('waits for Claude before pulling into a busy checkout', () => {
     expect(syncStep(status({ behindUpstream: 3 }), true)).toBe('fetch');
+  });
+});
+
+describe('catchUpStep', () => {
+  it('pulls only when the upstream is ahead, else fetches', () => {
+    expect(catchUpStep(status({ behindUpstream: 3, uncommitted: 2 }))).toBe('pull');
+    expect(catchUpStep(status({ unpushed: 2, uncommitted: 2 }))).toBe('fetch');
+    expect(catchUpStep(status({ upstream: null, unpushed: null, behindUpstream: null }))).toBe('fetch');
+    expect(catchUpStep(status({ branch: null, behindUpstream: 3 }))).toBe('fetch');
   });
 });

@@ -10,7 +10,7 @@ import { RenameSessionDialog } from '../RenameSessionDialog.tsx';
 import { useProjectIconEntries } from './ProjectMenu.tsx';
 
 export type FlagChange = { pinned?: boolean; archived?: boolean };
-/** Archiving takes the pin away: a pinned session would stay in the main list. */
+/** Archiving takes the pin away: a pinned session would stay in the main list, under Pinned. */
 export const ARCHIVE: FlagChange = { archived: true, pinned: false };
 
 export interface SessionMenus {
@@ -63,7 +63,7 @@ export function useSessionMenu(order: readonly string[], onDeleted?: () => void)
       label: `Session “${data.title}”`,
       entries: [
         { label: 'Rename…', hint: 'F2', onSelect: () => setRenaming(data), disabled: !data.summary, data: { 'data-rename-session': true } },
-        { label: data.pinned ? 'Unpin' : 'Pin to top', onSelect: () => flag({ pinned: !data.pinned }), disabled: !data.summary },
+        { label: data.pinned ? 'Unpin' : 'Pin', onSelect: () => flag({ pinned: !data.pinned }), disabled: !data.summary },
         archivedNow
           ? { label: 'Unarchive', onSelect: () => flag({ archived: false }), disabled: !data.summary }
           : { label: 'Archive', hint: 'until new activity', onSelect: () => flag(ARCHIVE), disabled: !data.summary },

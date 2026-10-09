@@ -82,5 +82,5 @@ export interface PaletteContext {
   sidebar: SidebarState;
   settingsSection: SettingsSection;
   /** New session is on screen: what its route can do. */
-  newSession: { canWorktree: boolean; canSaveDefaults: boolean; canSaveForLater: boolean } | null;
+  newSession: { canWorktree: boolean; canSaveDefaults: boolean; canSaveForLater: boolean; canCatchUp: boolean } | null;
 }

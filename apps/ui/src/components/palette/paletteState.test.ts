@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { back, currentStep, initialState, modeForPrefix, NEW_SESSION_STEP, pushStep, switchMode, typeQuery, type PaletteStep } from './paletteState.ts';
+import { back, changeProject, currentStep, initialState, modeForPrefix, NEW_SESSION_STEP, pushStep, switchMode, typeQuery, type PaletteStep } from './paletteState.ts';
 
 const PROMPT: PaletteStep = { kind: 'prompt', root: '/work/app', worktree: false, chip: 'New session' };
 
@@ -69,5 +69,20 @@ describe('steps', () => {
     expect(switchMode('help')).toEqual({ mode: 'help', query: '', steps: [], saved: [] });
     expect(currentStep(switchMode('goto'))).toBeNull();
     expect(currentStep(state)).not.toBeNull();
+  });
+
+  it('goes back to the project list when the project is changed, taking the prompt along', () => {
+    let state = pushStep(initialState('commands'), NEW_SESSION_STEP);
+    state = typeQuery(state, 'ap');
+    state = changeProject(pushStep(state, PROMPT));
+    expect(state).toMatchObject({ mode: 'commands', query: '', steps: [{ ...NEW_SESSION_STEP, from: '/work/app' }], saved: [''] });
+    expect(back(state)).toMatchObject({ mode: 'commands', steps: [] });
+  });
+
+  it('puts a project list in place of a prompt step opened straight for a project', () => {
+    const state = changeProject(pushStep(initialState('commands'), { ...PROMPT, worktree: true }));
+    expect(state.steps).toEqual([{ kind: 'projects', purpose: 'new-session', worktree: true, chip: 'New session', from: '/work/app' }]);
+    expect(back(state)).toMatchObject({ mode: 'commands', steps: [] });
+    expect(changeProject(initialState('goto'))).toEqual(initialState('goto'));
   });
 });

@@ -85,18 +85,21 @@ function useShortcuts() {
         useOverlay.getState().togglePalette('goto');
       } else if (matches(event, 'terminal.maximize')) {
         // The terminal takes the whole session view, or gives it back. Closed, it opens maximized.
-        if (useSessions.getState().view !== 'session') return;
+        const { view, selectedId } = useSessions.getState();
+        if (view !== 'session' || !selectedId) return;
         event.preventDefault();
-        const { panelOpen, togglePanel, setMaximized } = useTerminals.getState();
-        if (panelOpen) setMaximized();
+        const { openFor, togglePanel, setMaximized } = useTerminals.getState();
+        if (openFor.has(selectedId)) setMaximized(selectedId);
         else {
-          togglePanel();
-          setMaximized(true);
+          togglePanel(selectedId);
+          setMaximized(selectedId, true);
         }
       } else if (matches(event, 'terminal.toggle')) {
-        if (useSessions.getState().view !== 'session') return;
+        // The panel of the session in the active pane.
+        const { view, selectedId } = useSessions.getState();
+        if (view !== 'session' || !selectedId) return;
         event.preventDefault();
-        useTerminals.getState().togglePanel();
+        useTerminals.getState().togglePanel(selectedId);
       } else if (matches(event, 'pane.close-other')) {
         const { splitId, activePane, closePane } = useSessions.getState();
         if (!splitId) return;

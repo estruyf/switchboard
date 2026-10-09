@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { LiveSession, SessionSummary } from '@switchboard/protocol/client';
 import type { SessionRowData } from '../../state/sessionsStore.ts';
-import { activityByProject, filterFolders, latestBranches, pickUpRows, quickTiles, recentFirst, tileStatus } from './projectTiles.ts';
+import { activityByProject, filterFolders, latestBranches, orderProjects, pickUpRows, quickTiles, recentFirst, tileStatus } from './projectTiles.ts';
 
 const NOW = Date.UTC(2026, 9, 5, 12);
 const HOUR = 3_600_000;
@@ -60,6 +60,13 @@ describe('project tiles', () => {
   it('put the most recent projects first and keep the rest in order', () => {
     const at = new Map([['/b', 5], ['/c', 9]]);
     expect(recentFirst(['/a', '/b', '/c', '/d'], (root) => at.get(root) ?? null)).toEqual(['/c', '/b', '/a', '/d']);
+  });
+
+  it('order projects by recent use, or keep your order', () => {
+    const at = new Map([['/b', 2], ['/c', 3]]);
+    const lastActivity = (root: string) => at.get(root) ?? null;
+    expect(orderProjects(['/a', '/b', '/c'], 'recent', lastActivity)).toEqual(['/c', '/b', '/a']);
+    expect(orderProjects(['/a', '/b', '/c'], 'yours', lastActivity)).toEqual(['/a', '/b', '/c']);
   });
 
   it('keep a picked folder visible among the quick tiles', () => {

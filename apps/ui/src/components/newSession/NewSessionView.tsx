@@ -1,6 +1,6 @@
 import { Bookmark, Folder, FolderGit2, GitBranch, Link2, PencilLine } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import type { ImageAttachment, LaterDraft, LaterItem, ProjectInspection, SlashCommand } from '@switchboard/protocol/client';
+import type { ImageAttachment, LaterDraft, LaterItem, ProjectInspection, SlashCommand, WorktreeStatus } from '@switchboard/protocol/client';
 import { useEngineConnection } from '../../engine/useEngine.ts';
 import { ChoiceMenu } from './ChoiceMenu.tsx';
 import { FolderPicker } from './FolderPicker.tsx';
@@ -34,9 +34,10 @@ import { Switch } from '../ui/Toggle.tsx';
 import { ProjectIcon, useProjectColor } from '../ProjectIcon.tsx';
 import { SidebarToggle } from '../sidebar/SidebarToggle.tsx';
 import { OpenInButton } from '../OpenInButton.tsx';
+import { CatchUpButton } from '../git/CatchUpButton.tsx';
 import { UsageBand } from '../UsageBand.tsx';
 import { linkNoticeText } from './linkNotice.ts';
-import { activityByProject, latestBranches, pickUpRows, recentFirst, tileStatus } from './projectTiles.ts';
+import { activityByProject, latestBranches, orderProjects, pickUpRows, tileStatus } from './projectTiles.ts';
 import { branchLabel, branchNote, freshBase } from './trayLabels.ts';
 import { checkoutBranchFor, shouldPrewarm, startNewSession } from './startSession.ts';
 import { DEFAULTS_KEY, globalPatch, INITIAL_CHOICES, linkStartingChoices, readGlobals, sameDefaults, startingChoices, toProjectDefaults, type Choices, type GlobalChoices } from './choices.ts';
@@ -64,6 +65,7 @@ export function NewSessionView() {
   const hosts = useHosts((s) => s.hosts);
   const live = useSessions((s) => s.live);
   const scope = usePreferences((s) => s.prefs.sessionScope);
+  const projectOrder = usePreferences((s) => s.prefs.projectOrder);
   const view = useSessions((s) => s.view);
   const [cwd, setCwd] = useState<string | null>(null);
   const [globals, setGlobals] = useState<GlobalChoices>(INITIAL_CHOICES);
@@ -72,7 +74,7 @@ export function NewSessionView() {
   const [inspection, setInspection] = useState<ProjectInspection | null>(null);
   const [gitBranches, setGitBranches] = useState<{ current: string | null; branches: string[] }>({ current: null, branches: [] });
   /** Where the checkout stands: the remote a fresh worktree branches from, its default branch, and how far the upstream is ahead. */
-  const [gitStatus, setGitStatus] = useState<{ remote: string | null; baseBranch: string | null; behindUpstream: number | null } | null>(null);
+  const [gitStatus, setGitStatus] = useState<WorktreeStatus | null>(null);
   const [worktreeName, setWorktreeName] = useState('');
   const [nameTouched, setNameTouched] = useState(false);
   const [commands, setCommands] = useState<SlashCommand[]>([]);
@@ -137,9 +139,9 @@ export function NewSessionView() {
   // tiles' status lines and "Pick up in" come from these.
   const rows = useMemo(() => toRows(sessions, live, hosts).filter((row) => inScope(row, scope)), [sessions, live, hosts, scope]);
   const activity = useMemo(() => activityByProject(rows), [rows]);
-  const recent = useMemo(
-    () => recentFirst(folders, (root) => Math.max(projects.get(root)?.lastActivity ?? 0, activity.get(root)?.lastActivity ?? 0) || null),
-    [folders, projects, activity],
+  const ordered = useMemo(
+    () => orderProjects(folders, projectOrder, (root) => Math.max(projects.get(root)?.lastActivity ?? 0, activity.get(root)?.lastActivity ?? 0) || null),
+    [folders, projectOrder, projects, activity],
   );
   const statusOf = (root: string) => tileStatus(activity.get(root), projects.get(root)?.lastActivity ?? null, Date.now());
 
@@ -317,7 +319,7 @@ export function NewSessionView() {
       () => {},
     );
     client.call('worktree.status', { cwd }).then(
-      (r) => !cancelled && setGitStatus({ remote: r.pushRemote, baseBranch: r.baseBranch, behindUpstream: r.behindUpstream }),
+      (r) => !cancelled && setGitStatus(r),
       () => {},
     );
     return () => {
@@ -384,7 +386,7 @@ export function NewSessionView() {
   const trayBranch = branchLabel({
     worktree: useWorktree,
     baseRef: d.baseRef,
-    remote: gitStatus?.remote ?? null,
+    remote: gitStatus?.pushRemote ?? null,
     baseBranch: gitStatus?.baseBranch ?? null,
     current: gitBranches.current ?? branch,
     checkoutBranch,
@@ -400,9 +402,12 @@ export function NewSessionView() {
 
   // The command palette's commands for this view: what they can do here, and their requests.
   const canSaveForLater = !!cwd && draftPrompt.trim() !== '' && !!client;
+  const canCatchUp = !!cwd && inspection?.path === cwd && inspection.exists && !!gitStatus?.hasRemote && !!client;
+  /** The palette's Update from remote: the git button runs its step. */
+  const [catchUpRequest, setCatchUpRequest] = useState(0);
   useEffect(() => {
-    usePaletteBus.setState({ newSessionInfo: { canWorktree, canSaveDefaults: unsaved, canSaveForLater } });
-  }, [canWorktree, unsaved, canSaveForLater]);
+    usePaletteBus.setState({ newSessionInfo: { canWorktree, canSaveDefaults: unsaved, canSaveForLater, canCatchUp } });
+  }, [canWorktree, unsaved, canSaveForLater, canCatchUp]);
   useEffect(() => () => usePaletteBus.setState({ newSessionInfo: null }), []);
   const paletteRequest = usePaletteBus((s) => s.newSessionRequest);
   const seenRequest = useRef(usePaletteBus.getState().newSessionRequest?.nonce ?? 0);
@@ -412,6 +417,7 @@ export function NewSessionView() {
     if (paletteRequest.kind === 'toggle-worktree' && canWorktree) update({ workspace: useWorktree ? 'current' : 'worktree' });
     else if (paletteRequest.kind === 'save-defaults' && unsaved) void saveAsProjectDefault();
     else if (paletteRequest.kind === 'save-later' && canSaveForLater) void parkForLater(draftPrompt.trim()).catch(() => {});
+    else if (paletteRequest.kind === 'catch-up' && canCatchUp) setCatchUpRequest((n) => n + 1);
   }, [paletteRequest]);
 
   const pickUp = useMemo(() => (cwd ? pickUpRows(rows, cwd, Date.now()) : []), [rows, cwd]);
@@ -575,8 +581,14 @@ export function NewSessionView() {
       {/* No title bar: the heading names the view. The strip keeps the window draggable. */}
       <div className="drag flex h-13 shrink-0 items-center justify-between px-4">
         <SidebarToggle />
-        {/* To look around the whole project before (or instead of) asking Claude. */}
-        {cwd && inspection?.path === cwd && inspection.exists && <OpenInButton path={cwd} shortcut={false} />}
+        {cwd && inspection?.path === cwd && inspection.exists && (
+          <div className="flex items-center gap-2">
+            {/* Your copy may be behind the remote: catch up before Claude starts from it. */}
+            {gitStatus && <CatchUpButton cwd={cwd} status={gitStatus} onStatus={setGitStatus} request={catchUpRequest} />}
+            {/* To look around the whole project before (or instead of) asking Claude. */}
+            <OpenInButton path={cwd} shortcut={false} />
+          </div>
+        )}
       </div>
 
       <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
@@ -591,7 +603,7 @@ export function NewSessionView() {
 
           <FolderPicker
             value={cwd}
-            folders={recent}
+            folders={ordered}
             home={home}
             branches={folderBranches}
             statusOf={statusOf}
@@ -701,7 +713,7 @@ export function NewSessionView() {
                       search="Search branches"
                       width={300}
                       choices={[
-                        { value: 'fresh', label: freshBase(gitStatus?.remote ?? null, gitStatus?.baseBranch ?? null), note: 'default', description: "Claude Code's default" },
+                        { value: 'fresh', label: freshBase(gitStatus?.pushRemote ?? null, gitStatus?.baseBranch ?? null), note: 'default', description: "Claude Code's default" },
                         { value: 'head', label: gitBranches.current ?? 'HEAD', note: 'local HEAD', description: 'Includes your unpushed commits' },
                       ]}
                     >

@@ -24,7 +24,7 @@ const failed = (what: string) => (error: unknown) => toast(`Couldn't ${what}: ${
 
 /** Shows a terminal tab the engine just opened for the session. */
 function showTerminal(sessionId: string, terminalId: string) {
-  useTerminals.getState().togglePanel(true);
+  useTerminals.getState().togglePanel(sessionId, true);
   useTerminals.getState().setActive(sessionId, terminalId);
 }
 
@@ -81,7 +81,7 @@ export function createPaletteApi(ctx: PaletteContext, client: EngineClient | nul
     },
     copySessionId: () => void navigator.clipboard.writeText(sessionId).catch(failed('copy the session id')),
     checkTranscript: () => usePaletteBus.getState().showDialog({ kind: 'transcript-diagnosis', sessionId, title: session?.title ?? null }),
-    toggleTerminal: () => useTerminals.getState().togglePanel(),
+    toggleTerminal: () => useTerminals.getState().togglePanel(sessionId),
     newTerminalTab: () => cwd && call('open a terminal', (c) => openTerminal(c, sessionId, cwd, 'shell')),
     toggleChanges: () => useOverlay.getState().toggleChanges(),
     // After the palette's own close, so the Tools dialog isn't closed along with it.
@@ -139,11 +139,11 @@ export function createPaletteApi(ctx: PaletteContext, client: EngineClient | nul
         if (files.length) usePaletteBus.getState().showDialog({ kind: 'revert-all', cwd, paths: files.map((file) => file.path) });
       }),
     runAction: (id) => useOverlay.getState().requestAction(id),
-    hideTerminal: () => useTerminals.getState().togglePanel(false),
-    toggleMaximizeTerminal: () => useTerminals.getState().setMaximized(),
+    hideTerminal: () => useTerminals.getState().togglePanel(sessionId, false),
+    toggleMaximizeTerminal: () => useTerminals.getState().setMaximized(sessionId),
     dockTerminal: (dock) => {
       useTerminals.getState().setDock(dock);
-      useTerminals.getState().setMaximized(false);
+      useTerminals.getState().setMaximized(sessionId, false);
     },
     stopAction: () => {
       const terminal = activeTerminal();

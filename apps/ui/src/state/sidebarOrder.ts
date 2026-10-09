@@ -10,8 +10,8 @@ export interface WaitingRequest {
 }
 
 /**
- * The sidebar's sections and their sessions, in the order it lists them: Needs you, Working, Today,
- * Yesterday, Earlier, pinned first inside each. Archived sessions are left out. The minimal rail,
+ * The sidebar's sections and their sessions, in the order it lists them: Needs you, Working, Pinned,
+ * Today, Yesterday, Earlier. Archived sessions are left out. The minimal rail,
  * ⌃⇥ and ⌘P all read this, so the order never differs between them.
  */
 export function sidebarGroups(

@@ -112,7 +112,7 @@ describe('when(): a session is open', () => {
     const byId = (id: string) => COMMANDS.find((c) => c.id === id)!;
     expect(titleOf(byId('pin'), pinned)).toBe('Unpin');
     expect(titleOf(byId('archive'), pinned)).toBe('Unarchive');
-    expect(titleOf(byId('pin'), inSession())).toBe('Pin to top');
+    expect(titleOf(byId('pin'), inSession())).toBe('Pin');
     const api = { setFlags: vi.fn() } as unknown as PaletteApi;
     byId('archive').run!(api, pinned);
     expect(api.setFlags).toHaveBeenCalledWith({ archived: false });
@@ -193,8 +193,9 @@ describe('when(): git, actions, terminal, panes', () => {
 describe('when(): New session and Settings', () => {
   it('changes New session only when it can', () => {
     expect(groupIds(context({ view: 'new-session' }), 'new-session')).toEqual([]);
-    const info = { canWorktree: true, canSaveDefaults: true, canSaveForLater: true };
+    const info = { canWorktree: true, canSaveDefaults: true, canSaveForLater: true, canCatchUp: false };
     expect(groupIds(context({ view: 'new-session', newSession: info }), 'new-session')).toEqual(['toggle-worktree', 'save-defaults']);
+    expect(groupIds(context({ view: 'new-session', newSession: { ...info, canCatchUp: true } }), 'new-session')).toContain('catch-up');
     expect(groupIds(context({ view: 'new-session', newSession: info, focusLimit: 2 }), 'new-session')).toContain('save-later');
   });
 

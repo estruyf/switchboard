@@ -1,4 +1,4 @@
-import { ChevronRight, Folder, FolderGit2, GitBranch, GitBranchPlus, SquarePen } from 'lucide-react';
+import { ChevronDown, ChevronRight, Folder, FolderGit2, GitBranch, GitBranchPlus, SquarePen } from 'lucide-react';
 import { useEffect, useId, useRef, useState } from 'react';
 import type { ImageAttachment, LaterDraft, ProjectInspection } from '@switchboard/protocol/client';
 import { useEngineConnection } from '../../engine/useEngine.ts';
@@ -33,9 +33,10 @@ const forget = (root: string) => drafts.set(root, { text: '', attachments: [] })
 /**
  * The palette's last step of New session: a small New session form with the project's defaults. The
  * route (this checkout and its branch, or a new worktree), the prompt, and the profile, model, effort
- * and mode chips. ⌘↵ starts it the same way the New session view does; ⌘E moves it there.
+ * and mode chips. ⌘↵ starts it the same way the New session view does; ⌘E moves it there. Clicking
+ * the project picks another one; `from` is the project the prompt was written for before that.
  */
-export function PromptStep({ root, worktree, chip, onBack, onDone }: { root: string; worktree: boolean; chip: string; onBack(): void; onDone(): void }) {
+export function PromptStep({ root, from, worktree, chip, onBack, onChangeProject, onDone }: { root: string; from?: string; worktree: boolean; chip: string; onBack(): void; onChangeProject(): void; onDone(): void }) {
   const connection = useEngineConnection();
   const client = connection.status === 'connected' ? connection.client : null;
   const project = useProjects((s) => s.projects.get(root));
@@ -53,7 +54,8 @@ export function PromptStep({ root, worktree, chip, onBack, onDone }: { root: str
   const [inspection, setInspection] = useState<ProjectInspection | null>(null);
   const [gitBranches, setGitBranches] = useState<{ current: string | null; branches: string[] }>({ current: null, branches: [] });
   const [gitStatus, setGitStatus] = useState<{ remote: string | null; baseBranch: string | null; behindUpstream: number | null } | null>(null);
-  const [saved] = useState(() => drafts.get(root));
+  const moved = from && from !== root ? from : null;
+  const [saved] = useState(() => (moved ? drafts.get(moved) : undefined) ?? drafts.get(root));
   const [text, setText] = useState(saved?.text ?? '');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -122,6 +124,10 @@ export function PromptStep({ root, worktree, chip, onBack, onDone }: { root: str
   useEffect(() => {
     drafts.set(root, { text, attachments });
   }, [root, text, attachments]);
+  // The prompt moved here from the project it was first written for.
+  useEffect(() => {
+    if (moved && drafts.get(moved)) forget(moved);
+  }, [moved]);
 
   // As in New session: a choice the project doesn't decide is remembered for next time.
   const update = (patch: Partial<Choices>) => {
@@ -206,8 +212,9 @@ export function PromptStep({ root, worktree, chip, onBack, onDone }: { root: str
       <div className="flex h-12 shrink-0 items-center gap-1.5 border-b border-edge px-3" data-palette-route>
         <Pill icon={worktree ? <GitBranchPlus size={12} aria-hidden /> : <SquarePen size={12} aria-hidden />}>{chip}</Pill>
         <ChevronRight size={13} className="shrink-0 text-faint" aria-hidden />
-        <Pill icon={<ProjectIcon project={project} root={root} size={14} />} data-tooltip={root} data-palette-route-project={root}>
+        <Pill icon={<ProjectIcon project={project} root={root} size={14} />} onClick={onChangeProject} aria-label={`Change project, ${name}`} data-tooltip={`Change project · ${root}`} data-palette-route-project={root}>
           {name}
+          <ChevronDown size={12} className="shrink-0 text-faint" aria-hidden />
         </Pill>
         {inspection?.isGitRepo === false ? (
           <span className="flex min-w-0 items-center gap-1.5 px-2 text-ui text-muted">

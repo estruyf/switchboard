@@ -97,7 +97,7 @@ export function GitButton({
 
   const plan = status ? planGit(status, busy) : null;
   const openTerminal = (terminalId: string) => {
-    togglePanel(true);
+    togglePanel(sessionId, true);
     setActive(sessionId, terminalId);
   };
   const run = async (step: GitStep) => {
