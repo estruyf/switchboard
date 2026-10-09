@@ -21,6 +21,7 @@ import { useProjects } from '../../state/projectsStore.ts';
 import { toRows, useSessions } from '../../state/sessionsStore.ts';
 import { inScope, rowStatus } from '../../state/sidebarRows.ts';
 import { Composer } from '../composer/Composer.tsx';
+import { composerDrafts } from '../composer/drafts.ts';
 import { FocusNote } from '../focus/FocusNote.tsx';
 import { QueuedInProject } from '../queue/QueuedInProject.tsx';
 import { waitForEntries } from '../queue/queueMenu.tsx';
@@ -50,6 +51,8 @@ const keysOf = (id: 'new-session.pick') => shortcutById(id).keys[0]!;
 
 /** The prompt typed here and not sent yet: it is still in the box after visiting a session or Settings. */
 let unsentPrompt = '';
+/** The message box keeps its images under this key, so they come back with the prompt. */
+const DRAFT_KEY = 'new-session';
 
 /**
  * Starts a new Claude Code session. The prompt is the main thing; around it sit the project, the
@@ -290,7 +293,7 @@ export function NewSessionView() {
   }, [draftPrompt, linkPrompt]);
   const clearPrompt = () => {
     setPendingStart(null);
-    setPreset({ text: '', seq: ++presets.current });
+    setPreset({ text: '', attachments: [], seq: ++presets.current });
     setDraftPrompt('');
     setLinkPrompt(null);
     setRestored(false);
@@ -495,8 +498,9 @@ export function NewSessionView() {
         gate: passFocusGate,
         addProject: (path) => client.call('projects.add', { path }).then(reloadProjects),
         open: (sessionId) => {
-          // The view goes away before the composer empties itself, so forget the prompt here.
+          // The view goes away before the composer empties itself, so forget the prompt and its images here.
           unsentPrompt = '';
+          composerDrafts.set(DRAFT_KEY, { text: '', attachments: [] });
           // Edited from the queue and started here: it leaves the queue, and items waiting on it follow this session.
           if (fromLater) {
             void removeFromQueue(fromLater, true, sessionId).catch(() => {});
@@ -830,6 +834,7 @@ export function NewSessionView() {
 
             <Composer
               initialText={initialText}
+              draftKey={DRAFT_KEY}
               history={promptHistory}
               onTextChange={setDraftPrompt}
               cwd={cwd}

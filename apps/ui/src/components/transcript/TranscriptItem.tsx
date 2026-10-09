@@ -232,10 +232,11 @@ export const TranscriptItem = memo(function TranscriptItem({
                 <Markdown text={item.text} />
               </ClampedPrompt>
             )}
+            {/* One image shows large; several become thumbnails side by side, each opening full size. */}
             {item.images.length > 0 && (
-              <div className={`flex flex-wrap justify-end gap-2 ${item.text ? 'mt-2' : ''}`}>
+              <div className={`flex flex-wrap justify-end gap-2 ${item.text ? 'mt-2' : ''}`} data-prompt-images={item.images.length}>
                 {item.images.map((image) => (
-                  <TranscriptImage key={image.imageId} sessionId={sessionId} image={image} maxHeight={200} />
+                  <TranscriptImage key={image.imageId} sessionId={sessionId} image={image} {...(item.images.length > 1 ? { maxHeight: 96, maxWidth: 160 } : { maxHeight: 200 })} />
                 ))}
               </div>
             )}

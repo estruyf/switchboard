@@ -5,7 +5,7 @@ import { useEngineConnection } from '../../engine/useEngine.ts';
 import { Button } from '../ui/Button.tsx';
 import { attachmentsAfterSend, textAfterSend } from './afterSend.ts';
 import { AttachmentThumbs, DropOverlay } from './Attachments.tsx';
-import { DraftStore } from './drafts.ts';
+import { composerDrafts as drafts } from './drafts.ts';
 import { onFirstLine, onLastLine, textareaRows } from './caretLine.ts';
 import { PromptHistory, recallAnnouncement, routeArrow, type Recall } from './promptHistory.ts';
 import { tokenAtCaret } from './tokens.ts';
@@ -75,8 +75,6 @@ function isTypingElsewhere(prompt: HTMLElement): boolean {
   if (!active || active === document.body || active === prompt) return false;
   return active.matches('input, textarea, select, [contenteditable]') || !!active.closest('[role=menu], [role=dialog], [role=alertdialog], [role=listbox]');
 }
-
-const drafts = new DraftStore<ImageAttachment>();
 
 export function Composer(props: ComposerProps) {
   const connection = useEngineConnection();

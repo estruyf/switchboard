@@ -1,3 +1,5 @@
+import type { ImageAttachment } from '@switchboard/protocol/client';
+
 /** What was typed or attached in a message box and not sent yet. */
 export interface Draft<A> {
   text: string;
@@ -21,3 +23,6 @@ export class DraftStore<A> {
     else this.drafts.set(key, draft);
   }
 }
+
+/** The message boxes' drafts (sessions and New session), shared so a view can forget one it started from. */
+export const composerDrafts = new DraftStore<ImageAttachment>();
