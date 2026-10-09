@@ -4,6 +4,7 @@ import type { LogLevel } from '@switchboard/protocol/client';
 import { useDiagnostics } from '../engine/useDiagnostics.ts';
 import { useEngineConnection } from '../engine/useEngine.ts';
 import { CodeBlock } from './transcript/CodeBlock.tsx';
+import { Markdown } from './transcript/Markdown.tsx';
 import { Button } from './ui/Button.tsx';
 import { Notice } from './ui/Notice.tsx';
 
@@ -11,6 +12,9 @@ const SAMPLE = `// Syntax highlighting loads on first use
 export function greet(name: string): string {
   return \`Hello, \${name}!\`;
 }`;
+
+// A markdown block opens rendered, with a switch to its source.
+const MARKDOWN_SAMPLE = '```markdown\n## Markdown blocks\n\nOpen **rendered**, with the source a click away.\n```';
 
 type Tone = 'ok' | 'warn' | 'error' | 'idle';
 
@@ -183,6 +187,7 @@ export function EngineDiagnostics() {
       <Card title="Rendering">
         <div className="px-4 py-1" data-rendering-check>
           <CodeBlock code={SAMPLE} language="ts" />
+          <Markdown text={MARKDOWN_SAMPLE} />
         </div>
       </Card>
 

@@ -1,5 +1,5 @@
 import { ImagePlus, Paperclip } from 'lucide-react';
-import { useEffect, useId, useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
+import { useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 import type { ContextItem, ImageAttachment, SlashCommand } from '@switchboard/protocol/client';
 import { useEngineConnection } from '../../engine/useEngine.ts';
 import { Button } from '../ui/Button.tsx';
@@ -201,14 +201,6 @@ export function Composer(props: ComposerProps) {
     useDrafts.getState().clearFocus();
     caretToEnd(true);
   }, [focusRequest, props.disabledReason]);
-
-  // Grow with the content up to a limit, then scroll.
-  useLayoutEffect(() => {
-    const el = ref.current;
-    if (!el) return;
-    el.style.height = 'auto';
-    el.style.height = `${Math.min(el.scrollHeight, 320)}px`;
-  }, [text]);
 
   // Mounting with autoFocus, or a new focusRequest, focuses the prompt. While the prompt is disabled
   // (engine connecting, no folder yet) the request waits, and is dropped if by then the user is typing
@@ -452,6 +444,8 @@ export function Composer(props: ComposerProps) {
             ref.current?.focus();
           }}
         />
+        {/* Grows with the content up to max-h-80, then scrolls. CSS sizes it: collapsing it to measure scrollHeight
+            made the conversation above taller for a moment, and the browser clamped its scroll position. */}
         <textarea
           data-composer
           data-history={props.history?.length ?? 0}
@@ -479,7 +473,7 @@ export function Composer(props: ComposerProps) {
             ++searchSeq.current;
             setTimeout(() => setPalette(null), 100);
           }}
-          className={`block max-h-80 w-full resize-none bg-transparent leading-relaxed text-text outline-none placeholder:text-faint disabled:opacity-60 ${props.large ? 'min-h-24 px-1 pt-1 text-title font-normal' : 'text-body'}`}
+          className={`block field-sizing-content max-h-80 w-full resize-none bg-transparent leading-relaxed text-text outline-none placeholder:text-faint disabled:opacity-60 ${props.large ? 'min-h-24 px-1 pt-1 text-title font-normal' : 'text-body'}`}
         />
         {props.controls && notice && (
           <p role="alert" className="mt-1 truncate text-meta text-error" data-tooltip={notice}>

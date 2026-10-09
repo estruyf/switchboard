@@ -795,6 +795,8 @@ let highlighted = false;
 /** Diagnostics shows a Finder button next to the config folder and the cache database (not clicked: it would open Finder). */
 let diagnosticsReveal = false;
 let codeCopy = false;
+/** A markdown block opens rendered and switches to its highlighted source and back. */
+let markdownPreview = false;
 let usageBand: string | null = null;
 let quitGuarded = false;
 let settingsResult = 'not run';
@@ -3715,6 +3717,12 @@ async function runSmokeStep(win: BrowserWindow | null): Promise<void> {
     highlighted = await waitInPage(win, "document.querySelector('[data-rendering-check] .shiki span[style*=\"--shiki\"]')", 5_000);
     // Present without hovering (only invisible), so it can be reached with Tab. Not clicked: that would overwrite the clipboard.
     codeCopy = await win.webContents.executeJavaScript("document.querySelector('[data-rendering-check] [data-code-copy]')?.getAttribute('aria-label') === 'Copy code'");
+    markdownPreview =
+      (await waitInPage(win, "document.querySelector('[data-rendering-check] [data-code-preview] h2')", 3_000)) &&
+      (await win.webContents.executeJavaScript("document.querySelector('[data-rendering-check] [data-code-view=\"source\"]')?.click(), true")) &&
+      (await waitInPage(win, "!document.querySelector('[data-rendering-check] [data-code-preview]') && document.querySelector('[data-rendering-check] [data-code-preview-block]').innerText.includes('## Markdown blocks')", 3_000)) &&
+      (await win.webContents.executeJavaScript("document.querySelector('[data-rendering-check] [data-code-view=\"preview\"]')?.click(), true")) &&
+      (await waitInPage(win, "document.querySelector('[data-rendering-check] [data-code-preview] h2')", 3_000));
     diagnosticsReveal = await waitInPage(win, "document.querySelector('[data-diagnostics-reveal=\"config-dir\"]') && document.querySelector('[data-diagnostics-reveal=\"database\"]')", 3_000);
     await shot(win, 'diagnostics.png');
     await win.webContents.executeJavaScript("document.querySelector('[data-close-settings]').click()");
@@ -3789,6 +3797,7 @@ async function runSmokeStep(win: BrowserWindow | null): Promise<void> {
         themeResult,
         highlighted,
         codeCopy,
+        markdownPreview,
         diagnosticsReveal,
         usageBand,
         rendering,
