@@ -53,6 +53,34 @@ describe('file search', () => {
     await expect(new FileIndex().search(dir, 'main', 10)).resolves.toEqual(['src/main.ts']);
   });
 
+  it('resolves paths mentioned in a reply to files that exist', async () => {
+    const home = tempDir();
+    const dir = join(home, 'repo');
+    mkdirSync(join(dir, 'src', 'search'), { recursive: true });
+    mkdirSync(join(dir, 'docs'));
+    writeFileSync(join(dir, 'src', 'search', 'suggestions.ts'), '');
+    writeFileSync(join(dir, 'src', 'index.ts'), '');
+    writeFileSync(join(dir, 'docs', 'index.ts'), '');
+    const index = new FileIndex();
+    const paths = ['src/index.ts', './src/index.ts', join(dir, 'docs'), '~/repo/src/index.ts', 'suggestions.ts', 'search/suggestions.ts', 'index.ts', 'item.Description', '../repo/src/index.ts', 'nope/suggestions.ts'];
+    expect(await index.resolve(dir, paths, home)).toEqual([
+      join(dir, 'src', 'index.ts'),
+      join(dir, 'src', 'index.ts'),
+      join(dir, 'docs'),
+      join(dir, 'src', 'index.ts'),
+      // Found deeper in the project when exactly one file ends with the path.
+      join(dir, 'src', 'search', 'suggestions.ts'),
+      join(dir, 'src', 'search', 'suggestions.ts'),
+      // Two files end with index.ts: no guess.
+      null,
+      null,
+      join(dir, 'src', 'index.ts'),
+      null,
+    ]);
+    // Without a folder only absolute and ~ paths resolve.
+    expect(await index.resolve(null, ['src/index.ts', '~/repo/docs'], home)).toEqual([null, join(dir, 'docs')]);
+  });
+
   it('walks shallow folders first, skips the home folder\'s Library and stops at its time budget', async () => {
     const home = tempDir();
     mkdirSync(join(home, 'Library', 'Caches'), { recursive: true });

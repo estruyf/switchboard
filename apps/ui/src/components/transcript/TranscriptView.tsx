@@ -51,6 +51,7 @@ import { PromptExpansionContext, type PromptExpansion } from './ClampedPrompt.ts
 import { buildDisplayItems, groupActivity, type RenderItem } from './displayItems.ts';
 import { FindBar } from './FindBar.tsx';
 import { findMatches, searchableText, startMatch } from './findInSession.ts';
+import { FileLinksProvider } from './FileLink.tsx';
 import { StreamingMarkdown } from './Markdown.tsx';
 import { MessageActionsContext, messageUuid, type MessageActions } from './messageActions.tsx';
 import { parseTodos, TodoList } from './TodoList.tsx';
@@ -806,6 +807,7 @@ export function TranscriptView({ sessionId, pane = null, active = true }: { sess
           )}
           <MessageActionsContext.Provider value={messageActions}>
           <PromptExpansionContext.Provider value={promptExpansion}>
+          <FileLinksProvider cwd={cwd}>
             <div
               ref={scrollRef}
               onScroll={onScroll}
@@ -876,6 +878,7 @@ export function TranscriptView({ sessionId, pane = null, active = true }: { sess
               )}
               <StreamingBlock sessionId={sessionId} since={turnStart} showIndicator={activeGroupKey === null} />
             </div>
+          </FileLinksProvider>
           </PromptExpansionContext.Provider>
           </MessageActionsContext.Provider>
           <Announcer sessionId={sessionId} working={working} failed={host?.state === 'error'} permissions={permissions} cwd={cwd} />

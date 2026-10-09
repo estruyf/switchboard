@@ -303,6 +303,14 @@ export const contract = {
       params: z.object({ cwd: AbsolutePath, query: z.string().max(500), limit: z.number().int().min(1).max(200).default(50) }),
       result: z.object({ files: z.array(z.string()) }),
     },
+    /**
+     * Which paths mentioned in a conversation exist, as absolute paths (null where none does): absolute,
+     * `~/…`, or relative to `cwd`. Used to turn file names in Claude's replies into links.
+     */
+    'files.resolve': {
+      params: z.object({ cwd: AbsolutePath.nullable(), paths: z.array(z.string().min(1).max(1024)).max(100) }),
+      result: z.object({ paths: z.array(z.string().nullable()) }),
+    },
     'editors.list': { params: z.object({}), result: z.object({ editors: z.array(EditorInfo), defaultId: z.string().nullable() }) },
     /** Opens a folder or file (optionally at a line) in an editor; `editorId` defaults to the user's default. */
     'editors.open': {

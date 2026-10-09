@@ -797,6 +797,7 @@ let openInResult: string = 'not run';
 let gitResult: string = 'not run';
 let searchResult = 'not run';
 let findResult = 'not run';
+let fileLinksResult = 'not run';
 let longPromptResult = 'not run';
 let copyMessageResult = 'not run';
 let draftResult = 'not run';
@@ -2091,6 +2092,23 @@ async function runGitStep(win: BrowserWindow): Promise<string> {
   return `ok: shows ${face}, "${summary}", menu ${items.join(' ')}, Escape closed it`;
 }
 
+/**
+ * Read-only: file paths in Claude's replies that exist became links that open in the editor, with a
+ * tooltip naming it. Not clicked: that would open the user's editor.
+ */
+async function runFileLinksStep(win: BrowserWindow): Promise<string> {
+  const js = (code: string) => win.webContents.executeJavaScript(code);
+  // Paths are looked up a moment after they render.
+  await waitInPage(win, "document.querySelector('[data-transcript] [data-file-link]')", 2_000);
+  const links = (await js(
+    "[...document.querySelectorAll('[data-transcript] [data-file-link]')].map((a) => ({ target: a.dataset.fileLink, href: a.getAttribute('href'), tooltip: a.dataset.tooltip }))",
+  )) as Array<{ target: string; href: string; tooltip: string }>;
+  if (links.length === 0) return 'ok: no file paths in the replies on screen';
+  const bad = links.find((link) => !link.href.startsWith('file:///') || !link.target.startsWith('/') || !link.tooltip.startsWith(`Open ${link.target} in `));
+  if (bad) return `a file link is wrong: ${JSON.stringify(bad)}`;
+  return `ok: ${links.length} file links, e.g. "${links[0]!.tooltip}"`;
+}
+
 /** ⌘⇧F, type a word, open the first hit: the session opens with that message highlighted. */
 /**
  * Find in the session (⌘F), read-only: searches for a word from one of Claude's replies, checks the
@@ -2102,9 +2120,9 @@ async function runFindStep(win: BrowserWindow): Promise<string> {
     win.webContents.sendInputEvent({ type: 'keyDown', keyCode, modifiers });
     win.webContents.sendInputEvent({ type: 'keyUp', keyCode, modifiers });
   };
-  // A word Claude wrote that's on screen now.
+  // A word Claude wrote that's on screen now; only the reply's prose, not the row's screen-reader heading ("Claude").
   const word = (await js(
-    "[...document.querySelectorAll('[data-item-kind=\"text\"]')].reverse().map((row) => row.innerText.match(/[A-Za-z]{6,}/)?.[0]).find(Boolean) ?? null",
+    "[...document.querySelectorAll('[data-item-kind=\"text\"] .markdown')].reverse().map((prose) => prose.innerText.match(/[A-Za-z]{6,}/)?.[0]).find(Boolean) ?? null",
   )) as string | null;
   if (!word) return 'ok: no reply from Claude on screen to search for';
   await js("document.querySelector('[data-transcript]').focus?.()");
@@ -3437,7 +3455,7 @@ async function runSmokeStep(win: BrowserWindow | null): Promise<void> {
     if (!transcriptFits && (transcriptAtBottom === null || transcriptAtBottom < 16 || transcriptAtBottom > 60)) {
       console.log(
         `[smoke] transcript scroll: ${await win.webContents.executeJavaScript(
-          "(() => { const el = document.querySelector('[data-transcript]'); const list = el.firstElementChild; return JSON.stringify({ scrollHeight: el.scrollHeight, scrollTop: Math.round(el.scrollTop), clientHeight: el.clientHeight, listHeight: list?.offsetHeight, streaming: !!el.querySelector('[data-streaming]'), lastKind: [...el.querySelectorAll('[data-transcript-item]')].at(-1)?.dataset.itemKind, gap: " + bottomGap + " }); })()",
+          "(() => { const el = document.querySelector('[data-transcript]'); if (!el) return 'no transcript on screen'; const list = el.firstElementChild; return JSON.stringify({ scrollHeight: el.scrollHeight, scrollTop: Math.round(el.scrollTop), clientHeight: el.clientHeight, listHeight: list?.offsetHeight, streaming: !!el.querySelector('[data-streaming]'), lastKind: [...el.querySelectorAll('[data-transcript-item]')].at(-1)?.dataset.itemKind, gap: " + bottomGap + " }); })()",
         )}`,
       );
     }
@@ -3451,6 +3469,7 @@ async function runSmokeStep(win: BrowserWindow | null): Promise<void> {
     checkTranscriptResult = await runCheckTranscriptStep(win).catch((error: Error) => `failed: ${error.message}`);
     gitResult = await runGitStep(win).catch((error: Error) => `failed: ${error.message}`);
     findResult = await runFindStep(win).catch((error: Error) => `failed: ${error.message}`);
+    fileLinksResult = await runFileLinksStep(win).catch((error: Error) => `failed: ${error.message}`);
     longPromptResult = await runLongPromptStep(win).catch((error: Error) => `failed: ${error.message}`);
     copyMessageResult = await runCopyMessageStep(win).catch((error: Error) => `failed: ${error.message}`);
     draftResult = await runDraftStep(win).catch((error: Error) => `failed: ${error.message}`);
@@ -3528,6 +3547,7 @@ async function runSmokeStep(win: BrowserWindow | null): Promise<void> {
         gitResult,
         searchResult,
         findResult,
+        fileLinksResult,
         longPromptResult,
         copyMessageResult,
         draftResult,

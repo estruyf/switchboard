@@ -775,6 +775,7 @@ export function createEngine(options: EngineOptions): Engine {
       return { path, exists, isGitRepo: exists && location.gitDir !== null, root: location.root, branch: resolver.branch(location) };
     },
     'files.search': async ({ cwd, query, limit }) => ({ files: await files.search(cwd, query, limit) }),
+    'files.resolve': async ({ cwd, paths }) => ({ paths: await files.resolve(cwd, paths) }),
     'editors.list': async () => {
       const editors = detectEditors(await editorEnv());
       const stored = appState.get(defaultEditorKey);
