@@ -42,6 +42,7 @@ function checkFolder(cwd: string): string | ParsedLink {
  *
  * - `switchboard://new-session?prompt=…&cwd=/abs/path` (or `project=name`, or `repo=owner/name`; `q` is an alias
  *   of `prompt`). `autostart=1` starts the session; by default it waits for the user to press Enter.
+ *   `question=1` makes it a quick question, without a project (a folder, project or repo is then ignored).
  * - `switchboard://session/<sessionId>`
  */
 export function parseDeepLink(raw: string): ParsedLink {
@@ -88,6 +89,9 @@ export function parseDeepLink(raw: string): ParsedLink {
     if (rawStart !== null && !['', '1', 'true', 'yes', '0', 'false', 'no'].includes(rawStart)) return fail('autostart in the link must be 1 or 0.');
     // Present without a value (`&autostart`) counts as on, like a flag.
     const autostart = rawStart !== null && ['', '1', 'true', 'yes'].includes(rawStart);
+    const rawQuestion = params.get('question')?.toLowerCase() ?? null;
+    if (rawQuestion !== null && !['', '1', 'true', 'yes', '0', 'false', 'no'].includes(rawQuestion)) return fail('question in the link must be 1 or 0.');
+    const question = rawQuestion !== null && ['', '1', 'true', 'yes'].includes(rawQuestion);
     let repo: string | null = null;
     const rawRepo = params.get('repo');
     if (rawRepo !== null && rawRepo !== '') {
@@ -95,16 +99,18 @@ export function parseDeepLink(raw: string): ParsedLink {
       if (!REPO.test(trimmed) || trimmed.length > 200) return fail('The repo in the link must look like owner/name.');
       repo = trimmed;
     }
-    // A folder wins over a project, and a project over a repository: only the strongest is passed on.
+    // A quick question has no folder. Otherwise a folder wins over a project, and a project over a repository:
+    // only the strongest is passed on.
     return {
       ok: true,
       link: {
         action: 'new-session',
         prompt: prompt?.replace(/\r\n?/g, '\n') || null,
-        cwd,
-        project: cwd ? null : project,
-        repo: cwd || project ? null : repo,
+        cwd: question ? null : cwd,
+        project: question || cwd ? null : project,
+        repo: question || cwd || project ? null : repo,
         autostart,
+        question,
       },
     };
   }

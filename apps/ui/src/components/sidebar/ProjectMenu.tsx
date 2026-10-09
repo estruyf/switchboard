@@ -12,6 +12,7 @@ import { useOpenIn } from '../OpenInButton.tsx';
 import { ProfileDot } from '../profiles/ProfileBadge.tsx';
 import { ProjectIcon } from '../ProjectIcon.tsx';
 import { RenameProjectDialog } from '../projects/RenameProjectDialog.tsx';
+import { isQuestionsFolder } from '../../lib/questions.ts';
 import { Button } from '../ui/Button.tsx';
 import { Popover } from '../ui/Popover.tsx';
 
@@ -134,6 +135,7 @@ export function manage(root: string | null = null): void {
 export function useProjectIconEntries() {
   const actions = useProjectActions();
   const projects = useProjects((s) => s.projects);
+  const questionsDir = useProjects((s) => s.questionsDir);
   const profiles = useProfiles((s) => s.profiles);
   const defaultProfile = profiles.find((p) => p.isDefault);
   const openIn = useOpenIn();
@@ -142,6 +144,8 @@ export function useProjectIconEntries() {
   const [renaming, setRenaming] = useState<string | null>(null);
 
   const entries = (root: string, at: { x: number; y: number }, { remove = true }: { remove?: boolean } = {}): MenuEntry[] => {
+    // Quick questions are not a project: no icon, name, profile or "Add to projects".
+    if (isQuestionsFolder(root, questionsDir)) return [];
     const project = projects.get(root);
     const linked = project?.profileId ?? null;
     // Which account new sessions here use; only worth asking once there is more than one.

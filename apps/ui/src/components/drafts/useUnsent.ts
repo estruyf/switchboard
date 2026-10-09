@@ -1,6 +1,7 @@
 import { useMemo } from 'react';
 import type { ProjectInfo } from '@switchboard/protocol/client';
 import { basename } from '../../lib/format.ts';
+import { isQuestionsFolder, QUESTION_LABEL } from '../../lib/questions.ts';
 import { draftList, draftListSignature, type DraftItem } from '../../state/drafts.ts';
 import { useDrafts } from '../../state/draftsStore.ts';
 import { useHosts } from '../../state/hostsStore.ts';
@@ -42,19 +43,21 @@ export function useUnsent(): UnsentEntry[] {
   const loaded = useSessions((s) => s.loaded);
   const hosts = useHosts((s) => s.hosts);
   const projects = useProjects((s) => s.projects);
+  const questionsDir = useProjects((s) => s.questionsDir);
   return useMemo(() => {
     const rows = new Map(toRows(sessions, live, hosts).map((row) => [row.id, row]));
     return items.flatMap((item): UnsentEntry[] => {
       if (item.kind === 'new') {
         const project = item.root ? projects.get(item.root) : undefined;
         const name = item.root ? (project?.name ?? basename(item.root)) : null;
-        return [{ item, title: name ? `New session · ${name}` : 'New session', root: item.root, project, row: null }];
+        const title = isQuestionsFolder(item.root, questionsDir) ? QUESTION_LABEL : name ? `New session · ${name}` : 'New session';
+        return [{ item, title, root: item.root, project, row: null }];
       }
       const row = rows.get(item.sessionId) ?? null;
       if (!row && loaded) return [];
       return [{ item, title: row?.title || 'Untitled session', root: row?.projectRoot ?? null, project: row ? projects.get(row.projectRoot) : undefined, row }];
     });
-  }, [items, sessions, live, hosts, projects, loaded]);
+  }, [items, sessions, live, hosts, projects, questionsDir, loaded]);
 }
 
 /** The drafts that count, newest first; changes only when the list would look different (not on every keystroke). */

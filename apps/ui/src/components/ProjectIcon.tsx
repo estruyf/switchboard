@@ -1,7 +1,10 @@
+import { MessageCircleQuestion } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import type { ProjectIcon as Icon, ProjectInfo } from '@switchboard/protocol/client';
 import { basename } from '../lib/format.ts';
 import { accentFromPixels, letterColor } from '../lib/projectColor.ts';
+import { isQuestionsFolder } from '../lib/questions.ts';
+import { useProjects } from '../state/projectsStore.ts';
 
 /** Sampled icon colours by icon (null: no clear colour), so each icon is drawn and read once. */
 const iconColors = new Map<string, Promise<string | null>>();
@@ -40,9 +43,10 @@ function sampleIcon(icon: Icon): Promise<string | null> {
 /**
  * The colour a project's icon shows, for borders and glows that point at it: the letter tile's
  * colour, or the main colour of its image or emoji (the name's colour when that has none). Null
- * without a folder.
+ * without a folder, and for quick questions, which have no project colour.
  */
 export function useProjectColor(project: ProjectInfo | undefined, root: string | null): string | null {
+  const question = useProjects((s) => isQuestionsFolder(root, s.questionsDir));
   const icon = project?.icon ?? null;
   // Compared by key: the projects list comes back as new objects on every reload.
   const key = icon ? iconKey(icon) : null;
@@ -55,16 +59,24 @@ export function useProjectColor(project: ProjectInfo | undefined, root: string |
       cancelled = true;
     };
   }, [key]);
-  if (!root) return null;
+  if (!root || question) return null;
   const fallback = letterColor(project?.name ?? basename(root));
   return (key && sampled?.key === key ? sampled.color : null) ?? fallback;
 }
 
-/** A project's icon: its image, its emoji, or its first letter on a coloured tile. */
+/** A project's icon: its image, its emoji, or its first letter on a coloured tile. Quick questions have their own, in neutral colours. */
 export function ProjectIcon({ project, root, size = 14 }: { project: ProjectInfo | undefined; root: string; size?: number }) {
+  const question = useProjects((s) => isQuestionsFolder(root, s.questionsDir));
   const name = project?.name ?? basename(root);
   // Corners scale with the icon, so large ones read as tiles rather than squares.
   const box = { width: size, height: size, borderRadius: Math.max(3, Math.round(size * 0.22)) };
+  if (question) {
+    return (
+      <span style={box} className="flex shrink-0 items-center justify-center bg-border text-text" aria-hidden data-question-icon>
+        <MessageCircleQuestion size={Math.round(size * 0.72)} strokeWidth={2.25} />
+      </span>
+    );
+  }
   if (project?.icon?.kind === 'image') {
     return <img src={project.icon.dataUrl} alt="" style={box} className="shrink-0 object-contain" draggable={false} />;
   }

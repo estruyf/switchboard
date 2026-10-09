@@ -197,6 +197,8 @@ export type DeepLink =
       repo: string | null;
       /** Start the session at once instead of waiting for Enter. Needs a prompt and a folder the link names. */
       autostart: boolean;
+      /** A quick question: no project, in the scratch folder the engine keeps (`cwd`, `project` and `repo` are null). */
+      question: boolean;
     }
   | { action: 'session'; sessionId: string };
 

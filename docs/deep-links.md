@@ -21,6 +21,7 @@ switchboard://new-session?repo=acme/payments&prompt=Review%20the%20open%20pull%2
 | `project` | One of your projects, by the name it has in Switchboard (or its folder's name), ignoring case: `project=payments`. If two projects share the name, the first in your list wins. A name that isn't one of your projects is refused, and nothing changes. |
 | `repo` | A GitHub repository as `owner/name`. Switchboard looks for a checkout with a git remote on that repository, first among your projects, then among the other folders you've used Claude Code in (most recent first). If there's none, the folder field stays empty and New session says so. |
 | `autostart` | `1` (or `true`) starts the session right away, as if you'd pressed Enter. Leave it out (or use `0`) to fill in New session and wait for you. |
+| `question` | `1` (or `true`) makes it a quick question: no project, in Switchboard's scratch folder. `cwd`, `project` and `repo` are then ignored. |
 
 All parameters are optional. When a link gives more than one of `cwd`, `project` and `repo`, `cwd` wins, then `project`, then `repo`. **A link that gives none of them doesn't guess:** the folder field stays empty and the project list opens so you can pick one.
 

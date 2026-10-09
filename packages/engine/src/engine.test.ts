@@ -47,7 +47,7 @@ const asDomPort = (port: MessagePort) => port as unknown as DomLikePort;
 const cleanups: Array<() => void> = [];
 afterEach(() => cleanups.splice(0).forEach((fn) => fn()));
 
-function connect(extra: { trashed?: string[][]; source?: SessionSource; sdk?: SdkRuntime } = {}) {
+function connect(extra: { trashed?: string[][]; source?: SessionSource | ((dataDir: string) => SessionSource); sdk?: SdkRuntime } = {}) {
   const dataDir = mkdtempSync(join(tmpdir(), 'switchboard-engine-'));
   // A real transcript file, so the index knows where the session lives.
   const projectDir = join(dataDir, 'claude', 'projects', '-work-parser');
@@ -61,7 +61,7 @@ function connect(extra: { trashed?: string[][]; source?: SessionSource; sdk?: Sd
     // No login shell and an empty PATH, so the test never depends on the machine.
     shellEnv: Promise.resolve({ shell: '/bin/zsh', env: { PATH: '' }, resolved: false, durationMs: 0 }),
     claudeBinary: '/nonexistent/claude',
-    sessionSource: extra.source ?? fakeSource,
+    sessionSource: (typeof extra.source === 'function' ? extra.source(dataDir) : extra.source) ?? fakeSource,
     ...(extra.sdk ? { sdk: async () => extra.sdk! } : {}),
   });
   const { port1, port2 } = new MessageChannel();
@@ -360,6 +360,54 @@ describe('engine over a MessagePort', () => {
     await client.call('actions.trust', { projectRoot: project, id: 'dev' });
     await client.call('terminal.restart', { id: run.terminalId });
     expect(spawned[2]!.args).toEqual(['-ilc', 'npm run dev -- --open']);
+  });
+});
+
+describe('quick questions', () => {
+  /** A session in /work/parser and one in the questions folder (known once the engine has a data folder). */
+  function connectWithQuestion(sdk?: SdkRuntime) {
+    const source = (dataDir: string): SessionSource => ({
+      ...fakeSource,
+      list: async () => [
+        { sessionId: SESSION_ID, summary: 'Refactor parser', lastModified: 42, cwd: '/work/parser' },
+        { sessionId: '44444444-4444-4444-8444-444444444444', summary: 'What is a monad?', lastModified: 43, cwd: join(dataDir, 'questions') },
+      ],
+    });
+    const connected = connect({ source, ...(sdk ? { sdk } : {}) });
+    return { ...connected, questions: join(connected.dataDir, 'questions') };
+  }
+
+  it('runs every question in one folder in the data folder, made when it is needed', async () => {
+    const created: Array<{ cwd?: string; model?: string; permissionMode?: string }> = [];
+    const { client, questions } = connectWithQuestion(fakeSdk(created));
+    expect(existsSync(questions)).toBe(false);
+    await expect(client.call('questions.folder', {})).resolves.toEqual({ path: questions });
+    expect(existsSync(questions)).toBe(true);
+    // Deleted while the app runs: the next question makes it again.
+    rmSync(questions, { recursive: true });
+    await client.call('session.create', { cwd: questions, prompt: 'What is a monad?' });
+    expect(existsSync(questions)).toBe(true);
+    expect(created).toEqual([expect.objectContaining({ cwd: questions, permissionMode: 'default' })]);
+    // No checkout to branch from or switch.
+    await expect(client.call('session.create', { cwd: questions, prompt: 'hi', worktree: { name: 'x', baseRef: 'fresh' } })).rejects.toMatchObject({ code: 'INVALID' });
+    await expect(client.call('session.create', { cwd: questions, prompt: 'hi', checkoutBranch: 'main' })).rejects.toMatchObject({ code: 'INVALID' });
+  });
+
+  it('never lists the folder as a project or lets it become one', async () => {
+    const { client, questions } = connectWithQuestion();
+    const scanned = new Promise((resolve) => client.on('sessions.changed', resolve));
+    await client.call('questions.folder', {});
+    await scanned;
+    const { sessions } = await client.call('sessions.list', {});
+    // The session is listed like any other, in the questions folder.
+    expect(sessions.map((s) => s.projectRoot).sort()).toEqual(['/work/parser', questions].sort());
+    expect((await client.call('projects.list', {})).projects.map((p) => p.root)).toEqual(['/work/parser']);
+    await expect(client.call('projects.add', { path: questions })).rejects.toMatchObject({ code: 'INVALID' });
+    await expect(client.call('projects.rename', { root: questions, name: 'Questions' })).rejects.toMatchObject({ code: 'INVALID' });
+    await expect(client.call('projects.setIcon', { root: questions, icon: { kind: 'emoji', value: '❓' } })).rejects.toMatchObject({ code: 'INVALID' });
+    await expect(client.call('projects.setProfile', { root: questions, profileId: null })).rejects.toMatchObject({ code: 'INVALID' });
+    await expect(client.call('projects.setDefaults', { root: questions, defaults: {} })).rejects.toMatchObject({ code: 'INVALID' });
+    expect((await client.call('projects.list', {})).projects.map((p) => p.root)).toEqual(['/work/parser']);
   });
 });
 

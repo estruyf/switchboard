@@ -1,4 +1,4 @@
-import { ChevronDown, Clock, Folder, FolderGit2, GitBranch, Link2, ListEnd } from 'lucide-react';
+import { ChevronDown, Clock, Folder, FolderGit2, GitBranch, Link2, ListEnd, MessageCircleQuestion } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ImageAttachment, LaterDraft, LaterItem, ProjectInspection, QueueWaitFor, SlashCommand, WorktreeStatus } from '@switchboard/protocol/client';
 import { useEngineConnection } from '../../engine/useEngine.ts';
@@ -48,6 +48,7 @@ import { branchLabel, branchNote, freshBase } from './trayLabels.ts';
 import { checkoutBranchFor, shouldPrewarm, startNewSession } from './startSession.ts';
 import { DEFAULTS_KEY, globalPatch, INITIAL_CHOICES, linkStartingChoices, readGlobals, sameDefaults, startingChoices, toProjectDefaults, type Choices, type GlobalChoices } from './choices.ts';
 import { comboPresses, keysFor, shortcutById } from '../../lib/shortcuts.ts';
+import { INITIAL_QUESTION_CHOICES, isQuestionsFolder, QUESTION_DEFAULTS_KEY, QUESTION_LABEL, questionPatch, questionStartingChoices, readQuestionChoices, sessionOptions, type QuestionChoices } from '../../lib/questions.ts';
 
 const keysOf = (id: 'new-session.pick') => shortcutById(id).keys[0]!;
 
@@ -72,6 +73,8 @@ export function NewSessionView() {
   const view = useSessions((s) => s.view);
   const [cwd, setCwd] = useState<string | null>(null);
   const [globals, setGlobals] = useState<GlobalChoices>(INITIAL_CHOICES);
+  /** The choices last made for a quick question, kept apart from those for projects. */
+  const [questionChoices, setQuestionChoices] = useState<QuestionChoices>(INITIAL_QUESTION_CHOICES);
   const [d, setD] = useState<Choices>({ ...INITIAL_CHOICES, branch: '' });
   const [loaded, setLoaded] = useState(false);
   const [inspection, setInspection] = useState<ProjectInspection | null>(null);
@@ -137,9 +140,15 @@ export function NewSessionView() {
   const folders = useMemo(() => yours.filter((p) => p.exists).map((p) => p.root), [yours]);
   const home = useMemo(() => guessHome(projects.keys()), [projects]);
   const project = cwd ? projects.get(cwd) : undefined;
+  const questionsDir = useProjects((s) => s.questionsDir);
+  /** Quick question picked: the scratch folder, with no git and no project to add or keep defaults for. */
+  const question = isQuestionsFolder(cwd, questionsDir);
+  const options = sessionOptions(question);
   const isProject = project?.added ?? false;
   const projectDefaults = isProject ? project!.defaults : null;
   const defaultsKey = JSON.stringify(projectDefaults);
+  /** What a session here starts from: a quick question's own choices, else the project's defaults over the ones last used. */
+  const firstChoices = (): Choices => (question ? questionStartingChoices(questionChoices) : choicesFor(globals, projectDefaults));
   const projectProfile = project?.profileId && profiles.some((p) => p.id === project.profileId) ? project.profileId : null;
   const profileId = (profileOverride && profiles.some((p) => p.id === profileOverride) ? profileOverride : null) ?? projectProfile ?? defaultProfile;
   /** The picked folder's colour: the message box's frame, matching its tile. */
@@ -159,11 +168,14 @@ export function NewSessionView() {
   useEffect(() => {
     if (!client || loaded) return;
     let cancelled = false;
-    client.call('appState.get', { key: DEFAULTS_KEY }).then(
-      ({ value }) => {
+    // Quick question choices are optional: without them, a question starts from the initial ones.
+    const questionStored = client.call('appState.get', { key: QUESTION_DEFAULTS_KEY }).then(({ value }) => value, () => null);
+    Promise.all([client.call('appState.get', { key: DEFAULTS_KEY }), questionStored]).then(
+      ([{ value }, questionValue]) => {
         if (cancelled) return;
         const stored = readGlobals(value);
         setGlobals(stored.globals);
+        setQuestionChoices(readQuestionChoices(questionValue));
         if (!folderFromLink.current) setCwd((current) => current ?? stored.cwd);
         setLoaded(true);
       },
@@ -196,7 +208,7 @@ export function NewSessionView() {
     setDraftPrompt('');
     touchedFor.current = null;
     setProfileOverride(null);
-    setD(choicesFor(globals, projectDefaults));
+    setD(firstChoices());
   };
   // New session asked for again while a queued item is open (the + button, ⌘N, a project's unsent prompt): back
   // to New session's own prompt. Opening a queued item asks for it too, and is handled below.
@@ -363,9 +375,9 @@ export function NewSessionView() {
   // A new folder starts from its project's defaults (again when they arrive or change, until the user changes something).
   useEffect(() => {
     if (!loaded || touchedFor.current === cwd) return;
-    const choices = choicesFor(globals, projectDefaults);
-    setD(worktreeFor.current === cwd ? { ...choices, workspace: 'worktree' } : choices);
-  }, [loaded, cwd, defaultsKey, globals, autostarting]);
+    const choices = firstChoices();
+    setD(worktreeFor.current === cwd && !question ? { ...choices, workspace: 'worktree' } : choices);
+  }, [loaded, cwd, defaultsKey, globals, autostarting, question, questionChoices]);
 
   // Inspect the folder (git? branch?), load its branches, and pre-warm Claude Code there.
   useEffect(() => {
@@ -385,18 +397,21 @@ export function NewSessionView() {
         setPendingStart(null);
       },
     );
-    client.call('git.branches', { cwd }).then(
-      (r) => !cancelled && setGitBranches(r),
-      () => {},
-    );
-    client.call('worktree.status', { cwd }).then(
-      (r) => !cancelled && setGitStatus(r),
-      () => {},
-    );
+    // A quick question has no checkout: no branches to offer, no remote to catch up with.
+    if (options.git) {
+      client.call('git.branches', { cwd }).then(
+        (r) => !cancelled && setGitBranches(r),
+        () => {},
+      );
+      client.call('worktree.status', { cwd }).then(
+        (r) => !cancelled && setGitStatus(r),
+        () => {},
+      );
+    }
     return () => {
       cancelled = true;
     };
-  }, [client, cwd, profileId]);
+  }, [client, cwd, profileId, options.git]);
   // Its commands, again after skills were reloaded.
   useEffect(() => {
     if (!client || !cwd) return;
@@ -420,6 +435,18 @@ export function NewSessionView() {
     touchedFor.current = cwd;
     setSavedNote(null);
     setD((current) => ({ ...current, ...patch }));
+    if (question) {
+      // A quick question's choices are its own: they never change what a project starts with.
+      const remembered = questionPatch(patch);
+      if (Object.keys(remembered).length) {
+        setQuestionChoices((current) => {
+          const next = { ...current, ...remembered };
+          void client?.call('appState.set', { key: QUESTION_DEFAULTS_KEY, value: { ...next } });
+          return next;
+        });
+      }
+      return;
+    }
     const remembered = globalPatch(patch, projectDefaults);
     if (Object.keys(remembered).length) {
       setGlobals((current) => {
@@ -438,7 +465,8 @@ export function NewSessionView() {
     setQueueWait(null);
     setCwd(folder);
     setAddAsProject(true);
-    persist(globals, folder);
+    // Quick question is never the folder New session opens on next time: ⌘N stays on your last project.
+    if (!isQuestionsFolder(folder, questionsDir)) persist(globals, folder);
   };
 
   const chooseFolder = async () => {
@@ -446,7 +474,7 @@ export function NewSessionView() {
     if (picked) changeFolder(picked);
   };
 
-  const canWorktree = inspection?.isGitRepo ?? false;
+  const canWorktree = options.git && (inspection?.isGitRepo ?? false);
   const useWorktree = d.workspace === 'worktree' && canWorktree;
   const effectiveName = nameTouched ? worktreeName : worktreeSlug(draftPrompt);
   const branch = inspection?.branch ?? (cwd ? (lastBranches.get(cwd) ?? null) : null);
@@ -571,7 +599,7 @@ export function NewSessionView() {
         profileId,
         fromLink,
         skipGate,
-        addProject: !isProject && addAsProject && !!inspection?.exists,
+        addProject: options.addAsProject && !isProject && addAsProject && !!inspection?.exists,
         saveForLater: () => parkInQueue(text),
       },
       {
@@ -599,7 +627,7 @@ export function NewSessionView() {
   // (they settle a render after the folder changes), exactly as if the user had pressed Enter. Its
   // permission mode is the project's own default, or the default mode: never the one you last picked.
   const projectsLoaded = useProjects((s) => s.loaded);
-  const settled = JSON.stringify(d) === JSON.stringify(choicesFor(globals, projectDefaults));
+  const settled = JSON.stringify(d) === JSON.stringify(firstChoices());
   useEffect(() => {
     if (pendingStart === null || !client || !cwd || !loaded || !projectsLoaded || !settled || lookingFor || inspection?.path !== cwd) return;
     const text = pendingStart;
@@ -744,7 +772,7 @@ export function NewSessionView() {
       {/* No title bar: the heading names the view. The strip keeps the window draggable. */}
       <div className="drag flex h-13 shrink-0 items-center justify-between px-4">
         <SidebarToggle />
-        {cwd && inspection?.path === cwd && inspection.exists && (
+        {cwd && !question && inspection?.path === cwd && inspection.exists && (
           <div className="flex items-center gap-2">
             {/* Your copy may be behind the remote: catch up before Claude starts from it. */}
             {gitStatus && <CatchUpButton cwd={cwd} status={gitStatus} onStatus={setGitStatus} request={catchUpRequest} />}
@@ -765,7 +793,8 @@ export function NewSessionView() {
           </div>
 
           <FolderPicker
-            value={cwd}
+            value={question ? null : cwd}
+            question={questionsDir ? { selected: question, onSelect: () => changeFolder(questionsDir) } : null}
             folders={ordered}
             home={home}
             branches={folderBranches}
@@ -815,6 +844,28 @@ export function NewSessionView() {
                 <span className="min-w-0 flex-1 px-1.5 py-0.5 text-ui text-muted" data-route-placeholder data-route-hint>
                   {folderProblem}
                 </span>
+              ) : question ? (
+                // No project and no git: nothing to choose about where Claude works.
+                <>
+                  <button
+                    type="button"
+                    onClick={() => setPickerRequest((n) => n + 1)}
+                    aria-label={`${QUESTION_LABEL}. Pick a project instead`}
+                    data-tooltip="Pick a project instead"
+                    data-route-project
+                    data-route-question
+                    className="flex h-7 min-w-0 shrink-0 items-center gap-1.5 rounded-md px-1.5 text-ui font-semibold text-text hover:bg-border/50"
+                  >
+                    <ProjectIcon project={project} root={cwd} size={16} />
+                    <span className="truncate">{QUESTION_LABEL}</span>
+                  </button>
+                  <span aria-hidden className="text-faint">
+                    /
+                  </span>
+                  <span className="min-w-0 truncate px-1.5 text-ui text-muted" data-tooltip={cwd} data-route-question-note>
+                    No project or git. Claude works in a scratch folder.
+                  </span>
+                </>
               ) : (
                 <>
                   <button
@@ -950,8 +1001,8 @@ export function NewSessionView() {
               onTextChange={onPromptChange}
               cwd={cwd}
               commands={commands}
-              placeholder="What should Claude work on?"
-              submitLabel="Start session"
+              placeholder={question ? 'Ask Claude anything' : 'What should Claude work on?'}
+              submitLabel={question ? 'Ask' : 'Start session'}
               submitHint={keysFor('new-session.start')}
               large
               frameColor={projectColor}
@@ -983,7 +1034,7 @@ export function NewSessionView() {
 
           {queueLine}
 
-          {cwd && !isProject && inspection?.exists && (
+          {cwd && options.addAsProject && !isProject && inspection?.exists && (
             <Checkbox checked={addAsProject} onChange={setAddAsProject} className="-mt-3 w-fit px-2 text-meta text-muted" dataAttrs={{ 'data-add-as-project': true }}>
               Add {basename(cwd)} to your projects
             </Checkbox>

@@ -1,4 +1,4 @@
-import { FolderPlus, Search } from 'lucide-react';
+import { FolderPlus, MessageCircleQuestion, Search } from 'lucide-react';
 import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent } from 'react';
 import { basename, tildify } from '../../lib/format.ts';
 import { usePreferences } from '../../state/preferencesStore.ts';
@@ -8,6 +8,7 @@ import { Button } from '../ui/Button.tsx';
 import { Kbd } from '../ui/Kbd.tsx';
 import { filterFolders, quickTiles, type TileTone } from './projectTiles.ts';
 import { matches } from '../../lib/shortcuts.ts';
+import { QUESTION_LABEL } from '../../lib/questions.ts';
 
 const COLUMNS = 5;
 /** Tiles shown before "+N More projects": the fifth place is that tile. */
@@ -23,6 +24,7 @@ const TILE = 'flex min-w-0 items-center gap-2 rounded-lg border p-2.5 text-left 
  * of them with a filter field (typing a name filters, typing an absolute path offers that folder, and
  * "Other folder…" opens the system dialog). ⌘1 to ⌘9 pick the tiles in view. The open list is a
  * combobox: focus stays in the filter field and `aria-activedescendant` says which tile the arrows are on.
+ * Under the tiles, Quick question starts without a project (in the scratch folder the engine keeps).
  */
 export function FolderPicker({
   value,
@@ -34,6 +36,7 @@ export function FolderPicker({
   onChooseOther,
   shortcuts,
   openRequest = 0,
+  question = null,
 }: {
   value: string | null;
   /** Your projects, most recently used first or in your order (the `projectOrder` preference). */
@@ -48,6 +51,8 @@ export function FolderPicker({
   shortcuts: boolean;
   /** Changing it opens the full list (a link that didn't say which project, or the project in the message box). */
   openRequest?: number;
+  /** The Quick question choice: picked or not, and picking it. Null until the engine has said where questions run. */
+  question?: { selected: boolean; onSelect(): void } | null;
 }) {
   const projects = useProjects((s) => s.projects);
   const projectOrder = usePreferences((s) => s.prefs.projectOrder);
@@ -88,6 +93,10 @@ export function FolderPicker({
     setOpen(false);
     setFilter('');
     if (refocus) requestAnimationFrame(() => toggleRef.current?.focus());
+  };
+  const askQuestion = () => {
+    close(false);
+    question?.onSelect();
   };
   const choose = (folder: string) => {
     close(false);
@@ -170,6 +179,25 @@ export function FolderPicker({
       <span className="truncate text-ui font-semibold">{label}</span>
       <span className="truncate text-meta text-faint">{hint}</span>
     </span>
+  );
+
+  // Not a project, so not a tile: one line under them, in neutral colours (a question has no project colour).
+  const questionRow = question && (
+    <button
+      type="button"
+      aria-pressed={question.selected}
+      onClick={askQuestion}
+      data-quick-question
+      data-selected={question.selected || undefined}
+      className={`flex h-9 min-w-0 items-center gap-2 rounded-lg border px-2.5 text-left transition-colors ${
+        question.selected ? 'border-edge bg-selected text-text' : 'border-dashed border-border text-muted hover:bg-border/45 hover:text-text'
+      }`}
+    >
+      <MessageCircleQuestion size={16} className="shrink-0" aria-hidden />
+      <span className="shrink-0 text-ui font-semibold">{QUESTION_LABEL}</span>
+      <span className="min-w-0 flex-1 truncate text-meta text-faint">Ask without picking a project</span>
+      <Kbd shortcut="session.question" tone="plain" className="@max-[680px]:hidden" />
+    </button>
   );
 
   return (
@@ -260,6 +288,7 @@ export function FolderPicker({
           </button>
         </div>
       )}
+      {questionRow}
     </div>
   );
 }

@@ -36,7 +36,7 @@ export function useCompanionSync(): void {
           } else {
             useDrafts.getState().addContext(newDraftKey(target.cwd), items);
             // New session on that folder, as a link would open it; the chips are already in its box.
-            if (reveal) void useLinks.getState().open({ action: 'new-session', cwd: target.cwd, prompt: null, project: null, repo: null, autostart: false });
+            if (reveal) void useLinks.getState().open({ action: 'new-session', cwd: target.cwd, prompt: null, project: null, repo: null, autostart: false, question: false });
           }
           if (reveal) window.switchboard?.focusWindow();
         } catch (e) {

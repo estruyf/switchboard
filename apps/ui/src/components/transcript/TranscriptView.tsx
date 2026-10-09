@@ -34,6 +34,7 @@ import { WorktreeMenu } from '../worktree/WorktreeMenu.tsx';
 import { ConfirmDialog } from '../ConfirmDialog.tsx';
 import { GitButton } from '../git/GitButton.tsx';
 import { ProjectIcon } from '../ProjectIcon.tsx';
+import { isQuestionsFolder, QUESTION_LABEL, sessionOptions } from '../../lib/questions.ts';
 import { SidebarToggle } from '../sidebar/SidebarToggle.tsx';
 import { Button } from '../ui/Button.tsx';
 import { Notice } from '../ui/Notice.tsx';
@@ -253,6 +254,9 @@ export function TranscriptView({ sessionId, pane = null, active = true }: { sess
   const live = activeHost ? hostAsLive(activeHost) : registryLive;
   const openElsewhere = !activeHost && registryLive !== null;
   const cwd = activeHost?.cwd ?? summary?.cwd ?? registryLive?.cwd ?? null;
+  /** A quick question: no project actions, and no git (nothing to diff, commit or branch). The terminal still opens, in its folder. */
+  const question = useProjects((s) => isQuestionsFolder(projectRoot ?? cwd, s.questionsDir));
+  const options = sessionOptions(question);
   const running = activeHost?.state === 'running' || activeHost?.state === 'needs-you';
   const showTodos = todos.some((t) => t.status !== 'completed') && (live !== null || activeHost !== null);
   const backgroundTasks = activeHost?.backgroundTasks ?? [];
@@ -261,7 +265,7 @@ export function TranscriptView({ sessionId, pane = null, active = true }: { sess
   const profileId = activeHost?.profileId ?? summary?.profileId ?? registryLive?.profileId ?? null;
   // Project actions: called once here (it listens for their shortcuts and owns their dialogs), then
   // shared by the pills above the message box and the header's ⋯ menu.
-  const actionsMenu = useActionsMenu({ sessionId, projectRoot, cwd, active });
+  const actionsMenu = useActionsMenu({ sessionId, projectRoot: options.projectActions ? projectRoot : null, cwd, active });
 
   // The Changes panel (⌘⇧D): the checkout's git diff, with stage and revert.
   const changesOpen = useOverlay((s) => s.changesOpen);
@@ -271,7 +275,8 @@ export function TranscriptView({ sessionId, pane = null, active = true }: { sess
   const [changesBase, setChangesBase] = useState<ChangesBase>('uncommitted');
   // A branch switch (here or in another pane on the same checkout) changes what the panel shows.
   const branchSwitches = useCheckoutBranches((s) => s.switches);
-  const { changes, isRepo, refresh: refreshChanges } = useGitChanges(cwd, changesBase, `${items.length}:${live?.status ?? ''}:${branchSwitches}`);
+  const { changes, isRepo: inRepo, refresh: refreshChanges } = useGitChanges(options.git ? cwd : null, changesBase, `${items.length}:${live?.status ?? ''}:${branchSwitches}`);
+  const isRepo = options.git && inRepo;
   // The badge on the Changes button counts uncommitted files only (the panel can compare with a branch too).
   const changedCount = changesBase === 'uncommitted' && changes ? changes.files.length : 0;
   const showChanges = Boolean(changesOpen && active && cwd && isRepo);
@@ -628,7 +633,7 @@ export function TranscriptView({ sessionId, pane = null, active = true }: { sess
   ]
     .filter(Boolean)
     .join('\n');
-  const projectName = project?.name ?? (projectRoot ? projectRoot.slice(projectRoot.lastIndexOf('/') + 1) : null);
+  const projectName = question ? QUESTION_LABEL : (project?.name ?? (projectRoot ? projectRoot.slice(projectRoot.lastIndexOf('/') + 1) : null));
   const failed = !activeHost && host?.state === 'error';
   const statusLabel = live ? liveLabel(live) : failed ? 'Failed' : 'Not running';
   const statusTone = live ? (live.status === 'idle' && live.background?.length ? 'text-ok' : STATUS_TONE[live.status]) : failed ? 'text-error' : 'text-muted';
@@ -642,7 +647,7 @@ export function TranscriptView({ sessionId, pane = null, active = true }: { sess
   // One element for both docks: below it sits in the conversation's column, on the right next to it.
   const terminalPanel = (
     <Suspense fallback={<div className={`theme-dark shrink-0 bg-terminal ${terminalDock === 'right' ? 'w-90 border-l border-border' : 'h-40 border-t border-border'}`} />}>
-      <TerminalPanel sessionId={sessionId} cwd={cwd} projectRoot={projectRoot} home={home} dock={terminalDock} rightBlocked={terminalBlocked} viewWidth={bodyWidth} />
+      <TerminalPanel sessionId={sessionId} cwd={cwd} projectRoot={options.projectActions ? projectRoot : null} home={home} dock={terminalDock} rightBlocked={terminalBlocked} viewWidth={bodyWidth} />
     </Suspense>
   );
 
@@ -673,10 +678,12 @@ export function TranscriptView({ sessionId, pane = null, active = true }: { sess
             {projectName && (
               <>
                 <Sep />
-                <span className="min-w-0 shrink truncate @max-[860px]:hidden">{projectName}</span>
+                <span className="min-w-0 shrink truncate @max-[860px]:hidden" data-session-project={question ? 'question' : undefined}>
+                  {projectName}
+                </span>
               </>
             )}
-            {cwd && isWorktree ? (
+            {cwd && isWorktree && options.git ? (
               <>
                 <Sep />
                 <WorktreeMenu sessionId={sessionId} cwd={cwd} branch={branch} openRequest={branchMenuRequest} />
@@ -687,6 +694,7 @@ export function TranscriptView({ sessionId, pane = null, active = true }: { sess
                 <BranchMenu sessionId={sessionId} cwd={cwd} root={projectRoot ?? cwd} busy={working} onSwitched={refreshChanges} openRequest={branchMenuRequest} />
               </>
             ) : (
+              options.git &&
               branch && (
                 <>
                   <Sep />

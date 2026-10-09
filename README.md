@@ -35,6 +35,7 @@ It uses the Claude Code you already have installed, with your login, settings, c
 
 **Work with Claude**
 - Start a session in a folder (⌘N): pick a project by typing a few letters, then work on the current branch (or check out another one first) or in a **new worktree**, just like `claude --worktree`.
+- **Quick questions** (⌘⇧N): ask Claude something without picking a project. Choose *Quick question* under the project tiles in New session. Claude works in a scratch folder of Switchboard's own, so there are no git options and nothing is added to your projects. These sessions show as *Questions* in the sidebar.
 - **Projects** are the folders you choose to work in. Add them from the folders you've used Claude Code in, or any folder, then reorder, rename or remove them in the **Projects** view (the folder icon at the bottom of the sidebar). Renaming only changes the name Switchboard shows; the folder keeps its own. Give a project its own defaults for new sessions: model, effort, permission mode, worktree or current folder, and a branch. The New session view starts from them; change something there for one session, or click *Save as project default*.
 - Chat as you would in the terminal. You get streaming replies, `/` commands (your own commands and skills included), `@` file mentions, and images you paste, drop or attach. Drag files anywhere over a session and the message box shows what a drop does: images are attached, other files and folders are added as context.
 - **Context** shows as chips above the message: files you drop, pick from the `@` list, or choose several at once with **Add context** (⌘⇧A, or the paperclip). Remove one with its ×. Files go to Claude as references it reads itself, so a large file stays small. With the [VS Code companion](#vs-code-companion) you can send the lines you have selected in VS Code, problems and terminal output too.
@@ -73,7 +74,7 @@ It uses the Claude Code you already have installed, with your login, settings, c
 - **Project actions**: one-click buttons for things like *Commit*, *Test* or *Publish*, running a command or sending Claude a prompt. See [Project actions](docs/project-actions.md).
 - **Open in** your editor, terminal or Finder (⌘O), or on GitHub, and click any file path in the conversation to open it at that line.
 - **Continue in VS Code** (under **⋯** in the session header): stops the session in Switchboard and opens it in Claude Code's VS Code extension, in the window for its folder.
-- **Links** that open Switchboard: `switchboard://new-session?project=payments&prompt=…` (or `cwd=/path`, or `repo=owner/name`) opens New session with the project and prompt filled in, and `switchboard://session/<id>` opens a session. Put them in runbooks, alerts, READMEs or Raycast and Alfred scripts. By default you read the prompt and press Enter; add `autostart=1` to start right away. See [Links](docs/deep-links.md).
+- **Links** that open Switchboard: `switchboard://new-session?project=payments&prompt=…` (or `cwd=/path`, or `repo=owner/name`) opens New session with the project and prompt filled in, and `switchboard://session/<id>` opens a session. Put them in runbooks, alerts, READMEs or Raycast and Alfred scripts. By default you read the prompt and press Enter; add `autostart=1` to start right away, or `question=1` for a quick question without a project. See [Links](docs/deep-links.md).
 - Delete sessions you don't need. They go to the Trash, so you can get them back.
 
 <table>
@@ -170,6 +171,7 @@ Press **⌘/** (or Help › Keyboard Shortcuts) to see every shortcut in the app
 | Shortcut | What it does |
 |---|---|
 | ⌘N | New session |
+| ⌘⇧N | Quick question (no project) |
 | ⌘K or ⌘⇧P | Command palette (in the terminal ⌘K clears it, so use ⌘⇧P) |
 | ⌘P | Go to a session or project (⌥↩ opens a session beside this one) |
 | ⌘⇧F | Search all conversations |
@@ -257,7 +259,7 @@ Press **⌘/** (or Help › Keyboard Shortcuts) to see every shortcut in the app
 
 <!-- shortcuts:end -->
 
-In the command palette, the first character picks what it lists: `>` commands, `+` a new session (pick a project, then write the prompt), `!` the session's project actions, `?` help. Commands that ask for more end in **…**: ⌫ in an empty field goes back a step, Esc closes. In the prompt step, ⌘↵ starts the session, ⌘E moves it to the full New session view, and Esc keeps what you wrote for next time.
+In the command palette, the first character picks what it lists: `>` commands, `+` a new session (pick a project, then write the prompt), `!` the session's project actions, `?` help. *Quick question…* goes straight to the prompt, without a project. Commands that ask for more end in **…**: ⌫ in an empty field goes back a step, Esc closes. In the prompt step, ⌘↵ starts the session, ⌘E moves it to the full New session view, and Esc keeps what you wrote for next time.
 
 Right-click a session for more: rename it, open it beside, pin, archive, open its folder, copy its ID, or delete it. Middle-click a finished session to archive it in one go. With several sessions selected, right-click one of them to archive or unarchive them all at once.
 

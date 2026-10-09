@@ -45,6 +45,7 @@ function context(over: Partial<PaletteContext> = {}): PaletteContext {
     sidebar: 'open',
     settingsSection: 'general',
     newSession: null,
+    questionsDir: '/data/questions',
     composer: null,
     canContinueInVSCode: false,
     ...over,
@@ -103,6 +104,14 @@ describe('when(): always', () => {
     expect(titleOf(add, inNew)).toBe('Add to queue');
     add.run!(api, inNew);
     expect(api.newSessionRequest).toHaveBeenCalledWith('add-to-queue');
+  });
+
+  it('asks a quick question in the scratch folder, once the engine has said where it is', () => {
+    const ctx = context();
+    const ask = visibleCommands(ctx).find((c) => c.id === 'quick-question')!;
+    expect(ask.next!(ctx)).toEqual({ kind: 'prompt', root: '/data/questions', worktree: false, chip: 'Quick question' });
+    expect(ids(context({ questionsDir: null }))).not.toContain('quick-question');
+    expect(ids(context({ connected: false }))).not.toContain('quick-question');
   });
 
   it('names the current project in "New session in …", and needs projects to rename one', () => {

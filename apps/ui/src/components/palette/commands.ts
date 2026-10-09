@@ -36,6 +36,7 @@ import {
   PencilLine,
   Maximize2,
   MessageSquare,
+  MessageCircleQuestion,
   MessagesSquare,
   Monitor,
   Moon,
@@ -248,6 +249,17 @@ export const COMMANDS: PaletteCommand[] = [
     keywords: 'start create prompt',
     when: (ctx) => ctx.currentProject !== null,
     next: (ctx) => ({ kind: 'prompt', root: ctx.currentProject!.root, worktree: false, chip: 'New session' }),
+  },
+  {
+    id: 'quick-question',
+    title: 'Quick question…',
+    group: 'general',
+    shortcut: keysFor('session.question'),
+    icon: MessageCircleQuestion,
+    keywords: 'ask chat no project scratch',
+    // The prompt step, in the scratch folder the engine keeps: no project to pick.
+    when: (ctx) => ctx.connected && ctx.questionsDir !== null,
+    next: (ctx) => ({ kind: 'prompt', root: ctx.questionsDir!, worktree: false, chip: 'Quick question' }),
   },
   {
     id: 'new-session-worktree',
