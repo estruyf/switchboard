@@ -910,7 +910,7 @@ export function createEngine(options: EngineOptions): Engine {
       const { sessionId } = await createSession({
         cwd: item.cwd,
         prompt: item.prompt,
-        attachments: [],
+        attachments: item.attachments,
         model: item.model,
         permissionMode: item.permissionMode,
         effort: item.effort,

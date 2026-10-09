@@ -16,6 +16,7 @@ const item = (id: string, overrides: Partial<LaterItem> = {}): LaterItem => ({
   baseRef: 'fresh',
   branch: null,
   profileId: null,
+  attachments: [],
   createdAt: NOW,
   position: 0,
   waitFor: { kind: 'project' },
@@ -218,6 +219,9 @@ describe('queue helpers', () => {
     expect(sameDraft(queued, { ...draft, prompt: 'Fix the lexer' })).toBe(false);
     expect(sameDraft(queued, { ...draft, workspace: 'worktree' })).toBe(false);
     expect(sameDraft(queued, { ...draft, cwd: '/work/other' })).toBe(false);
+    const image = { type: 'image' as const, mediaType: 'image/png' as const, data: 'aGVsbG8=' };
+    expect(sameDraft(queued, { ...draft, attachments: [image] })).toBe(false);
+    expect(sameDraft({ ...queued, attachments: [image] }, { ...draft, attachments: [{ ...image }] })).toBe(true);
   });
 
   it('filters by project and search, keeping the order', () => {

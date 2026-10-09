@@ -189,9 +189,13 @@ export function sameDraft(item: LaterItem, draft: LaterDraft): boolean {
     item.workspace === (draft.workspace ?? 'current') &&
     item.baseRef === (draft.baseRef ?? 'fresh') &&
     item.branch === (draft.branch ?? null) &&
-    item.profileId === (draft.profileId ?? null)
+    item.profileId === (draft.profileId ?? null) &&
+    sameImages(item.attachments, draft.attachments ?? [])
   );
 }
+
+/** The same images in the same order (a pasted image is new data, so comparing the data is enough). */
+const sameImages = (a: readonly { data: string }[], b: readonly { data: string }[]) => a.length === b.length && a.every((image, i) => image.data === b[i]!.data);
 
 /** The index an item moves to with ⌥↑ / ⌥↓ (-1 / 1) or Move to top ('top'); null when it can't move that way. */
 export function moveTarget(ids: readonly string[], id: string, move: -1 | 1 | 'top'): number | null {

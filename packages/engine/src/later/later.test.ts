@@ -38,6 +38,19 @@ describe('queue (the Later list)', () => {
     cache.close();
   });
 
+  it('keeps the images pasted with a prompt, and edits to them', () => {
+    const cache = openCacheDatabase(cachePath());
+    const later = new LaterStore(cache.db);
+    const image = { type: 'image' as const, mediaType: 'image/png' as const, data: 'aGVsbG8=', name: 'screenshot.png' };
+    const item = later.add({ cwd: '/work/web', prompt: 'Match this design', attachments: [image] });
+    expect(item.attachments).toEqual([image]);
+    expect(later.get(item.id)!.attachments).toEqual([image]);
+    expect(later.update(item.id, { draft: { cwd: '/work/web', prompt: 'Match this design' } })!.attachments).toEqual([]);
+    // Items queued before images could be, read without any.
+    expect(later.add({ cwd: '/work/web', prompt: 'No images' }).attachments).toEqual([]);
+    cache.close();
+  });
+
   it('adds at the end and lists in queue order, all of them or one project', () => {
     const cache = openCacheDatabase(cachePath());
     const later = new LaterStore(cache.db);

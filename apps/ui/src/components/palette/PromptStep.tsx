@@ -186,6 +186,7 @@ export function PromptStep({ root, from, worktree, chip, onBack, onChangeProject
   const laterDraft = (prompt: string): LaterDraft => ({
     cwd: root,
     prompt,
+    attachments,
     model: d.model || null,
     effort: d.effort || null,
     permissionMode: d.permissionMode,

@@ -225,6 +225,7 @@ describe('buildListRows', () => {
     id: prompt,
     cwd,
     prompt,
+    attachments: [],
     model: null,
     effort: null,
     permissionMode: 'default',

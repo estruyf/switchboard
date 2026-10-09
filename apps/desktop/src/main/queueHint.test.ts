@@ -6,6 +6,7 @@ const item = (id: string, overrides: Partial<LaterItem> = {}): LaterItem => ({
   id,
   cwd: '/work/app',
   prompt: `Prompt ${id}`,
+  attachments: [],
   model: null,
   effort: null,
   permissionMode: 'default',

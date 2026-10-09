@@ -71,11 +71,13 @@ export interface ComposerProps {
   dropHint?: boolean;
   /** Called with the prompt's text whenever it changes (typing, completions, presets, sending). */
   onTextChange?(text: string): void;
+  /** Called with the images in the box whenever they change. */
+  onAttachmentsChange?(attachments: ImageAttachment[]): void;
   /**
    * A second way to send what is in the box (New session's Add to queue), on its own shortcut and through
    * `submitControl`. Like `onSubmit`, returning `false` keeps the prompt; otherwise the box empties.
    */
-  secondary?: { shortcut: ShortcutId; onSubmit(text: string): Promise<void | false> };
+  secondary?: { shortcut: ShortcutId; onSubmit(text: string, attachments: ImageAttachment[]): Promise<void | false> };
   /** Takes the Send button's place (New session's Start with its menu), with what it needs to send what is in the box. */
   submitControl?(api: SubmitApi): ReactNode;
   /** Returning `false` means nothing was sent (the focus limit asked and you cancelled): the prompt stays as it is. */
@@ -91,7 +93,7 @@ export interface SubmitApi {
   sending: boolean;
   /** Something to send: text, images or context. */
   hasMessage: boolean;
-  /** Text or context: what `secondary` takes (images stay behind). */
+  /** Text or context: what `secondary` needs (images go along, but can't be queued on their own). */
   hasText: boolean;
   /** Sends as Enter does. */
   submit(): void;
@@ -172,6 +174,8 @@ export function Composer(props: ComposerProps) {
 
   const onTextChange = props.onTextChange;
   useEffect(() => onTextChange?.(text), [text, onTextChange]);
+  const onAttachmentsChange = props.onAttachmentsChange;
+  useEffect(() => onAttachmentsChange?.(attachments), [attachments, onAttachmentsChange]);
 
   const onDraftLoaded = useRef(props.onDraftLoaded);
   onDraftLoaded.current = props.onDraftLoaded;
@@ -405,7 +409,7 @@ export function Composer(props: ComposerProps) {
   };
 
   const disabled = !!props.disabledReason;
-  const submitSecondary = () => (props.secondary ? submit(false, (value) => props.secondary!.onSubmit(value)) : Promise.resolve());
+  const submitSecondary = () => (props.secondary ? submit(false, (value, sent) => props.secondary!.onSubmit(value, sent)) : Promise.resolve());
   const hasText = !!text.trim() || chips.length > 0;
   const hasMessage = hasText || attachments.length > 0;
   const attach = (

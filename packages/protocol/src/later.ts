@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { Effort, PermissionMode } from './host.ts';
+import { Effort, ImageAttachment, PermissionMode } from './host.ts';
 
 // The queue. People see "Queue" everywhere; inside, it keeps the name it started with (the Later list), so the
 // RPCs (`later.*`), the table (`later_prompts`) and the stores didn't need renaming.
@@ -9,6 +9,8 @@ export const LaterDraft = z.object({
   /** The folder the session would start in (a project's root). */
   cwd: z.string().min(1).max(4096).startsWith('/'),
   prompt: z.string().trim().min(1).max(200_000),
+  /** Images pasted or dropped into the message box, sent with the prompt when it starts. */
+  attachments: z.array(ImageAttachment).max(20).default([]),
   model: z.string().max(200).nullable().default(null),
   effort: Effort.nullable().default(null),
   permissionMode: PermissionMode.default('default'),
