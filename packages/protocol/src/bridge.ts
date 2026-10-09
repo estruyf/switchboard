@@ -147,6 +147,13 @@ export interface AppInfo {
 export const releaseUrl = (version: string) => `https://github.com/estruyf/switchboard/releases/tag/v${version}`;
 export const CHANGELOG_URL = 'https://github.com/estruyf/switchboard/blob/main/CHANGELOG.md';
 
+/** Where the VS Code companion is published: the Marketplace for VS Code, Open VSX for Cursor and Windsurf. */
+export const VSCODE_EXTENSION_URLS = {
+  marketplace: 'https://marketplace.visualstudio.com/items?itemName=eliostruyf.switchboard-vscode',
+  openVsx: 'https://open-vsx.org/extension/eliostruyf/switchboard-vscode',
+  guide: 'https://github.com/estruyf/switchboard#vs-code-companion',
+} as const;
+
 /**
  * Where the updater is. `idle` hasn't checked yet; `disabled` never will (see `disabledReason`).
  * `error` keeps what was known before it failed, so Retry knows what to try again.

@@ -1,10 +1,11 @@
-import { Activity, ArchiveRestore, Info, MessageSquare, Palette, PanelLeft, SlidersHorizontal, Target, Users, X, type LucideIcon } from 'lucide-react';
+import { Activity, ArchiveRestore, Info, MessageSquare, Palette, PanelLeft, SlidersHorizontal, SquareCode, Target, Users, X, type LucideIcon } from 'lucide-react';
 import { useEffect, useId, useRef, type ReactNode, type RefObject } from 'react';
 import type { ProjectOrder, SidebarCollapsed, SidebarStyle, StartupView, ToolActivity } from '@switchboard/protocol/bridge';
 import { usePreferences } from '../state/preferencesStore.ts';
 import { useSessions, type SettingsSection } from '../state/sessionsStore.ts';
 import { useSidebar } from '../state/sidebarStore.ts';
 import { BackupSettings } from './backup/BackupSettings.tsx';
+import { CompanionSettings } from './companion/CompanionSettings.tsx';
 import { EngineDiagnostics } from './EngineDiagnostics.tsx';
 import { FocusSettings } from './focus/FocusSettings.tsx';
 import { ProfilesSettings } from './profiles/ProfilesSettings.tsx';
@@ -122,6 +123,7 @@ const SECTIONS: Array<{ id: SettingsSection; label: string; icon: LucideIcon }> 
   { id: 'conversation', label: 'Conversation', icon: MessageSquare },
   { id: 'focus', label: 'Focus', icon: Target },
   { id: 'profiles', label: 'Claude profiles', icon: Users },
+  { id: 'vscode', label: 'VS Code', icon: SquareCode },
   { id: 'backup', label: 'Backup', icon: ArchiveRestore },
   { id: 'diagnostics', label: 'Diagnostics', icon: Activity },
   { id: 'about', label: 'About', icon: Info },
@@ -265,6 +267,15 @@ function SectionPage({ section }: { section: SettingsSection }) {
             />
           </Section>
         </>
+      );
+    case 'vscode':
+      return (
+        <Section
+          title="VS Code"
+          description="The Switchboard extension for VS Code (also Cursor and Windsurf) sends what you're looking at in the editor to a session, as chips above the message box. Nothing goes to Claude until you send."
+        >
+          <CompanionSettings />
+        </Section>
       );
     case 'backup':
       return (
