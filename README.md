@@ -200,7 +200,7 @@ Press **⌘/** (or Help › Keyboard Shortcuts) to see every shortcut in the app
 | ↩ or ⌘G | Next match (in Find) |
 | ⇧↩ or ⌘⇧G | Previous match (in Find) |
 | ⌘⇧D | Show or hide Changes |
-| ⌘J | Show or hide the terminal |
+| ⌘J or ⌘` | Show or hide the terminal |
 | ⌘⇧J | Maximize or restore the terminal |
 | Esc | Restore the terminal (while it fills the view, outside the shell) |
 | ⌘K | Clear the terminal (in the terminal) |
