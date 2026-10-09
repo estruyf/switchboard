@@ -1,6 +1,6 @@
-import { Bookmark, Folder, FolderGit2, GitBranch, Link2, PencilLine } from 'lucide-react';
+import { ChevronDown, Clock, Folder, FolderGit2, GitBranch, Link2, ListEnd, PencilLine } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import type { ImageAttachment, LaterDraft, LaterItem, ProjectInspection, SlashCommand, WorktreeStatus } from '@switchboard/protocol/client';
+import type { ImageAttachment, LaterDraft, LaterItem, ProjectInspection, QueueWaitFor, SlashCommand, WorktreeStatus } from '@switchboard/protocol/client';
 import { useEngineConnection } from '../../engine/useEngine.ts';
 import { ChoiceMenu } from './ChoiceMenu.tsx';
 import { FolderPicker } from './FolderPicker.tsx';
@@ -10,7 +10,8 @@ import { basename, guessHome, shortAge } from '../../lib/format.ts';
 import { nextMode, worktreeSlug } from '../../lib/modes.ts';
 import { passFocusGate, useFocus } from '../../state/focusGate.ts';
 import { useHosts } from '../../state/hostsStore.ts';
-import { removeFromLater, saveForLater, useLater } from '../../state/laterStore.ts';
+import { addToQueue, removeFromQueue, useLater } from '../../state/laterStore.ts';
+import { busyInProject, promptLabel } from '../../state/queue.ts';
 import { useLinks } from '../../state/linksStore.ts';
 import { usePaletteBus } from '../../state/paletteBus.ts';
 import { usePreferences } from '../../state/preferencesStore.ts';
@@ -21,7 +22,9 @@ import { toRows, useSessions } from '../../state/sessionsStore.ts';
 import { inScope, rowStatus } from '../../state/sidebarRows.ts';
 import { Composer } from '../composer/Composer.tsx';
 import { FocusNote } from '../focus/FocusNote.tsx';
-import { LaterSection } from '../focus/LaterSection.tsx';
+import { QueuedInProject } from '../queue/QueuedInProject.tsx';
+import { waitForEntries } from '../queue/queueMenu.tsx';
+import { Menu, useMenu } from '../Menu.tsx';
 import { useMinute } from '../focus/useMinute.ts';
 import { ComposerChipRow } from '../composer/ComposerChips.tsx';
 import { projectHistory } from '../composer/promptHistory.ts';
@@ -110,8 +113,11 @@ export function NewSessionView() {
   const choicesFor = autostarting ? linkStartingChoices : startingChoices;
   /** Why the folder couldn't be checked (the engine call failed). */
   const [inspectError, setInspectError] = useState<string | null>(null);
-  /** The prompt came from the Later list: starting it (or saving it again) takes it off. */
+  /** The prompt came from the queue (Edit in New session): it stays queued until it starts (which takes it off) or is queued again (in its place). */
   const [fromLater, setFromLater] = useState<LaterItem | null>(null);
+  /** What the prompt would wait for once queued, when changed with "Wait for…"; null: the item's own, else its project. */
+  const [queueWait, setQueueWait] = useState<QueueWaitFor | null>(null);
+  const waitMenu = useMenu();
   /** Start anyway in the focus note sends what is in the box, without asking again. */
   const [submitRequest, setSubmitRequest] = useState(0);
   const focus = useFocus();
@@ -202,7 +208,7 @@ export function NewSessionView() {
       setLinkPrompt(link.prompt.length);
     }
   }, [linkRequest]);
-  // A prompt from the Later list: its folder, choices and prompt, to check before starting.
+  // A prompt from the queue: its folder, choices and prompt, to check before starting.
   useEffect(() => {
     if (!laterRequest) return;
     const item = useLater.getState().take();
@@ -223,6 +229,7 @@ export function NewSessionView() {
     setPreset({ text: item.prompt, seq: ++presets.current });
     setDraftPrompt(item.prompt);
     setFromLater(item);
+    setQueueWait(null);
   }, [laterRequest]);
   // The command palette's prompt step, moved here with ⌘E: its folder, choices, profile and prompt.
   const handoff = usePaletteBus((s) => s.handoff);
@@ -364,6 +371,7 @@ export function NewSessionView() {
     setLinkNoFolder(false);
     setPendingStart(null);
     setProfileOverride(null);
+    setQueueWait(null);
     setCwd(folder);
     setAddAsProject(true);
     persist(globals, folder);
@@ -401,13 +409,13 @@ export function NewSessionView() {
   };
 
   // The command palette's commands for this view: what they can do here, and their requests.
-  const canSaveForLater = !!cwd && draftPrompt.trim() !== '' && !!client;
+  const canQueue = !!cwd && draftPrompt.trim() !== '' && !!client;
   const canCatchUp = !!cwd && inspection?.path === cwd && inspection.exists && !!gitStatus?.hasRemote && !!client;
   /** The palette's Update from remote: the git button runs its step. */
   const [catchUpRequest, setCatchUpRequest] = useState(0);
   useEffect(() => {
-    usePaletteBus.setState({ newSessionInfo: { canWorktree, canSaveDefaults: unsaved, canSaveForLater, canCatchUp } });
-  }, [canWorktree, unsaved, canSaveForLater, canCatchUp]);
+    usePaletteBus.setState({ newSessionInfo: { canWorktree, canSaveDefaults: unsaved, canQueue, canCatchUp } });
+  }, [canWorktree, unsaved, canQueue, canCatchUp]);
   useEffect(() => () => usePaletteBus.setState({ newSessionInfo: null }), []);
   const paletteRequest = usePaletteBus((s) => s.newSessionRequest);
   const seenRequest = useRef(usePaletteBus.getState().newSessionRequest?.nonce ?? 0);
@@ -416,7 +424,7 @@ export function NewSessionView() {
     seenRequest.current = paletteRequest.nonce;
     if (paletteRequest.kind === 'toggle-worktree' && canWorktree) update({ workspace: useWorktree ? 'current' : 'worktree' });
     else if (paletteRequest.kind === 'save-defaults' && unsaved) void saveAsProjectDefault();
-    else if (paletteRequest.kind === 'save-later' && canSaveForLater) void parkForLater(draftPrompt.trim()).catch(() => {});
+    else if (paletteRequest.kind === 'add-to-queue' && canQueue) void queuePrompt(draftPrompt.trim()).then(clearPrompt, () => {});
     else if (paletteRequest.kind === 'catch-up' && canCatchUp) setCatchUpRequest((n) => n + 1);
   }, [paletteRequest]);
 
@@ -424,7 +432,7 @@ export function NewSessionView() {
   /** The first prompts of your sessions in this project, for ↑ in the message box. */
   const promptHistory = useMemo(() => (cwd ? projectHistory(sessions.values(), cwd) : []), [sessions, cwd]);
 
-  /** The prompt with this folder and these choices, for the Later list. Images stay behind. */
+  /** The prompt with this folder and these choices, for the queue. Images stay behind. */
   const laterDraft = (text: string): LaterDraft | null =>
     cwd
       ? {
@@ -439,13 +447,22 @@ export function NewSessionView() {
           profileId: profileOverride,
         }
       : null;
-  /** Parks the prompt on the Later list and empties the box. One taken from Later replaces itself. */
-  const parkForLater = async (text: string) => {
+  /**
+   * Adds the prompt to the queue (with what "Wait for…" says), and you stay in New session. One taken from the queue
+   * goes back in its place. The caller empties the box (the message box does it itself after its own button).
+   */
+  const queuePrompt = async (text: string) => {
     const draft = laterDraft(text);
     if (!draft) throw new Error('Choose a folder first');
-    await saveForLater(draft);
-    if (fromLater) void removeFromLater(fromLater, true).catch(() => {});
+    const queuedFrom = fromLater && useLater.getState().items.some((i) => i.id === fromLater.id) ? fromLater : null;
+    await addToQueue(draft, { waitFor: queueWait ?? undefined, replacing: queuedFrom });
     unsentPrompt = '';
+    setFromLater(null);
+    setQueueWait(null);
+  };
+  /** The focus note's and the gate's Add to queue: queue it and empty the box. */
+  const parkInQueue = async (text: string) => {
+    await queuePrompt(text);
     clearPrompt();
   };
 
@@ -471,7 +488,7 @@ export function NewSessionView() {
         fromLink,
         skipGate,
         addProject: !isProject && addAsProject && !!inspection?.exists,
-        saveForLater: () => parkForLater(text),
+        saveForLater: () => parkInQueue(text),
       },
       {
         createSession: (params) => client.call('session.create', params),
@@ -480,8 +497,9 @@ export function NewSessionView() {
         open: (sessionId) => {
           // The view goes away before the composer empties itself, so forget the prompt here.
           unsentPrompt = '';
+          // Edited from the queue and started here: it leaves the queue, and items waiting on it follow this session.
           if (fromLater) {
-            void removeFromLater(fromLater, true).catch(() => {});
+            void removeFromQueue(fromLater, true, sessionId).catch(() => {});
             setFromLater(null);
           }
           select(sessionId);
@@ -563,8 +581,8 @@ export function NewSessionView() {
         {pendingStart !== null ? 'Starting a session with the prompt from an external link…' : linkNoticeText(linkPrompt)}
       </Notice>
     ) : fromLater ? (
-      <Notice inline icon={<Bookmark size={13} className="text-accent-ink" aria-hidden />} actions={clearButton('data-clear-draft')} data-later-notice>
-        From your Later list. Starting it takes it off the list.
+      <Notice inline icon={<ListEnd size={13} className="text-accent-ink" aria-hidden />} actions={clearButton('data-clear-draft')} data-later-notice>
+        From the queue. Starting it takes it off the queue.
       </Notice>
     ) : savedNote ? (
       <span role="status" className="min-w-0 truncate text-accent-ink" data-saved-note>
@@ -575,6 +593,51 @@ export function NewSessionView() {
         Your unsent prompt from before.
       </Notice>
     ) : null;
+
+  // The picked project has a session going: say what a queued prompt would wait for, and let "Wait for…" change it.
+  const busyHere = useMemo(() => (cwd ? busyInProject(rows, cwd) : []), [rows, cwd]);
+  const queueItems = useLater((s) => s.items);
+  const lastQueued = queueItems.filter((i) => i.id !== fromLater?.id).at(-1) ?? null;
+  const wait: QueueWaitFor = queueWait ?? (fromLater ? fromLater.waitFor : { kind: 'project' });
+  const waitTitle = (id: string) => `“${promptLabel(rows.find((r) => r.id === id)?.title || 'Untitled session', 60)}”`;
+  const waitText =
+    wait.kind === 'none'
+      ? 'Queued, it waits until you start it.'
+      : wait.kind === 'session'
+        ? `Queued, this waits for ${waitTitle(wait.sessionId)} to finish.`
+        : wait.kind === 'item'
+          ? 'Queued, this waits for the item above it.'
+          : busyHere.length === 1
+            ? `Queued, this waits for ${waitTitle(busyHere[0]!.id)} to finish.`
+            : 'Queued, this waits for them to finish.';
+  const queueLine = cwd && projectName && busyHere.length > 0 && (
+    <div className="-mt-3 flex min-w-0 items-center gap-1.5 px-2 text-meta text-muted" data-queue-busy-line>
+      <Clock size={12} className="shrink-0 text-faint" aria-hidden />
+      <span className="min-w-0 truncate">
+        {projectName} has {busyHere.length === 1 ? 'a session' : `${busyHere.length} sessions`} working. {waitText}
+      </span>
+      <button
+        type="button"
+        onClick={(e) => waitMenu.openBelow(e.currentTarget)}
+        aria-haspopup="menu"
+        className="flex shrink-0 items-center gap-0.5 rounded px-1 font-medium text-link hover:underline"
+        data-queue-wait-for
+      >
+        Wait for…
+        <ChevronDown size={11} aria-hidden />
+      </button>
+      {waitMenu.at && (
+        <Menu
+          x={waitMenu.at.x}
+          y={waitMenu.at.y}
+          width={260}
+          label="Wait for"
+          entries={waitForEntries({ current: wait, busy: busyHere, above: lastQueued, onPick: setQueueWait })}
+          onClose={waitMenu.close}
+        />
+      )}
+    </div>
+  );
 
   return (
     <div className="flex h-full min-h-0 flex-col" data-drop-zone>
@@ -618,8 +681,8 @@ export function NewSessionView() {
             <FocusNote
               focus={focus}
               now={now}
-              canSave={canSaveForLater}
-              onSaveForLater={() => void parkForLater(draftPrompt.trim()).catch(() => {})}
+              canSave={canQueue}
+              onSaveForLater={() => void parkInQueue(draftPrompt.trim()).catch(() => {})}
               onStartAnyway={() => setSubmitRequest((n) => n + 1)}
             />
           )}
@@ -784,6 +847,13 @@ export function NewSessionView() {
               onCycleMode={() => update({ permissionMode: nextMode(d.permissionMode) })}
               disabledReason={!client ? 'Connecting to the engine…' : !cwd ? 'Choose a folder first' : inspection && !inspection.exists ? 'That folder no longer exists' : null}
               onSubmit={(text, attachments, requested) => create(text, attachments, { skipGate: requested === true })}
+              secondary={{
+                label: 'Add to queue',
+                icon: <ListEnd size={14} aria-hidden />,
+                shortcut: 'new-session.queue',
+                onSubmit: (text) => queuePrompt(text),
+                data: { 'data-queue-add': true },
+              }}
             />
           </div>
 
@@ -794,6 +864,8 @@ export function NewSessionView() {
               <UsageBand tray profileId={profileId} />
             </span>
           </div>
+
+          {queueLine}
 
           {cwd && !isProject && inspection?.exists && (
             <Checkbox checked={addAsProject} onChange={setAddAsProject} className="-mt-3 w-fit px-2 text-meta text-muted" dataAttrs={{ 'data-add-as-project': true }}>
@@ -831,7 +903,7 @@ export function NewSessionView() {
             </section>
           )}
 
-          {cwd && projectName && <LaterSection cwd={cwd} projectName={projectName} now={now} />}
+          {cwd && projectName && <QueuedInProject cwd={cwd} projectName={projectName} now={now} />}
         </div>
       </div>
     </div>

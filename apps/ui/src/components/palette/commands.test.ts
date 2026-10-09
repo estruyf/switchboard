@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { arrangeCommands, COMMANDS, rememberIn, titleOf, visibleCommands, type PaletteApi } from './commands.ts';
+import { arrangeCommands, COMMANDS, hintOf, rememberIn, titleOf, visibleCommands, type PaletteApi } from './commands.ts';
 import type { PaletteContext, PaletteSession } from './paletteContext.ts';
 import { shortcutGlyphs } from '../../lib/shortcuts.ts';
 
@@ -29,7 +29,7 @@ function context(over: Partial<PaletteContext> = {}): PaletteContext {
     terminal: { open: false, maximized: false, dock: 'bottom', action: null },
     split: false,
     focusLimit: null,
-    laterCount: 0,
+    queue: { count: 0, readyCount: 0, firstReady: null },
     projectCount: 2,
     currentProject: null,
     actions: [],
@@ -71,12 +71,35 @@ describe('when(): always', () => {
     expect(ids(context({ view: 'settings' }))).not.toContain('settings');
   });
 
-  it('turns the focus limit on or off, and offers Later only with saved prompts', () => {
+  it('turns the focus limit on or off', () => {
     expect(ids(context())).not.toContain('focus-off');
     expect(ids(context({ focusLimit: 3 }))).toEqual(expect.arrayContaining(['focus-off', 'focus-set']));
     expect(ids(context({ focusLimit: 3 }))).not.toContain('focus-on');
-    expect(ids(context())).not.toContain('later');
-    expect(ids(context({ laterCount: 2 }))).toContain('later');
+  });
+
+  it('offers the queue commands without the focus limit: start next only when one is ready, pick only with items', () => {
+    expect(ids(context())).not.toContain('queue-start-next');
+    expect(ids(context())).not.toContain('queue-pick');
+    expect(ids(context())).toContain('queue-add');
+    const queue = { count: 3, readyCount: 1, firstReady: { id: 'q1', prompt: 'Add a Queue section…' } };
+    const ctx = context({ queue });
+    expect(ids(ctx)).toEqual(expect.arrayContaining(['queue-start-next', 'queue-pick', 'queue-add']));
+    expect(ids(context({ queue: { ...queue, readyCount: 0, firstReady: null } }))).not.toContain('queue-start-next');
+    const next = visibleCommands(ctx).find((c) => c.id === 'queue-start-next')!;
+    expect(hintOf(next, ctx)).toBe('Add a Queue section…');
+    const api = { startQueued: vi.fn(), openNewSession: vi.fn(), newSessionRequest: vi.fn() } as unknown as PaletteApi;
+    next.run!(api, ctx);
+    expect(api.startQueued).toHaveBeenCalledWith('q1');
+    expect(hintOf(visibleCommands(ctx).find((c) => c.id === 'queue-pick')!, ctx)).toBe('3 queued');
+    // Add to queue… opens New session, or queues the prompt when New session has one.
+    const add = visibleCommands(ctx).find((c) => c.id === 'queue-add')!;
+    expect(titleOf(add, ctx)).toBe('Add to queue…');
+    add.run!(api, ctx);
+    expect(api.openNewSession).toHaveBeenCalled();
+    const inNew = context({ view: 'new-session', newSession: { canWorktree: false, canSaveDefaults: false, canQueue: true, canCatchUp: false } });
+    expect(titleOf(add, inNew)).toBe('Add to queue');
+    add.run!(api, inNew);
+    expect(api.newSessionRequest).toHaveBeenCalledWith('add-to-queue');
   });
 
   it('names the current project in "New session in …", and needs projects to rename one', () => {
@@ -193,10 +216,9 @@ describe('when(): git, actions, terminal, panes', () => {
 describe('when(): New session and Settings', () => {
   it('changes New session only when it can', () => {
     expect(groupIds(context({ view: 'new-session' }), 'new-session')).toEqual([]);
-    const info = { canWorktree: true, canSaveDefaults: true, canSaveForLater: true, canCatchUp: false };
+    const info = { canWorktree: true, canSaveDefaults: true, canQueue: true, canCatchUp: false };
     expect(groupIds(context({ view: 'new-session', newSession: info }), 'new-session')).toEqual(['toggle-worktree', 'save-defaults']);
     expect(groupIds(context({ view: 'new-session', newSession: { ...info, canCatchUp: true } }), 'new-session')).toContain('catch-up');
-    expect(groupIds(context({ view: 'new-session', newSession: info, focusLimit: 2 }), 'new-session')).toContain('save-later');
   });
 
   it('jumps to every other Settings page while Settings is open', () => {

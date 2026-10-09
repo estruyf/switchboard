@@ -1,6 +1,7 @@
 import type { SessionScope, StartupView } from '@switchboard/protocol/bridge';
-import type { LaterItem } from '@switchboard/protocol/client';
+import type { QueueEntry } from './queue.ts';
 import type { SessionRowData } from './sessionsStore.ts';
+import type { SectionKey } from './sidebarSections.ts';
 
 /** What the status icon on a row shows, most urgent first. */
 export type RowStatus = 'needs-you' | 'running' | 'error' | 'unread' | 'background' | 'idle' | null;
@@ -158,36 +159,85 @@ export function groupSessions(active: readonly SessionRowData[], now: number): {
   });
 }
 
-/** One row of the virtualised sidebar list: a session, a section header, a prompt saved for later, or a collapsible header. */
+/**
+ * One row of the virtualised sidebar list: a session, a section header, the queue's header and its items,
+ * the "+N hidden" line under a closed section's kept row, or the Archived toggle.
+ */
 export type SidebarListRow =
-  | { kind: 'session'; data: SessionRowData; archived: boolean }
-  | { kind: 'group'; group: SessionGroup; count: number; first: boolean }
-  | { kind: 'later-header'; count: number; open: boolean; first: boolean }
-  | { kind: 'later'; item: LaterItem }
+  | { kind: 'session'; data: SessionRowData; archived: boolean; kept?: boolean }
+  | { kind: 'group'; group: SessionGroup; count: number; first: boolean; open: boolean; unread: number }
+  | { kind: 'hidden'; group: SessionGroup; count: number }
+  | { kind: 'queue-header'; count: number; ready: number; open: boolean; first: boolean }
+  | { kind: 'queue'; entry: QueueEntry }
   | { kind: 'archived'; count: number; open: boolean };
 
+export interface ListRowOptions {
+  now: number;
+  archivedOpen: boolean;
+  /** The queue as the sidebar lists it (filters applied), with how many are ready. Left out or empty: no Queue section. */
+  queue?: { entries: readonly QueueEntry[]; ready: number };
+  /** Closed sections: their header stays (with its count), their rows go. */
+  closed?: ReadonlySet<SectionKey>;
+  /** The open session: its row stays under its section's header even while the section is closed. */
+  selectedId?: string | null;
+}
+
 /**
- * The flat row list the sidebar virtualises: each non-empty section under its header, then the Later
- * list (prompts saved for later, when there are any), then Archived.
+ * The flat row list the sidebar virtualises: each non-empty section under its header, the Queue right under
+ * Working (when it has items), then Archived. A closed section keeps its header and, when the open session is
+ * in it, that session's row with a "+N hidden" line.
  */
-export function buildListRows(
-  active: readonly SessionRowData[],
-  archived: readonly SessionRowData[],
-  options: { now: number; archivedOpen: boolean; later?: { items: readonly LaterItem[]; open: boolean } },
-): SidebarListRow[] {
+export function buildListRows(active: readonly SessionRowData[], archived: readonly SessionRowData[], options: ListRowOptions): SidebarListRow[] {
   const list: SidebarListRow[] = [];
+  const closed = options.closed ?? new Set<SectionKey>();
+  const queue = options.queue;
+  const pushQueue = () => {
+    if (!queue || queue.entries.length === 0) return;
+    const open = !closed.has('queue');
+    list.push({ kind: 'queue-header', count: queue.entries.length, ready: queue.ready, open, first: list.length === 0 });
+    if (open) for (const entry of queue.entries) list.push({ kind: 'queue', entry });
+  };
+  let queued = false;
   for (const { group, rows } of groupSessions(active, options.now)) {
-    list.push({ kind: 'group', group, count: rows.length, first: list.length === 0 });
-    for (const data of rows) list.push({ kind: 'session', data, archived: false });
+    // The queue goes under Working, or where Working would be.
+    if (!queued && group !== 'needs-you' && group !== 'working') {
+      pushQueue();
+      queued = true;
+    }
+    const open = group === 'needs-you' || !closed.has(group);
+    const unread = rows.filter((row) => rowStatus(row) === 'unread').length;
+    list.push({ kind: 'group', group, count: rows.length, first: list.length === 0, open, unread });
+    if (open) {
+      for (const data of rows) list.push({ kind: 'session', data, archived: false });
+    } else {
+      const kept = rows.find((row) => row.id === options.selectedId);
+      if (kept) {
+        list.push({ kind: 'session', data: kept, archived: false, kept: true });
+        if (rows.length > 1) list.push({ kind: 'hidden', group, count: rows.length - 1 });
+      }
+    }
+    if (group === 'working') {
+      pushQueue();
+      queued = true;
+    }
   }
-  const later = options.later;
-  if (later && later.items.length) {
-    list.push({ kind: 'later-header', count: later.items.length, open: later.open, first: list.length === 0 });
-    if (later.open) for (const item of later.items) list.push({ kind: 'later', item });
-  }
+  if (!queued) pushQueue();
   if (archived.length) list.push({ kind: 'archived', count: archived.length, open: options.archivedOpen });
   if (options.archivedOpen) for (const data of archived) list.push({ kind: 'session', data, archived: true });
   return list;
+}
+
+/** What a closed (or the Queue's) header says next to its count, in the state's colour: "1 ready", "2 unread". */
+export function headerSummary(row: Extract<SidebarListRow, { kind: 'group' | 'queue-header' }>): { text: string; tone: 'ok' | 'unread' } | null {
+  if (row.kind === 'queue-header') return row.ready > 0 ? { text: `${row.ready} ready`, tone: 'ok' } : null;
+  if (row.open || row.group === 'working' || row.group === 'needs-you' || row.unread === 0) return null;
+  return { text: `${row.unread} unread`, tone: 'unread' };
+}
+
+/** The section a session sits in (its group), so opening it can open a closed section. Null for an archived one. */
+export function sectionOfSession(rows: readonly SessionRowData[], id: string, now: number): SessionGroup | null {
+  const row = rows.find((r) => r.id === id);
+  return row && isActive(row, now) ? sessionGroup(row, now) : null;
 }
 
 /** What a waiting session asks for, in a few words for its row: the question, a plan, or the tool it wants to run. */
@@ -196,14 +246,6 @@ export function waitingLabel(toolName: string | null): string {
   if (toolName === 'AskUserQuestion') return 'Question';
   if (toolName === 'ExitPlanMode') return 'Plan to review';
   return `Permission: ${toolName}`;
-}
-
-/** Prompts saved for later that the sidebar lists: the project filter applies, and search looks at the prompt and the folder. */
-export function laterInList(items: readonly LaterItem[], options: { search: string; project: string | null }): LaterItem[] {
-  const needle = options.search.trim().toLowerCase();
-  return items.filter(
-    (item) => (!options.project || item.cwd === options.project) && (!needle || item.prompt.toLowerCase().includes(needle) || item.cwd.toLowerCase().includes(needle)),
-  );
 }
 
 /** The key of a header row in the list: its group, or 'archived'. */
@@ -216,8 +258,8 @@ export function sessionsByHeader(rows: readonly SidebarListRow[]): Map<HeaderKey
   for (const row of rows) {
     if (row.kind === 'session') ids?.push(row.data.id);
     else if (row.kind === 'group' || row.kind === 'archived') map.set(row.kind === 'group' ? row.group : 'archived', (ids = []));
-    // Saved prompts aren't sessions: nothing under the Later header can be picked.
-    else if (row.kind === 'later-header') ids = null;
+    // Queued prompts aren't sessions: nothing under the Queue header can be picked.
+    else if (row.kind === 'queue-header') ids = null;
   }
   return map;
 }

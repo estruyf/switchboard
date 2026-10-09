@@ -3,6 +3,7 @@ import { useBackup } from '../../state/backupStore.ts';
 import { useCheckoutBranches } from '../../state/checkoutBranchesStore.ts';
 import { useClaudeUpdate } from '../../state/claudeUpdateStore.ts';
 import { useHosts } from '../../state/hostsStore.ts';
+import { startQueued, useLater } from '../../state/laterStore.ts';
 import { useOverlay } from '../../state/overlayStore.ts';
 import { usePaletteBus } from '../../state/paletteBus.ts';
 import { usePreferences } from '../../state/preferencesStore.ts';
@@ -162,5 +163,10 @@ export function createPaletteApi(ctx: PaletteContext, client: EngineClient | nul
       closePane(activePane);
     },
     newSessionRequest: (kind) => usePaletteBus.getState().requestNewSession(kind),
+    openNewSession: () => useSessions.getState().openNewSession(),
+    startQueued: (id) => {
+      const item = useLater.getState().items.find((i) => i.id === id);
+      if (item) void startQueued(item);
+    },
   };
 }

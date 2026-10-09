@@ -1,0 +1,60 @@
+import { useState, type DragEvent } from 'react';
+import { reorderQueue, useLater } from '../../state/laterStore.ts';
+import { dropIndex } from '../../state/queue.ts';
+
+const MIME = 'application/x-switchboard-queue-item';
+
+/** Where a dragged item would land: before or after this item. */
+export type DropMark = { id: string; after: boolean } | null;
+
+/**
+ * Drag to reorder: the item is dragged by its grip (the whole row is the drag source), and dropping on another item
+ * puts it before or after that one, by which half of the row the pointer is over. The keyboard does the same with ⌥↑ ⌥↓.
+ */
+export function useQueueDrag() {
+  const [mark, setMark] = useState<DropMark>(null);
+  const [dragging, setDragging] = useState<string | null>(null);
+
+  const props = (id: string) => ({
+    draggable: true,
+    onDragStart: (event: DragEvent<HTMLElement>) => {
+      event.dataTransfer.setData(MIME, id);
+      event.dataTransfer.effectAllowed = 'move';
+      setDragging(id);
+    },
+    onDragEnd: () => {
+      setDragging(null);
+      setMark(null);
+    },
+    onDragOver: (event: DragEvent<HTMLElement>) => {
+      if (!event.dataTransfer.types.includes(MIME)) return;
+      event.preventDefault();
+      event.dataTransfer.dropEffect = 'move';
+      const rect = event.currentTarget.getBoundingClientRect();
+      const after = event.clientY > rect.top + rect.height / 2;
+      setMark((current) => (current?.id === id && current.after === after ? current : { id, after }));
+    },
+    onDragLeave: (event: DragEvent<HTMLElement>) => {
+      if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setMark((current) => (current?.id === id ? null : current));
+    },
+    onDrop: (event: DragEvent<HTMLElement>) => {
+      const source = event.dataTransfer.getData(MIME);
+      if (!source) return;
+      event.preventDefault();
+      const rect = event.currentTarget.getBoundingClientRect();
+      const to = dropIndex(
+        useLater.getState().items.map((i) => i.id),
+        source,
+        id,
+        event.clientY > rect.top + rect.height / 2,
+      );
+      setMark(null);
+      setDragging(null);
+      if (to !== null) void reorderQueue(source, to).catch(() => {});
+    },
+  });
+
+  /** The line where the item would land, for the row it is over. */
+  const markFor = (id: string): 'before' | 'after' | null => (mark?.id === id && dragging !== id ? (mark.after ? 'after' : 'before') : null);
+  return { props, markFor, dragging };
+}

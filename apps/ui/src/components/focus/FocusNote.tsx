@@ -1,4 +1,4 @@
-import { Bookmark, Target } from 'lucide-react';
+import { ListEnd, Target } from 'lucide-react';
 import { basename } from '../../lib/format.ts';
 import type { FocusSummary } from '../../state/focusGate.ts';
 import { useProjects } from '../../state/projectsStore.ts';
@@ -10,7 +10,7 @@ import { FOCUS_DOT, FOCUS_TEXT, focusStateLabel } from './focusLabels.ts';
 
 /**
  * Above the message box in New session, at the focus limit: the sessions that count, each with Open,
- * and a way to park the idea. Start stays where it is (it asks first); Nudge also offers Start anyway here.
+ * and a way to queue the idea. Start stays where it is (it asks first); Nudge also offers Start anyway here.
  */
 export function FocusNote({ focus, now, canSave, onSaveForLater, onStartAnyway }: { focus: FocusSummary; now: number; canSave: boolean; onSaveForLater(): void; onStartAnyway(): void }) {
   const projects = useProjects((s) => s.projects);
@@ -23,7 +23,7 @@ export function FocusNote({ focus, now, canSave, onSaveForLater, onStartAnyway }
           <p className="text-ui font-semibold text-text">
             You have {focus.count} of {focus.limit} sessions going
           </p>
-          <p className="text-ui text-muted">That's your focus limit. Finish or read one of these first, or park this idea for later.</p>
+          <p className="text-ui text-muted">That's your focus limit. Finish or read one of these first, or add this idea to the queue.</p>
         </div>
         <Button variant="quiet" size="sm" onClick={() => useSessions.getState().openSettings('focus')} className="-mt-0.5 shrink-0" data-focus-change-limit>
           Change limit
@@ -50,13 +50,13 @@ export function FocusNote({ focus, now, canSave, onSaveForLater, onStartAnyway }
       </ul>
       <div className="mt-2 flex items-center gap-2 border-t border-accent-ink/20 pt-2.5">
         <Button
-          icon={<Bookmark size={13} aria-hidden />}
+          icon={<ListEnd size={13} aria-hidden />}
           onClick={onSaveForLater}
           disabled={!canSave}
-          data-tooltip={canSave ? 'Keep this prompt, folder and settings on your Later list' : 'Type a prompt to save it for later'}
+          data-tooltip={canSave ? 'Keep this prompt, folder and settings in the queue' : 'Type a prompt to add it to the queue'}
           data-focus-save-later
         >
-          Save for later
+          Add to queue
         </Button>
         {!strict && (
           <Button variant="quiet" onClick={onStartAnyway} disabled={!canSave} className="ml-auto" data-focus-start-anyway>

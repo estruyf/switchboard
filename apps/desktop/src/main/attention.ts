@@ -5,6 +5,8 @@ export interface AttentionEvent {
   sessionId: string;
   title: string;
   body: string;
+  /** Where the session ran (a finished turn): the queue's hint looks for what waits on its project. */
+  cwd?: string | null;
 }
 
 const basename = (path: string) => path.replace(/\/+$/, '').split('/').pop() ?? path;
@@ -42,7 +44,7 @@ export class Attention {
     this.hostStates.set(info.sessionId, info.state);
     const busy = previous === 'running' || previous === 'needs-you';
     if (busy && info.state === 'idle') {
-      return [{ kind: 'finished', sessionId: info.sessionId, title: 'Claude finished', body: this.label(info.sessionId, info.cwd) }];
+      return [{ kind: 'finished', sessionId: info.sessionId, title: 'Claude finished', body: this.label(info.sessionId, info.cwd), cwd: info.cwd }];
     }
     if (info.state === 'error' && previous !== 'error') {
       return [{ kind: 'failed', sessionId: info.sessionId, title: 'Claude Code stopped with an error', body: info.error ?? this.label(info.sessionId, info.cwd) }];

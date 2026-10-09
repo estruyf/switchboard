@@ -6,6 +6,8 @@ All notable changes to Switchboard are listed here. Each release is also on the 
 
 ### New
 
+- **Queue.** The Later list is now a queue of prompts to start next, always there, not only with the focus limit. **Add to queue** (⌘⇧↩) sits next to Start in New session. Each item says when it's ready (its project is free, a session finished, or the item above it was done), and you start it with one click: nothing starts by itself. Reorder by dragging or with ⌥↑ and ⌥↓, choose what an item waits for, and find it in the sidebar (right under Working), on Home and in the command palette. When an item turns ready, a message says so with **Start it**; the "Claude finished" notification names what's next. Prompts you saved for later are in the queue, oldest first.
+- **Close sidebar sections.** Click a section's header (Working, Queue, Pinned, Today, Yesterday, Earlier) to close it, or ⌥-click to close or open them all. A closed section keeps its count and says what's unread or ready, and the session you have open stays visible under it. Earlier starts closed. Going to a session in a closed section opens it again.
 - **Copy a code block.** Hover a code block in Claude's reply (or Tab to it) and click the copy button in its corner to copy the code.
 - **Check transcript.** When a session's conversation shows up empty or short, choose **Check transcript…** in the session's ⋯ menu (or the command palette). It shows the session's transcript files, how many messages are in them, how often the conversation was compacted and any error reading it, and **Copy details** copies it all for a bug report.
 - **Middle-click to archive.** Middle-click a finished session in the sidebar to archive it. Sessions that are working or waiting for you stay where they are.

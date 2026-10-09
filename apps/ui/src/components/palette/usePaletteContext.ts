@@ -3,7 +3,8 @@ import { useEngineConnection } from '../../engine/useEngine.ts';
 import { basename } from '../../lib/format.ts';
 import { findModelOption } from '../../lib/models.ts';
 import { isActiveHost, useHosts } from '../../state/hostsStore.ts';
-import { useLater } from '../../state/laterStore.ts';
+import { promptLabel } from '../../state/queue.ts';
+import { useQueue } from '../../state/useQueue.ts';
 import { usePaletteBus } from '../../state/paletteBus.ts';
 import { usePreferences } from '../../state/preferencesStore.ts';
 import { addedProjects } from '../../state/projectList.ts';
@@ -66,7 +67,7 @@ export function usePaletteContext(): PaletteContext {
   const prefs = usePreferences((s) => s.prefs);
   const themes = useThemes((s) => s.themes);
   const activeTheme = useThemes((s) => s.active.entry.id);
-  const laterCount = useLater((s) => s.items.length);
+  const queue = useQueue();
   const digest = usePaletteBus((s) => s.digest);
   const newSessionInfo = usePaletteBus((s) => s.newSessionInfo);
   const openFor = useTerminals((s) => s.openFor);
@@ -128,7 +129,7 @@ export function usePaletteContext(): PaletteContext {
     },
     split: splitId !== null,
     focusLimit: prefs.focusLimit,
-    laterCount,
+    queue: { count: queue.entries.length, readyCount: queue.readyCount, firstReady: queue.firstReady ? { id: queue.firstReady.item.id, prompt: promptLabel(queue.firstReady.item.prompt, 40) } : null },
     projectCount: added.length,
     currentProject: currentRoot ? { root: currentRoot, name: projects.get(currentRoot)?.name ?? basename(currentRoot) } : null,
     actions: actions.map((a) => ({ id: a.id, name: a.name, shortcut: a.shortcut ?? null, icon: a.icon })),

@@ -1,19 +1,20 @@
 import { useVirtualizer } from '@tanstack/react-virtual';
-import { Archive, ArchiveRestore, Bookmark, Check, FolderCog, GitBranch, House, Pin, PinOff, Plus, Search, Settings, Trash2 } from 'lucide-react';
+import { Archive, ArchiveRestore, Check, FolderCog, GitBranch, House, ListEnd, Pin, PinOff, Plus, Search, Settings, Trash2 } from 'lucide-react';
 import type { SidebarStyle } from '@switchboard/protocol/bridge';
-import type { LaterItem } from '@switchboard/protocol/client';
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type MouseEvent, type ReactNode } from 'react';
-import { basename, shortAge } from '../../lib/format.ts';
+import { shortAge } from '../../lib/format.ts';
 import { useCheckoutBranches } from '../../state/checkoutBranchesStore.ts';
-import { savedAgo } from '../../state/focus.ts';
 import { useHosts } from '../../state/hostsStore.ts';
-import { removeFromLater, useLater } from '../../state/laterStore.ts';
+import { queueInList } from '../../state/queue.ts';
+import { useQueue } from '../../state/useQueue.ts';
+import { useSidebarSections } from '../../state/sidebarSectionsStore.ts';
+import { closedSections, isSectionKey, type SectionKey } from '../../state/sidebarSections.ts';
 import { addedProjects } from '../../state/projectList.ts';
 import { useProjects } from '../../state/projectsStore.ts';
 import { toRows, useSessions, type SessionRowData } from '../../state/sessionsStore.ts';
 import { usePreferences } from '../../state/preferencesStore.ts';
 import { useSidebar } from '../../state/sidebarStore.ts';
-import { buildListRows, buildSessionList, GROUP_LABEL, inScope, isActive, laterInList, rowStatus, sessionsByHeader, waitingLabel, type HeaderKey, type RowStatus, type SessionGroup, type SidebarListRow } from '../../state/sidebarRows.ts';
+import { buildListRows, buildSessionList, GROUP_LABEL, headerSummary, inScope, isActive, rowStatus, sessionsByHeader, waitingLabel, type HeaderKey, type RowStatus, type SidebarListRow } from '../../state/sidebarRows.ts';
 import { NO_PICKS, pickGroup, rangePick, stepPick, togglePick, visiblePicks, type Picks } from '../../state/sessionPicks.ts';
 import { FocusCounter } from '../focus/FocusCounter.tsx';
 import type { MenuEntry } from '../Menu.tsx';
@@ -35,19 +36,31 @@ import { sessionRowLabel } from './rowLabel.ts';
 import { StatusIcon } from './StatusIcon.tsx';
 import { ARCHIVE, useSessionMenu, type FlagChange } from './useSessionMenu.tsx';
 import { formatKeys, keysFor, matches } from '../../lib/shortcuts.ts';
+import { useQueueMenu } from '../queue/queueMenu.tsx';
+import { useQueueDrag } from '../queue/useQueueDrag.ts';
+import { QueueRow } from './QueueRow.tsx';
 
 const SESSION_ROW_HEIGHT: Record<SidebarStyle, number> = { large: 52, standard: 48, compact: 34 };
 const ARCHIVED_HEADER_HEIGHT = 34;
 const GROUP_HEADER_HEIGHT = 34;
+/** The faint "+N hidden" line under a closed section's kept row. */
+const HIDDEN_ROW_HEIGHT = 18;
 /** The space below each session button inside its row: picked rows fill it, so a run of picks reads as one block. */
 const SESSION_ROW_GAP: Record<SidebarStyle, number> = { large: 4, standard: 4, compact: 2 };
 
 const rowHeight = (row: SidebarListRow, style: SidebarStyle) =>
-  row.kind === 'session' || row.kind === 'later'
+  row.kind === 'session'
     ? SESSION_ROW_HEIGHT[style]
-    : row.kind === 'group'
-      ? GROUP_HEADER_HEIGHT - (row.first ? 6 : 0)
-      : ARCHIVED_HEADER_HEIGHT - (row.kind === 'later-header' && row.first ? 6 : 0);
+    : row.kind === 'queue'
+      ? SESSION_ROW_HEIGHT[style]
+      : row.kind === 'hidden'
+        ? HIDDEN_ROW_HEIGHT
+        : row.kind === 'group' || row.kind === 'queue-header'
+          ? GROUP_HEADER_HEIGHT - (row.first ? 6 : 0)
+          : ARCHIVED_HEADER_HEIGHT;
+
+/** The key a header row's section is stored under, or null for Needs you (it never closes). */
+const sectionOfHeader = (row: SidebarListRow): SectionKey | null => (row.kind === 'queue-header' ? 'queue' : row.kind === 'group' && isSectionKey(row.group) ? row.group : null);
 
 /** The 3px rail at a row's left edge: only the states that ask for a look get one. */
 const RAIL_TONE: Partial<Record<Exclude<RowStatus, null>, string>> = { 'needs-you': 'bg-warn', running: 'bg-accent-ink', unread: 'bg-unread' };
@@ -56,14 +69,51 @@ const AGE_TONE: Partial<Record<Exclude<RowStatus, null>, string>> = { 'needs-you
 /** The selection sheet's actions: three to a row in the sidebar's width, so they keep less padding than a button usually has. */
 const pickButton = 'min-w-0 px-1.5!';
 
-/** A section header in the list. Needs you and Working take their status colour and a count, so they read at a glance. */
-function GroupHeader({ group, count, first, selectAll }: { group: SessionGroup; count: number; first: boolean; selectAll: ReactNode }) {
-  const status = group === 'needs-you' || group === 'working' ? group : null;
+/**
+ * A section header in the list, with its count. Needs you and Working take their status colour. Every section but
+ * Needs you can close: the chevron sits in the gutter (on hover and focus, always while closed), a closed header
+ * says what matters inside ("2 unread"), ⌥-click opens or closes them all, and ← → close and open the focused one.
+ */
+function GroupHeader({ row, selectAll, onToggle }: { row: Extract<SidebarListRow, { kind: 'group' | 'queue-header' }>; selectAll: ReactNode; onToggle(section: SectionKey, all: boolean): void }) {
+  const section = sectionOfHeader(row);
+  const status = row.kind === 'group' && (row.group === 'needs-you' || row.group === 'working') ? row.group : null;
+  const summary = headerSummary(row);
+  const queue = row.kind === 'queue-header';
+  const label = queue ? 'Queue' : GROUP_LABEL[row.group];
   return (
     // The row is taller than the label: it sits at the bottom, just above its sessions.
-    <div className={`flex h-full items-end px-2.5 ${first ? 'pb-1' : 'pb-1.5'}`}>
-      <SectionHeader tone={status ?? 'neutral'} count={status ? count : null} action={selectAll} className="flex-1" data-session-group={group}>
-        {GROUP_LABEL[group]}
+    <div className={`flex h-full items-end px-2.5 ${row.first ? 'pb-1' : 'pb-1.5'}`} {...(queue ? { 'data-queue-header': true } : {})}>
+      <SectionHeader
+        tone={status ?? 'neutral'}
+        count={row.count}
+        toggle={
+          section
+            ? {
+                expanded: row.open,
+                leading: true,
+                onToggle: (event) => onToggle(section, event.altKey),
+                tooltip: queue ? 'Prompts waiting to start. Click one to check it in New session; Start runs it now.' : undefined,
+                data: { 'data-section-toggle': section, 'data-open': row.open },
+              }
+            : undefined
+        }
+        action={
+          (summary || selectAll) && (
+            <>
+              {summary && (
+                <span className={`ml-auto text-meta font-medium tracking-normal normal-case ${summary.tone === 'ok' ? 'text-ok' : 'text-unread'}`} data-section-summary={section ?? undefined}>
+                  {summary.text}
+                </span>
+              )}
+              {selectAll}
+            </>
+          )
+        }
+        className="h-[22px] flex-1"
+        data-session-group={queue ? undefined : row.group}
+      >
+        {queue && <ListEnd size={12} className="shrink-0" aria-hidden />}
+        {label}
       </SectionHeader>
     </div>
   );
@@ -286,55 +336,6 @@ const SessionRow = memo(function SessionRow({
   );
 });
 
-/** A prompt saved for later: its project, the prompt on one line, and when it was saved. A click fills New session with it. */
-const LaterRow = memo(function LaterRow({ item, now, onMenu }: { item: LaterItem; now: number; onMenu(at: { x: number; y: number }, item: LaterItem): void }) {
-  const project = useProjects((s) => s.projects.get(item.cwd));
-  const style = usePreferences((s) => s.prefs.sidebarStyle);
-  const filtered = useProjects((s) => s.filter !== null);
-  const projectName = project?.name ?? basename(item.cwd);
-  const saved = `saved ${savedAgo(item.createdAt, now)}`;
-  const menuAt = (el: HTMLElement) => {
-    const rect = el.getBoundingClientRect();
-    return { x: rect.left + 24, y: rect.top + Math.min(rect.height, 40) };
-  };
-  const common = {
-    type: 'button' as const,
-    'data-later-row': item.id,
-    'aria-label': `Saved for later in ${projectName}: ${item.prompt.slice(0, 200)}, ${saved}`,
-    'data-tooltip': [item.prompt.length > 300 ? `${item.prompt.slice(0, 299)}…` : item.prompt, `${projectName} · ${saved}`].join('\n'),
-    onClick: () => useLater.getState().use(item),
-    onContextMenu: (e: MouseEvent<HTMLElement>) => {
-      e.preventDefault();
-      onMenu(e.clientX === 0 && e.clientY === 0 ? menuAt(e.currentTarget) : { x: e.clientX, y: e.clientY }, item);
-    },
-    onKeyDown: (e: KeyboardEvent<HTMLElement>) => {
-      if ((e.key === 'F10' && e.shiftKey) || e.key === 'ContextMenu') {
-        e.preventDefault();
-        onMenu(menuAt(e.currentTarget), item);
-      }
-    },
-  };
-  const icon = (size: number) => <ProjectIcon project={project} root={item.cwd} size={size} />;
-  if (style === 'compact') {
-    return (
-      <button {...common} className="relative flex h-8 w-full items-center gap-2 rounded-md px-2.5 text-left hover:bg-border/45">
-        {icon(16)}
-        <span className="min-w-0 flex-1 truncate text-body text-text/85">{item.prompt}</span>
-        <span className="shrink-0 text-meta text-faint tabular-nums">{shortAge(item.createdAt, now)}</span>
-      </button>
-    );
-  }
-  return (
-    <button {...common} className={`relative flex w-full items-center gap-2.5 rounded-lg pr-2.5 pl-3 text-left hover:bg-border/45 ${style === 'large' ? 'h-12' : 'h-11'}`}>
-      {icon(style === 'large' ? 24 : 18)}
-      <span className="grid min-w-0 flex-1 gap-px">
-        <span className="min-w-0 truncate text-body leading-5 text-text/85">{item.prompt}</span>
-        <span className="min-w-0 truncate text-meta text-faint">{[filtered ? null : projectName, saved].filter(Boolean).join(' · ')}</span>
-      </span>
-    </button>
-  );
-});
-
 /**
  * A sentence for the sidebar's polite live region when a session starts waiting for you (a permission
  * or a question). Only new arrivals count, not the ones already waiting when the list loaded, and the
@@ -378,9 +379,12 @@ export function Sidebar() {
   const { setFilter: setSearch, select, setView } = useSessions.getState();
   const projectFilter = useProjects((s) => s.filter);
   const archivedOpen = useProjects((s) => s.archivedOpen);
-  const laterItems = useLater((s) => s.items);
-  const laterOpen = useLater((s) => s.open);
-  const later = useMemo(() => laterInList(laterItems, { search, project: projectFilter }), [laterItems, search, projectFilter]);
+  const queue = useQueue();
+  const queueEntries = useMemo(() => queueInList(queue.entries, { search, project: projectFilter }), [queue.entries, search, projectFilter]);
+  const queueReady = queueEntries.filter((e) => e.state === 'ready').length;
+  const sectionsOpen = useSidebarSections((s) => s.open);
+  // Search and the project filter show every section; the saved state comes back when they're cleared.
+  const closed = useMemo(() => closedSections(sectionsOpen, { search, project: projectFilter }), [sectionsOpen, search, projectFilter]);
   const { toggleArchived } = useProjects.getState();
   const noProjects = useProjects((s) => s.loaded && addedProjects(s.projects).length === 0);
   const [picks, setPicks] = useState<Picks>(NO_PICKS);
@@ -403,12 +407,21 @@ export function Sidebar() {
     return map;
   }, [all, now]);
 
-  // Sections (Needs you, Working, Today, Yesterday, Earlier), then prompts saved for later, then Archived.
-  // While searching, archived matches are shown too.
+  // Sections (Needs you, Working, the Queue, Pinned, Today, Yesterday, Earlier), then Archived. Closed sections keep
+  // their header (and the open session's row). While searching, archived matches are shown too.
+  const listSelected = listView === 'session' ? selectedId : null;
   const rows = useMemo(
-    () => buildListRows(active, archived, { now, archivedOpen: archivedOpen || search.trim() !== '', later: { items: later, open: laterOpen || search.trim() !== '' } }),
-    [active, archived, archivedOpen, search, now, later, laterOpen],
+    () => buildListRows(active, archived, { now, archivedOpen: archivedOpen || search.trim() !== '', queue: { entries: queueEntries, ready: queueReady }, closed, selectedId: listSelected }),
+    [active, archived, archivedOpen, search, now, queueEntries, queueReady, closed, listSelected],
   );
+  const queueMenus = useQueueMenu(queue.rows);
+  const drag = useQueueDrag();
+  /** A header's chevron or label: that section, or (⌥-click) every section. */
+  const toggleSection = useCallback((section: SectionKey, all: boolean) => {
+    const sections = useSidebarSections.getState();
+    if (all) sections.toggleAll(section);
+    else sections.toggle(section);
+  }, []);
   // What each waiting session asks for, from its oldest open request. Sessions waiting in another app have none.
   const permissions = useHosts((s) => s.permissions);
   const waitingTool = useMemo(() => {
@@ -446,7 +459,17 @@ export function Sidebar() {
     // and the virtualiser only recomputes positions when the count or this function changes.
     getItemKey: useCallback((i: number) => {
       const row = rows[i]!;
-      return row.kind === 'session' ? row.data.id : row.kind === 'group' ? `group-${row.group}` : row.kind === 'later' ? `later-${row.item.id}` : row.kind === 'later-header' ? 'later-header' : 'archived-header';
+      return row.kind === 'session'
+        ? row.data.id
+        : row.kind === 'group'
+          ? `group-${row.group}`
+          : row.kind === 'hidden'
+            ? `hidden-${row.group}`
+            : row.kind === 'queue'
+              ? `queue-${row.entry.item.id}`
+              : row.kind === 'queue-header'
+                ? 'queue-header'
+                : 'archived-header';
     }, [rows]),
     overscan: 10,
   });
@@ -460,6 +483,19 @@ export function Sidebar() {
     return row?.kind === 'session' ? [row.data.id] : [];
   });
   const tabStopId = listView === 'session' && selectedId && renderedIds.includes(selectedId) ? selectedId : (renderedIds[0] ?? null);
+  // The queue has its own Tab stop: its first item.
+  const firstQueued = queueEntries[0]?.item.id ?? null;
+
+  // The rail asked to show a section: scroll its header into view and focus it.
+  const reveal = useSidebarSections((s) => s.reveal);
+  useEffect(() => {
+    if (!reveal) return;
+    const index = rows.findIndex((row) => sectionOfHeader(row) === reveal.section);
+    if (index === -1) return;
+    virtualizer.scrollToIndex(index, { align: 'start' });
+    requestAnimationFrame(() => scrollRef.current?.querySelector<HTMLElement>(`[data-section-toggle="${reveal.section}"]`)?.focus({ preventScroll: true }));
+    // Only a new request scrolls; the rows changing afterwards must not pull the list back.
+  }, [reveal]);
 
   const focusRow = (id: string) =>
     requestAnimationFrame(() => scrollRef.current?.querySelector<HTMLElement>(`[data-session-id="${CSS.escape(id)}"]`)?.focus({ preventScroll: true }));
@@ -478,6 +514,29 @@ export function Sidebar() {
   // ↑/↓ moves through visible sessions, like a native source list (⇧ extends the selection); ⌘A picks the
   // focused row's group; ⌘⌫ deletes the picked sessions, or the focused (else the selected) one; F2 renames it.
   const onKeyDown = (event: KeyboardEvent) => {
+    const target = event.target as HTMLElement;
+    // ← → on a section header close and open it.
+    const header = target.closest<HTMLElement>('[data-section-toggle]');
+    if (header && matches(event.nativeEvent, 'sidebar.section-toggle')) {
+      const section = header.dataset.sectionToggle;
+      if (isSectionKey(section)) {
+        event.preventDefault();
+        useSidebarSections.getState().setOpen(section, event.key === 'ArrowRight');
+      }
+      return;
+    }
+    // ↑ ↓ on a queued item move between queued items (they aren't sessions to select).
+    const queued = target.closest<HTMLElement>('[data-queue-item]')?.dataset.queueItem;
+    if (queued) {
+      if (!matches(event.nativeEvent, 'sidebar.move')) return;
+      event.preventDefault();
+      const ids = queueEntries.map((e) => e.item.id);
+      const next = ids[ids.indexOf(queued) + (event.key === 'ArrowDown' ? 1 : -1)];
+      if (!next) return;
+      virtualizer.scrollToIndex(rows.findIndex((r) => r.kind === 'queue' && r.entry.item.id === next), { align: 'auto' });
+      requestAnimationFrame(() => scrollRef.current?.querySelector<HTMLElement>(`[data-queue-item="${CSS.escape(next)}"]`)?.focus({ preventScroll: true }));
+      return;
+    }
     if (matches(event.nativeEvent, 'sidebar.clear-selection') && picked.size > 0) {
       event.preventDefault();
       event.stopPropagation();
@@ -561,20 +620,6 @@ export function Sidebar() {
     if (multi && picked.has(data.id)) return pickedMenu(at);
     setPicks(NO_PICKS);
     menus.openSessionMenu(at, data);
-  };
-
-  const laterMenu = (at: { x: number; y: number }, item: LaterItem) => {
-    setPicks(NO_PICKS);
-    setMenu({
-      ...at,
-      label: 'Saved for later',
-      entries: [
-        { label: 'Open in New session', onSelect: () => useLater.getState().use(item) },
-        { label: 'Copy prompt', onSelect: () => void navigator.clipboard.writeText(item.prompt) },
-        'separator',
-        { label: 'Remove from Later', onSelect: () => void removeFromLater(item).catch(() => {}) },
-      ],
-    });
   };
 
   // Only open sessions the main list shows: a process idling elsewhere sits under Archived and
@@ -695,26 +740,23 @@ export function Sidebar() {
                       style={{ bottom: block.bottom ? SESSION_ROW_GAP[sidebarStyle] : 0 }}
                     />
                   )}
-                  {row.kind === 'group' ? (
-                    <GroupHeader group={row.group} count={row.count} first={row.first} selectAll={selectAll(row.group)} />
-                  ) : row.kind === 'later-header' ? (
-                    <div className={`flex h-full items-end ${row.first ? 'pb-1' : 'pb-1.5'}`}>
-                      <SectionHeader
-                        count={row.count}
-                        toggle={{
-                          expanded: row.open,
-                          onToggle: () => useLater.getState().toggleOpen(),
-                          tooltip: 'Prompts you saved for later. Click one to start from it.',
-                          data: { 'data-later-toggle': true, 'data-open': row.open },
-                        }}
-                        className="h-[26px] flex-1 pr-1 pl-2.5"
-                      >
-                        <Bookmark size={12} className="shrink-0" aria-hidden />
-                        Later
-                      </SectionHeader>
-                    </div>
-                  ) : row.kind === 'later' ? (
-                    <LaterRow item={row.item} now={now} onMenu={laterMenu} />
+                  {row.kind === 'group' || row.kind === 'queue-header' ? (
+                    <GroupHeader row={row} selectAll={row.kind === 'group' ? selectAll(row.group) : null} onToggle={toggleSection} />
+                  ) : row.kind === 'hidden' ? (
+                    <p className="flex h-full items-start justify-end px-3 text-meta text-faint" data-section-hidden={row.group}>
+                      +{row.count} hidden
+                    </p>
+                  ) : row.kind === 'queue' ? (
+                    <QueueRow
+                      entry={row.entry}
+                      now={now}
+                      style={sidebarStyle}
+                      tabbable={row.entry.item.id === firstQueued}
+                      mark={drag.markFor(row.entry.item.id)}
+                      drag={drag.props(row.entry.item.id)}
+                      onMenu={queueMenus.openMenu}
+                      onKeyDown={queueMenus.onKeyDown}
+                    />
                   ) : row.kind === 'session' ? (
                     <SessionRow
                       data={row.data}
@@ -737,6 +779,7 @@ export function Sidebar() {
                       toggle={{
                         expanded: row.open,
                         onToggle: toggleArchived,
+                        leading: true,
                         tooltip: 'Quiet for 48 hours, or archived by you. They come back when there is something new.',
                         data: { 'data-archived-toggle': true, 'data-open': row.open },
                       }}
@@ -813,6 +856,7 @@ export function Sidebar() {
         ) : (
           <span className="min-w-0 flex-1 truncate">
             {all.length} {all.length === 1 ? 'session' : 'sessions'}{liveCount > 0 && ` · ${liveCount} open`}
+            {queue.entries.length > 0 && <span data-footer-queued>{` · ${queue.entries.length} queued`}</span>}
             {waiting > 0 && <span className="text-warn">{` · ${waiting} waiting`}</span>}
             {!complete && loaded && ' · scanning…'}
           </span>
@@ -844,6 +888,7 @@ export function Sidebar() {
         {waitingNotice}
       </p>
       {menus.overlays}
+      {queueMenus.overlay}
     </aside>
   );
 }

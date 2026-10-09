@@ -242,7 +242,14 @@ Personal overrides shared, which overrides global. **Safety:** commands from a r
 - **Counting** is a pure module (`apps/ui/src/state/focus.ts`): active hosts that are working, need you, or are idle with an unread turn, minus sessions archived since (needs you always counts); with `focusCountExternal`, live registry entries from the terminal and IDEs too (never SDK processes, which are Switchboard's own). `focusVerdict` answers `allowed`, `ask` (Nudge) or `blocked` (Strict); a message to a session that already counts is always allowed.
 - **One gate** (`passFocusGate` in `focusGate.ts`) in front of every start: New session (and `autostart` links), messages to a session that doesn't count, forks, prompt actions, and Claude in the terminal. It shows one `alertdialog`; committing and compacting skip it.
 - **Later list:** `later_prompts` (migration v14, a user choice) with `later.list` / `later.add` / `later.remove` and a `later.changed` event. Undo re-adds an item with its id and time. A minimal toast with Undo stands in until #14.
-- Later: a reminder when a session has needed you for a while, waiting sessions in the quit prompt, a "hard stop" time, and the Later list in settings backups.
+- Later: a reminder when a session has needed you for a while, waiting sessions in the quit prompt, a "hard stop" time, and the queue in settings backups.
+
+### 5.8 Queue ✅
+
+- The Later list becomes the **queue** (the names stay `later` inside: `later_prompts`, `later.*`, `laterStore`). Migration v16 adds `position` (numbered by age, oldest first) and `wait_json` (NULL is "any session in the project"), and `later_started` to remember which session a started item became, so an item waiting on it follows that session.
+- RPCs: `later.reorder`, `later.update` (what it waits for) and `later.start`, which creates the session through the same path as `session.create`; `later.remove` takes `startedAs` for an item edited and started from New session.
+- Ready logic is a pure module (`apps/ui/src/state/queue.ts`): busy means starting, running or needs you, measured on the rows the sidebar lists. Nothing starts by itself; the toast and the notification only say an item is ready.
+- Sidebar sections close (`sidebarSections.ts`, saved in app state as `ui.sidebarSections`); the open session's row stays under a closed header.
 
 ### v0.2: power features
 - ✅ **Embedded terminal** per session (xterm.js on node-pty), plus a raw `claude` TUI tab for anything the GUI doesn't cover (including mods). Built ahead of schedule; project actions will reuse it.

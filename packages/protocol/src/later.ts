@@ -1,7 +1,10 @@
 import { z } from 'zod';
 import { Effort, PermissionMode } from './host.ts';
 
-/** What a prompt saved for later starts with: the folder and the choices from New session. */
+// The queue. People see "Queue" everywhere; inside, it keeps the name it started with (the Later list), so the
+// RPCs (`later.*`), the table (`later_prompts`) and the stores didn't need renaming.
+
+/** What a queued prompt starts with: the folder and the choices from New session. */
 export const LaterDraft = z.object({
   /** The folder the session would start in (a project's root). */
   cwd: z.string().min(1).max(4096).startsWith('/'),
@@ -18,9 +21,32 @@ export const LaterDraft = z.object({
 });
 export type LaterDraft = z.input<typeof LaterDraft>;
 
-/** A prompt parked on the Later list instead of starting a session (see the focus limit). */
+/**
+ * What a queued item waits for before it is ready to start. Nothing ever starts by itself: ready only means
+ * the item says so (and the app offers to start it).
+ * - `project`: no session is busy in its project (or a worktree of it).
+ * - `session`: that session isn't busy, or is closed.
+ * - `item`: another queued item has been started and its session isn't busy.
+ * - `none`: nothing; it stays queued until you start it.
+ */
+export const QueueWaitFor = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('project') }),
+  z.object({ kind: z.literal('session'), sessionId: z.string().min(1).max(100) }),
+  z.object({ kind: z.literal('item'), itemId: z.string().min(1).max(100) }),
+  z.object({ kind: z.literal('none') }),
+]);
+export type QueueWaitFor = z.infer<typeof QueueWaitFor>;
+
+/** A prompt on the queue, to start later. */
 export const LaterItem = LaterDraft.extend({
   id: z.string(),
   createdAt: z.number(),
+  /** Queue order, lower first. New items go at the end. */
+  position: z.number().int(),
+  waitFor: QueueWaitFor,
 });
 export type LaterItem = z.infer<typeof LaterItem>;
+
+/** A queued item that was started, and the session it became: an item waiting on it follows that session. */
+export const QueueStarted = z.object({ itemId: z.string(), sessionId: z.string() });
+export type QueueStarted = z.infer<typeof QueueStarted>;

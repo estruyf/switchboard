@@ -6,7 +6,6 @@ import {
   ArrowLeftRight,
   BellRing,
   Blocks,
-  Bookmark,
   CloudDownload,
   Code,
   ChevronsDown,
@@ -32,6 +31,8 @@ import {
   Info,
   Keyboard,
   ListChecks,
+  ListEnd,
+  ListPlus,
   Maximize2,
   MessageSquare,
   MessagesSquare,
@@ -47,6 +48,7 @@ import {
   Pencil,
   Pin,
   PinOff,
+  Play,
   Plus,
   RefreshCw,
   RotateCcw,
@@ -84,7 +86,7 @@ import { NEW_SESSION_STEP, type PaletteMode, type PaletteStep } from './paletteS
 /** Requests the session view answers, because the dialog or menu they open lives there. */
 export type SessionRequest = 'commit' | 'branch-menu' | 'edit-actions' | 'new-action';
 /** Requests the New session view answers: they change its own choices. */
-export type NewSessionRequest = 'toggle-worktree' | 'save-defaults' | 'save-later' | 'catch-up';
+export type NewSessionRequest = 'toggle-worktree' | 'save-defaults' | 'add-to-queue' | 'catch-up';
 
 /** What commands do, implemented against the stores in `paletteApi.ts` (and faked in tests). */
 export interface PaletteApi {
@@ -139,6 +141,10 @@ export interface PaletteApi {
   focusOtherPane(): void;
   closePane(): void;
   newSessionRequest(kind: NewSessionRequest): void;
+  /** Opens the New session view (Add to queue… outside it). */
+  openNewSession(): void;
+  /** Starts a queued item (through the focus limit's gate). */
+  startQueued(id: string): void;
 }
 
 /**
@@ -174,8 +180,10 @@ export interface PaletteCommand {
   keywords?: string;
   /** Stored (`cmd+shift+p`): `keysFor(id)` from the registry for Switchboard's own, an action's own shortcut for actions. */
   shortcut?: string;
-  /** A quiet note on the right when there is no shortcut ("current project"). */
-  hint?: string;
+  /** A quiet note on the right when there is no shortcut ("current project"), or one made from where you are. */
+  hint?: string | ((ctx: PaletteContext) => string);
+  /** The note in a status colour: `ok` for a ready queue item. */
+  hintTone?: 'ok';
   icon: LucideIcon;
   when(ctx: PaletteContext): boolean;
   run?(api: PaletteApi, ctx: PaletteContext): void;
@@ -184,6 +192,7 @@ export interface PaletteCommand {
 }
 
 export const titleOf = (command: PaletteCommand, ctx: PaletteContext) => (typeof command.title === 'string' ? command.title : command.title(ctx));
+export const hintOf = (command: PaletteCommand, ctx: PaletteContext) => (typeof command.hint === 'function' ? command.hint(ctx) : command.hint);
 
 const always = () => true;
 const hasSession = (ctx: PaletteContext) => ctx.view === 'session' && ctx.session !== null;
@@ -297,13 +306,37 @@ export const COMMANDS: PaletteCommand[] = [
   { id: 'focus-off', title: 'Focus limit: turn off', group: 'general', icon: Target, keywords: 'limit sessions', when: (ctx) => ctx.focusLimit !== null, run: (api) => api.setFocusLimit(false) },
   { id: 'focus-set', title: 'Focus limit: set limit…', group: 'general', icon: Target, keywords: 'limit sessions number', when: always, next: () => ({ kind: 'pick', list: 'focus-limit', chip: 'Focus limit' }) },
   {
-    id: 'later',
-    title: 'Later: start from a saved prompt…',
+    id: 'queue-start-next',
+    title: 'Start next in queue',
     group: 'general',
-    icon: Bookmark,
-    keywords: 'saved prompts parked',
-    when: (ctx) => ctx.laterCount > 0,
-    next: () => ({ kind: 'pick', list: 'later', chip: 'Later' }),
+    icon: Play,
+    keywords: 'queue ready later saved prompt',
+    hint: (ctx) => ctx.queue.firstReady?.prompt ?? '',
+    hintTone: 'ok',
+    when: (ctx) => ctx.queue.readyCount > 0 && ctx.connected,
+    run: (api, ctx) => api.startQueued(ctx.queue.firstReady!.id),
+  },
+  {
+    id: 'queue-pick',
+    title: 'Queue: pick one to start…',
+    group: 'general',
+    icon: ListEnd,
+    keywords: 'later saved prompts waiting',
+    hint: (ctx) => `${ctx.queue.count} queued`,
+    when: (ctx) => ctx.queue.count > 0 && ctx.connected,
+    next: () => ({ kind: 'pick', list: 'queue', chip: 'Queue' }),
+  },
+  {
+    id: 'queue-add',
+    title: (ctx) => (ctx.newSession?.canQueue ? 'Add to queue' : 'Add to queue…'),
+    group: 'general',
+    shortcut: keysFor('new-session.queue'),
+    icon: ListPlus,
+    keywords: 'later save park prompt',
+    hint: (ctx) => (ctx.newSession?.canQueue ? '' : 'opens New session'),
+    when: (ctx) => ctx.connected,
+    // In New session with a prompt: queue it. Anywhere else: New session, to write one.
+    run: (api, ctx) => (ctx.newSession?.canQueue ? api.newSessionRequest('add-to-queue') : api.openNewSession()),
   },
 
   // A session is open
@@ -407,7 +440,6 @@ export const COMMANDS: PaletteCommand[] = [
   // New session is on screen
   { id: 'toggle-worktree', title: 'Toggle worktree', group: 'new-session', icon: FolderGit2, keywords: 'isolated checkout', when: (ctx) => !!ctx.newSession?.canWorktree, run: (api) => api.newSessionRequest('toggle-worktree') },
   { id: 'save-defaults', title: 'Save as project default', group: 'new-session', icon: Save, keywords: 'model effort mode', when: (ctx) => !!ctx.newSession?.canSaveDefaults, run: (api) => api.newSessionRequest('save-defaults') },
-  { id: 'save-later', title: 'Save for later', group: 'new-session', icon: Bookmark, keywords: 'focus park prompt', when: (ctx) => ctx.focusLimit !== null && !!ctx.newSession?.canSaveForLater, run: (api) => api.newSessionRequest('save-later') },
   { id: 'catch-up', title: 'Update from remote', group: 'new-session', icon: CloudDownload, keywords: 'git pull fetch sync latest', when: (ctx) => !!ctx.newSession?.canCatchUp, run: (api) => api.newSessionRequest('catch-up') },
 
   // Settings is open: its pages

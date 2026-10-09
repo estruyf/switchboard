@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { app, BrowserWindow, dialog, ipcMain, Menu, MessageChannelMain, nativeTheme, screen, shell, type MenuItemConstructorOptions } from 'electron';
@@ -821,6 +821,8 @@ let backupResult = 'not run';
 let themeResult = 'not run';
 let newSessionResult = 'not run';
 let deepLinkResult = 'not run';
+let queueResult = 'not run';
+let sectionsResult = 'not run';
 let rendering: Record<string, number> = {};
 
 /**
@@ -2354,6 +2356,120 @@ async function runDeepLinkStep(win: BrowserWindow): Promise<string> {
   return 'ok: filled in folder and prompt with a notice, sent nothing, refused a bad link and an unknown project, no folder (even with autostart) opens the list and waits, empty folder for an unknown repo, opened a session';
 }
 
+/**
+ * The queue, in the throwaway profile and against a temp folder: two prompts go in from New session (Add to queue,
+ * filled in by a link), show in the sidebar's Queue (ready: nothing works there) and on Home, ⌥↓ moves the first
+ * one down, ⌫ removes it and Undo puts it back, and both are removed at the end. Nothing is ever started.
+ */
+async function runQueueStep(win: BrowserWindow): Promise<string> {
+  const js = (code: string) => win.webContents.executeJavaScript(code);
+  // The real path: the folder picker and the engine compare folders by it (/var is /private/var on macOS).
+  const folder = realpathSync(mkdtempSync(join(tmpdir(), 'switchboard-queue-')));
+  const sidebarItems = "[...document.querySelectorAll('[data-session-list] [data-queue-item]')].map((el) => el.dataset.queueItem)";
+  const started = "!!document.querySelector('[data-current-session]')";
+  try {
+    if (!(await js("!!document.querySelector('[data-sidebar-open]')"))) return 'the sidebar is not open';
+    if ((await js(`${sidebarItems}.length`)) !== 0) return 'the throwaway profile already had a queue';
+    const queuePrompt = async (prompt: string) => {
+      openDeepLink(`switchboard://new-session?prompt=${encodeURIComponent(prompt)}&cwd=${encodeURIComponent(folder)}`);
+      const composer = "document.querySelector('[data-new-session-view] [data-composer]')";
+      if (!(await waitInPage(win, `${composer}?.value === ${JSON.stringify(prompt)} && document.querySelector('[data-folder-select]')?.dataset.value === ${JSON.stringify(folder)} && !document.querySelector('[data-queue-add]')?.disabled`, 5_000))) return false;
+      await js("document.querySelector('[data-queue-add]').click()");
+      // Added: the box empties, you stay in New session, and the toast offers Undo.
+      return waitInPage(win, `${composer}?.value === '' && !!document.querySelector('[data-new-session-view]') && [...document.querySelectorAll('[data-toast]')].some((t) => t.innerText.includes('Added to the queue'))`, 3_000);
+    };
+    if (!(await queuePrompt('Smoke queue: first'))) return 'Add to queue did not add the first prompt';
+    if (!(await queuePrompt('Smoke queue: second'))) return 'Add to queue did not add the second prompt';
+    if (!(await waitInPage(win, `${sidebarItems}.length === 2 && !!document.querySelector('[data-queue-header]')`, 3_000))) return 'the Queue section did not list both';
+    const [first, second] = (await js(sidebarItems)) as string[];
+    if (!(await js(`document.querySelector('[data-session-list] [data-queue-item="${first}"]').closest('[data-queue-state]')?.dataset.queueState === 'ready'`))) return 'an item in a folder with nothing working was not ready';
+    if (!(await js("document.querySelector('[data-queue-header]').innerText.includes('2 ready')"))) return 'the Queue header did not say 2 ready';
+    // Right under Working (or the top, without it), above Pinned and the rest.
+    const placed = (await js(
+      "(() => { const headers = [...document.querySelectorAll('[data-session-list] [data-session-group], [data-session-list] [data-queue-header]')]; const at = headers.findIndex((h) => h.matches('[data-queue-header]')); return headers.slice(0, at).every((h) => ['needs-you', 'working'].includes(h.dataset.sessionGroup)); })()",
+    )) as boolean;
+    if (!placed) return 'the Queue section was not right under Working';
+    // An update pill takes the footer's place; otherwise it counts the queue.
+    const footer = (await js("document.querySelector('[data-sidebar-open] footer')?.innerText ?? ''")) as string;
+    if (/\d+ sessions?/.test(footer) && !(await js("!!document.querySelector('[data-footer-queued]')?.innerText.includes('2 queued')"))) return `the footer did not count 2 queued (${String(await js("document.querySelector('[data-sidebar-open] footer')?.innerText"))})`;
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    await shot(win, 'queue-sidebar.png');
+
+    // ⌥↓ on the first moves it below the second.
+    await js(`document.querySelector('[data-session-list] [data-queue-item="${first}"]').focus()`);
+    pressKey(win, 'Down', ['alt']);
+    if (!(await waitInPage(win, `JSON.stringify(${sidebarItems}) === ${JSON.stringify(JSON.stringify([second, first]))}`, 3_000))) return '⌥↓ did not move the item down';
+
+    // Home shows the same queue, in the same order.
+    await js("document.querySelector('[data-go-home]').click()");
+    if (!(await waitInPage(win, `JSON.stringify([...document.querySelectorAll('[data-home-queue] [data-queue-item]')].map((el) => el.dataset.queueItem)) === ${JSON.stringify(JSON.stringify([second, first]))}`, 3_000))) return 'the Home card did not show the queue in order';
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    await shot(win, 'queue-home.png');
+
+    // ⌫ removes it; Undo puts it back in its place.
+    await js(`document.querySelector('[data-session-list] [data-queue-item="${first}"]').focus()`);
+    pressKey(win, 'Backspace');
+    if (!(await waitInPage(win, `JSON.stringify(${sidebarItems}) === ${JSON.stringify(JSON.stringify([second]))}`, 3_000))) return '⌫ did not remove the item';
+    if (!(await waitInPage(win, "[...document.querySelectorAll('[data-toast]')].some((t) => t.innerText.includes('Removed from the queue'))", 2_000))) return 'no toast after removing';
+    await js("[...document.querySelectorAll('[data-toast]')].find((t) => t.innerText.includes('Removed from the queue')).querySelector('[data-toast-undo]').click()");
+    if (!(await waitInPage(win, `JSON.stringify(${sidebarItems}) === ${JSON.stringify(JSON.stringify([second, first]))}`, 3_000))) return 'Undo did not put the item back in its place';
+
+    // Removed again, both of them: the queue and its section are gone.
+    for (const id of [first, second]) {
+      await js(`document.querySelector('[data-session-list] [data-queue-item="${id}"]').focus()`);
+      pressKey(win, 'Backspace');
+    }
+    if (!(await waitInPage(win, `${sidebarItems}.length === 0 && !document.querySelector('[data-queue-header]') && !document.querySelector('[data-home-queue]')`, 3_000))) return 'removing both did not empty the queue';
+    if (await js(started)) return 'a session was started';
+    return 'ok: added two from New session, ready in an idle folder, under Working, ⌥↓ moved one, Home in the same order, ⌫ and Undo, removed both, started nothing';
+  } finally {
+    // Whatever happened, nothing stays queued: remove what is left in the temp folder (through the menu, as a person would).
+    for (let i = 0; i < 4 && (await js(`${sidebarItems}.length`)) > 0; i++) {
+      await js("document.querySelector('[data-session-list] [data-queue-item]').focus()");
+      pressKey(win, 'Backspace');
+      await waitInPage(win, `${sidebarItems}.length < ${(await js(`${sidebarItems}.length`)) as number}`, 2_000);
+    }
+    rmSync(folder, { recursive: true, force: true });
+    // Back to the session the later steps use.
+    await js(`document.querySelector('[data-session-id="${smokeSessionId}"]')?.click()`);
+    await waitInPage(win, `document.querySelector('[data-current-session="${smokeSessionId}"]')`, 5_000);
+  }
+}
+
+/**
+ * Collapsible sections: a click on Today's header (or the first section that can close) hides its rows and keeps
+ * the header with its count; ← and → on the focused header close and open it. Earlier starts closed. Back as it was.
+ */
+async function runSectionsStep(win: BrowserWindow): Promise<string> {
+  const js = (code: string) => win.webContents.executeJavaScript(code);
+  if (!(await js("!!document.querySelector('[data-sidebar-open]')"))) return 'the sidebar is not open';
+  const earlier = (await js("document.querySelector('[data-section-toggle=\"earlier\"]')?.dataset.open ?? 'none'")) as string;
+  if (earlier === 'true') return 'Earlier did not start closed';
+  const group = (await js("['today', 'yesterday', 'pinned', 'working'].find((g) => document.querySelector(`[data-section-toggle=\"${g}\"][data-open=\"true\"]`)) ?? null")) as string | null;
+  if (!group) return `ok: no open section to collapse (Earlier ${earlier === 'none' ? 'not shown' : 'closed'})`;
+  const toggle = `document.querySelector('[data-section-toggle="${group}"]')`;
+  const rowsUnder = `(() => { const rows = [...document.querySelectorAll('[data-session-list] [role=listitem]')]; const at = rows.findIndex((r) => r.querySelector('[data-section-toggle="${group}"]')); const out = []; for (const r of rows.slice(at + 1)) { if (r.querySelector('[data-section-toggle], [data-session-group], [data-archived-toggle]')) break; const s = r.querySelector('[data-session-id]'); if (s) out.push(s.dataset.sessionId); } return out; })()`;
+  const before = (await js(`${rowsUnder}.length`)) as number;
+  const selected = (await js("document.querySelector('[data-session-list] [aria-current=\"true\"]')?.dataset.sessionId ?? null")) as string | null;
+  await js(`${toggle}.click()`);
+  // Closed: at most the open session's row stays under it.
+  if (!(await waitInPage(win, `${toggle}.dataset.open === 'false' && ${toggle}.getAttribute('aria-expanded') === 'false' && ${rowsUnder}.every((id) => id === ${JSON.stringify(selected)})`, 2_000))) return `closing ${group} did not hide its rows`;
+  const header = (await js(`${toggle}.closest('[data-session-group]')?.innerText.replace(/\\s+/g, ' ') ?? ''`)) as string;
+  if (!/\d/.test(header)) return `the closed header lost its count (${header})`;
+  const summary = (await js(`document.querySelector('[data-section-summary="${group}"]')?.innerText ?? ''`)) as string;
+  await new Promise((resolve) => setTimeout(resolve, 300));
+  await shot(win, 'sections-closed.png');
+  // → opens it again from the keyboard, ← closes it, → opens it.
+  await js(`${toggle}.focus()`);
+  pressKey(win, 'Right');
+  if (!(await waitInPage(win, `${toggle}.dataset.open === 'true' && ${rowsUnder}.length === ${before}`, 2_000))) return `→ did not open ${group} again`;
+  pressKey(win, 'Left');
+  if (!(await waitInPage(win, `${toggle}.dataset.open === 'false'`, 2_000))) return `← did not close ${group}`;
+  pressKey(win, 'Right');
+  if (!(await waitInPage(win, `${toggle}.dataset.open === 'true'`, 2_000))) return `could not open ${group} again`;
+  return `ok: closed ${group} (${before} ${before === 1 ? 'row' : 'rows'} hidden, header "${header}"${summary ? `, summary "${summary}"` : ''}), ← → on the header, Earlier ${earlier === 'none' ? 'not shown' : 'starts closed'}`;
+}
+
 /** Presses a key in the page (down and up), with modifiers. */
 function pressKey(win: BrowserWindow, keyCode: string, modifiers: Array<'meta' | 'shift' | 'alt' | 'control'> = []): void {
   win.webContents.sendInputEvent({ type: 'keyDown', keyCode, modifiers });
@@ -3212,6 +3328,8 @@ async function runSmokeStep(win: BrowserWindow | null): Promise<void> {
     sidebarStatesResult = await runSidebarStatesStep(win).catch((error: Error) => `failed: ${error.message}`);
     newSessionResult = await runNewSessionStep(win).catch((error: Error) => `failed: ${error.message}`);
     deepLinkResult = await runDeepLinkStep(win).catch((error: Error) => `failed: ${error.message}`);
+    queueResult = await runQueueStep(win).catch((error: Error) => `failed: ${error.message}`);
+    sectionsResult = await runSectionsStep(win).catch((error: Error) => `failed: ${error.message}`);
     usageBand = (await waitInPage(win, "document.querySelector('[data-usage-band]')", 15_000))
       ? await win.webContents.executeJavaScript("document.querySelector('[data-usage-band]').innerText.replace(/\\s+/g, ' ')")
       : null;
@@ -3288,6 +3406,8 @@ async function runSmokeStep(win: BrowserWindow | null): Promise<void> {
         sidebarStatesResult,
         newSessionResult,
         deepLinkResult,
+        queueResult,
+        sectionsResult,
         liveSession,
         terminalOpened,
         quitGuarded,

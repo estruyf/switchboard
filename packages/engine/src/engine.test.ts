@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { createRpcClient, messagePortTransport, type Contract, type DomLikePort, type LogEntry, type TranscriptUpdate } from '@switchboard/protocol';
 import type { SessionSource } from './claude/sessionSource.ts';
 import { createEngine } from './engine.ts';
+import type { SdkRuntime } from './host/hostManager.ts';
 import { git } from './git/gitChanges.ts';
 
 const SESSION_ID = '33333333-3333-4333-8333-333333333333';
@@ -18,13 +19,35 @@ const fakeSource: SessionSource = {
   ],
 };
 
+/** A Claude Code stand-in that only records how sessions were started; they never answer. */
+function fakeSdk(created: Array<{ cwd?: string; model?: string; permissionMode?: string }>): SdkRuntime {
+  const quiet = () => ({
+    async *[Symbol.asyncIterator]() {
+      await new Promise(() => {});
+    },
+    interrupt: async () => {},
+    close: () => {},
+    setPermissionMode: async () => {},
+    setModel: async () => {},
+    supportedCommands: async () => [],
+    supportedModels: async () => [],
+  });
+  return {
+    query: ({ options }) => {
+      created.push({ cwd: options.cwd, model: options.model, permissionMode: options.permissionMode });
+      return quiet() as never;
+    },
+    startup: async ({ options }) => ({ query: () => (created.push({ cwd: options.cwd, model: options.model, permissionMode: options.permissionMode }), quiet()), close: () => {} }) as never,
+  };
+}
+
 // Node's MessagePort is a DOM-style EventTarget at runtime; its typings just use a generic Event.
 const asDomPort = (port: MessagePort) => port as unknown as DomLikePort;
 
 const cleanups: Array<() => void> = [];
 afterEach(() => cleanups.splice(0).forEach((fn) => fn()));
 
-function connect(extra: { trashed?: string[][]; source?: SessionSource } = {}) {
+function connect(extra: { trashed?: string[][]; source?: SessionSource; sdk?: SdkRuntime } = {}) {
   const dataDir = mkdtempSync(join(tmpdir(), 'switchboard-engine-'));
   // A real transcript file, so the index knows where the session lives.
   const projectDir = join(dataDir, 'claude', 'projects', '-work-parser');
@@ -39,6 +62,7 @@ function connect(extra: { trashed?: string[][]; source?: SessionSource } = {}) {
     shellEnv: Promise.resolve({ shell: '/bin/zsh', env: { PATH: '' }, resolved: false, durationMs: 0 }),
     claudeBinary: '/nonexistent/claude',
     sessionSource: extra.source ?? fakeSource,
+    ...(extra.sdk ? { sdk: async () => extra.sdk! } : {}),
   });
   const { port1, port2 } = new MessageChannel();
   const detach = engine.attach(messagePortTransport(asDomPort(port1)));
@@ -78,22 +102,57 @@ describe('engine over a MessagePort', () => {
     await expect(client.call('appState.get', { key: 'ui.sidebarWidth' })).resolves.toEqual({ value: 280 });
   });
 
-  it('keeps the Later list and tells every window when it changes', async () => {
+  it('keeps the queue in order and tells every window when it changes', async () => {
     const { client } = connect();
     const changes: number[] = [];
     client.on('later.changed', ({ items }) => void changes.push(items.length));
     const { item } = await client.call('later.add', { draft: { cwd: '/work/parser', prompt: 'Speed up the tokenizer', model: 'opus' } });
-    await client.call('later.add', { draft: { cwd: '/work/other', prompt: 'Something else' } });
+    const { item: other } = await client.call('later.add', { draft: { cwd: '/work/other', prompt: 'Something else' } });
+    expect(item).toMatchObject({ position: 0, waitFor: { kind: 'project' } });
+    expect(other.position).toBe(1);
     expect((await client.call('later.list', { cwd: '/work/parser' })).items).toEqual([item]);
     expect((await client.call('later.list', {})).items).toHaveLength(2);
     await client.call('later.remove', { id: item.id });
     expect((await client.call('later.list', { cwd: '/work/parser' })).items).toEqual([]);
-    const { id, createdAt, ...draft } = item;
-    await client.call('later.add', { draft, id, createdAt });
-    expect((await client.call('later.list', { cwd: '/work/parser' })).items).toEqual([item]);
+    // Undo: back in its place, as it was.
+    const { id, createdAt, position, waitFor, ...draft } = item;
+    await client.call('later.add', { draft, id, createdAt, index: position, waitFor });
+    expect((await client.call('later.list', {})).items.map((i) => i.id)).toEqual([item.id, other.id]);
+    await client.call('later.reorder', { id: item.id, toIndex: 5 });
+    expect((await client.call('later.list', {})).items.map((i) => i.id)).toEqual([other.id, item.id]);
+    const { item: updated } = await client.call('later.update', { id: other.id, waitFor: { kind: 'none' } });
+    expect(updated.waitFor).toEqual({ kind: 'none' });
+    await expect(client.call('later.update', { id: 'gone', waitFor: { kind: 'none' } })).rejects.toThrow(/no longer in the queue/);
+    await expect(client.call('later.reorder', { id: 'gone', toIndex: 0 })).rejects.toThrow(/no longer in the queue/);
     await expect(client.call('later.add', { draft: { cwd: '/work/parser', prompt: '' } })).rejects.toThrow();
     await new Promise((resolve) => setTimeout(resolve, 20));
-    expect(changes).toEqual([1, 2, 1, 2]);
+    expect(changes).toEqual([1, 2, 1, 2, 2, 2]);
+  });
+
+  it('starts a queued item the way New session does, and takes it off the queue', async () => {
+    const created: Array<{ cwd?: string; model?: string; permissionMode?: string }> = [];
+    const { client, dataDir } = connect({ sdk: fakeSdk(created) });
+    const { item } = await client.call('later.add', { draft: { cwd: dataDir, prompt: 'Add a yearly overview', model: 'opus', permissionMode: 'acceptEdits' } });
+    const { item: next } = await client.call('later.add', { draft: { cwd: dataDir, prompt: 'Then the totals' }, waitFor: { kind: 'item', itemId: item.id } });
+    const { sessionId } = await client.call('later.start', { id: item.id });
+    expect(sessionId).toMatch(/^[0-9a-f-]{36}$/);
+    expect(created).toEqual([expect.objectContaining({ cwd: dataDir, model: 'opus', permissionMode: 'acceptEdits' })]);
+    const after = await client.call('later.list', {});
+    expect(after.items.map((i) => i.id)).toEqual([next.id]);
+    expect(after.items[0]!.position).toBe(0);
+    // The item that waited on it now follows its session.
+    expect(after.started).toEqual([{ itemId: item.id, sessionId }]);
+    await expect(client.call('later.start', { id: item.id })).rejects.toThrow(/no longer in the queue/);
+    // Started from New session after an edit: the item that waited on it follows that session too.
+    const { item: edited } = await client.call('later.add', { draft: { cwd: dataDir, prompt: 'Edited first' } });
+    const { item: follower } = await client.call('later.add', { draft: { cwd: dataDir, prompt: 'After the edit' }, waitFor: { kind: 'item', itemId: edited.id } });
+    await client.call('later.remove', { id: edited.id, startedAs: 'session-from-new-session' });
+    expect((await client.call('later.list', {})).started).toContainEqual({ itemId: edited.id, sessionId: 'session-from-new-session' });
+    await client.call('later.remove', { id: follower.id });
+    // A folder that is gone fails like New session, and the item stays queued.
+    const { item: missing } = await client.call('later.add', { draft: { cwd: join(dataDir, 'gone'), prompt: 'Nowhere' } });
+    await expect(client.call('later.start', { id: missing.id })).rejects.toThrow(/Folder not found/);
+    expect((await client.call('later.list', {})).items.map((i) => i.id)).toEqual([next.id, missing.id]);
   });
 
   it('pushes log events to attached clients', async () => {

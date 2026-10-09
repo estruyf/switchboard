@@ -19,7 +19,8 @@ export interface SessionDigest {
 export interface NewSessionInfo {
   canWorktree: boolean;
   canSaveDefaults: boolean;
-  canSaveForLater: boolean;
+  /** There is a prompt and a folder: it can go to the queue. */
+  canQueue: boolean;
   /** The picked folder is a git checkout with a remote: it can fetch, and pull when behind. */
   canCatchUp: boolean;
 }

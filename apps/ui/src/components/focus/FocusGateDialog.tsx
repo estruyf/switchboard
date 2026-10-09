@@ -1,4 +1,4 @@
-import { Bookmark, Target } from 'lucide-react';
+import { ListEnd, Target } from 'lucide-react';
 import { useRef } from 'react';
 import { ordinal } from '../../state/focus.ts';
 import { useFocusGate, type GateRequest } from '../../state/focusGate.ts';
@@ -9,13 +9,13 @@ import { Dialog } from '../ui/Dialog.tsx';
 const short = (title: string) => (title.length > 32 ? `${title.slice(0, 31)}…` : title);
 
 function GateDialog({ request }: { request: GateRequest }) {
-  const { verdict, canSaveForLater, resolve } = request;
+  const { verdict, canSaveForLater, saveLabel, resolve } = request;
   const strict = verdict.kind === 'blocked';
   const going = `${verdict.count} of ${verdict.limit}`;
   const waiting = verdict.sessions.find((s) => s.state === 'needs-you');
   const cancelRef = useRef<HTMLButtonElement>(null);
   const laterRef = useRef<HTMLButtonElement>(null);
-  // Focus starts on the safe choice: Cancel in Nudge, Save for later in Strict.
+  // Focus starts on the safe choice: Cancel in Nudge, the queue in Strict.
   const initialFocus = strict && canSaveForLater ? laterRef : cancelRef;
   const cancel = () => resolve({ kind: 'cancel' });
 
@@ -23,11 +23,11 @@ function GateDialog({ request }: { request: GateRequest }) {
     <Button
       ref={laterRef}
       variant={strict ? 'primary' : 'secondary'}
-      icon={<Bookmark size={13} aria-hidden />}
+      icon={<ListEnd size={13} aria-hidden />}
       onClick={() => resolve({ kind: 'later' })}
       data-focus-gate-later
     >
-      Save for later
+      {saveLabel}
     </Button>
   );
   return (
@@ -40,7 +40,7 @@ function GateDialog({ request }: { request: GateRequest }) {
       title={strict ? 'Finish one first' : `Start a ${ordinal(verdict.count + 1)} session?`}
       subtitle={
         strict
-          ? `You have ${going} sessions going and your focus limit is strict. ${canSaveForLater ? 'Open one to finish or settle it, or save this prompt for later.' : 'Open one to finish or settle it first.'}`
+          ? `You have ${going} sessions going and your focus limit is strict. ${canSaveForLater ? (saveLabel === 'Add to queue' ? 'Open one to finish or settle it, or add this prompt to the queue.' : 'Open one to finish or settle it first, or keep this one queued.') : 'Open one to finish or settle it first.'}`
           : `You have ${going} sessions going. Starting another puts you over your focus limit.`
       }
       initialFocus={initialFocus}

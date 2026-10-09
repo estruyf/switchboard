@@ -1,4 +1,4 @@
-import { ChevronDown, ChevronRight, Folder, FolderGit2, GitBranch, GitBranchPlus, SquarePen } from 'lucide-react';
+import { ChevronDown, ChevronRight, Folder, FolderGit2, GitBranch, GitBranchPlus, ListEnd, SquarePen } from 'lucide-react';
 import { useEffect, useId, useRef, useState } from 'react';
 import type { ImageAttachment, LaterDraft, ProjectInspection } from '@switchboard/protocol/client';
 import { useEngineConnection } from '../../engine/useEngine.ts';
@@ -6,7 +6,10 @@ import { basename } from '../../lib/format.ts';
 import { nextMode } from '../../lib/modes.ts';
 import { passFocusGate } from '../../state/focusGate.ts';
 import { useHosts } from '../../state/hostsStore.ts';
-import { saveForLater } from '../../state/laterStore.ts';
+import { addToQueue } from '../../state/laterStore.ts';
+import { busyInProject } from '../../state/queue.ts';
+import { useListedRows } from '../../state/useQueue.ts';
+import { matches } from '../../lib/shortcuts.ts';
 import { usePaletteBus } from '../../state/paletteBus.ts';
 import { useProfiles } from '../../state/profilesStore.ts';
 import { useProjects } from '../../state/projectsStore.ts';
@@ -33,7 +36,7 @@ const forget = (root: string) => drafts.set(root, { text: '', attachments: [] })
 /**
  * The palette's last step of New session: a small New session form with the project's defaults. The
  * route (this checkout and its branch, or a new worktree), the prompt, and the profile, model, effort
- * and mode chips. ⌘↵ starts it the same way the New session view does; ⌘E moves it there. Clicking
+ * and mode chips. ⌘↵ starts it the same way the New session view does; ⌘⇧↵ adds it to the queue; ⌘E moves it there. Clicking
  * the project picks another one; `from` is the project the prompt was written for before that.
  */
 export function PromptStep({ root, from, worktree, chip, onBack, onChangeProject, onDone }: { root: string; from?: string; worktree: boolean; chip: string; onBack(): void; onChangeProject(): void; onDone(): void }) {
@@ -68,6 +71,8 @@ export function PromptStep({ root, from, worktree, chip, onBack, onChangeProject
   const projectProfile = project?.profileId && profiles.some((p) => p.id === project.profileId) ? project.profileId : null;
   const profileId = (profileOverride && profiles.some((p) => p.id === profileOverride) ? profileOverride : null) ?? projectProfile ?? defaultProfile;
   const name = project?.name ?? basename(root);
+  /** Sessions busy in this project: a queued prompt would wait for them. */
+  const workingHere = busyInProject(useListedRows(), root).length;
 
   // The choices last made in New session, under the project's defaults.
   useEffect(() => {
@@ -175,7 +180,7 @@ export function PromptStep({ root, from, worktree, chip, onBack, onChangeProject
           currentBranch: gitBranches.current,
           profileId,
           addProject: !isProject && !!inspection?.exists,
-          saveForLater: () => saveForLater(laterDraft(prompt)),
+          saveForLater: () => addToQueue(laterDraft(prompt)),
         },
         {
           createSession: (params) => client.call('session.create', params),
@@ -191,6 +196,21 @@ export function PromptStep({ root, from, worktree, chip, onBack, onChangeProject
       else if (outcome.kind === 'stopped') setBusy(false);
     } catch (e) {
       setError(`Couldn't start the session: ${e instanceof Error ? e.message : String(e)}`);
+      setBusy(false);
+    }
+  };
+
+  /** ⌘⇧↵ or Queue: adds the prompt to the queue (waiting for this project) and closes, as New session's Add to queue does. */
+  const queue = async () => {
+    if (!client || !canStart) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await addToQueue(laterDraft(text.trim()));
+      forget(root);
+      onDone();
+    } catch (e) {
+      setError(`Couldn't add it to the queue: ${e instanceof Error ? e.message : String(e)}`);
       setBusy(false);
     }
   };
@@ -265,6 +285,12 @@ export function PromptStep({ root, from, worktree, chip, onBack, onChangeProject
           </ChoiceMenu>
         )}
         <span className="flex-1" />
+        {workingHere > 0 && (
+          <span className="flex shrink-0 items-center gap-1.5 text-meta text-accent-ink" data-palette-busy={workingHere}>
+            <span aria-hidden className="size-1.5 rounded-full bg-accent-ink" />
+            {workingHere} working here
+          </span>
+        )}
         <label className={`flex shrink-0 items-center gap-2 text-ui ${canWorktree ? 'cursor-pointer text-muted' : 'text-faint'}`} data-tooltip={canWorktree ? 'Work in an isolated copy of the repository' : 'Needs a git repository'}>
           Worktree
           <Switch checked={useWorktree} disabled={!canWorktree} onChange={(on) => update({ workspace: on ? 'worktree' : 'current' })} dataAttrs={{ 'data-palette-worktree': true }} />
@@ -284,7 +310,8 @@ export function PromptStep({ root, from, worktree, chip, onBack, onChangeProject
         onKeyDown={(e) => {
           if (e.nativeEvent.isComposing) return;
           // Keys the palette takes for itself don't also reach the window's shortcuts (⌘E, ⌘↵).
-          if (e.metaKey && e.key === 'Enter') (e.preventDefault(), e.stopPropagation(), void start());
+          if (matches(e.nativeEvent, 'new-session.queue')) (e.preventDefault(), e.stopPropagation(), void queue());
+          else if (e.metaKey && e.key === 'Enter') (e.preventDefault(), e.stopPropagation(), void start());
           else if (e.metaKey && !e.shiftKey && e.key.toLowerCase() === 'e') (e.preventDefault(), e.stopPropagation(), moreOptions());
           else if (e.key === 'Backspace' && text === '') (e.preventDefault(), onBack());
           else if (e.key === 'Tab' && e.shiftKey && !e.ctrlKey) (e.preventDefault(), update({ permissionMode: nextMode(d.permissionMode) }));
@@ -322,6 +349,9 @@ export function PromptStep({ root, from, worktree, chip, onBack, onChangeProject
             mode={{ value: d.permissionMode, onChange: (permissionMode) => update({ permissionMode }) }}
           />
         </div>
+        <Button size="lg" icon={<ListEnd size={14} aria-hidden />} disabled={!canStart} onClick={() => void queue()} data-tooltip={blocked ?? 'Add to the queue (⌘⇧↵)'} data-palette-queue>
+          Queue
+        </Button>
         <Button variant="primary" size="lg" kbd="⌘↵" disabled={!canStart} onClick={() => void start()} data-tooltip={blocked ?? undefined} data-palette-start>
           {busy ? 'Starting…' : 'Start'}
         </Button>
@@ -335,6 +365,7 @@ export function PromptStep({ root, from, worktree, chip, onBack, onChangeProject
       <PaletteFooter
         keys={[
           { keys: '⌘↵', label: 'start' },
+          { keys: '⌘⇧↵', label: 'add to queue' },
           { keys: '⌘E', label: 'more options' },
           { keys: '⌫', label: 'back' },
           { keys: 'Esc', label: 'close, keeps the draft' },
