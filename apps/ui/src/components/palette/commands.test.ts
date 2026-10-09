@@ -193,8 +193,9 @@ describe('when(): git, actions, terminal, panes', () => {
 describe('when(): New session and Settings', () => {
   it('changes New session only when it can', () => {
     expect(groupIds(context({ view: 'new-session' }), 'new-session')).toEqual([]);
-    const info = { canWorktree: true, canSaveDefaults: true, canSaveForLater: true };
+    const info = { canWorktree: true, canSaveDefaults: true, canSaveForLater: true, canCatchUp: false };
     expect(groupIds(context({ view: 'new-session', newSession: info }), 'new-session')).toEqual(['toggle-worktree', 'save-defaults']);
+    expect(groupIds(context({ view: 'new-session', newSession: { ...info, canCatchUp: true } }), 'new-session')).toContain('catch-up');
     expect(groupIds(context({ view: 'new-session', newSession: info, focusLimit: 2 }), 'new-session')).toContain('save-later');
   });
 

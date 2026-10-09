@@ -2,7 +2,7 @@ import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileS
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { baseBranch, countNewLines, fileDiff, git, insideRepo, listBranches, listChanges, removeWorktree, revert, stage, stageForCommit, switchBranch, syncCommand, worktreeStatus } from './gitChanges.ts';
+import { baseBranch, countNewLines, fileDiff, git, insideRepo, listBranches, listChanges, removeWorktree, revert, stage, stageForCommit, switchBranch, syncCommand, updateCheckout, worktreeStatus } from './gitChanges.ts';
 
 let repo: string;
 const write = (path: string, text: string) => writeFileSync(join(repo, path), text);
@@ -240,6 +240,39 @@ describe('sync', () => {
   it('refuses without a remote', async () => {
     expect(syncCommand(await worktreeStatus(repo), 'push', (v) => v)).toMatchObject({ code: 'NO_REMOTE' });
     expect(syncCommand(await worktreeStatus(repo), 'fetch', (v) => v)).toMatchObject({ code: 'NO_REMOTE' });
+  });
+
+  it('fetches and fast-forwards without a terminal, and refuses to merge', async () => {
+    const remote = realpathSync(mkdtempSync(join(tmpdir(), 'switchboard-remote-')));
+    const env = { HOME: process.env.HOME ?? '', PATH: process.env.PATH ?? '' };
+    const theirs = async (message: string) => {
+      await git(other, ['-c', 'user.email=o@example.com', '-c', 'user.name=O', 'commit', '-q', '--allow-empty', '-m', message]);
+      await git(other, ['push', '-q']);
+    };
+    const other = join(remote, 'clone');
+    try {
+      await git(remote, ['init', '-q', '--bare', '-b', 'main']);
+      await run('remote', 'add', 'origin', remote);
+      await run('push', '-q', '-u', 'origin', 'main');
+      await git(remote, ['clone', '-q', remote, other]);
+      await theirs('theirs');
+
+      // Until a fetch, this checkout doesn't know the upstream moved on.
+      expect((await worktreeStatus(repo)).behindUpstream).toBe(0);
+      await updateCheckout(repo, 'fetch', env);
+      expect((await worktreeStatus(repo)).behindUpstream).toBe(1);
+      await updateCheckout(repo, 'pull', env);
+      expect(await worktreeStatus(repo)).toMatchObject({ behindUpstream: 0, unpushed: 0 });
+
+      // Both sides have a commit: pulling would merge, which is left to a terminal.
+      await theirs('theirs again');
+      write('a.txt', 'mine\n');
+      await run('commit', '-qam', 'mine');
+      await expect(updateCheckout(repo, 'pull', env)).rejects.toThrow(/both moved on/);
+      expect(await worktreeStatus(repo)).toMatchObject({ behindUpstream: 1, unpushed: 1 });
+    } finally {
+      rmSync(remote, { recursive: true, force: true });
+    }
   });
 
   it('fetches with a remote, also on a detached HEAD', async () => {

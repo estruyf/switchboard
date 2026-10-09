@@ -7,6 +7,7 @@ import {
   BellRing,
   Blocks,
   Bookmark,
+  CloudDownload,
   Code,
   ChevronsDown,
   ChevronsUp,
@@ -82,7 +83,7 @@ import { NEW_SESSION_STEP, type PaletteMode, type PaletteStep } from './paletteS
 /** Requests the session view answers, because the dialog or menu they open lives there. */
 export type SessionRequest = 'commit' | 'branch-menu' | 'edit-actions' | 'new-action';
 /** Requests the New session view answers: they change its own choices. */
-export type NewSessionRequest = 'toggle-worktree' | 'save-defaults' | 'save-later';
+export type NewSessionRequest = 'toggle-worktree' | 'save-defaults' | 'save-later' | 'catch-up';
 
 /** What commands do, implemented against the stores in `paletteApi.ts` (and faked in tests). */
 export interface PaletteApi {
@@ -404,6 +405,7 @@ export const COMMANDS: PaletteCommand[] = [
   { id: 'toggle-worktree', title: 'Toggle worktree', group: 'new-session', icon: FolderGit2, keywords: 'isolated checkout', when: (ctx) => !!ctx.newSession?.canWorktree, run: (api) => api.newSessionRequest('toggle-worktree') },
   { id: 'save-defaults', title: 'Save as project default', group: 'new-session', icon: Save, keywords: 'model effort mode', when: (ctx) => !!ctx.newSession?.canSaveDefaults, run: (api) => api.newSessionRequest('save-defaults') },
   { id: 'save-later', title: 'Save for later', group: 'new-session', icon: Bookmark, keywords: 'focus park prompt', when: (ctx) => ctx.focusLimit !== null && !!ctx.newSession?.canSaveForLater, run: (api) => api.newSessionRequest('save-later') },
+  { id: 'catch-up', title: 'Update from remote', group: 'new-session', icon: CloudDownload, keywords: 'git pull fetch sync latest', when: (ctx) => !!ctx.newSession?.canCatchUp, run: (api) => api.newSessionRequest('catch-up') },
 
   // Settings is open: its pages
   ...SETTINGS_SECTIONS.map(

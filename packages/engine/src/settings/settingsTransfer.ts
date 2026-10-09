@@ -42,6 +42,7 @@ const PREFERENCE_LABELS: Record<keyof Preferences, string> = {
   confirmQuit: 'Ask before quitting',
   sessionScope: 'Sessions in the sidebar',
   startupView: 'On startup',
+  projectOrder: 'Project order',
   autoUpdate: 'Automatic updates',
   updateChannel: 'Update channel',
   focusLimit: 'Focus limit',

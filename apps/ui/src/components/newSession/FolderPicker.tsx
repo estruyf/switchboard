@@ -1,6 +1,7 @@
 import { FolderPlus, Search } from 'lucide-react';
 import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent } from 'react';
 import { basename, tildify } from '../../lib/format.ts';
+import { usePreferences } from '../../state/preferencesStore.ts';
 import { useProjects } from '../../state/projectsStore.ts';
 import { ProjectIcon, useProjectColor } from '../ProjectIcon.tsx';
 import { Button } from '../ui/Button.tsx';
@@ -18,7 +19,7 @@ const TONE_TEXT: Record<TileTone, string> = { 'needs-you': 'text-warn', working:
 const TILE = 'flex min-w-0 items-center gap-2 rounded-lg border p-2.5 text-left transition-[background-color,border-color,box-shadow,translate] @max-[600px]:flex-col @max-[600px]:items-start @max-[600px]:gap-1.5';
 
 /**
- * Where a new session starts: the four most recent projects as tiles, and a fifth tile that opens all
+ * Where a new session starts: your first four projects (most recent, or in your order) as tiles, and a fifth tile that opens all
  * of them with a filter field (typing a name filters, typing an absolute path offers that folder, and
  * "Other folder…" opens the system dialog). ⌘1 to ⌘9 pick the tiles in view. The open list is a
  * combobox: focus stays in the filter field and `aria-activedescendant` says which tile the arrows are on.
@@ -35,7 +36,7 @@ export function FolderPicker({
   openRequest = 0,
 }: {
   value: string | null;
-  /** Your projects, most recent first. */
+  /** Your projects, most recently used first or in your order (the `projectOrder` preference). */
   folders: string[];
   home: string | null;
   /** The checked-out branch per folder, where known (tooltips). */
@@ -49,6 +50,7 @@ export function FolderPicker({
   openRequest?: number;
 }) {
   const projects = useProjects((s) => s.projects);
+  const projectOrder = usePreferences((s) => s.prefs.projectOrder);
   const [open, setOpen] = useState(false);
   const [filter, setFilter] = useState('');
   const [active, setActive] = useState(0);
@@ -233,7 +235,7 @@ export function FolderPicker({
           </Button>
         </div>
       ) : (
-        <div role="group" aria-label="Recent projects" className="grid grid-cols-5 gap-2" onKeyDown={typeToSearch}>
+        <div role="group" aria-label={projectOrder === 'yours' ? 'Your projects' : 'Recent projects'} className="grid grid-cols-5 gap-2" onKeyDown={typeToSearch}>
           {quick.map(tile)}
           <button
             ref={toggleRef}

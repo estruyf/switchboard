@@ -1319,6 +1319,7 @@ async function runSettingsStep(win: BrowserWindow): Promise<string> {
 
   await section('general');
   await click('[data-startup-view="new"]');
+  await click('[data-project-order="yours"]');
   await click('[data-confirm-quit]');
   await pause();
   Menu.getApplicationMenu()?.getMenuItemById('quit')?.click();
@@ -1329,6 +1330,7 @@ async function runSettingsStep(win: BrowserWindow): Promise<string> {
 
   await click('[data-confirm-quit]');
   await click('[data-startup-view="home"]');
+  await click('[data-project-order="recent"]');
   await section('sidebar');
   await click('[data-session-scope]');
   await click('[data-sidebar-style="standard"]');
@@ -1340,9 +1342,9 @@ async function runSettingsStep(win: BrowserWindow): Promise<string> {
   const restored = preferences.get();
   if (!scoped) return 'other apps\' sessions stayed in the sidebar with the setting off';
   if (!quitWithoutAsking) return '⌘Q still asked with the prompt turned off';
-  if (saved.colorScheme !== 'dark' || saved.sidebarStyle !== 'compact' || saved.toolActivity !== 'steps' || saved.confirmQuit !== false || saved.sessionScope !== 'switchboard' || saved.startupView !== 'new') return `not saved: ${JSON.stringify(saved)}`;
+  if (saved.colorScheme !== 'dark' || saved.sidebarStyle !== 'compact' || saved.toolActivity !== 'steps' || saved.confirmQuit !== false || saved.sessionScope !== 'switchboard' || saved.startupView !== 'new' || saved.projectOrder !== 'yours') return `not saved: ${JSON.stringify(saved)}`;
   if (!menuChecked) return 'View → Appearance did not follow';
-  if (restored.colorScheme !== 'system' || restored.sidebarStyle !== 'standard' || restored.toolActivity !== 'summary' || !restored.confirmQuit || restored.sessionScope !== 'all' || restored.startupView !== 'home') return 'could not restore the defaults';
+  if (restored.colorScheme !== 'system' || restored.sidebarStyle !== 'standard' || restored.toolActivity !== 'summary' || !restored.confirmQuit || restored.sessionScope !== 'all' || restored.startupView !== 'home' || restored.projectOrder !== 'recent') return 'could not restore the defaults';
   // Escape closes Settings too.
   win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Escape' });
   if (!(await waitInPage(win, "!document.querySelector('[data-settings]')", 2_000))) return 'Escape did not close Settings';
@@ -1503,6 +1505,8 @@ async function runProjectsStep(win: BrowserWindow): Promise<string> {
   if (!(await chooseChoice(win, 'effort', 'low', '[data-new-session-view]'))) return 'could not change the effort in New session';
   await waitInPage(win, "document.querySelector('[data-route-branch]')?.innerText !== '…'", 3_000);
   await shot(win, 'new-session-tray.png');
+  const catchUp = await checkCatchUpMenu(win);
+  if (catchUp.startsWith('failed')) return catchUp;
   // The branch menu only reads branches; Escape closes it without switching.
   await click('[data-branch-select]');
   if (await waitInPage(win, "document.querySelector('[data-menu=\"branch\"] [data-choice-search]')", 2_000)) {
@@ -1527,7 +1531,7 @@ async function runProjectsStep(win: BrowserWindow): Promise<string> {
   await click('[data-confirm]');
   if (!(await waitInPage(win, "document.querySelector('[data-no-projects]')", 3_000))) return 'the project was not removed';
   await click('[data-open-projects]');
-  return `ok: ${known} folders offered; added one and it opened, dropdown keyboard and Escape, renamed it and back, an outside click closed its filter menus, its defaults reached New session, saved a change back, removed it`;
+  return `ok: ${known} folders offered; added one and it opened, dropdown keyboard and Escape, renamed it and back, an outside click closed its filter menus, its defaults reached New session (git button: ${catchUp}), saved a change back, removed it`;
 }
 
 /**
@@ -2195,6 +2199,23 @@ async function runSearchStep(win: BrowserWindow): Promise<string> {
  * The new session view, read-only: project header, model menu (Escape closes it), effort dial with
  * reset, permission menu and the route tray. Nothing is submitted; the session under test is reopened after.
  */
+/**
+ * New session's git button, next to Open in editor for a checkout with a remote: its face step (`fetch`
+ * or `pull`), or `none` without one. Only its menu is opened: fetching or pulling would change the real repository.
+ */
+async function checkCatchUpMenu(win: BrowserWindow): Promise<string> {
+  const js = (code: string) => win.webContents.executeJavaScript(code);
+  if (!(await waitInPage(win, "!!document.querySelector('[data-open-in]')", 3_000)) || !(await waitInPage(win, "!!document.querySelector('[data-catch-up]')", 2_000))) return 'none';
+  const face = (await js("document.querySelector('[data-catch-up]').dataset.catchUp")) as string;
+  await js("document.querySelector('[data-catch-up-menu]').click()");
+  if (!(await waitInPage(win, "!!document.querySelector('[data-catch-up-step=\"fetch\"]') && !!document.querySelector('[data-catch-up-step=\"pull\"]')", 2_000))) return 'failed: the git menu in New session has no Fetch and Pull';
+  await shot(win, 'new-session-git-menu.png');
+  win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Escape' });
+  win.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Escape' });
+  if (!(await waitInPage(win, "!document.querySelector('[data-catch-up-step]')", 2_000))) return 'failed: Escape did not close the git menu in New session';
+  return face;
+}
+
 async function runNewSessionStep(win: BrowserWindow): Promise<string> {
   const js = (code: string) => win.webContents.executeJavaScript(code);
   const click = (selector: string) => js(`document.querySelector(${JSON.stringify(selector)}).click()`);
@@ -2211,6 +2232,8 @@ async function runNewSessionStep(win: BrowserWindow): Promise<string> {
   // Without a folder the prompt is disabled, so there is nothing to focus.
   const hasFolder = (await js("!!document.querySelector('[data-folder-select]').dataset.value")) as boolean;
   if (hasFolder && !(await waitInPage(win, promptFocused, 3_000))) return '⌘N did not focus the prompt';
+  const catchUp = hasFolder ? await checkCatchUpMenu(win) : 'none';
+  if (catchUp.startsWith('failed')) return catchUp;
   await click('[data-model-select]');
   if (!(await waitInPage(win, "document.activeElement?.closest('[data-menu=\"model\"]')", 2_000))) return 'the model menu did not open with focus';
   escape();
@@ -2237,7 +2260,7 @@ async function runNewSessionStep(win: BrowserWindow): Promise<string> {
   const hint = (await js("document.querySelector('[data-route-tray]').innerText.replace(/\\s+/g, ' ')")) as string;
   await js(`document.querySelector('[data-session-id="${smokeSessionId}"]')?.click()`);
   await waitInPage(win, "document.querySelector('[data-transcript-item]')", 5_000);
-  return `ok: ${hint}`;
+  return `ok: ${hint}; git: ${catchUp}`;
 }
 
 /**
@@ -2470,8 +2493,8 @@ async function shortcutsChecks(win: BrowserWindow, js: (code: string) => Promise
 /**
  * New session from the palette, starting nothing: New session… lists the projects, the first one opens
  * the prompt step (route, prompt, chips, Start), which takes a pasted image and shows a drop target;
- * Esc closes it and keeps the draft; ⌫ in an empty
- * prompt goes back to the projects. Needs a project (run while the projects step has one added).
+ * Esc closes it and keeps the draft; clicking the project goes back to the projects and the draft moves
+ * to the one picked next; ⌫ in an empty prompt goes back to the projects. Needs a project (run while the projects step has one added).
  */
 async function runPaletteNewSessionStep(win: BrowserWindow): Promise<string> {
   const js = (code: string) => win.webContents.executeJavaScript(code);
@@ -2534,6 +2557,17 @@ async function runPaletteNewSessionStep(win: BrowserWindow): Promise<string> {
   failure = await toPrompt();
   if (failure) return (await closePalette(win), `again: ${failure}`);
   const kept = (await js("document.querySelector('[data-palette-prompt]')?.value")) as string;
+  // Change the project from the route: back to the list, then the next project (or the same one) takes the draft.
+  await js("document.querySelector('[data-palette-route-project]')?.click()");
+  const changed = await waitInPage(win, `${PALETTE_STEP} === 'projects' && document.activeElement?.matches('[data-palette-input]')`, 2_000);
+  if (!changed) return (await closePalette(win), 'clicking the project did not go back to the projects');
+  const others = (await js("document.querySelectorAll('[data-palette-project]').length")) as number;
+  if (others > 1) pressKey(win, 'Down');
+  pressKey(win, 'Return');
+  if (!(await waitInPage(win, `${PALETTE_STEP} === 'prompt' && document.activeElement?.matches('[data-palette-prompt]')`, 3_000))) return (await closePalette(win), 'picking another project did not show the prompt step');
+  const moved = (await js("({ project: document.querySelector('[data-palette-route-project]')?.dataset.paletteRouteProject ?? null, text: document.querySelector('[data-palette-prompt]')?.value })")) as { project: string | null; text: string };
+  if (moved.text !== draft) return (await closePalette(win), `the draft did not move to the other project (${JSON.stringify(moved.text)})`);
+  if (others > 1 && moved.project === project) return (await closePalette(win), 'picking the next project kept the same one');
   await setFieldValue(win, '[data-palette-prompt]', '');
   await new Promise((resolve) => setTimeout(resolve, 100));
   pressKey(win, 'Backspace');
@@ -2541,7 +2575,7 @@ async function runPaletteNewSessionStep(win: BrowserWindow): Promise<string> {
   await closePalette(win);
   if (kept !== draft) return `Esc did not keep the draft (${JSON.stringify(kept)})`;
   if (!wentBack) return '⌫ in the empty prompt did not go back to the projects';
-  return `ok: New session… listed the projects, ${String(project).split('/').pop()} opened the prompt step (${parts.width}px) with its route, chips and Start; a pasted image attached and a drag showed the drop target; Esc kept the draft and started nothing; ⌫ went back`;
+  return `ok: New session… listed the projects, ${String(project).split('/').pop()} opened the prompt step (${parts.width}px) with its route, chips and Start; a pasted image attached and a drag showed the drop target; Esc kept the draft and started nothing; clicking the project went back and the draft moved${others > 1 ? ' to another project' : ''}; ⌫ went back`;
 }
 
 /** In the terminal, ⌘K clears the screen and the palette stays closed; ⌘⇧P opens the palette from there. */

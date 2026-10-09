@@ -19,12 +19,12 @@ export class GitError extends Error {}
  * Runs git in `cwd`; resolves with stdout. Never goes through a shell. Pathspecs are literal: the paths
  * passed come from the file list, and `app/[id]/page.tsx` or `a*.txt` must not match other files.
  */
-export function git(cwd: string, args: string[], options: { env?: Record<string, string>; allowExitCodes?: number[] } = {}): Promise<string> {
+export function git(cwd: string, args: string[], options: { env?: Record<string, string>; allowExitCodes?: number[]; timeout?: number } = {}): Promise<string> {
   return new Promise((resolvePromise, reject) => {
     execFile(
       'git',
       args,
-      { cwd, env: { ...process.env, ...options.env, GIT_OPTIONAL_LOCKS: '0', GIT_LITERAL_PATHSPECS: '1', LC_ALL: 'C' }, maxBuffer: 32 * 1024 * 1024, timeout: 20_000 },
+      { cwd, env: { ...process.env, ...options.env, GIT_OPTIONAL_LOCKS: '0', GIT_LITERAL_PATHSPECS: '1', LC_ALL: 'C' }, maxBuffer: 32 * 1024 * 1024, timeout: options.timeout ?? 20_000 },
       (error, stdout, stderr) => {
         const code = typeof error?.code === 'number' ? error.code : error ? 1 : 0;
         if (error && !options.allowExitCodes?.includes(code)) reject(new GitError(stderr.trim() || error.message));
@@ -324,6 +324,29 @@ export function syncCommand(status: WorktreeStatus, action: GitSyncAction, quote
   if (action === 'push') return { command: push };
   if (status.branch === status.baseBranch) return { code: 'WRONG_BRANCH', message: `${status.branch} is the base branch; open a pull request from another branch.` };
   return { command: `${push} && gh pr create --fill --web` };
+}
+
+/** A pull that can't fast-forward: the branch and its upstream both have commits the other lacks. */
+export class DivergedError extends GitError {}
+
+/**
+ * Fetches, or pulls the upstream into the checked-out branch, without a terminal (New session has none).
+ * The pull only fast-forwards: merging or rebasing can stop on conflicts, which need a terminal to sort
+ * out (`--no-rebase` so a `pull.rebase` setting can't override that). `env` is the login shell's, so ssh-agent and credential helpers work; nothing can ask for a
+ * password, so a remote that wants one fails instead of waiting. Check `syncCommand` first.
+ */
+export async function updateCheckout(cwd: string, action: 'fetch' | 'pull', env: Record<string, string>): Promise<void> {
+  const options = { env: { ...env, GIT_TERMINAL_PROMPT: '0' }, timeout: 120_000 };
+  if (action === 'fetch') {
+    await git(cwd, ['fetch', '--quiet'], options);
+    return;
+  }
+  try {
+    await git(cwd, ['pull', '--ff-only', '--no-rebase', '--quiet'], options);
+  } catch (error) {
+    if (/fast-forward/i.test((error as Error).message)) throw new DivergedError('This branch and its upstream have both moved on. Pull in a session to merge them.');
+    throw error;
+  }
 }
 
 /**

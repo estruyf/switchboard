@@ -9,6 +9,9 @@ All notable changes to Switchboard are listed here. Each release is also on the 
 - **Copy a code block.** Hover a code block in Claude's reply (or Tab to it) and click the copy button in its corner to copy the code.
 - **Middle-click to archive.** Middle-click a finished session in the sidebar to archive it. Sessions that are working or waiting for you stay where they are.
 - **⌘` shows or hides the terminal**, as in VS Code, next to ⌘J.
+- **Project order.** Settings → General → *Project order* chooses how New session, Home and the command palette list your projects: the ones you used last first (as before), or the order you set in Projects.
+- **Pull before you start.** When you pick a project in New session, a git button next to *Open in editor* fetches from the remote, and pulls when your copy is behind (↓ shows how far). It's also in the command palette as *Update from remote*.
+- **Change the project of a quick new session.** In the command palette's New session step, click the project to pick another one. What you typed comes along.
 
 ### Changed
 

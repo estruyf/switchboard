@@ -23,7 +23,7 @@ import { LiveRegistry } from './claude/liveRegistry.ts';
 import { createProjectResolver } from './claude/projectResolver.ts';
 import { sdkSessionSource, type SessionSource } from './claude/sessionSource.ts';
 import { findCheckout, githubPage } from './git/remotes.ts';
-import { checkoutRoot, fileDiff, listBranches, listChanges, removeWorktree, revert, stage, stageForCommit, switchBranch, syncCommand, worktreeStatus } from './git/gitChanges.ts';
+import { checkoutRoot, DivergedError, fileDiff, listBranches, listChanges, removeWorktree, revert, stage, stageForCommit, switchBranch, syncCommand, updateCheckout, worktreeStatus } from './git/gitChanges.ts';
 import { SearchIndex } from './sessions/searchIndex.ts';
 import { installedPlugins } from './host/capabilities.ts';
 import { ActionStore, expandCommand, shellQuote, suggestActions } from './actions/actionStore.ts';
@@ -886,6 +886,21 @@ export function createEngine(options: EngineOptions): Engine {
       if (action === 'pull') await assertCheckoutIdle(cwd);
       const title = action === 'fetch' ? 'Fetch' : action === 'pull' ? 'Pull' : action === 'push' ? 'Push' : 'Pull request';
       return { terminalId: await runShellAction(sessionId, status.path, title, sync.command) };
+    },
+    'git.update': async ({ cwd, action }) => {
+      if (!resolver.resolve(cwd).gitDir) throw new RpcError('NOT_A_REPO', 'Not a git repository');
+      const status = await worktreeStatus(cwd).catch((error: Error) => {
+        throw new RpcError('GIT_FAILED', error.message);
+      });
+      const sync = syncCommand(status, action, shellQuote);
+      if ('code' in sync) throw new RpcError(sync.code, sync.message);
+      if (action === 'pull') await assertCheckoutIdle(cwd);
+      try {
+        await updateCheckout(status.path, action, (await shell.ready).env);
+        return await worktreeStatus(cwd);
+      } catch (error) {
+        throw new RpcError(error instanceof DivergedError ? 'DIVERGED' : 'GIT_FAILED', (error as Error).message);
+      }
     },
     'git.commit': async ({ sessionId, cwd, message }) => {
       if (!resolver.resolve(cwd).gitDir) throw new RpcError('NOT_A_REPO', 'Not a git repository');

@@ -1,4 +1,4 @@
-import type { SessionSummary } from '@switchboard/protocol/client';
+import type { ProjectOrder, SessionSummary } from '@switchboard/protocol/client';
 import { shortAge, tildify } from '../../lib/format.ts';
 import { fuzzyScore } from '../../lib/fuzzy.ts';
 import { realBranch, type SessionRowData } from '../../state/sessionsStore.ts';
@@ -46,13 +46,18 @@ export function recentFirst(roots: readonly string[], lastActivity: (root: strin
     .map((r) => r.root);
 }
 
+/** Your projects in the order the preference asks for: most recently used first, or as you ordered them (`roots` is in your order). */
+export function orderProjects(roots: readonly string[], order: ProjectOrder, lastActivity: (root: string) => number | null): string[] {
+  return order === 'yours' ? [...roots] : recentFirst(roots, lastActivity);
+}
+
 /**
- * The quick tiles: the `count` most recent projects. A picked folder that isn't among them takes the
+ * The quick tiles: the first `count` projects. A picked folder that isn't among them takes the
  * last place, so the choice stays visible after picking it from the full list (or a folder that isn't
  * a project at all).
  */
-export function quickTiles(recent: readonly string[], value: string | null, count = 4): string[] {
-  const top = recent.slice(0, count);
+export function quickTiles(ordered: readonly string[], value: string | null, count = 4): string[] {
+  const top = ordered.slice(0, count);
   if (!value || top.includes(value)) return top;
   return [...top.slice(0, count - 1), value];
 }

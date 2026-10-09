@@ -82,3 +82,11 @@ export function syncStep(status: WorktreeStatus, busy: boolean): 'pull' | 'push'
   if (unpushed && plan.blocked.push === null) return 'push';
   return 'fetch';
 }
+
+/**
+ * What New session's git button offers on its face: pull when the upstream is ahead, else fetch to see
+ * whether it moved on. No session has worked in the checkout yet, so there is nothing to commit or push.
+ */
+export function catchUpStep(status: WorktreeStatus): 'pull' | 'fetch' {
+  return planGit(status, false).blocked.pull === null ? 'pull' : 'fetch';
+}

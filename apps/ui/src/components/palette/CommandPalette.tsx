@@ -19,7 +19,7 @@ import { toRows, useSessions, type SessionRowData } from '../../state/sessionsSt
 import { GROUP_LABEL, inScope } from '../../state/sidebarRows.ts';
 import { toast } from '../../state/toastStore.ts';
 import { rememberLimit } from '../focus/focusLimit.ts';
-import { activityByProject, latestBranches, recentFirst, tileStatus } from '../newSession/projectTiles.ts';
+import { activityByProject, latestBranches, orderProjects, tileStatus } from '../newSession/projectTiles.ts';
 import { EFFORT_LABEL, EFFORTS, MODE_DESCRIPTION } from '../newSession/route.ts';
 import { useOpenIn } from '../OpenInButton.tsx';
 import { Dialog } from '../ui/Dialog.tsx';
@@ -32,7 +32,7 @@ import { createPaletteApi } from './paletteApi.ts';
 import type { PaletteContext } from './paletteContext.ts';
 import { PaletteFooter, type FooterKey } from './PaletteFooter.tsx';
 import { CommandRow, FolderRow, HelpRow, OptionRow, ProjectRow, SessionRow } from './PaletteRows.tsx';
-import { back, currentStep, initialState, PREFIXES, pushStep, switchMode, typeQuery, type PaletteMode, type PaletteState, type PaletteStep, type PickList } from './paletteState.ts';
+import { back, changeProject, currentStep, initialState, PREFIXES, pushStep, switchMode, typeQuery, type PaletteMode, type PaletteState, type PaletteStep, type PickList } from './paletteState.ts';
 import { PromptStep } from './PromptStep.tsx';
 import { usePaletteContext } from './usePaletteContext.ts';
 
@@ -94,6 +94,12 @@ const HELP: Array<{ mode: PaletteMode; prefix: string; title: string; detail: st
   { mode: 'help', prefix: PREFIXES.help, title: 'Help', detail: 'this list' },
 ];
 
+/** The project whose prompt moves to the one picked next, after "change project". */
+const fromOf = (state: PaletteState) => {
+  const step = currentStep(state);
+  return step?.kind === 'projects' ? step.from : undefined;
+};
+
 const firstLine = (text: string) => text.trim().split('\n')[0]!.slice(0, 140) || '(no text)';
 
 /**
@@ -133,6 +139,7 @@ export function CommandPalette() {
   const models = useHosts((s) => s.models);
   const projects = useProjects((s) => s.projects);
   const scope = usePreferences((s) => s.prefs.sessionScope);
+  const projectOrder = usePreferences((s) => s.prefs.projectOrder);
   const focusLimit = usePreferences((s) => s.prefs.focusLimit);
   const laterItems = useLater((s) => s.items);
   const digest = usePaletteBus((s) => s.digest);
@@ -145,8 +152,8 @@ export function CommandPalette() {
     const roots = addedProjects(projects)
       .filter((p) => p.exists)
       .map((p) => p.root);
-    return recentFirst(roots, (root) => Math.max(projects.get(root)?.lastActivity ?? 0, activity.get(root)?.lastActivity ?? 0) || null);
-  }, [projects, activity]);
+    return orderProjects(roots, projectOrder, (root) => Math.max(projects.get(root)?.lastActivity ?? 0, activity.get(root)?.lastActivity ?? 0) || null);
+  }, [projects, projectOrder, activity]);
 
   const sections = useMemo<Section[]>(() => {
     const query = state.query;
@@ -202,7 +209,7 @@ export function CommandPalette() {
       const rows: Row[] = roots.map(({ item, indices }, i) => ({ kind: 'project', key: `project:${item}`, root: item, indices, number: i < 9 ? i + 1 : null, compact: false }));
       // Any folder can start a session; renaming is for projects only.
       if (projectStep.purpose === 'new-session' && (!query.trim() || fuzzyMatch(query, 'Choose another folder'))) rows.push({ kind: 'folder', key: 'folder' });
-      return rows.length ? [{ id: 'projects', label: query.trim() ? 'Projects' : 'Recent projects', rows }] : [];
+      return rows.length ? [{ id: 'projects', label: query.trim() ? 'Projects' : projectOrder === 'yours' ? 'Your projects' : 'Recent projects', rows }] : [];
     }
 
     function pickSections(list: PickList, query: string): Section[] {
@@ -218,7 +225,7 @@ export function CommandPalette() {
       return rows.length ? [{ id: list, label: PICK_PLACEHOLDER[list].replace(/^Pick (a |an )?/, ''), rows }] : [];
     }
     // The pick lists and project rows read these; the functions above are only called from here.
-  }, [state, step, ctx, sessionRows, projectRoots, projects, models, hosts, focusLimit, laterItems, digest]);
+  }, [state, step, ctx, sessionRows, projectRoots, projectOrder, projects, models, hosts, focusLimit, laterItems, digest]);
 
   /** The choices of a pick step, the current one marked. */
   function pickOptions(list: PickList): Option[] {
@@ -269,7 +276,7 @@ export function CommandPalette() {
 
   const chooseFolder = async (worktree: boolean) => {
     const picked = await window.switchboard?.pickFolder();
-    if (picked) setState((s) => pushStep(s, { kind: 'prompt', root: picked, worktree, chip: s.steps[0]?.chip ?? 'New session' }));
+    if (picked) setState((s) => pushStep(s, { kind: 'prompt', root: picked, worktree, chip: s.steps[0]?.chip ?? 'New session', from: fromOf(s) }));
   };
 
   const pick = (list: PickList, value: string) => {
@@ -332,7 +339,7 @@ export function CommandPalette() {
           return;
         }
         const worktree = alt || (step?.kind === 'projects' && step.worktree);
-        return setState((s) => pushStep(s, { kind: 'prompt', root: row.root, worktree, chip: s.steps[0]?.chip ?? 'New session' }));
+        return setState((s) => pushStep(s, { kind: 'prompt', root: row.root, worktree, chip: s.steps[0]?.chip ?? 'New session', from: fromOf(s) }));
       }
       case 'folder':
         return void chooseFolder(alt || (step?.kind === 'projects' && step.worktree));
@@ -375,7 +382,16 @@ export function CommandPalette() {
       data-palette-step={step?.kind}
     >
       {step?.kind === 'prompt' ? (
-        <PromptStep key={`${step.root}:${step.worktree}`} root={step.root} worktree={step.worktree} chip={step.chip} onBack={() => setState((s) => back(s) ?? s)} onDone={close} />
+        <PromptStep
+          key={`${step.root}:${step.worktree}`}
+          root={step.root}
+          from={step.from}
+          worktree={step.worktree}
+          chip={step.chip}
+          onBack={() => setState((s) => back(s) ?? s)}
+          onChangeProject={() => setState(changeProject)}
+          onDone={close}
+        />
       ) : (
         <>
           <div className="flex h-12 shrink-0 items-center gap-2 border-b border-edge px-4">

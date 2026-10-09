@@ -362,6 +362,12 @@ export const contract = {
      */
     'git.sync': { params: z.object({ sessionId: SessionId, cwd: AbsolutePath, action: GitSyncAction }), result: z.object({ terminalId: z.string() }) },
     /**
+     * Fetches, or pulls the upstream into the branch checked out at `cwd`, without a session or terminal
+     * (New session), and returns where the checkout stands afterwards. The pull only fast-forwards
+     * (DIVERGED otherwise) and is refused (SESSION_BUSY) while Claude is working in this checkout.
+     */
+    'git.update': { params: z.object({ cwd: AbsolutePath, action: z.enum(['fetch', 'pull']) }), result: WorktreeStatus },
+    /**
      * Commits with your message, in a terminal tab of the session so hooks and their output stay
      * visible. Commits what is staged; with nothing staged, every change (new files too) is staged
      * first. Refused (SESSION_BUSY) while Claude is working in this checkout, and NOTHING_TO_COMMIT on a clean one.

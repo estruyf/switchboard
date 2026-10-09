@@ -52,6 +52,8 @@ export type SessionScope = 'switchboard' | 'all';
 export type StartupView = 'home' | 'last' | 'new';
 /** Which releases to update to: published releases, or the nightly pre-releases too. */
 export type UpdateChannel = 'stable' | 'nightly';
+/** How New session, Home and the palette list your projects: most recently used first, or in the order you set. */
+export type ProjectOrder = 'recent' | 'yours';
 /** At the focus limit: ask first and allow going over (`nudge`), or wait until a session is finished (`strict`). */
 export type FocusMode = 'nudge' | 'strict';
 
@@ -71,6 +73,7 @@ export interface Preferences {
   confirmQuit: boolean;
   sessionScope: SessionScope;
   startupView: StartupView;
+  projectOrder: ProjectOrder;
   /** Check GitHub for a newer release shortly after launch and every few hours. */
   autoUpdate: boolean;
   updateChannel: UpdateChannel;
@@ -91,6 +94,7 @@ export const DEFAULT_PREFERENCES: Preferences = {
   confirmQuit: true,
   sessionScope: 'switchboard',
   startupView: 'home',
+  projectOrder: 'recent',
   autoUpdate: true,
   updateChannel: 'stable',
   focusLimit: null,
@@ -115,6 +119,7 @@ export function sanitizePreferences(input: unknown): Partial<Preferences> {
   if (typeof raw.confirmQuit === 'boolean') out.confirmQuit = raw.confirmQuit;
   if (oneOf(['switchboard', 'all'] as const, raw.sessionScope)) out.sessionScope = raw.sessionScope;
   if (oneOf(['home', 'last', 'new'] as const, raw.startupView)) out.startupView = raw.startupView;
+  if (oneOf(['recent', 'yours'] as const, raw.projectOrder)) out.projectOrder = raw.projectOrder;
   if (typeof raw.autoUpdate === 'boolean') out.autoUpdate = raw.autoUpdate;
   if (oneOf(['stable', 'nightly'] as const, raw.updateChannel)) out.updateChannel = raw.updateChannel;
   if (raw.focusLimit === null) out.focusLimit = null;
