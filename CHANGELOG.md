@@ -11,6 +11,7 @@ All notable changes to Switchboard are listed here. Each release is also on the 
 
 ### Changed
 
+- Switchboard opens where you left it: the same display, size and position, maximized if it was. If that display is no longer connected, it opens on the main one.
 - Sessions under **Working** (in the sidebar and on Home) no longer trade places as they write: the one you last sent a message to is at the top.
 
 ### Fixed

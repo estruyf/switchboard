@@ -2,7 +2,7 @@ import { execFileSync } from 'node:child_process';
 import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { app, BrowserWindow, dialog, ipcMain, Menu, MessageChannelMain, nativeTheme, shell, type MenuItemConstructorOptions } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, Menu, MessageChannelMain, nativeTheme, screen, shell, type MenuItemConstructorOptions } from 'electron';
 import { IpcChannel, isThemeId, sanitizePreferences, type AppInfo, type DeepLinkMessage, type RendererReadyReport, type ThemeCommand, type UpdateCommand } from '@switchboard/protocol/bridge';
 import { BUILT_IN_THEMES } from '../../../ui/src/themes/index.ts';
 import { EngineProcess } from './engineProcess.ts';
@@ -19,6 +19,7 @@ import { ThemeStore } from './themes.ts';
 import { isConfigDir, isTrashableRepoFile, isTrashableSessionPath, isTrashableThemeFile } from './trashGuard.ts';
 import { Updater } from './updater.ts';
 import { updatesDisabledReason } from './updateState.ts';
+import { placeWindow, WindowStateStore } from './windowState.ts';
 
 const here = import.meta.dirname;
 const smokeOutDir = process.env.SWITCHBOARD_SMOKE_OUT;
@@ -401,12 +402,25 @@ function installMenu(): void {
   Menu.setApplicationMenu(Menu.buildFromTemplate(template));
 }
 
+/** The window's last size, position and display. Scripted runs always start at the default size. */
+const windowState = scripted ? undefined : new WindowStateStore(join(app.getPath('userData'), 'window-state.json'));
+const WINDOW_MIN = { width: 900, height: 560 };
+
+/** Saves where the window is, so the next one opens there. A maximized window keeps the size it returns to. */
+function rememberWindowState(win: BrowserWindow): void {
+  if (!windowState || win.isDestroyed() || win.isMinimized() || win.isFullScreen()) return;
+  windowState.save({ bounds: win.isMaximized() ? win.getNormalBounds() : win.getBounds(), maximized: win.isMaximized() });
+}
+
 function createWindow(): BrowserWindow {
+  const saved = windowState?.get();
+  const placed = saved && placeWindow(saved.bounds, screen.getAllDisplays().map((d) => d.workArea), WINDOW_MIN);
   const win = new BrowserWindow({
     width: 1280,
     height: 820,
-    minWidth: 900,
-    minHeight: 560,
+    ...placed,
+    minWidth: WINDOW_MIN.width,
+    minHeight: WINDOW_MIN.height,
     show: false,
     titleBarStyle: 'hiddenInset',
     trafficLightPosition: WINDOW_BUTTONS.default,
@@ -420,7 +434,18 @@ function createWindow(): BrowserWindow {
     },
   });
 
-  win.once('ready-to-show', () => win.show());
+  win.once('ready-to-show', () => {
+    // maximize() shows the window, so it waits for the first paint like show().
+    if (placed && saved?.maximized) win.maximize();
+    win.show();
+  });
+  // Saved when a move or resize ends and on close, so a crash or a forced quit keeps the last position too.
+  const remember = () => rememberWindowState(win);
+  win.on('resized', remember);
+  win.on('moved', remember);
+  win.on('maximize', remember);
+  win.on('unmaximize', remember);
+  win.on('close', remember);
   const contentsId = win.webContents.id;
   win.webContents.on('did-start-loading', () => readyRenderers.delete(contentsId));
   // A crashed page leaves the window blank: reload it, unless it keeps crashing.
