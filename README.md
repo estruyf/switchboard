@@ -19,6 +19,10 @@ It uses the Claude Code you already have installed, with your login, settings, c
   <img src="docs/screenshots/session-light.png" alt="Switchboard with a finished session open: the session list on the left, its rails coloured by Claude profile (personal in yellow, work in blue), the conversation in the middle and its git changes on the right">
 </picture>
 
+**Watch the one-minute tour:**
+
+<a href="docs/videos/promo-720p.mp4"><img src="docs/videos/promo-poster.png" alt="Play the Switchboard tour video: the Switchboard title card, All your Claude Code sessions, in one window" width="640"></a>
+
 ## What you can do
 
 **Keep track of every session**
