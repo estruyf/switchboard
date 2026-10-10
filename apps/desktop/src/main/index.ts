@@ -347,6 +347,8 @@ function openDeepLink(url: string): void {
 
 // The smoke test checks quitting without ending its own run.
 const quitApp = () => (smokeOutDir ? (quitRecorded = true) : app.quit());
+/** Set once the app is quitting, so closing its windows on the way out doesn't ask again. */
+let quitting = false;
 
 function openSettings(section: 'about' | null = null): void {
   sendToWindow(showWindow(), IpcChannel.openSettings, section, { latestOnly: true });
@@ -358,27 +360,39 @@ function checkForUpdates(): void {
   openSettings('about');
 }
 
-/** The standard macOS menu, except that ⌘Q goes through the quit guard. */
+/**
+ * The standard menu, except that quitting goes through the quit guard: on macOS the app menu, on Windows and Linux
+ * File, Edit, View, Window and Help (shown with Alt), with Settings in File and About in Help.
+ */
 function installMenu(): void {
+  const mac = process.platform === 'darwin';
+  const quit: MenuItemConstructorOptions = { id: 'quit', label: mac ? 'Quit Switchboard' : 'Exit', accelerator: 'CmdOrCtrl+Q', click: () => (preferences.get().confirmQuit ? quitGuard.request() : quitApp()) };
+  const settings: MenuItemConstructorOptions = { label: 'Settings…', accelerator: 'CmdOrCtrl+,', click: () => openSettings() };
+  const checkUpdates: MenuItemConstructorOptions = { id: 'check-updates', label: 'Check for Updates…', click: () => checkForUpdates() };
+  const top: MenuItemConstructorOptions[] = mac
+    ? [
+        {
+          label: 'Switchboard',
+          submenu: [
+            { role: 'about' },
+            checkUpdates,
+            { type: 'separator' },
+            settings,
+            { type: 'separator' },
+            { role: 'services' },
+            { type: 'separator' },
+            { role: 'hide' },
+            { role: 'hideOthers' },
+            { role: 'unhide' },
+            { type: 'separator' },
+            quit,
+          ],
+        },
+        { role: 'fileMenu' },
+      ]
+    : [{ label: 'File', submenu: [settings, { type: 'separator' }, quit] }];
   const template: MenuItemConstructorOptions[] = [
-    {
-      label: 'Switchboard',
-      submenu: [
-        { role: 'about' },
-        { id: 'check-updates', label: 'Check for Updates…', click: () => checkForUpdates() },
-        { type: 'separator' },
-        { label: 'Settings…', accelerator: 'CmdOrCtrl+,', click: () => openSettings() },
-        { type: 'separator' },
-        { role: 'services' },
-        { type: 'separator' },
-        { role: 'hide' },
-        { role: 'hideOthers' },
-        { role: 'unhide' },
-        { type: 'separator' },
-        { id: 'quit', label: 'Quit Switchboard', accelerator: 'CmdOrCtrl+Q', click: () => (preferences.get().confirmQuit ? quitGuard.request() : quitApp()) },
-      ],
-    },
-    { role: 'fileMenu' },
+    ...top,
     { role: 'editMenu' },
     {
       label: 'View',
@@ -411,6 +425,8 @@ function installMenu(): void {
       submenu: [
         // The page handles ⌘/ itself (in the terminal and the message box too), so the menu only shows the key.
         { label: 'Keyboard Shortcuts', accelerator: 'CmdOrCtrl+/', registerAccelerator: false, click: () => sendToWindow(showWindow(), IpcChannel.toggleShortcuts, null, { latestOnly: true }) },
+        // On macOS these are in the app menu; Windows and Linux have none.
+        ...(mac ? [] : ([{ type: 'separator' }, checkUpdates, { label: 'About Switchboard', click: () => openSettings('about') }] satisfies MenuItemConstructorOptions[])),
       ],
     },
   ];
@@ -437,8 +453,9 @@ function createWindow(): BrowserWindow {
     minWidth: WINDOW_MIN.width,
     minHeight: WINDOW_MIN.height,
     show: false,
-    titleBarStyle: 'hiddenInset',
-    trafficLightPosition: WINDOW_BUTTONS.default,
+    // macOS: the traffic lights over the content. Elsewhere the system's own title bar, which follows light and dark
+    // mode, and the menu bar shows with Alt (the command palette has every command).
+    ...(process.platform === 'darwin' ? { titleBarStyle: 'hiddenInset' as const, trafficLightPosition: WINDOW_BUTTONS.default } : { autoHideMenuBar: true }),
     backgroundColor: windowBackground(),
     webPreferences: {
       preload: join(here, '../preload/index.cjs'),
@@ -461,6 +478,12 @@ function createWindow(): BrowserWindow {
   win.on('maximize', remember);
   win.on('unmaximize', remember);
   win.on('close', remember);
+  // On Windows and Linux closing the window quits the app (its sessions stop), so it asks first, as ⌘Q does on macOS.
+  win.on('close', (event) => {
+    if (process.platform === 'darwin' || quitting || scripted || !preferences.get().confirmQuit) return;
+    event.preventDefault();
+    quitGuard.request();
+  });
   const contentsId = win.webContents.id;
   win.webContents.on('did-start-loading', () => readyRenderers.delete(contentsId));
   // A crashed page leaves the window blank: reload it, unless it keeps crashing.
@@ -3649,8 +3672,9 @@ async function runSidebarStatesStep(win: BrowserWindow): Promise<string> {
     "(() => { const view = document.querySelector('[data-current-session]').getBoundingClientRect(); return Math.round(view.left) === 0 && Math.round(view.width) === window.innerWidth && !document.querySelector('[data-sidebar-open], [data-sidebar-rail]'); })()",
   )) as boolean;
   if (!fullWidth) return 'the session view is not full width with the sidebar closed';
-  // The toggle moves right of the traffic lights.
-  if (!(await js("document.querySelector('[data-current-session] [data-sidebar-toggle]').getBoundingClientRect().left >= 72"))) return 'the toggle sits under the traffic lights';
+  // The toggle moves right of the traffic lights (macOS); elsewhere the window's buttons are in its title bar, and it stays at the edge.
+  const toggleLeft = (await js("document.querySelector('[data-current-session] [data-sidebar-toggle]').getBoundingClientRect().left")) as number;
+  if (process.platform === 'darwin' ? toggleLeft < 72 : toggleLeft > 32) return `the toggle sits at ${Math.round(toggleLeft)}px, ${process.platform === 'darwin' ? 'under the traffic lights' : 'away from the edge'}`;
   await themed('sidebar-closed');
   await js("document.querySelector('[data-current-session] [data-sidebar-toggle]').click()");
   if (!(await inState('open'))) return 'the header toggle did not reopen the sidebar';
@@ -4290,6 +4314,7 @@ app.on('window-all-closed', () => {
 });
 
 app.on('before-quit', () => {
+  quitting = true;
   themes.close();
   updater.stop();
   engine?.stop();

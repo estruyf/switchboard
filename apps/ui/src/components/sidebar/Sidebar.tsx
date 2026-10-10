@@ -1,3 +1,4 @@
+import { currentPlatform } from '../../lib/platform.ts';
 import { defaultRangeExtractor, useVirtualizer, type Range } from '@tanstack/react-virtual';
 import { Archive, ArchiveRestore, Check, FolderCog, GitBranch, House, ListEnd, PencilLine, Pin, PinOff, Plus, Search, Settings, Trash2 } from 'lucide-react';
 import type { SidebarStyle } from '@switchboard/protocol/bridge';
@@ -797,8 +798,8 @@ export function Sidebar() {
   return (
     // Drawn at the open width even while the frame around it eases narrower or wider, so it slides rather than reflows.
     <aside aria-label="Sidebar" className="relative flex h-full shrink-0 flex-col border-r border-border bg-sidebar" style={{ width }} data-sidebar-open>
-      {/* Traffic lights on the left; the bar doubles as a window drag handle. */}
-      <div className="drag flex h-13 shrink-0 items-center gap-2 pl-24">
+      {/* Traffic lights on the left (macOS); the bar doubles as a window drag handle. */}
+      <div className={`drag flex h-13 shrink-0 items-center gap-2 ${currentPlatform() === 'darwin' ? 'pl-24' : 'pl-4.5'}`}>
         <span className="text-body font-semibold text-text/90">Switchboard</span>
       </div>
 
