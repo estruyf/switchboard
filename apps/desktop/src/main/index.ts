@@ -2223,6 +2223,32 @@ async function runCopyMessageStep(win: BrowserWindow): Promise<string> {
 }
 
 /**
+ * Shell code blocks in the conversation have a Run button and other blocks don't. Read-only: Run is
+ * never clicked, since it would run the command in a real project.
+ */
+async function runCodeRunStep(win: BrowserWindow): Promise<string> {
+  const report = (await win.webContents.executeJavaScript(`(() => {
+    const shell = new Set(['bash', 'sh', 'shell', 'zsh', 'console', 'shellsession', 'terminal']);
+    const counts = { shell: 0, shellRun: 0, other: 0, otherRun: 0 };
+    for (const block of document.querySelectorAll('[data-current-session="${smokeSessionId}"] [data-transcript] .code-block')) {
+      const run = block.querySelector('[data-code-run]');
+      if (shell.has((block.dataset.codeLanguage ?? '').toLowerCase())) {
+        counts.shell++;
+        if (run?.getAttribute('aria-label') === 'Run in terminal') counts.shellRun++;
+      } else {
+        counts.other++;
+        if (run) counts.otherRun++;
+      }
+    }
+    return counts;
+  })()`)) as { shell: number; shellRun: number; other: number; otherRun: number };
+  if (report.otherRun > 0) return `failed: ${report.otherRun} of ${report.other} non-shell code blocks have a Run button`;
+  if (report.shellRun < report.shell) return `failed: ${report.shell - report.shellRun} of ${report.shell} shell code blocks have no Run button`;
+  if (report.shell + report.other === 0) return 'ok: no code blocks on screen';
+  return `ok: Run on ${report.shell} shell blocks, none on ${report.other} other blocks`;
+}
+
+/**
  * An unsent message, and the image pasted with it, survive opening another session and coming back.
  * Read-only: nothing is sent, and the box is emptied again at the end.
  */
@@ -3720,6 +3746,8 @@ async function runDiagnosticsStep(win: BrowserWindow): Promise<string> {
     if (!(await waitInPage(win, "document.querySelector('[data-rendering-check] .shiki span[style*=\"--shiki\"]')", 5_000))) return 'failed: syntax highlighting did not colour the code block';
     // Present without hovering (only invisible), so it can be reached with Tab. Not clicked: that would overwrite the clipboard.
     if (!(await js("document.querySelector('[data-rendering-check] [data-code-copy]')?.getAttribute('aria-label') === 'Copy code'"))) return 'failed: the code block has no copy button';
+    // Run needs a session's terminal, so the sample here, outside a session, has none.
+    if (await js("!!document.querySelector('[data-rendering-check] [data-code-run]')")) return 'failed: a code block outside a session has a Run button';
     const markdownPreview =
       (await waitInPage(win, "document.querySelector('[data-rendering-check] [data-code-preview] h2')", 3_000)) &&
       (await js("document.querySelector('[data-rendering-check] [data-code-view=\"source\"]')?.click(), true")) &&
@@ -3730,7 +3758,7 @@ async function runDiagnosticsStep(win: BrowserWindow): Promise<string> {
     // Not clicked: it would open Finder.
     if (!(await waitInPage(win, "document.querySelector('[data-diagnostics-reveal=\"config-dir\"]') && document.querySelector('[data-diagnostics-reveal=\"database\"]')", 3_000))) return 'failed: no Finder buttons for the config folder and the cache database';
     await shot(win, 'diagnostics.png');
-    return 'ok: syntax highlighting coloured a code block with a copy button, markdown opens rendered and switches to its source, Finder buttons for the config folder and cache database';
+    return 'ok: syntax highlighting coloured a code block with a copy button and no Run, markdown opens rendered and switches to its source, Finder buttons for the config folder and cache database';
   } finally {
     await js("document.querySelector('[data-close-settings]')?.click()");
   }
@@ -3813,6 +3841,7 @@ async function runSmokeStep(win: BrowserWindow | null): Promise<void> {
   await step('file links', () => runFileLinksStep(win));
   await step('long prompts', () => runLongPromptStep(win));
   await step('copy messages', () => runCopyMessageStep(win));
+  await step('run code blocks', () => runCodeRunStep(win));
   await step('unsent drafts', () => runDraftStep(win));
   await step('unsent messages', () => runUnsentStep(win));
   await step('search', () => runSearchStep(win));

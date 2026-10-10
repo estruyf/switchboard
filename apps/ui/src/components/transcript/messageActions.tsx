@@ -13,6 +13,8 @@ export interface MessageActions {
   rewind(messageUuid: string): void;
   /** Whether this prompt has a message before it (the first one can't be edited by forking). */
   canEdit(messageUuid: string): boolean;
+  /** Types a code block's command into the session's terminal; null when the session has no folder. */
+  runCommand: ((command: string) => void) | null;
 }
 
 export const MessageActionsContext = createContext<MessageActions | null>(null);
