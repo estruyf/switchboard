@@ -1,24 +1,38 @@
 import { describe, expect, it } from 'vitest';
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { basename, join, resolve, sep } from 'node:path';
 import { isConfigDir, isTrashableRepoFile, isTrashableSessionPath } from './trashGuard.ts';
 
-const config = '/Users/me/.claude';
+// In this platform's form (C:Usersme.claude on Windows): the guard only takes normalised absolute paths.
+const config = resolve('/Users/me/.claude');
+const path = (...parts: string[]) => [config, ...parts].join(sep);
 const id = '11111111-2222-4333-8444-555555555555';
+
+function canSymlink(): boolean {
+  const dir = mkdtempSync(join(tmpdir(), 'trash-symlink-'));
+  try {
+    symlinkSync(dir, join(dir, 'link'));
+    return true;
+  } catch {
+    return false;
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
 
 describe('isTrashableSessionPath', () => {
   it('allows a transcript and its subagent folder inside the projects folder', () => {
-    expect(isTrashableSessionPath(`${config}/projects/-Users-me-app/${id}.jsonl`, config)).toBe(true);
-    expect(isTrashableSessionPath(`${config}/projects/-Users-me-app/${id}`, config)).toBe(true);
+    expect(isTrashableSessionPath(path('projects', '-Users-me-app', `${id}.jsonl`), config)).toBe(true);
+    expect(isTrashableSessionPath(path('projects', '-Users-me-app', id), config)).toBe(true);
   });
 
   it('refuses anything else', () => {
-    expect(isTrashableSessionPath(`${config}/projects/-Users-me-app`, config)).toBe(false);
-    expect(isTrashableSessionPath(`${config}/settings.json`, config)).toBe(false);
-    expect(isTrashableSessionPath(`/Users/me/app/${id}.jsonl`, config)).toBe(false);
-    expect(isTrashableSessionPath(`${config}/projects/../../${id}.jsonl`, config)).toBe(false);
-    expect(isTrashableSessionPath(`${config}/projects/x/notes.jsonl`, config)).toBe(false);
+    expect(isTrashableSessionPath(path('projects', '-Users-me-app'), config)).toBe(false);
+    expect(isTrashableSessionPath(path('settings.json'), config)).toBe(false);
+    expect(isTrashableSessionPath(join(resolve('/Users/me/app'), `${id}.jsonl`), config)).toBe(false);
+    expect(isTrashableSessionPath(path('projects', '..', '..', `${id}.jsonl`), config)).toBe(false);
+    expect(isTrashableSessionPath(path('projects', 'x', 'notes.jsonl'), config)).toBe(false);
     expect(isTrashableSessionPath(`relative/${id}.jsonl`, config)).toBe(false);
   });
 });
@@ -30,7 +44,7 @@ describe('isConfigDir', () => {
       expect(isConfigDir(dir)).toBe(false);
       mkdirSync(join(dir, 'projects'));
       expect(isConfigDir(dir)).toBe(true);
-      expect(isConfigDir(`${dir}/../${dir.split('/').pop()}`)).toBe(false);
+      expect(isConfigDir(`${dir}${sep}..${sep}${basename(dir)}`)).toBe(false);
       expect(isConfigDir('/')).toBe(false);
       expect(isConfigDir(42)).toBe(false);
     } finally {
@@ -60,7 +74,8 @@ describe('isTrashableRepoFile', () => {
     }
   });
 
-  it('refuses .git in any case and at any depth, and folders linked from outside', () => {
+  // Making links on Windows needs Developer Mode or an administrator.
+  it.skipIf(!canSymlink())('refuses .git in any case and at any depth, and folders linked from outside', () => {
     const repo = realpathSync(mkdtempSync(join(tmpdir(), 'trash-repo-')));
     const outside = realpathSync(mkdtempSync(join(tmpdir(), 'trash-outside-')));
     try {

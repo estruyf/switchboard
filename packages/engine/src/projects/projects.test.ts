@@ -1,10 +1,11 @@
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, join, relative } from 'node:path';
+import { basename, dirname, join, relative } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { DatabaseSync } from 'node:sqlite';
 import { openCacheDatabase } from '../db/database.ts';
 import { migrations } from '../db/migrations.ts';
+import { canSymlink } from '../util/canSymlink.ts';
 import { detectIconPath, MAX_ICON_BYTES } from './projectIcons.ts';
 import { ProjectRegistry } from './projectRegistry.ts';
 
@@ -43,10 +44,12 @@ describe('detectIconPath', () => {
     expect(detectIconPath(root)).toBeNull();
     writeFileSync(join(root, '.switchboard.json'), JSON.stringify({ iconPath: join(outside, 'secret.png') }));
     expect(detectIconPath(root)).toBeNull();
-    // Nor through a link inside the project that points out of it.
-    mkdirSync(join(root, 'public'));
-    symlinkSync(join(outside, 'secret.png'), join(root, 'public', 'favicon.png'));
-    expect(detectIconPath(root)).toBeNull();
+    // Nor through a link inside the project that points out of it (where this process may make links).
+    if (canSymlink()) {
+      mkdirSync(join(root, 'public'));
+      symlinkSync(join(outside, 'secret.png'), join(root, 'public', 'favicon.png'));
+      expect(detectIconPath(root)).toBeNull();
+    }
     // A workspace package may use the monorepo's shared icon.
     file(join(root, 'media', 'icon.svg'));
     file(join(root, 'packages', 'app', 'package.json'), JSON.stringify({ icon: '../../media/icon.svg' }));
@@ -131,7 +134,7 @@ describe('project list', () => {
     const cache = openCacheDatabase(join(data, 'cache.sqlite'));
     const registry = new ProjectRegistry(cache.db, join(data, 'icons'));
     const root = tempDir();
-    const folder = root.split('/').pop()!;
+    const folder = basename(root);
     registry.add(root);
     const project = () => registry.list(new Map()).find((p) => p.root === root)!;
     expect(project()).toMatchObject({ name: folder, nameSource: 'folder' });
