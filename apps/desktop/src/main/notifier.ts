@@ -67,6 +67,13 @@ export class Notifier {
       .catch(() => {});
   }
 
+  /** The sessions running in a Claude Code process right now (in Switchboard or anywhere else), from the engine. */
+  async liveSessionIds(): Promise<Set<string>> {
+    if (!this.client) return new Set();
+    const [{ live }, { hosts }] = await Promise.all([this.client.call('sessions.list', {}), this.client.call('hosts.list', {})]);
+    return new Set([...live.map((l) => l.sessionId), ...hosts.map((h) => h.sessionId)]);
+  }
+
   private handle(events: AttentionEvent[]): void {
     const win = this.options.window();
     const focused = !!win && win.isFocused() && !win.isMinimized();

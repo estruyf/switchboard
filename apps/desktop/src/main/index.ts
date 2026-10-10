@@ -2,9 +2,10 @@ import { execFileSync } from 'node:child_process';
 import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { createConnection } from 'node:net';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import { app, BrowserWindow, dialog, ipcMain, Menu, MessageChannelMain, nativeTheme, screen, shell, type MenuItemConstructorOptions } from 'electron';
 import { IMAGE_EXTENSIONS, IpcChannel, isThemeId, sanitizePreferences, type AppInfo, type DeepLinkMessage, type RendererReadyReport, type ThemeCommand, type UpdateCommand } from '@switchboard/protocol/bridge';
+import { isAbsolutePath } from '@switchboard/protocol/paths';
 import { COMPANION_DIR, COMPANION_INFO_FILE, COMPANION_PROTOCOL, createRpcClient, lineTransport, type CompanionContract, type CompanionInfo } from '@switchboard/protocol/companion-client';
 import { BUILT_IN_THEMES } from '../../../ui/src/themes/index.ts';
 import { EngineProcess } from './engineProcess.ts';
@@ -159,7 +160,7 @@ ipcMain.handle(IpcChannel.themeCommand, async (event, command: ThemeCommand) => 
       return result.canceled ? null : (result.filePaths[0] ?? null);
     }
     case 'check-file':
-      return typeof command.path === 'string' && command.path.startsWith('/') ? themes.check(command.path) : { ok: false, error: "Switchboard couldn't read this file.", fileName: '' };
+      return typeof command.path === 'string' && isAbsolutePath(command.path) ? themes.check(command.path) : { ok: false, error: "Switchboard couldn't read this file.", fileName: '' };
     case 'add':
       return themes.add(command.raw, command.how === 'replace' || command.how === 'keep-both' ? command.how : 'add');
     case 'duplicate':
@@ -965,7 +966,9 @@ async function actionTerminalChecks(win: BrowserWindow, js: (code: string) => Pr
   const stop = await clickLikeAUser(win, '[data-terminal-stop]');
   if (!(await waitInPage(win, state('failed'), 8_000))) return `failed: Stop did not end the command (the click landed on ${stop.at})`;
   const stopped = (await js(`${strip}.querySelector('[data-terminal-run-status]').innerText`)) as string;
-  if (stopped !== 'Failed (exit 130)' || !(await js("!!document.querySelector('[data-terminal-tab-dot=\"failed\"]') && !document.querySelector('[data-terminal-stop]')"))) return `failed: after Stop the strip says "${stopped}"`;
+  // POSIX shells report Ctrl+C as 130; on Windows the console ends with its own non-zero code.
+  const stoppedLabel = process.platform === 'win32' ? /^Failed \(exit [1-9]\d*\)$/ : /^Failed \(exit 130\)$/;
+  if (!stoppedLabel.test(stopped) || !(await js("!!document.querySelector('[data-terminal-tab-dot=\"failed\"]') && !document.querySelector('[data-terminal-stop]')"))) return `failed: after Stop the strip says "${stopped}"`;
   await shot(win, 'action-stopped.png');
   const restart = await clickLikeAUser(win, '[data-terminal-restart]');
   if (!(await waitInPage(win, `${state('running')} && document.querySelector('[data-terminal-stop]')`, 5_000))) return `failed: Restart did not run it again (the click landed on ${restart.at})`;
@@ -1301,8 +1304,13 @@ async function runTerminalStep(win: BrowserWindow): Promise<string> {
     if (!(await waitInPage(win, "document.querySelector('[data-terminal-panel]')", 3_000))) return 'failed: the panel did not open';
     if (!(await waitInPage(win, "document.querySelector('[data-terminal] textarea')", 5_000))) return 'failed: no terminal in the panel';
     await js("document.querySelector('[data-terminal] textarea').focus()");
-    // Typed before the shell has started, the line waits in the terminal until it reads it.
-    await win.webContents.insertText(`echo "terminal works: $TERM_PROGRAM" && pwd > ${JSON.stringify(marker)}`);
+    // Typed before the shell has started, the line waits in the terminal until it reads it. On Windows the
+    // shell is PowerShell, whose pwd prints a table: write the bare folder there.
+    const line =
+      process.platform === 'win32'
+        ? `echo "terminal works: $env:TERM_PROGRAM"; (Get-Location).Path | Set-Content -NoNewline '${marker.replace(/'/g, "''")}'`
+        : `echo "terminal works: $TERM_PROGRAM" && pwd > ${JSON.stringify(marker)}`;
+    await win.webContents.insertText(line);
     win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Return' });
     win.webContents.sendInputEvent({ type: 'char', keyCode: '\r' });
     win.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Return' });
@@ -1556,7 +1564,7 @@ async function runProjectsStep(win: BrowserWindow): Promise<string> {
 
   // Renaming only changes the name Switchboard shows; it reaches the sidebar filter too.
   const renameDialog = "document.querySelector('[data-rename-project-dialog]')";
-  const folder = root.split('/').pop()!;
+  const folder = basename(root);
   await js(`${row('[data-project-rename]')}.click()`);
   if (!(await waitInPage(win, `${renameDialog} && document.activeElement?.matches('[data-rename-project-input]') && document.activeElement.value === ${JSON.stringify(folder)}`, 3_000))) return "Rename… did not open with the folder's name";
   await setFieldValue(win, '[data-rename-project-input]', 'Smoke project');
@@ -2001,7 +2009,9 @@ async function runChangesStep(win: BrowserWindow): Promise<string> {
   if (!(await waitInPage(win, "document.querySelector('[data-toggle-changes]')", 5_000))) return 'no Changes button (not a git checkout?)';
   const wasOpen = (await js("!!document.querySelector('[data-changes-panel]')")) as boolean;
   if (!wasOpen) await js("document.querySelector('[data-toggle-changes]').click()");
-  if (!(await waitInPage(win, "document.querySelector('[data-changes-panel]') && !document.querySelector('[data-changes-panel]').innerText.includes('Loading')", 5_000))) return 'panel did not load';
+  // The button shows until the engine first answers; outside git it then goes, with the panel.
+  if (!(await waitInPage(win, "!document.querySelector('[data-toggle-changes]') || (document.querySelector('[data-changes-panel]') && !document.querySelector('[data-changes-panel]').innerText.includes('Loading'))", 5_000))) return 'panel did not load';
+  if (!(await js("!!document.querySelector('[data-toggle-changes]')"))) return 'ok: skipped (session is not on a git checkout)';
   const files = (await js("document.querySelectorAll('[data-changed-file]').length")) as number;
   if (files > 0) {
     await js("document.querySelector('[data-file-toggle]').click()");
@@ -2173,7 +2183,7 @@ async function runFileLinksStep(win: BrowserWindow): Promise<string> {
     "[...document.querySelectorAll('[data-transcript] [data-file-link]')].map((a) => ({ target: a.dataset.fileLink, href: a.getAttribute('href'), tooltip: a.dataset.tooltip }))",
   )) as Array<{ target: string; href: string; tooltip: string }>;
   if (links.length === 0) return 'ok: no file paths in the replies on screen';
-  const bad = links.find((link) => !link.href.startsWith('file:///') || !link.target.startsWith('/') || !link.tooltip.startsWith(`Open ${link.target} in `));
+  const bad = links.find((link) => !link.href.startsWith('file:///') || !isAbsolutePath(link.target) || !link.tooltip.startsWith(`Open ${link.target} in `));
   if (bad) return `a file link is wrong: ${JSON.stringify(bad)}`;
   return `ok: ${links.length} file links, e.g. "${links[0]!.tooltip}"`;
 }
@@ -2966,10 +2976,15 @@ async function runQueueStep(win: BrowserWindow): Promise<string> {
       pressKey(win, 'Backspace');
       await waitInPage(win, `${sidebarItems}.length < ${(await js(`${sidebarItems}.length`)) as number}`, 2_000);
     }
-    rmSync(folder, { recursive: true, force: true });
     // Back to the session the later steps use.
     await js(`document.querySelector('[data-session-id="${smokeSessionId}"]')?.click()`);
     await waitInPage(win, `document.querySelector('[data-current-session="${smokeSessionId}"]')`, 5_000);
+    try {
+      rmSync(folder, { recursive: true, force: true });
+    } catch {
+      // Windows won't delete a folder that is a process's working folder (New session warms Claude Code up in it).
+      // A temp folder left behind is harmless.
+    }
   }
 }
 
@@ -3025,7 +3040,8 @@ async function runArchivedDockStep(win: BrowserWindow): Promise<string> {
     await js(`${list}.scrollTop = 0`);
     if (await js(`${toggle(header)}?.dataset.open === 'true'`)) {
       await js(`${toggle(header)}.click()`);
-      if (!(await waitInPage(win, `!!${dock}`, 2_000))) return 'closing Archived did not dock it';
+      // Docked once it has slid into place: measured during the slide, it is still up in the list.
+      if (!(await waitInPage(win, `!!${dock} && ${dock}.style.transform === ''`, 2_000))) return 'closing Archived did not dock it';
     }
     if (!(await js(`!!${dock}`))) return 'ok: skipped, no archived sessions';
     // Every collapsible header shows its chevron, open or closed, without hovering.
@@ -3034,9 +3050,9 @@ async function runArchivedDockStep(win: BrowserWindow): Promise<string> {
     const docked = (await js(`(() => {
       const l = ${list}, d = ${dock}, lr = l.getBoundingClientRect(), dr = d.getBoundingClientRect();
       const content = l.firstElementChild.offsetHeight + parseFloat(getComputedStyle(l).paddingBottom);
-      return { outside: !l.contains(d), below: dr.top >= lr.bottom - 1, fits: content <= l.clientHeight, scrolls: l.scrollHeight > l.clientHeight };
-    })()`)) as { outside: boolean; below: boolean; fits: boolean; scrolls: boolean };
-    if (!docked.outside || !docked.below) return 'the closed Archived header is not docked under the list';
+      return { outside: !l.contains(d), below: dr.top >= lr.bottom - 1, fits: content <= l.clientHeight, scrolls: l.scrollHeight > l.clientHeight, dockTop: dr.top, listBottom: lr.bottom, dpr: devicePixelRatio };
+    })()`)) as { outside: boolean; below: boolean; fits: boolean; scrolls: boolean; dockTop: number; listBottom: number; dpr: number };
+    if (!docked.outside || !docked.below) return `the closed Archived header is not docked under the list (${JSON.stringify(docked)})`;
     if (docked.fits && docked.scrolls) return 'a list that fits still scrolls';
     const sidebarShot = async (name: string) => {
       await settle(win);
@@ -3054,10 +3070,11 @@ async function runArchivedDockStep(win: BrowserWindow): Promise<string> {
       const item = ${header}.closest('[role=listitem]'), at = Number(item.getAttribute('aria-posinset'));
       const prev = [...document.querySelectorAll('[data-session-list] [role=listitem]')].find((r) => Number(r.getAttribute('aria-posinset')) === at - 1);
       const l = ${list};
-      return { gap: prev ? Math.round(item.getBoundingClientRect().top - prev.getBoundingClientRect().bottom) : 0, top: item.getBoundingClientRect().top - l.getBoundingClientRect().top, half: l.clientHeight / 2 };
-    })()`)) as { gap: number; top: number; half: number };
+      return { gap: prev ? Math.round(item.getBoundingClientRect().top - prev.getBoundingClientRect().bottom) : 0, top: item.getBoundingClientRect().top - l.getBoundingClientRect().top, half: l.clientHeight / 2, scrolledToEnd: l.scrollTop >= l.scrollHeight - l.clientHeight - 1 };
+    })()`)) as { gap: number; top: number; half: number; scrolledToEnd: boolean };
     if (open.gap !== 0) return `a ${open.gap}px gap above the open Archived header`;
-    if (open.top > open.half) return `the open Archived header sits low in the list (${Math.round(open.top)}px of ${Math.round(open.half * 2)}px)`;
+    // Low is fine only when the list can't scroll any further (a short list, archivedRevealTop clamps to it).
+    if (open.top > open.half && !open.scrolledToEnd) return `the open Archived header sits low in the list (${Math.round(open.top)}px of ${Math.round(open.half * 2)}px)`;
     for (const colorScheme of ['light', 'dark'] as const) {
       await setColorScheme(win, colorScheme);
       await sidebarShot(`archived-open-${colorScheme}.png`);
@@ -3746,11 +3763,14 @@ async function runHistoryStep(win: BrowserWindow): Promise<string> {
     win.webContents.sendInputEvent({ type: 'keyUp', keyCode });
   };
   const ready = `${box} && !${box}.disabled && Number(${box}.dataset.history) > 0`;
-  // The smoke session, or else one of the newest sessions with a message you sent.
-  const candidates = [smokeSessionId, ...((await js("[...document.querySelectorAll('[data-session-id]')].slice(0, 8).map((row) => row.dataset.sessionId)")) as string[])];
+  // The smoke session, or else one of the newest sessions with a message you sent, never one that is running.
+  const running = await runningSessions();
+  if (!running) return 'could not ask the engine which sessions are running, so none is safe to type in';
+  const rows = (await js("[...document.querySelectorAll('[data-session-id]')].slice(0, 8).map((row) => row.dataset.sessionId)")) as string[];
+  const candidates = [smokeSessionId, ...rows];
   let found = false;
   for (const id of candidates) {
-    if (!id) continue;
+    if (!id || running.has(id)) continue;
     await js(`document.querySelector('[data-session-id="${id}"]')?.click()`);
     if (await waitInPage(win, ready, 3_000)) {
       found = true;
@@ -3957,27 +3977,46 @@ async function closeOverlays(win: BrowserWindow | undefined): Promise<string | n
 }
 
 /**
+ * Sessions running in Claude Code right now, in Switchboard or anywhere else, plus the Claude Code session that
+ * started this run (CLAUDE_CODE_SESSION_ID, in case the registry doesn't list it yet). Smoke steps never type into
+ * them or run anything in their folders. Null when the engine can't be asked: then no session is safe.
+ */
+async function runningSessions(): Promise<Set<string> | null> {
+  const running = await notifier.liveSessionIds().catch(() => null);
+  if (running && process.env.CLAUDE_CODE_SESSION_ID) running.add(process.env.CLAUDE_CODE_SESSION_ID);
+  return running;
+}
+
+/**
  * Opens the newest session with messages and tool activity (a brand-new or chat-only one has less to check);
  * failing that, the newest with messages. Later steps (actions, Changes, git) need its folder to be known.
+ * Never a running session (`runningSessions`): later steps type drafts into it and run actions in its folder.
+ * Those rows are not even clicked.
  */
 async function openSmokeSession(win: BrowserWindow): Promise<string> {
   const js = (code: string) => win.webContents.executeJavaScript(code);
+  const running = await runningSessions();
+  if (!running) return 'failed: could not ask the engine which sessions are running, so none is safe to use';
+  const rows = (await js("[...document.querySelectorAll('[data-session-id]')].map((row) => row.dataset.sessionId)")) as string[];
+  const listed = [...new Set(rows)];
+  const candidates = listed.filter((id) => !running.has(id)).slice(0, 8);
+  const skipped = listed.length - listed.filter((id) => !running.has(id)).length;
+  const left = skipped ? `, left ${skipped} running session${skipped === 1 ? '' : 's'} alone` : '';
   let fallback: string | null = null;
-  for (let i = 0; i < 8; i++) {
-    const id = (await js(`(() => { const row = document.querySelectorAll('[data-session-id]')[${i}]; row?.click(); return row?.dataset.sessionId ?? null; })()`)) as string | null;
-    if (!id) break;
+  for (const id of candidates) {
+    await js(`document.querySelector('[data-session-id="${id}"]')?.click()`);
     if (!(await waitInPage(win, `document.querySelector('[data-current-session]')?.dataset.currentSession === ${JSON.stringify(id)} && document.querySelector('[data-current-session] [data-transcript-item]')`, 5_000))) continue;
-    if (!(await js("document.querySelector('[data-current-session]')?.dataset.projectRoot?.startsWith('/') ?? false"))) continue;
+    if (!isAbsolutePath(String(await js("document.querySelector('[data-current-session]')?.dataset.projectRoot ?? ''")))) continue;
     fallback ??= id;
     if (await waitInPage(win, "document.querySelector('[data-activity], [data-tool]')", 1_000)) {
       smokeSessionId = id;
-      return 'ok: with tool activity';
+      return `ok: with tool activity${left}`;
     }
   }
-  if (!fallback) return 'failed: none of the newest 8 sessions opened with messages in a known folder';
+  if (!fallback) return `failed: none of the newest 8 sessions that aren't running opened with messages in a known folder${left}`;
   smokeSessionId = fallback;
   await js(`document.querySelector('[data-session-id="${fallback}"]').click()`);
-  return (await waitInPage(win, "document.querySelector('[data-transcript-item]')", 5_000)) ? 'ok: without tool activity' : 'failed: the fallback session did not render';
+  return (await waitInPage(win, "document.querySelector('[data-transcript-item]')", 5_000)) ? `ok: without tool activity${left}` : 'failed: the fallback session did not render';
 }
 
 /** The opened transcript is scrolled to the very end, with space between the last message and the composer. */
