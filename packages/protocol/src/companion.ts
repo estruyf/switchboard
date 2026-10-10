@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import type { ContractShape } from './rpc.ts';
 import { ContextItems } from './context.ts';
+import { PermissionDecision, PermissionRequest } from './host.ts';
 
 /**
  * The VS Code companion's contract: what the extension asks the engine over its Unix socket, and what the
@@ -43,6 +44,11 @@ export const CompanionSessions = z.object({
   focused: CompanionSession.nullable(),
   /** Switchboard windows connected to the engine; without one, context has nowhere to show. */
   windows: z.number(),
+  /**
+   * What the listed sessions are waiting on you for (a permission, a question, a plan), oldest first. Left out by
+   * engines from before the extension could answer them.
+   */
+  prompts: z.array(PermissionRequest).optional(),
 });
 export type CompanionSessions = z.infer<typeof CompanionSessions>;
 
@@ -75,6 +81,14 @@ export const companionContract = {
     },
     /** Shows a session in Switchboard and brings it to the front (the status bar item). */
     'session.reveal': { params: z.object({ sessionId: SessionId }), result: z.object({}) },
+    /**
+     * Answers one of `prompts`, as its card in Switchboard would. `acceptEdits` switches the session to accepting
+     * edits once a plan is approved. Fails with NOT_FOUND when it was already answered (in Switchboard, say).
+     */
+    'prompt.respond': {
+      params: z.object({ requestId: z.string().min(1).max(200), decision: PermissionDecision, acceptEdits: z.boolean().default(false) }),
+      result: z.object({}),
+    },
   },
   events: {
     /** The watched folders' sessions changed (status, title, new ones). */

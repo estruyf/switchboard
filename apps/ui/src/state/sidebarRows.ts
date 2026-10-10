@@ -161,7 +161,7 @@ export function groupSessions(active: readonly SessionRowData[], now: number): {
 
 /**
  * One row of the virtualised sidebar list: a session, a section header, the queue's header and its items,
- * the "+N hidden" line under a closed section's kept row, or the Archived toggle.
+ * the "+N hidden" line under a closed section's kept row, or the Archived header (only while it's in the list).
  */
 export type SidebarListRow =
   | { kind: 'session'; data: SessionRowData; archived: boolean; kept?: boolean }
@@ -173,6 +173,7 @@ export type SidebarListRow =
 
 export interface ListRowOptions {
   now: number;
+  /** Archived is listed (open, or a search shows its matches). Closed, its header is docked under the list instead. */
   archivedOpen: boolean;
   /** The queue as the sidebar lists it (filters applied), with how many are ready. Left out or empty: no Queue section. */
   queue?: { entries: readonly QueueEntry[]; ready: number };
@@ -184,8 +185,8 @@ export interface ListRowOptions {
 
 /**
  * The flat row list the sidebar virtualises: each non-empty section under its header, the Queue right under
- * Working (when it has items), then Archived. A closed section keeps its header and, when the open session is
- * in it, that session's row with a "+N hidden" line.
+ * Working (when it has items), then Archived while it's open. A closed section keeps its header and, when the open
+ * session is in it, that session's row with a "+N hidden" line.
  */
 export function buildListRows(active: readonly SessionRowData[], archived: readonly SessionRowData[], options: ListRowOptions): SidebarListRow[] {
   const list: SidebarListRow[] = [];
@@ -222,21 +223,29 @@ export function buildListRows(active: readonly SessionRowData[], archived: reado
     }
   }
   if (!queued) pushQueue();
-  if (archived.length) list.push({ kind: 'archived', count: archived.length, open: options.archivedOpen });
-  if (options.archivedOpen) for (const data of archived) list.push({ kind: 'session', data, archived: true });
+  if (archived.length && options.archivedOpen) {
+    list.push({ kind: 'archived', count: archived.length, open: true });
+    for (const data of archived) list.push({ kind: 'session', data, archived: true });
+  }
   return list;
 }
 
 /**
- * The room to leave above the Archived header so it sits at the bottom of the sidebar, out of the way, while the
- * list is shorter than the viewport. Counted without the archived sessions, so opening it leaves the header in place.
+ * Where the Archived header goes: docked under the list while it's closed, so a short list never scrolls and leaves
+ * no gap; in the list, right under the last active row, while it's open or a search shows its matches.
  */
-export function archivedFiller(rows: readonly SidebarListRow[], heightOf: (row: SidebarListRow) => number, viewport: number): number {
-  const index = rows.findIndex((row) => row.kind === 'archived');
-  if (index === -1) return 0;
-  let used = 0;
-  for (let i = 0; i <= index; i++) used += heightOf(rows[i]!);
-  return Math.max(0, viewport - used);
+export function archivedPlacement(count: number, options: { open: boolean; searching: boolean }): 'dock' | 'list' | null {
+  if (count === 0) return null;
+  return options.open || options.searching ? 'list' : 'dock';
+}
+
+/**
+ * Where to scroll the list after Archived opens: its header about 8px from the top, but only when it landed below
+ * the middle of the viewport. Null leaves the list where it is. `headerTop` is the header's offset in the list.
+ */
+export function archivedRevealTop(headerTop: number, view: { scrollTop: number; height: number; maxScroll: number }, margin = 8): number | null {
+  if (headerTop - view.scrollTop <= view.height / 2) return null;
+  return Math.max(0, Math.min(view.maxScroll, headerTop - margin));
 }
 
 /** What a closed (or the Queue's) header says next to its count, in the state's colour: "1 ready", "2 unread". */

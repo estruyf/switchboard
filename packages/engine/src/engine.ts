@@ -126,7 +126,7 @@ export function createEngine(options: EngineOptions): Engine {
   let companion: CompanionHub | null = null;
   const broadcast: RpcServer<Contract>['emit'] = (name, payload) => {
     for (const server of servers) server.emit(name, payload);
-    if (name === 'sessions.changed' || name === 'sessions.live' || name === 'session.host') companion?.sessionsChanged();
+    if (name === 'sessions.changed' || name === 'sessions.live' || name === 'session.host' || name === 'session.permission' || name === 'session.permissionResolved') companion?.sessionsChanged();
   };
 
   // Slow-ish (login shell), so start it now and await on demand. Before any transcript is read: the
@@ -557,8 +557,14 @@ export function createEngine(options: EngineOptions): Engine {
       infoDir: join(options.dataDir, COMPANION_DIR),
       appVersion: options.companion.appVersion,
       ...(options.companion.socketParent ? { socketParent: options.companion.socketParent } : {}),
-      sources: () => ({ summaries: sessions.snapshot().sessions, live: liveList(), hosts: hosts.list().hosts }),
+      sources: () => ({ summaries: sessions.snapshot().sessions, live: liveList(), ...hosts.list() }),
       windows: () => servers.size,
+      respond: async (requestId, decision, acceptEdits) => {
+        const sessionId = hosts.list().permissions.find((p) => p.requestId === requestId)?.sessionId;
+        hosts.respond(requestId, decision);
+        // Only once the plan is really approved, as its card in Switchboard does.
+        if (acceptEdits && sessionId && decision.behavior === 'allow') await hosts.setPermissionMode(sessionId, 'acceptEdits').catch(() => {});
+      },
       log,
     });
     void companion.start();
