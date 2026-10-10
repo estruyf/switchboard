@@ -119,7 +119,7 @@ It uses the Claude Code you already have installed, with your login, settings, c
 - A Mac with Apple Silicon
 - [Claude Code](https://github.com/anthropics/claude-code) installed and signed in (`claude` works in your terminal)
 
-Switchboard also runs on Windows 10 and 11, built from source for now: there is no Windows installer yet. See [Windows support](docs/windows-support.md).
+Switchboard also runs on Windows 10 and 11. Until a release has a signed Windows installer, build it from source. See [Windows support](docs/windows-support.md).
 
 ## Install
 

@@ -33,7 +33,7 @@ npm run check        # typecheck every package + unit tests (Vitest)
 npm run smoke        # build, launch the real app with a throwaway profile, drive the UI
 npm run screenshots  # retake the README screenshots in a made-up demo home folder
 npm run dev:vscode   # rebuild the VS Code companion on every change (F5 in VS Code runs it in a dev host)
-npm run dist         # package Switchboard.app and a .dmg
+npm run dist         # package the app for this OS: Switchboard.app and a .dmg, or the Windows installer
 ```
 
 Run `npm run check` after every change, and `npm run smoke` after UI or engine changes. Both must pass before you report work as done.
@@ -159,7 +159,7 @@ Releases are built by `.github/workflows/release.yml`, which runs when a release
 2. Retake the README screenshots with `npm run screenshots` and look at every image in `docs/screenshots` against the README's alt text and the CHANGELOG section. If the tour fails, a view it drives has changed: fix `apps/desktop/src/main/screenshotTour.ts` (or the demo world in `scripts/screenshot-demo.ts`) rather than skipping it. If a released feature belongs in a picture that doesn't show it yet, update the demo world or add a view. Commit the new images with the release.
 3. Publish a GitHub release with tag `vX.Y.Z` (only when the user asks). The notes may be left empty; the workflow fills them from the CHANGELOG section.
 
-The workflow builds with the version from the tag, signs and notarises the app, checks Gatekeeper accepts it, and attaches the `.dmg` to the release. It never attaches an unsigned build. For a Stable release it then pushes the stamped cask (`homebrew/switchboard.rb`) to `estruyf/homebrew-tap`; edit the cask here, never in the tap (see `docs/homebrew.md`). `npm run dist:notarized` is for checking a signed build locally.
+The workflow builds with the version from the tag, signs and notarises the app, checks Gatekeeper accepts it, and attaches the `.dmg` to the release. A second job builds the Windows installer, signs it (Azure Trusted Signing or a `.pfx`), checks the signatures and attaches it with `latest.yml`. It never attaches an unsigned build. For a Stable release it then pushes the stamped cask (`homebrew/switchboard.rb`) to `estruyf/homebrew-tap`; edit the cask here, never in the tap (see `docs/homebrew.md`). `npm run dist:notarized` is for checking a signed build locally.
 
 The VS Code companion is released separately by `.github/workflows/release-vscode.yml`, to the Visual Studio Marketplace and Open VSX: a GitHub release tagged `vscode-vX.Y.Z` (which `release.yml` skips), a commit on `main` whose message has both `#release` and `#vscode`, or a manual run. Bump `version` in `apps/vscode-extension/package.json` and add a section to `apps/vscode-extension/CHANGELOG.md` first; only release when the user asks. See [docs/vscode-companion.md](docs/vscode-companion.md#releasing-the-extension).
 

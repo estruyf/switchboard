@@ -347,6 +347,25 @@ Goal: a signed installer that updates itself, built by CI with every release.
 - A tagged release produces a signed Windows installer next to the `.dmg`.
 - Installing it on a clean Windows machine and updating it to the next release both work.
 
+### Phase 3 outcome
+
+On branch `feat/windows-release`. `npm run dist` on Windows 11 builds `Switchboard-<version>-setup.exe` (unsigned without a certificate), `npm run smoke:packaged` passes all 59 steps against the packaged app, and with the mock update feed it is offered an update from `latest.yml`. How to build, sign and release is in [Building and signing](building-and-signing.md#windows).
+
+What was done differently from the plan above, and why:
+- **3.1 One installer for both architectures**, not one each: electron-builder's default, and `latest.yml` then names one file. It's about twice the download (about 220 MB, nearly all of it Electron); updates download only the changed blocks.
+- **3.1 `npm run dist` builds for the OS it runs on** (`scripts/dist.mjs`), rather than `dist:mac` and `dist:win`: neither can be built on the other OS anyway (the `.dmg` is signed and notarised on a Mac, the installer signed on Windows). The script also gives the Windows build the package name `switchboard`, as the per-user installer names its folder after it (it would be `@switchboarddesktop`). Setting it in `electron-builder.yml` would also move the macOS updater's download cache.
+- **3.1 Icon:** `npm run icon` makes `build/icon.ico` with Electron, so on any OS, from the tile without macOS's margin and shadow.
+- **3.1 `node-pty`:** its install leaves a copy of ConPTY for the build machine's architecture in `build/Release`, which is left out; each app loads `prebuilds/win32-<arch>`. Both architectures' prebuilds stay in each app (a few MB), as file patterns can't tell them apart.
+- **3.2 Updater:** no change was needed. Installing shows the installer's progress window and restarts the app (`quitAndInstall(false, true)`): silent would leave the app gone for several seconds with nothing on screen. Closing the window asks first on Windows, but not while quitting to install, as `before-quit` comes before the windows close.
+- **3.3 Signing:** code signing certificates can no longer be exported as files, so the workflow supports Azure Trusted Signing (repository variables and an app registration's secret) and, for an older certificate, a `.pfx`.
+- **3.4 CI:** `check.yml` runs `npm run check` on `macos-15` and `windows-latest` for every pull request and push to `main`. The smoke test isn't run there: it needs a `~/.claude` with real sessions, which a runner doesn't have.
+- **3.5 WinGet:** not done. Its manifest needs the signed installer's URL and checksum, so it follows the first signed release.
+
+Still to do, by the maintainer or with them:
+- set up signing (decision 5 and 9) and publish a release, which runs the Windows job for the first time;
+- install that release on a clean Windows PC, and update it to the next one;
+- try the Arm64 build on Arm hardware.
+
 ## Decisions for the maintainer
 
 These shape the work. The defaults in brackets are what is built until they are decided.
@@ -359,6 +378,7 @@ These shape the work. The defaults in brackets are what is built until they are 
 6. **Windows on ARM** [built, but tested only when someone has the hardware].
 7. **Shortcuts in the terminal on Windows** [Ctrl+Shift keys are Switchboard's, Ctrl keys the shell's; the alternative is VS Code's way, where Switchboard's own shortcuts such as Ctrl+B win over the shell].
 8. **Window frame on Windows** [the system's title bar; `titleBarOverlay` for a frameless look is later polish].
+9. **How to sign on Windows** [Azure Trusted Signing; a `.pfx` also works if you have an exportable certificate]. It needs an Azure subscription and an identity check by Microsoft.
 
 ## Effort
 
