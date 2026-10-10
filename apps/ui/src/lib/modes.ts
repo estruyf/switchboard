@@ -27,5 +27,5 @@ export function nextMode(mode: PermissionMode): PermissionMode {
   return cycle[(index + 1) % cycle.length]!;
 }
 
-/** Worktree name from the first words of a prompt; shared with the engine, which names a queued item's worktree the same way. */
-export { worktreeSlug } from '@switchboard/protocol/client';
+/** A random three-word worktree name; shared with the engine, which names a queued item's worktree the same way. */
+export { randomWorktreeName } from '@switchboard/protocol/client';

@@ -14,7 +14,7 @@ import { usePaletteBus, useSessionRequests, type SessionDigest } from '../../sta
 import { usePreferences } from '../../state/preferencesStore.ts';
 import { useProjects } from '../../state/projectsStore.ts';
 import { realBranch, useSessions, type Pane } from '../../state/sessionsStore.ts';
-import { useTerminals } from '../../state/terminalsStore.ts';
+import { runInTerminal, useTerminals } from '../../state/terminalsStore.ts';
 import { sessionDraftBanner } from '../../state/drafts.ts';
 import { useDrafts, type ComposerDraft } from '../../state/draftsStore.ts';
 import { DraftBanner } from '../drafts/DraftBanner.tsx';
@@ -581,8 +581,9 @@ export function TranscriptView({ sessionId, pane = null, active = true }: { sess
         );
       },
       canEdit: (uuid) => previous.has(uuid),
+      runCommand: cwd ? (command) => void runInTerminal(client, sessionId, cwd, command).catch(fail) : null,
     };
-  }, [client, items, sessionId, select]);
+  }, [client, items, sessionId, select, cwd]);
 
   // The command palette's Fork…, Rewind…, Copy last reply: your prompts and Claude's last reply, from the active pane.
   useEffect(() => {

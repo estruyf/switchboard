@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { tokenAtCaret } from '../components/composer/tokens.ts';
-import { nextMode, worktreeSlug } from './modes.ts';
+import { nextMode, randomWorktreeName } from './modes.ts';
 
 describe('composer tokens', () => {
   it('detects slash commands and @-mentions at the start or after whitespace', () => {
@@ -23,8 +23,7 @@ describe('modes', () => {
     expect(nextMode('auto')).toBe('default');
   });
 
-  it('turns a prompt into a worktree name', () => {
-    expect(worktreeSlug('Fix the login redirect after OAuth callback!')).toBe('fix-the-login-redirect-after-oauth');
-    expect(worktreeSlug('   ', Date.UTC(2026, 9, 5))).toBe('session-2026-10-05');
+  it('makes up a short worktree name', () => {
+    expect(randomWorktreeName(() => 0.5)).toBe('lucky-leaping-lantern');
   });
 });

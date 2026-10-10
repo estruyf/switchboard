@@ -14,7 +14,7 @@ export * from './claudeUpdate.ts';
 export * from './backup.ts';
 export * from './later.ts';
 export * from './projectConstants.ts';
-export * from './worktreeSlug.ts';
+export * from './worktreeName.ts';
 export * from './context.ts';
 export * from './companion.ts';
 export * from './companionConstants.ts';
