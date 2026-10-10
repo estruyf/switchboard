@@ -33,6 +33,17 @@ const encode = (to, scale) => {
 encode('promo.mp4', null);
 encode('promo-720p.mp4', '1280:720');
 
+// A GIF for the README, since GitHub doesn't play a video committed to the repo inline. 720px at 10 fps with a
+// 128-colour palette stays under GitHub's 10 MB image limit. The output `-r` drops frames after the filters (the
+// bundled ffmpeg has no `fps` filter), and `stats_mode=diff` builds the palette from what moves, not the dark ground.
+ffmpeg([
+  '-i', join(OUT, 'promo.mp4'),
+  '-vf', 'scale=720:-1:flags=lanczos,split[a][b];[a]palettegen=max_colors=128:stats_mode=diff[p];[b][p]paletteuse=dither=bayer:bayer_scale=4:diff_mode=rectangle',
+  '-r', '10', '-loop', '0',
+  join(WEB, 'promo.gif'),
+]);
+console.log(`out/web/promo.gif  ${mb(join(WEB, 'promo.gif'))}`);
+
 // The poster: Home under its caption, about seven seconds in.
 ffmpeg(['-ss', '7', '-i', join(OUT, 'promo.mp4'), '-frames:v', '1', '-q:v', '3', join(WEB, 'poster.jpg')]);
 console.log(`out/web/poster.jpg  ${mb(join(WEB, 'poster.jpg'))}`);
