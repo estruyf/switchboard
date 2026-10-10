@@ -1,9 +1,10 @@
-import { app, MessageChannelMain, Notification, type BrowserWindow } from 'electron';
+import { app, MessageChannelMain, nativeImage, Notification, type BrowserWindow, type NativeImage } from 'electron';
 import { createRpcClient, type Contract, type LaterItem, type QueueStarted, type RpcClient } from '@switchboard/protocol/client';
 import { mainPortTransport } from '../shared/mainPortTransport.ts';
 import { Attention, type AttentionEvent } from './attention.ts';
 import type { EngineProcess } from './engineProcess.ts';
 import { queueHint } from './queueHint.ts';
+import { badgeDescription, badgeDotBitmap } from './taskbarBadge.ts';
 
 export interface NotifierOptions {
   engine: EngineProcess;
@@ -18,7 +19,7 @@ export interface NotifierOptions {
 }
 
 /**
- * Main's own connection to the engine, so notifications and the dock badge
+ * Main's own connection to the engine, so notifications and the badge (Dock or taskbar)
  * work even with the window closed.
  */
 export class Notifier {
@@ -26,6 +27,8 @@ export class Notifier {
   private readonly attention: Attention;
   /** Notifications must be referenced until closed, or macOS drops their click handlers. */
   private readonly shown = new Set<Notification>();
+  /** The dot over the taskbar button on Windows, made once. */
+  private dot: NativeImage | undefined;
   /** The queue, so a finished turn can say what is next there. */
   private queue: { items: LaterItem[]; started: QueueStarted[] } = { items: [], started: [] };
 
@@ -94,7 +97,11 @@ export class Notifier {
         this.shown.add(notification);
         notification.show();
       }
-      if (event.kind === 'needs-you' && !focused) app.dock?.bounce('informational');
+      if (event.kind === 'needs-you' && !focused) {
+        app.dock?.bounce('informational');
+        // Windows and Linux have no Dock: the taskbar button flashes until the window is focused.
+        if (process.platform !== 'darwin' && win && !win.isDestroyed()) win.flashFrame(true);
+      }
     }
     this.updateBadge();
   }
@@ -102,5 +109,10 @@ export class Notifier {
   private updateBadge(): void {
     const count = this.attention.badge();
     app.dock?.setBadge(count > 0 ? String(count) : '');
+    // Windows has no badge count: a dot over the taskbar button says it instead.
+    const win = this.options.window();
+    if (process.platform === 'win32' && win && !win.isDestroyed()) {
+      win.setOverlayIcon(count > 0 ? (this.dot ??= nativeImage.createFromBitmap(badgeDotBitmap(32), { width: 32, height: 32 })) : null, count > 0 ? badgeDescription(count) : '');
+    }
   }
 }

@@ -72,6 +72,10 @@ if (!scripted) {
 // whenReady would start a second engine. app.exit() ends the process before the next line.
 if (!app.requestSingleInstanceLock()) app.exit(0);
 
+// Windows shows an app's notifications only under an AppUserModelID: the installer's (the appId) once installed,
+// Electron's own path in development, where no Start menu entry carries one.
+if (process.platform === 'win32') app.setAppUserModelId(app.isPackaged ? 'dev.switchboard.app' : process.execPath);
+
 // SWITCHBOARD_COLOR_SCHEME=light|dark forces a scheme without saving it (to check both in the smoke test).
 const forcedScheme = process.env.SWITCHBOARD_COLOR_SCHEME;
 const preferences = new PreferencesStore(join(app.getPath('userData'), 'preferences.json'), sanitizePreferences({ colorScheme: forcedScheme }).colorScheme);
@@ -478,6 +482,8 @@ function createWindow(): BrowserWindow {
   win.on('maximize', remember);
   win.on('unmaximize', remember);
   win.on('close', remember);
+  // The taskbar button flashes while a session needs you (Notifier); looking at the window is enough.
+  if (process.platform !== 'darwin') win.on('focus', () => win.flashFrame(false));
   // On Windows and Linux closing the window quits the app (its sessions stop), so it asks first, as ⌘Q does on macOS.
   win.on('close', (event) => {
     if (process.platform === 'darwin' || quitting || scripted || !preferences.get().confirmQuit) return;
