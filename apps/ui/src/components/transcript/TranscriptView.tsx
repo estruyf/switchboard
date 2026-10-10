@@ -21,6 +21,8 @@ import { DraftBanner } from '../drafts/DraftBanner.tsx';
 // xterm.js is large; it loads the first time a terminal panel opens, not at startup.
 const TerminalPanel = lazy(() => import('../terminal/TerminalPanel.tsx').then((m) => ({ default: m.TerminalPanel })));
 import { Composer } from '../composer/Composer.tsx';
+import { QueueButton } from '../composer/QueueButton.tsx';
+import { queueButtonState } from '../composer/queueButton.ts';
 import { sessionHistory } from '../composer/promptHistory.ts';
 import { ActionPills } from '../actions/ActionPills.tsx';
 import { useActionsMenu } from '../actions/useActionsMenu.tsx';
@@ -608,11 +610,11 @@ export function TranscriptView({ sessionId, pane = null, active = true }: { sess
    * back, or a fork, goes through the focus limit's gate; answering a session that already counts never
    * does. `ungated`: finishing work (commit, compact), which the limit never stands in the way of.
    */
-  const send = async (text: string, attachments: ImageAttachment[], fork = false, ungated = false): Promise<void | false> => {
+  const send = async (text: string, attachments: ImageAttachment[], fork = false, ungated = false, now = false): Promise<void | false> => {
     if (!client) throw new Error('Not connected to the engine');
     if (!ungated && (await passFocusGate({ target: fork ? null : sessionId })) !== 'start') return false;
     stickToBottom.current = true;
-    const result = await client.call('session.send', { sessionId, text, attachments, fork });
+    const result = await client.call('session.send', { sessionId, text, attachments, fork, now });
     if (result.sessionId !== sessionId) select(result.sessionId);
   };
 
@@ -643,6 +645,8 @@ export function TranscriptView({ sessionId, pane = null, active = true }: { sess
       ? { tokens: activeHost.contextTokens, max: activeHost.contextMax, percent: activeHost.contextPercent ?? (activeHost.contextTokens / activeHost.contextMax) * 100 }
       : null;
   const checkTranscript = () => usePaletteBus.getState().showDialog({ kind: 'transcript-diagnosis', sessionId, title: summary ? title : null });
+  // While Claude works here, a message can skip the wait: Send now stops the current turn first.
+  const canSendNow = running && Boolean(activeHost);
   const compact = activeHost ?() => void send('/compact', [], false, true).catch((e: Error) => setActionError(e.message)) : undefined;
   // One element for both docks: below it sits in the conversation's column, on the right next to it.
   const terminalPanel = (
@@ -1040,11 +1044,17 @@ export function TranscriptView({ sessionId, pane = null, active = true }: { sess
                 cwd={cwd}
                 commands={commands}
                 running={running}
-                placeholder={running ? 'Message Claude. Sent now, it waits until Claude finishes.' : activeHost ? 'Message Claude' : 'Message Claude to resume this session'}
+                placeholder={running ? `Message Claude. It waits until Claude finishes, or ${formatKeys(keysFor('composer.send-now'))} sends it now.` : activeHost ? 'Message Claude' : 'Message Claude to resume this session'}
                 submitLabel={openElsewhere ? 'Fork and send' : undefined}
                 dropHint={status === 'ready' && messages.length === 0}
                 disabledReason={!client ? 'Connecting to the engine…' : !cwd ? 'The folder for this session is unknown' : null}
                 onSubmit={(text, attachments) => send(text, attachments, openElsewhere)}
+                secondary={canSendNow ? { shortcut: 'composer.send-now', onSubmit: (text, attachments) => send(text, attachments, false, false, true) } : undefined}
+                submitControl={
+                  canSendNow
+                    ? (box) => <QueueButton state={queueButtonState(box)} onAction={(action) => (action === 'send-now' ? box.submitSecondary() : box.submit())} />
+                    : undefined
+                }
                 onInterrupt={() => void client?.call('session.interrupt', { sessionId })}
                 onCycleMode={
                   activeHost ? () => void client?.call('session.setPermissionMode', { sessionId, mode: nextMode(activeHost.permissionMode) }) : undefined

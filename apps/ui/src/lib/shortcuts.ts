@@ -544,6 +544,16 @@ export const SHORTCUTS = [
     where: "composer",
   },
   {
+    id: "composer.send-now",
+    keys: ["mod+shift+enter"],
+    action: "Send now",
+    section: "session",
+    context: "While Claude is working",
+    note: "Stops what Claude is doing so your message runs right away",
+    when: (ctx) => inSession(ctx) && ctx.running,
+    where: "composer",
+  },
+  {
     id: "mode.cycle",
     keys: ["shift+tab"],
     action: "Switch permission mode",

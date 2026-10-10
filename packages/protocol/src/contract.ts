@@ -241,6 +241,8 @@ export const contract = {
         text: Prompt,
         attachments: z.array(ImageAttachment).max(20).default([]),
         fork: z.boolean().default(false),
+        /** While Claude is working, stop its current turn so this message runs now instead of waiting for it. */
+        now: z.boolean().default(false),
       }),
       result: z.object({ sessionId: z.string(), messageUuid: z.string() }),
     },

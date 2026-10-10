@@ -683,6 +683,12 @@ async function runLiveSessionStep(win: BrowserWindow, cwd: string): Promise<stri
   await new Promise((resolve) => setTimeout(resolve, 500));
   await shot('slash-command.png');
   const js = (code: string) => win.webContents.executeJavaScript(code);
+
+  // Send now: while Claude writes a long reply, the button turns into Queue ▾ with Send now in its menu,
+  // and ⌘⇧↩ stops the reply so the new message is answered at once.
+  const sentNow = await runSendNowLive(win);
+  if (!sentNow.startsWith('ok')) return sentNow;
+  console.log(`[smoke] ${sentNow}`);
   const liveId = (await js("document.querySelector('[data-current-session]').dataset.currentSession")) as string;
 
   // An agent: the header's More menu says "1 running" while it runs, and the dialog shows what it's doing.
@@ -773,6 +779,40 @@ async function runLiveSessionStep(win: BrowserWindow, cwd: string): Promise<stri
   }
   const trashed = existsSync(join(homedir(), '.Trash', `${sessionId}.jsonl`));
   return trashed ? 'ok' : 'deleted, but the transcript is not in ~/.Trash';
+}
+
+/**
+ * The live part of Send now (in the sandbox session): a long reply starts, the message box offers Queue ▾
+ * with Send now, and ⌘⇧↩ stops the reply and gets the new message answered before the long one could finish.
+ */
+async function runSendNowLive(win: BrowserWindow): Promise<string> {
+  const js = (code: string) => win.webContents.executeJavaScript(code);
+  const texts = "[...document.querySelectorAll('[data-item-kind=\"text\"]')].map((el) => el.innerText)";
+  await setFieldValue(win, '[data-composer]', 'Count from 1 to 1000, one number per line, with no other text.');
+  await js("document.querySelector('[data-composer-submit]').click()");
+  if (!(await waitInPage(win, "document.querySelector('[data-current-session] [data-send-menu]')", 30_000))) return 'no Queue ▾ while Claude was working';
+  const label = ((await js("document.querySelector('[data-current-session] [data-composer-submit]').innerText")) as string).trim();
+  if (label !== 'Queue') return `the main button said ${JSON.stringify(label)} while Claude was working, not Queue`;
+  await setFieldValue(win, '[data-composer]', 'Reply with exactly: SENT NOW');
+  await js("document.querySelector('[data-current-session] [data-send-menu]').click()");
+  if (!(await waitInPage(win, "document.querySelector('[role=menu] [data-send-now]:not(:disabled)') && document.querySelector('[role=menu] [data-queue-message]')", 3_000))) return 'the ▾ menu did not offer Queue and Send now';
+  const hint = ((await js("document.querySelector('[role=menu] [data-send-now]').innerText")) as string).replace(/\s+/g, ' ').trim();
+  await shot(win, 'send-now-menu.png');
+  // Esc closes the menu only; it must not stop Claude (the reply has to still be running for ⌘⇧↩ to matter).
+  pressKey(win, 'Escape');
+  if (!(await waitInPage(win, "!document.querySelector('[role=menu]')", 2_000))) return 'Esc did not close the ▾ menu';
+  if (!(await js("!!document.querySelector('[data-current-session] [data-send-menu]')"))) return 'Esc on the menu also stopped Claude';
+  await js("document.querySelector('[data-composer]').focus()");
+  const sentAt = performance.now();
+  pressKey(win, 'Return', ['meta', 'shift']);
+  if (!(await waitInPage(win, "document.querySelector('[data-composer]').value === ''", 5_000))) return '⌘⇧↩ did not send the message';
+  if (!(await waitInPage(win, `${texts}.some((t) => t.trim() === 'SENT NOW')`, 60_000))) return 'no answer to the message sent now';
+  const seconds = ((performance.now() - sentAt) / 1000).toFixed(1);
+  // Stopped: the count never got to 1000.
+  if ((await js(`${texts}.some((t) => /(^|\\n)1000\\s*$/.test(t.trim()))`)) as boolean) return 'the long reply ran to the end: Send now did not stop it';
+  if (!(await waitInPage(win, "!document.querySelector('[data-current-session] [data-send-menu]')", 15_000))) return 'Queue ▾ stayed after Claude finished';
+  await shot(win, 'send-now.png');
+  return `ok: Send now (${hint}) stopped the count and was answered in ${seconds}s`;
 }
 
 /** When the smoke run killed the engine, to time the restart. */
@@ -2950,6 +2990,7 @@ async function shortcutsChecks(win: BrowserWindow, js: (code: string) => Promise
   if (!(await waitInPage(win, "!document.querySelector('[data-current-session]')", 3_000))) return '⌘⇧H did not go Home';
   if (!(await open())) return '⌘/ did not open the sheet at Home';
   if ((await js("document.querySelector('[data-shortcut-row=\"claude.stop\"]')?.dataset.available")) !== 'false') return 'Stop Claude was not faded at Home in All';
+  if ((await js("document.querySelector('[data-shortcut-row=\"composer.send-now\"]')?.dataset.available")) !== 'false') return 'Send now was missing or not faded at Home in All';
   await js("document.querySelector('[data-shortcut-mode-option=\"here\"]').click()");
   if (!(await waitInPage(win, `${SHEET}?.dataset.shortcutMode === 'here' && !document.querySelector('[data-shortcut-row="claude.stop"]')`, 2_000))) return 'Here still showed Stop Claude at Home';
   if (!(await js("!!document.querySelector('[data-shortcut-row=\"session.new\"]')"))) return 'Here hid New session at Home';
@@ -2965,7 +3006,7 @@ async function shortcutsChecks(win: BrowserWindow, js: (code: string) => Promise
   if (!(await open())) return '⌘/ did not open the sheet again';
   pressKey(win, 'Escape');
   if (!(await waitInPage(win, `!${SHEET} && document.activeElement?.matches('textarea[data-composer]')`, 2_000))) return `Esc did not put focus back in the message box (${String(await js('document.activeElement?.outerHTML.slice(0, 80)'))})`;
-  return 'ok: ⌘/ opens it from the message box with Command palette ⌘ K (light and dark), "terminal" filters, ⌘J is typed not run, ⌘/ closes, Here hides Stop Claude at Home, Esc closes and gives focus back';
+  return 'ok: ⌘/ opens it from the message box with Command palette ⌘ K (light and dark), "terminal" filters, ⌘J is typed not run, ⌘/ closes, Stop Claude and Send now fade at Home, Here hides Stop Claude there, Esc closes and gives focus back';
 }
 
 /**
@@ -3385,6 +3426,23 @@ async function runDropStep(win: BrowserWindow): Promise<string> {
  * Prompt history: in a session with a message you sent, ↑ in the message box brings it back and ↓ puts
  * the draft back. Only the box's text changes, and it is emptied again; nothing is sent.
  */
+/**
+ * Read-only part of Send now, on the smoke session (not running here): the message box has its plain Send
+ * button, with no Queue ▾, and the hint doesn't offer ⌘⇧↩. The live step sends one for real in the sandbox.
+ */
+async function runSendNowStep(win: BrowserWindow): Promise<string> {
+  const js = (code: string) => win.webContents.executeJavaScript(code);
+  const pane = `[data-current-session="${smokeSessionId}"]`;
+  await js(`document.querySelector('[data-session-id="${smokeSessionId}"]')?.click()`);
+  if (!(await waitInPage(win, `document.querySelector('${pane} [data-composer-submit]')`, 5_000))) return 'no submit button in the smoke session';
+  if (await js(`!!document.querySelector('${pane} [data-send-menu]')`)) return 'Queue ▾ shown for a session that is not working';
+  const label = ((await js(`document.querySelector('${pane} [data-composer-submit]').innerText`)) as string).trim();
+  if (label === 'Queue') return 'the button says Queue for a session that is not working';
+  const hint = (await js(`document.querySelector('${pane} textarea[data-composer]').placeholder`)) as string;
+  if (hint.includes('sends it now')) return `the placeholder offers Send now while idle: ${JSON.stringify(hint)}`;
+  return `ok: plain ${JSON.stringify(label)} button, no Queue ▾ while Claude isn't working`;
+}
+
 async function runHistoryStep(win: BrowserWindow): Promise<string> {
   const js = (code: string) => win.webContents.executeJavaScript(code);
   const pause = () => settle(win);
@@ -3767,6 +3825,7 @@ async function runSmokeStep(win: BrowserWindow | null): Promise<void> {
   await step('multi-select and archive', () => runArchiveManyStep(win));
   await step('drop target', () => runDropStep(win));
   await step('prompt history', () => runHistoryStep(win));
+  await step('send now only while Claude works', () => runSendNowStep(win));
   await step('controls', () => runControlsStep(win));
   await step('sidebar states', () => runSidebarStatesStep(win));
   await step('new session view', () => runNewSessionStep(win));

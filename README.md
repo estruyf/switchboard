@@ -222,6 +222,7 @@ Press **⌘/** (or Help › Keyboard Shortcuts) to see every shortcut in the app
 | ⌘⇧L | Pull (when the branch is behind) |
 | ⌘O | Open the folder in your editor |
 | Esc | Stop Claude (while Claude is working) |
+| ⌘⇧↩ | Send now (while Claude is working; Stops what Claude is doing so your message runs right away) |
 | ⇧⇥ | Switch permission mode (in the message box) |
 
 **Message box**

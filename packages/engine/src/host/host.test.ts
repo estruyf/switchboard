@@ -257,6 +257,34 @@ describe('HostManager', () => {
     t.manager.closeAll();
   });
 
+  it('sends now by stopping the current turn first', async () => {
+    const t = setup();
+    const id = await t.manager.create({ ...base, cwd: '/w', prompt: 'bash:npm run build' });
+    await until(() => t.permissions.length === 1);
+    await t.manager.send({ sessionId: id, text: 'Look at the tests instead', attachments: [], fork: false, now: true });
+    expect(t.queries[0]!.interrupts).toBe(1);
+    // The waiting prompt is denied with the interrupt, then the new message gets its own turn.
+    await until(() => t.messages.some((m) => m.messages.some((x) => x.uuid === 'a-Hello')));
+    const uuids = t.messages.flatMap((m) => m.messages.map((x) => x.uuid));
+    expect(uuids.indexOf('a-deny')).toBeLessThan(uuids.indexOf('a-Hello'));
+    t.manager.closeAll();
+  });
+
+  it('only stops Claude for a message sent now while it works', async () => {
+    const t = setup();
+    const id = await t.manager.create({ ...base, cwd: '/w', prompt: 'bash:npm test' });
+    await until(() => t.permissions.length === 1);
+    // Queued: it waits for the turn instead of stopping it.
+    await t.manager.send({ sessionId: id, text: 'Then the docs', attachments: [], fork: false });
+    expect(t.queries[0]!.interrupts).toBe(0);
+    t.manager.respond(t.permissions[0]!.requestId, { behavior: 'allow' });
+    await until(() => lastState(t.infos, id) === 'idle' && t.messages.some((m) => m.messages.some((x) => x.uuid === 'a-Hello')));
+    // Idle: there is nothing to stop.
+    await t.manager.send({ sessionId: id, text: 'One more', attachments: [], fork: false, now: true });
+    expect(t.queries[0]!.interrupts).toBe(0);
+    t.manager.closeAll();
+  });
+
   it('refuses to resume a session open elsewhere, but can fork it', async () => {
     const t = setup({ openElsewhere: ['busy'], cwds: { busy: '/repo' } });
     await expect(t.manager.send({ sessionId: 'busy', text: 'hi', attachments: [], fork: false })).rejects.toMatchObject({ code: 'SESSION_BUSY_ELSEWHERE' });

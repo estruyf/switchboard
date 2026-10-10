@@ -234,8 +234,13 @@ export class HostManager {
     return this.spawn({ ...common, sessionId, mode: 'resume' });
   }
 
-  async send(params: { sessionId: string; text: string; attachments: ImageAttachment[]; fork: boolean }): Promise<{ sessionId: string; messageUuid: string }> {
+  /**
+   * Sends a message. `now`: while Claude is busy, its current turn is stopped first, so this message (and
+   * any sent before it that still wait, which survive an interrupt) runs right away instead of after it.
+   */
+  async send(params: { sessionId: string; text: string; attachments: ImageAttachment[]; fork: boolean; now?: boolean }): Promise<{ sessionId: string; messageUuid: string }> {
     const host = await this.ensureHost(params.sessionId, params.fork, 'This session is open in another Claude Code window. Fork it to continue here.');
+    if (params.now && !params.fork && (host.info.state === 'running' || host.info.state === 'needs-you')) await this.interrupt(host.sessionId);
     const messageUuid = host.send(params.text, params.attachments);
     // Wait for a fork to start, so a fork that fails says so, and in case Claude Code settled on another id than the one we gave it.
     const sessionId = params.fork ? await host.initialized : host.sessionId;

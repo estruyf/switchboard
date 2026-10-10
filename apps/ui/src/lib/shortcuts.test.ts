@@ -207,6 +207,7 @@ describe('the shortcut registry', () => {
       'git.pull': [{ ...SESSION, behind: true }, SESSION],
       'editor.open': [SESSION, at({ view: 'new-session' })],
       'claude.stop': [{ ...SESSION, running: true }, SESSION],
+      'composer.send-now': [{ ...SESSION, running: true }, SESSION],
       'mode.cycle': [SESSION, HOME],
       'composer.send': [at({ view: 'new-session' }), HOME],
       'composer.newline': [SESSION, at({ view: 'settings' })],

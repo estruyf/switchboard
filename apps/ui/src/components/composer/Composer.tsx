@@ -556,7 +556,7 @@ export function Composer(props: ComposerProps) {
               {props.controls}
               {/* The keys still get read out with the message box; the chips take the hint's place on screen. */}
               <span id={`${ids}-hint`} className="sr-only">
-                {props.running ? 'Esc stops Claude.' : `/ for commands, @ for files${props.onCycleMode ? ', ⇧Tab to change mode' : ''}.`}
+                {props.running ? `Esc stops Claude.${props.secondary ? ` ${formatKeys(keysFor(props.secondary.shortcut))} sends now.` : ''}` : `/ for commands, @ for files${props.onCycleMode ? ', ⇧Tab to change mode' : ''}.`}
               </span>
             </div>
           ) : (
@@ -566,7 +566,7 @@ export function Composer(props: ComposerProps) {
                   {notice}
                 </span>
               ) : props.running ? (
-                'Esc to stop Claude · messages you send now are queued'
+                `Esc to stop Claude · messages wait for Claude to finish${props.secondary ? ` · ${formatKeys(keysFor(props.secondary.shortcut))} sends now` : ''}`
               ) : (
                 `/ for commands · @ for files${props.onCycleMode ? ' · ⇧Tab to change mode' : ''}`
               )}
