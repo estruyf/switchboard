@@ -1,3 +1,4 @@
+import { modKey } from '../../lib/shortcuts.ts';
 import { FileText } from 'lucide-react';
 import { useEffect, useId, useRef, useState } from 'react';
 import { joinPath } from '@switchboard/protocol/client';
@@ -95,7 +96,7 @@ function AddContextDialog({ target, onClose }: { target: ComposerTarget & { cwd:
           if (e.key === 'ArrowDown') (e.preventDefault(), setActive((i) => Math.min(files.length - 1, i + 1)));
           else if (e.key === 'ArrowUp') (e.preventDefault(), setActive((i) => Math.max(0, i - 1)));
           else if (e.key === ' ' && files[active]) (e.preventDefault(), toggle(files[active]!));
-          else if (e.key === 'Enter' && !e.metaKey && !e.nativeEvent.isComposing) (e.preventDefault(), add());
+          else if (e.key === 'Enter' && !modKey(e) && !e.nativeEvent.isComposing) (e.preventDefault(), add());
         }}
         placeholder="Search files"
         aria-label="Search files in the session's folder"

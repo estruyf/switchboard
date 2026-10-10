@@ -1,3 +1,4 @@
+import { sameShortcut, shortcutFromEvent } from '../../lib/shortcuts.ts';
 import { fileManagerName } from '../../lib/platform.ts';
 import { Download, ImageOff, Maximize2, X } from 'lucide-react';
 import { useEffect, useRef, useState, type KeyboardEvent, type MouseEvent } from 'react';
@@ -68,7 +69,7 @@ function Lightbox({ url, description, onSave, onClose }: { url: string; descript
   useEffect(() => {
     const onKey = (e: globalThis.KeyboardEvent) => {
       if (e.key === 'Escape') onClose();
-      else if (e.metaKey && !e.shiftKey && !e.altKey && !e.ctrlKey && e.key.toLowerCase() === 's') {
+      else if (sameShortcut(shortcutFromEvent(e) ?? '', 'mod+s')) {
         e.preventDefault();
         onSave();
       }

@@ -34,7 +34,7 @@ import { ProjectFilter } from './ProjectMenu.tsx';
 import { sessionRowLabel } from './rowLabel.ts';
 import { StatusIcon } from './StatusIcon.tsx';
 import { ARCHIVE, useSessionMenu, type FlagChange } from './useSessionMenu.tsx';
-import { formatKeys, keysFor, matches } from '../../lib/shortcuts.ts';
+import { formatKeys, keysFor, matches, modKey } from '../../lib/shortcuts.ts';
 import { useQueueMenu } from '../queue/queueMenu.tsx';
 import { useQueueDrag } from '../queue/useQueueDrag.ts';
 import { QueueRow } from './QueueRow.tsx';
@@ -642,7 +642,7 @@ export function Sidebar() {
 
   // ⌘-click adds a row to the selection, ⇧-click selects a range, ⌥-click opens it in the other pane.
   const rowClick = (event: MouseEvent, data: SessionRowData) => {
-    if (event.metaKey) togglePicked(data.id);
+    if (modKey(event)) togglePicked(data.id);
     else if (event.shiftKey) setPicks((p) => rangePick(p, data.id, selectedId, order));
     else {
       setPicks(NO_PICKS);

@@ -14,7 +14,7 @@ import { onFirstLine, onLastLine, textareaRows } from './caretLine.ts';
 import { PromptHistory, recallAnnouncement, routeArrow, type Recall } from './promptHistory.ts';
 import { tokenAtCaret } from './tokens.ts';
 import { useAttachments } from './useAttachments.ts';
-import { ariaKeysFor, formatKeys, keysFor, matches, type ShortcutId } from '../../lib/shortcuts.ts';
+import { ariaKeysFor, formatKeys, keysFor, localizeKeys, matches, type ShortcutId } from '../../lib/shortcuts.ts';
 import { submitKey } from '../newSession/startMenu.ts';
 
 type PaletteItem = { value: string; label: string; detail: string };
@@ -568,7 +568,7 @@ export function Composer(props: ComposerProps) {
               ) : props.running ? (
                 `Esc to stop Claude · messages wait for Claude to finish${props.secondary ? ` · ${formatKeys(keysFor(props.secondary.shortcut))} sends now` : ''}`
               ) : (
-                `/ for commands · @ for files${props.onCycleMode ? ' · ⇧Tab to change mode' : ''}`
+                `/ for commands · @ for files${props.onCycleMode ? ` · ${localizeKeys('⇧Tab')} to change mode` : ''}`
               )}
             </span>
           )}

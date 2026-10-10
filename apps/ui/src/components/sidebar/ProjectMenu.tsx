@@ -1,3 +1,4 @@
+import { currentPlatform } from '../../lib/platform.ts';
 import { useCallback, useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode, type RefObject } from 'react';
 import { Check, ChevronDown, Ellipsis, FolderCog, FolderOpen, FolderPlus, Image, Layers, Pencil, RotateCcw, Smile, Type, X } from 'lucide-react';
 import { isAbsolutePath, type ProjectIconChoice } from '@switchboard/protocol/client';
@@ -91,7 +92,7 @@ function EmojiPicker({ x, y, root, onClose }: { x: number; y: number; root: stri
             value={value}
             maxLength={16}
             onChange={(e) => setValue(e.target.value)}
-            placeholder="Or type any emoji (⌃⌘Space)"
+            placeholder={`Or type any emoji (${currentPlatform() === 'win32' ? 'Win+.' : '⌃⌘Space'})`}
             aria-label="Emoji"
             className="h-7 min-w-0 flex-1 rounded-md border border-edge bg-bg px-2 text-ui outline-none focus:border-accent-ink/60"
           />

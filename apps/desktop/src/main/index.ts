@@ -24,6 +24,7 @@ import { isConfigDir, isTrashableRepoFile, isTrashableSessionPath, isTrashableTh
 import { Updater } from './updater.ts';
 import { updatesDisabledReason } from './updateState.ts';
 import { placeWindow, WindowStateStore } from './windowState.ts';
+import { MOD_KEY_PROPERTY, MOD_MODIFIER, platformModifiers } from './smokeKeys.ts';
 
 const here = import.meta.dirname;
 const smokeOutDir = process.env.SWITCHBOARD_SMOKE_OUT;
@@ -1060,8 +1061,8 @@ async function terminalLayoutChecks(win: BrowserWindow): Promise<string> {
   const js = (code: string) => win.webContents.executeJavaScript(code);
   const box = () => js(PANEL_BOX) as Promise<PanelBox | null>;
   const key = (keyCode: string, modifiers: Array<'meta' | 'shift'> = []) => {
-    win.webContents.sendInputEvent({ type: 'keyDown', keyCode, modifiers });
-    win.webContents.sendInputEvent({ type: 'keyUp', keyCode, modifiers });
+    win.webContents.sendInputEvent({ type: 'keyDown', keyCode, modifiers: platformModifiers(modifiers) });
+    win.webContents.sendInputEvent({ type: 'keyUp', keyCode, modifiers: platformModifiers(modifiers) });
   };
   await setColorScheme(win, 'light');
   await js("document.querySelector('[data-toggle-terminal]')?.click()");
@@ -1925,11 +1926,15 @@ async function runThemeStep(win: BrowserWindow): Promise<string> {
     updatePreferences({ sidebarCollapsed: 'minimal' });
     await click('[data-close-settings]');
     if (smokeSessionId) await js(`document.querySelector('[data-session-id="${smokeSessionId}"]')?.click()`);
+    // Not from the terminal: on Windows its Ctrl keys are the shell's (⌘ keys reach the window on macOS).
+    const blurTerminal = () => js("document.activeElement?.closest('.xterm') && document.activeElement.blur()");
+    await blurTerminal();
     pressKey(win, 'B', ['meta']);
     const minimal = await waitInPage(win, `${sidebarState} === 'minimal' && document.querySelector('[data-sidebar-rail] [data-sidebar-rail-row]')`, 3_000);
     const ok = minimal && (await waitInPage(win, `${rail} === ${JSON.stringify(rgbOf(colors.sidebar!))} && getComputedStyle(document.body).backgroundColor === ${JSON.stringify(rgbOf(colors.bg!))}`, 2_000));
     const got = minimal ? `rail ${await js(rail)}, page ${await js('getComputedStyle(document.body).backgroundColor')}` : `sidebar ${String(await js(sidebarState))}`;
     if (minimal) await shot(win, `theme-rail-${id}-${mode}.png`);
+    await blurTerminal();
     pressKey(win, 'B', ['meta']);
     await waitInPage(win, `${sidebarState} === 'open'`, 2_000);
     updatePreferences({ sidebarCollapsed: collapsed });
@@ -2108,7 +2113,8 @@ async function runOpenInStep(win: BrowserWindow): Promise<string> {
   win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Escape' });
   win.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Escape' });
   if (!onTop) return 'menu is covered by the page below it';
-  if (!defaultHint.includes('⌘O')) return `the default app does not show ⌘O ("${defaultHint}")`;
+  const openKeys = process.platform === 'darwin' ? '⌘O' : 'Ctrl+O';
+  if (!defaultHint.includes(openKeys)) return `the default app does not show ${openKeys} ("${defaultHint}")`;
   if (github !== null && !/^https:\/\/github\.com\/[^/]+\/[^/]+(\/tree\/.+)?$/.test(github)) return `odd GitHub link "${github}"`;
   if (!(await waitInPage(win, `!${menu}`, 2_000))) return 'Escape did not close the menu';
   return `ok: Open in items in the More menu (${defaultHint}), on top of the transcript, ${github ? `GitHub → ${github}` : 'no GitHub remote'}, Escape closed it`;
@@ -2196,8 +2202,8 @@ async function runFileLinksStep(win: BrowserWindow): Promise<string> {
 async function runFindStep(win: BrowserWindow): Promise<string> {
   const js = (code: string) => win.webContents.executeJavaScript(code);
   const key = (keyCode: string, modifiers: Array<'meta' | 'shift'> = []) => {
-    win.webContents.sendInputEvent({ type: 'keyDown', keyCode, modifiers });
-    win.webContents.sendInputEvent({ type: 'keyUp', keyCode, modifiers });
+    win.webContents.sendInputEvent({ type: 'keyDown', keyCode, modifiers: platformModifiers(modifiers) });
+    win.webContents.sendInputEvent({ type: 'keyUp', keyCode, modifiers: platformModifiers(modifiers) });
   };
   // A word Claude wrote that's on screen now; only the reply's prose, not the row's screen-reader heading ("Claude").
   const word = (await js(
@@ -2455,7 +2461,7 @@ async function runUnsentNewSessionStep(win: BrowserWindow): Promise<string> {
   const row = `document.querySelector('[data-session-id="${smokeSessionId}"]')`;
   const text = 'Smoke unsent prompt, never started';
   const prompt = "document.querySelector('[data-new-session-view] [data-composer]')";
-  win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'N', modifiers: ['meta'] });
+  win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'N', modifiers: [MOD_MODIFIER] });
   if (!(await waitInPage(win, `!!document.querySelector('[data-folder-select]')?.dataset.value && ${prompt} && !${prompt}.disabled`, 5_000))) return 'New session has no folder to write a prompt for';
   const folder = (await js("document.querySelector('[data-folder-select]').dataset.value")) as string;
   await setFieldValue(win, '[data-new-session-view] [data-composer]', text);
@@ -2490,7 +2496,7 @@ async function runWorktreeNameStep(win: BrowserWindow): Promise<string> {
   const prompt = '[data-new-session-view] [data-composer]';
   const toggle = "document.querySelector('[data-worktree-switch]')";
   const nameField = "document.querySelector('[data-worktree-name]')";
-  win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'N', modifiers: ['meta'] });
+  win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'N', modifiers: [MOD_MODIFIER] });
   if (!(await waitInPage(win, `!!document.querySelector('[data-folder-select]')?.dataset.value && ${toggle}`, 5_000))) return 'New session has no folder with a worktree switch';
   // The switch waits for the folder's git check; a folder that isn't a repository has no worktree to name.
   if (!(await waitInPage(win, `!${toggle}.disabled`, 5_000))) return 'ok: the folder is not a git repository, no worktree to name';
@@ -2584,7 +2590,7 @@ async function runNewSessionStep(win: BrowserWindow): Promise<string> {
     win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Escape' });
     win.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Escape' });
   };
-  const newSession = () => win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'N', modifiers: ['meta'] });
+  const newSession = () => win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'N', modifiers: [MOD_MODIFIER] });
   const promptFocused = "document.activeElement?.matches('[data-composer]')";
   newSession();
   if (!(await waitInPage(win, "document.querySelector('[data-project-header]') && document.querySelector('[data-route-tray]')", 3_000))) return 'the new session view did not open';
@@ -2791,8 +2797,8 @@ async function runDeepLinkStep(win: BrowserWindow): Promise<string> {
 async function runCompanionStep(win: BrowserWindow): Promise<string> {
   const js = (code: string) => win.webContents.executeJavaScript(code);
   const key = (keyCode: string, modifiers: Array<'meta' | 'shift'> = []) => {
-    win.webContents.sendInputEvent({ type: 'keyDown', keyCode, modifiers });
-    win.webContents.sendInputEvent({ type: 'keyUp', keyCode, modifiers });
+    win.webContents.sendInputEvent({ type: 'keyDown', keyCode, modifiers: platformModifiers(modifiers) });
+    win.webContents.sendInputEvent({ type: 'keyUp', keyCode, modifiers: platformModifiers(modifiers) });
   };
   const folder = join(app.getPath('userData'), 'smoke-companion');
   mkdirSync(folder, { recursive: true });
@@ -3156,8 +3162,8 @@ async function shortArchivedList(win: BrowserWindow, sidebarShot: (name: string)
 
 /** Presses a key in the page (down and up), with modifiers. */
 function pressKey(win: BrowserWindow, keyCode: string, modifiers: Array<'meta' | 'shift' | 'alt' | 'control'> = []): void {
-  win.webContents.sendInputEvent({ type: 'keyDown', keyCode, modifiers });
-  win.webContents.sendInputEvent({ type: 'keyUp', keyCode, modifiers });
+  win.webContents.sendInputEvent({ type: 'keyDown', keyCode, modifiers: platformModifiers(modifiers) });
+  win.webContents.sendInputEvent({ type: 'keyUp', keyCode, modifiers: platformModifiers(modifiers) });
 }
 
 const PALETTE_MODE = "document.querySelector('[data-command-palette]')?.dataset.paletteMode";
@@ -3268,7 +3274,8 @@ async function shortcutsChecks(win: BrowserWindow, js: (code: string) => Promise
     "(() => { const row = document.querySelector('[data-shortcut-row=\"palette.commands\"]'); return row ? { text: row.innerText, caps: [...row.querySelectorAll('kbd')].map((k) => k.textContent), edge: getComputedStyle(row.querySelector('kbd')).borderBottomWidth } : null; })()",
   )) as { text: string; caps: string[]; edge: string } | null;
   if (!palette?.text.includes('Command palette')) return 'no Command palette row';
-  if (palette.caps.slice(0, 2).join(' ') !== '⌘ K') return `Command palette showed ${palette.caps.join(' ')}, not ⌘ K`;
+  const paletteCaps = process.platform === 'darwin' ? '⌘ K' : 'Ctrl K';
+  if (palette.caps.slice(0, 2).join(' ') !== paletteCaps) return `Command palette showed ${palette.caps.join(' ')}, not ${paletteCaps}`;
   if (palette.edge !== '2px') return `keycaps have a ${palette.edge} bottom border, not 2px`;
   if ((await js("document.querySelector('[data-shortcuts-sheet]')?.getAttribute('role')")) !== 'dialog') return 'the sheet is not a dialog';
   for (const colorScheme of ['light', 'dark'] as const) {
@@ -3288,7 +3295,8 @@ async function shortcutsChecks(win: BrowserWindow, js: (code: string) => Promise
   await setFieldValue(win, '[data-shortcut-filter]', '');
   const terminalBefore = await js("!!document.querySelector('[data-terminal-panel], section[aria-label=\"Terminal\"]')");
   pressKey(win, 'J', ['meta']);
-  if (!(await waitInPage(win, `document.querySelector('[data-shortcut-filter]').value === '⌘J' && ${SHEET_ROWS}.join() === 'terminal.toggle'`, 2_000))) {
+  const typed = process.platform === 'darwin' ? '⌘J' : 'Ctrl+J';
+  if (!(await waitInPage(win, `document.querySelector('[data-shortcut-filter]').value === ${JSON.stringify(typed)} && ${SHEET_ROWS}.join() === 'terminal.toggle'`, 2_000))) {
     return `⌘J in the filter typed ${String(await js("document.querySelector('[data-shortcut-filter]').value"))} and left ${String(await js(SHEET_ROWS))}`;
   }
   if ((await js("!!document.querySelector('[data-terminal-panel], section[aria-label=\"Terminal\"]')")) !== terminalBefore) return '⌘J in the filter also toggled the terminal';
@@ -3914,7 +3922,7 @@ async function runArchiveManyStep(win: BrowserWindow): Promise<string> {
   })()`)) as string[];
   if (ids.length < 2) return `ok: skipped, only ${ids.length} idle indexed session(s) in the main list`;
   const row = (id: string) => `document.querySelector('[data-session-id="${id}"]')`;
-  const click = (id: string, meta: boolean) => js(`${row(id)}?.dispatchEvent(new MouseEvent('click', { bubbles: true, metaKey: ${meta} }))`);
+  const click = (id: string, meta: boolean) => js(`${row(id)}?.dispatchEvent(new MouseEvent('click', { bubbles: true, ${MOD_KEY_PROPERTY}: ${meta} }))`);
   const inMainList = (id: string) =>
     `(() => { const r = ${row(id)}; if (!r) return false; const h = document.querySelector('[data-archived-toggle]'); return !h || r.getBoundingClientRect().top < h.getBoundingClientRect().top; })()`;
   const [a, b] = ids as [string, string];
