@@ -11,7 +11,14 @@ export interface UserShell {
   run(command: string): string[];
   /** Quotes a value so the shell passes it on as one argument and never runs it as code. */
   quote(value: string): string;
+  /** Commands that run one after the other, each only when the one before it succeeded. */
+  sequence(commands: string[]): string;
 }
+
+const andAnd = (commands: string[]) => commands.join(' && ');
+
+/** Windows PowerShell 5.1 has no `&&`: each next command runs when `$?` says the last one succeeded. */
+const powershell5Sequence = (commands: string[]) => commands.reduce((line, command) => `${line}; if ($?) { ${command} }`);
 
 /** Quotes a value for POSIX shells: `it's` → `'it'\''s'`. */
 export const posixQuote = (value: string) => `'${value.replace(/'/g, `'\\''`)}'`;
@@ -29,7 +36,7 @@ export const powershellQuote = (value: string) => `'${value.replace(/['‘’‚
  */
 export function userShell(env: Record<string, string>, platform: NodeJS.Platform = process.platform, exists: (path: string) => boolean = existsSync): UserShell {
   if (platform !== 'win32') {
-    return { file: env.SHELL || '/bin/zsh', kind: 'posix', interactive: ['-l'], run: (command) => ['-ilc', command], quote: posixQuote };
+    return { file: env.SHELL || '/bin/zsh', kind: 'posix', interactive: ['-l'], run: (command) => ['-ilc', command], quote: posixQuote, sequence: andAnd };
   }
   const pwsh = (env.PATH ?? '')
     .split(win32.delimiter)
@@ -43,5 +50,7 @@ export function userShell(env: Record<string, string>, platform: NodeJS.Platform
     interactive: ['-NoLogo'],
     run: (command) => ['-NoLogo', '-EncodedCommand', Buffer.from(command, 'utf16le').toString('base64')],
     quote: powershellQuote,
+    // PowerShell 7 has `&&`; the Windows PowerShell every Windows has (5.1) doesn't.
+    sequence: pwsh ? andAnd : powershell5Sequence,
   };
 }

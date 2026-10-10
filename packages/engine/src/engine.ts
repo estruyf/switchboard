@@ -987,7 +987,8 @@ export function createEngine(options: EngineOptions): Engine {
       const status = await worktreeStatus(cwd).catch((error: Error) => {
         throw new RpcError('GIT_FAILED', error.message);
       });
-      const sync = syncCommand(status, action, (await terminals.shell()).quote);
+      const shell = await terminals.shell();
+      const sync = syncCommand(status, action, shell.quote, shell.sequence);
       if ('code' in sync) throw new RpcError(sync.code, sync.message);
       if (action === 'pull') await assertCheckoutIdle(cwd);
       const title = action === 'fetch' ? 'Fetch' : action === 'pull' ? 'Pull' : action === 'push' ? 'Push' : 'Pull request';

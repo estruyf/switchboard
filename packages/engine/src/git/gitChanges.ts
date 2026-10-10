@@ -317,9 +317,15 @@ export async function worktreeStatus(cwd: string): Promise<WorktreeStatus> {
 
 /**
  * The shell command for a fetch, pull, push or pull request on the checked-out branch, or why it can't run.
- * A branch without an upstream is pushed with `-u` to `pushRemote`.
+ * A branch without an upstream is pushed with `-u` to `pushRemote`. `quote` and `sequence` come from the shell that
+ * runs it (`UserShell`): Windows PowerShell 5.1, for one, has no `&&`.
  */
-export function syncCommand(status: WorktreeStatus, action: GitSyncAction, quote: (value: string) => string): { command: string } | { code: string; message: string } {
+export function syncCommand(
+  status: WorktreeStatus,
+  action: GitSyncAction,
+  quote: (value: string) => string,
+  sequence: (commands: string[]) => string = (commands) => commands.join(' && '),
+): { command: string } | { code: string; message: string } {
   // Fetching needs a remote, not a branch: it works on a detached HEAD too.
   if (action === 'fetch') return status.hasRemote ? { command: 'git fetch' } : { code: 'NO_REMOTE', message: 'This repository has no remote.' };
   if (!status.branch) return { code: 'DETACHED', message: 'HEAD is detached; check out a branch first.' };
@@ -331,7 +337,7 @@ export function syncCommand(status: WorktreeStatus, action: GitSyncAction, quote
   }
   if (action === 'push') return { command: push };
   if (status.branch === status.baseBranch) return { code: 'WRONG_BRANCH', message: `${status.branch} is the base branch; open a pull request from another branch.` };
-  return { command: `${push} && gh pr create --fill --web` };
+  return { command: sequence([push, 'gh pr create --fill --web']) };
 }
 
 /** A pull that can't fast-forward: the branch and its upstream both have commits the other lacks. */

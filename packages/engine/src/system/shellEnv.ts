@@ -1,4 +1,5 @@
 import { execFile } from 'node:child_process';
+import { userShell } from './shell.ts';
 
 export interface ShellEnv {
   shell: string;
@@ -25,7 +26,8 @@ export function parseEnvOutput(output: string): Record<string, string> | null {
   return Object.keys(env).length > 0 ? env : null;
 }
 
-function processEnv(): Record<string, string> {
+/** This process's environment as a plain object, with PATH under that name on Windows too. */
+export function processEnv(): Record<string, string> {
   const env = Object.fromEntries(Object.entries(process.env).filter((e): e is [string, string] => e[1] !== undefined));
   return process.platform === 'win32' ? withUpperCasePath(env) : env;
 }
@@ -49,10 +51,10 @@ export function withUpperCasePath(env: Record<string, string>): Record<string, s
  * `claude`, nvm-managed node and project-action commands would not be found.
  */
 export function resolveShellEnv(timeoutMs = 5000): Promise<ShellEnv> {
-  const shell = process.env.SHELL || '/bin/zsh';
   const started = performance.now();
   // Read now: the engine points process.env.CLAUDE_CONFIG_DIR at a profile's folder while it reads transcripts.
   const base = processEnv();
+  const shell = process.platform === 'win32' ? userShell(base).file : process.env.SHELL || '/bin/zsh';
   const fallback = (): ShellEnv => ({
     shell,
     env: base,
@@ -60,7 +62,8 @@ export function resolveShellEnv(timeoutMs = 5000): Promise<ShellEnv> {
     durationMs: Math.round(performance.now() - started),
   });
 
-  if (process.platform === 'win32') return Promise.resolve(fallback());
+  // Windows has no login shell to read: an app started from the Start menu already gets the user's whole environment.
+  if (process.platform === 'win32') return Promise.resolve({ ...fallback(), resolved: true });
 
   return new Promise((resolve) => {
     execFile(
