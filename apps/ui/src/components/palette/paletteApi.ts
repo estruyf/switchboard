@@ -1,3 +1,4 @@
+import { fileManagerName } from '../../lib/platform.ts';
 import type { EngineClient } from '../../engine/connection.ts';
 import { useBackup } from '../../state/backupStore.ts';
 import { useCheckoutBranches } from '../../state/checkoutBranchesStore.ts';
@@ -105,11 +106,11 @@ export function createPaletteApi(ctx: PaletteContext, client: EngineClient | nul
     continueInVSCode: () => call('continue in VS Code', (c) => c.call('session.continueInEditor', { sessionId, editorId: 'vscode' })),
     revealInFinder: () =>
       cwd &&
-      call('show the folder in Finder', async (c) => {
+      call(`show the folder in ${fileManagerName()}`, async (c) => {
         const known = useHosts.getState().editors;
         const editors = known.length ? known : (await c.call('editors.list', {})).editors;
         const finder = editors.find((editor) => editor.kind === 'finder');
-        if (!finder) throw new Error('Finder is not available');
+        if (!finder) throw new Error(`${fileManagerName()} is not available`);
         await c.call('editors.open', { path: cwd, editorId: finder.id });
       }),
     closeSession: () => {

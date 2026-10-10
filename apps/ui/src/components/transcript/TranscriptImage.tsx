@@ -1,3 +1,4 @@
+import { fileManagerName } from '../../lib/platform.ts';
 import { Download, ImageOff, Maximize2, X } from 'lucide-react';
 import { useEffect, useRef, useState, type KeyboardEvent, type MouseEvent } from 'react';
 import { createPortal } from 'react-dom';
@@ -53,7 +54,7 @@ async function saveImage(url: string, imageId: string) {
     if (!path) return;
     toast('Image saved', {
       body: basename(path),
-      actions: [{ label: 'Show in Finder', onSelect: () => bridge.showSavedImage(path) }],
+      actions: [{ label: `Show in ${fileManagerName()}`, onSelect: () => bridge.showSavedImage(path) }],
       data: { 'data-image-saved': path },
     });
   } catch {

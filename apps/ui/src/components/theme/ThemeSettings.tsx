@@ -1,3 +1,4 @@
+import { trashName } from '../../lib/platform.ts';
 import { Check, Copy, Download, FolderOpen, MoreHorizontal, Trash2, Upload } from 'lucide-react';
 import { useMemo, useState, useSyncExternalStore, type ReactNode } from 'react';
 import type { ColorScheme } from '@switchboard/protocol/bridge';
@@ -247,8 +248,8 @@ export function ThemeSettings() {
         <ConfirmDialog
           title={`Remove “${removing.file.name}”?`}
           danger
-          confirmLabel="Move to Trash"
-          body={<>Its file moves to the Trash, so you can get it back from there.{removing.id === active.id && ' Switchboard goes back to Demo Time.'}</>}
+          confirmLabel={`Move to ${trashName()}`}
+          body={<>Its file moves to the {trashName()}, so you can get it back from there.{removing.id === active.id && ' Switchboard goes back to Demo Time.'}</>}
           onConfirm={async () => {
             try {
               await window.switchboard?.removeTheme(removing.id);

@@ -1,3 +1,4 @@
+import { trashName } from '../../lib/platform.ts';
 import { ChevronRight, ExternalLink, Maximize2, Minimize2, RefreshCw, Undo2, WrapText, X } from 'lucide-react';
 import { memo, useEffect, useId, useMemo, useState, type KeyboardEvent, type PointerEvent } from 'react';
 import { create } from 'zustand';
@@ -388,7 +389,7 @@ export function ChangesPanel({
           confirmLabel="Revert"
           body={
             <p>
-              {reverting.length === 1 ? 'Its' : 'Their'} uncommitted changes are lost. New files go to the Trash, so you can get them back from there.
+              {reverting.length === 1 ? 'Its' : 'Their'} uncommitted changes are lost. New files go to the {trashName()}, so you can get them back from there.
             </p>
           }
           onConfirm={async () => {

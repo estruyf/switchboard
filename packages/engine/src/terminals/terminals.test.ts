@@ -169,12 +169,18 @@ describe('TerminalManager', () => {
 });
 
 describe('terminal font detection', async () => {
-  const { ghosttyFont, vscodeTerminalFont } = await import('../system/terminalFont.ts');
+  const { ghosttyFont, vscodeTerminalFont, windowsTerminalFont } = await import('../system/terminalFont.ts');
   it('reads Ghostty and VS Code settings', () => {
     expect(ghosttyFont('theme = dark\nfont-family = "SauceCodePro Nerd Font Mono"\nfont-size = 13\n')).toBe('SauceCodePro Nerd Font Mono');
     expect(ghosttyFont('font-family = JetBrains Mono\n')).toBe('JetBrains Mono');
     expect(ghosttyFont('font-size = 13\n')).toBeNull();
     expect(vscodeTerminalFont('{\n  // comment\n  "terminal.integrated.fontFamily": "MesloLGS NF",\n}')).toBe('MesloLGS NF');
     expect(vscodeTerminalFont('{ "editor.fontFamily": "X" }')).toBeNull();
+  });
+
+  it('reads Windows Terminal settings, the defaults first and the older key too', () => {
+    expect(windowsTerminalFont('{ "profiles": { "defaults": { "font": { "size": 11, "face": "CaskaydiaCove NF" } }, "list": [{ "font": { "face": "Other" } }] } }')).toBe('CaskaydiaCove NF');
+    expect(windowsTerminalFont('{ "profiles": { "defaults": { "fontFace": "Cascadia Mono" } } }')).toBe('Cascadia Mono');
+    expect(windowsTerminalFont('{ "profiles": { "defaults": {} } }')).toBeNull();
   });
 });
