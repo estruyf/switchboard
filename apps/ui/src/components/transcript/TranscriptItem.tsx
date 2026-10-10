@@ -9,6 +9,7 @@ import type { RenderItem } from './displayItems.ts';
 import { Markdown } from './Markdown.tsx';
 import { MessageToolbar } from './messageActions.tsx';
 import { ToolDetails, ToolImages, type ToolItem } from './ToolDetails.tsx';
+import { messageImageSlots } from './imageLayout.ts';
 import { TranscriptImage } from './TranscriptImage.tsx';
 import { parseTodos, TodoList } from './TodoList.tsx';
 import { editHunks, toolSummary } from './toolSummary.ts';
@@ -227,19 +228,20 @@ export const TranscriptItem = memo(function TranscriptItem({
           <div className="group/message relative max-w-[80%] min-w-0 rounded-xl border border-border bg-card px-3.5 py-2.5">
             <Speaker name={item.subagent ? 'Prompt to the subagent' : 'You'} />
             {(item.text || !item.subagent) && <MessageToolbar itemKey={item.key} kind="user" text={item.text} copyOnly={item.subagent} />}
+            {/* Images come first, so "Show more" never hides them: one large, a few as thumbnails, many as tiles. */}
+            {item.images.length > 0 && (
+              <div className={`flex flex-wrap gap-1.5 ${item.text ? 'mb-2' : ''}`} data-prompt-images={item.images.length}>
+                {messageImageSlots(item.images.length).map((slot) => {
+                  const image = item.images[slot.index]!;
+                  return <TranscriptImage key={image.imageId} sessionId={sessionId} image={image} variant={slot.variant} gallery={item.images} index={slot.index} more={slot.more} />;
+                })}
+              </div>
+            )}
             {/* Your prompts render as Markdown too, so code and code blocks are styled. */}
             {item.text && (
               <ClampedPrompt itemKey={item.key} className="text-body [&_p]:whitespace-pre-wrap [&_p:first-child]:mt-0 [&_p:last-child]:mb-0">
                 <Markdown text={item.text} />
               </ClampedPrompt>
-            )}
-            {/* One image shows large; several become thumbnails side by side, each opening full size. */}
-            {item.images.length > 0 && (
-              <div className={`flex flex-wrap justify-end gap-2 ${item.text ? 'mt-2' : ''}`} data-prompt-images={item.images.length}>
-                {item.images.map((image) => (
-                  <TranscriptImage key={image.imageId} sessionId={sessionId} image={image} {...(item.images.length > 1 ? { maxHeight: 96, maxWidth: 160 } : { maxHeight: 200 })} />
-                ))}
-              </div>
             )}
           </div>
         </div>

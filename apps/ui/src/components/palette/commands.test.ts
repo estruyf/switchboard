@@ -32,6 +32,10 @@ function context(over: Partial<PaletteContext> = {}): PaletteContext {
     queue: { count: 0, readyCount: 0, firstReady: null },
     unsent: 0,
     projectCount: 2,
+    projects: [
+      { root: '/work/app', name: 'app' },
+      { root: '/work/site', name: 'site' },
+    ],
     currentProject: null,
     actions: [],
     canEditActions: false,
@@ -320,5 +324,51 @@ describe('sidebar and session navigation', () => {
     expect(api.goToSession).toHaveBeenNthCalledWith(2, -1);
     expect(api.goToNextNeedsYou).toHaveBeenCalled();
     expect(api.setSidebar).toHaveBeenCalledWith('closed');
+  });
+});
+
+describe('project pages and worktrees', () => {
+  const app = { root: '/work/app', name: 'app' };
+  const byId = (ctx: PaletteContext, id: string) => visibleCommands(ctx).find((c) => c.id === id);
+
+  it('opens any project as "Project: <name>", but not the page already on screen', () => {
+    const api = { openProject: vi.fn() } as unknown as PaletteApi;
+    const ctx = context();
+    expect(titleOf(byId(ctx, 'project:/work/site')!, ctx)).toBe('Project: site');
+    byId(ctx, 'project:/work/site')!.run!(api, ctx);
+    expect(api.openProject).toHaveBeenCalledWith('/work/site');
+    expect(ids(context({ view: 'project', currentProject: app }))).not.toContain('project:/work/app');
+  });
+
+  it("opens the current project's worktrees, or asks which project", () => {
+    const api = { openProject: vi.fn(), cleanUpWorktrees: vi.fn() } as unknown as PaletteApi;
+    expect(ids(context())).toContain('worktrees');
+    expect(ids(context())).not.toContain('worktrees-here');
+    expect(ids(context())).not.toContain('clean-up-worktrees');
+    expect(byId(context(), 'worktrees')!.next!(context())).toEqual({ kind: 'projects', purpose: 'worktrees', worktree: false, chip: 'Worktrees' });
+
+    const ctx = context({ view: 'project', currentProject: app });
+    expect(titleOf(byId(ctx, 'worktrees-here')!, ctx)).toBe('Worktrees in app');
+    byId(ctx, 'worktrees-here')!.run!(api, ctx);
+    expect(api.openProject).toHaveBeenCalledWith('/work/app', 'worktrees');
+    expect(titleOf(byId(ctx, 'clean-up-worktrees')!, ctx)).toBe('Clean up worktrees in app…');
+    byId(ctx, 'clean-up-worktrees')!.run!(api, ctx);
+    expect(api.cleanUpWorktrees).toHaveBeenCalledWith('/work/app');
+    // A folder that isn't one of your projects has no page.
+    expect(ids(context({ currentProject: { root: '/tmp/x', name: 'x' } }))).not.toContain('clean-up-worktrees');
+    expect(ids(context({ projects: [] }))).not.toContain('worktrees');
+  });
+
+  it("opens the current project's branches, or asks which project", () => {
+    const api = { openProject: vi.fn() } as unknown as PaletteApi;
+    expect(ids(context())).toContain('branches');
+    expect(ids(context())).not.toContain('branches-here');
+    expect(byId(context(), 'branches')!.next!(context())).toEqual({ kind: 'projects', purpose: 'branches', worktree: false, chip: 'Branches' });
+
+    const ctx = context({ view: 'project', currentProject: app });
+    expect(titleOf(byId(ctx, 'branches-here')!, ctx)).toBe('Branches in app');
+    byId(ctx, 'branches-here')!.run!(api, ctx);
+    expect(api.openProject).toHaveBeenCalledWith('/work/app', 'branches');
+    expect(ids(context({ projects: [] }))).not.toContain('branches');
   });
 });

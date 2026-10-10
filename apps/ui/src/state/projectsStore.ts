@@ -23,8 +23,6 @@ interface ProjectsState {
   version: number;
   /** The Add project dialog is open. */
   adding: boolean;
-  /** The project the Projects view should scroll to and open (from a project's menu). */
-  manageFocus: string | null;
   /** A folder the New session view should switch to when it opens (from the palette or the Projects view). */
   newSessionIn: string | null;
   /** ...and start in a new worktree there (a session header's "New worktree…"). */
@@ -35,7 +33,6 @@ interface ProjectsState {
   toggleArchived(): void;
   reload(): void;
   showAdd(open: boolean): void;
-  setManageFocus(root: string | null): void;
   startIn(root: string | null, options?: { worktree?: boolean }): void;
 }
 
@@ -48,7 +45,6 @@ export const useProjects = create<ProjectsState>()((set) => ({
   archivedOpen: false,
   version: 0,
   adding: false,
-  manageFocus: null,
   newSessionIn: null,
   newSessionWorktree: false,
   setProjects: (listed) => set((s) => ({ listed, projects: withQuestions(listed, s.questionsDir), loaded: true })),
@@ -57,7 +53,6 @@ export const useProjects = create<ProjectsState>()((set) => ({
   toggleArchived: () => set((s) => ({ archivedOpen: !s.archivedOpen })),
   reload: () => set((s) => ({ version: s.version + 1 })),
   showAdd: (adding) => set({ adding }),
-  setManageFocus: (manageFocus) => set({ manageFocus }),
   startIn: (newSessionIn, options = {}) => set({ newSessionIn, newSessionWorktree: options.worktree ?? false }),
 }));
 

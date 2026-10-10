@@ -18,6 +18,8 @@ import {
   type RpcServer,
   type SlashCommand,
   type SystemInfo,
+  type WorktreePullRequest,
+  type WorktreeSize,
   type Transport,
   randomWorktreeName,
 } from '@switchboard/protocol';
@@ -25,7 +27,9 @@ import { LiveRegistry } from './claude/liveRegistry.ts';
 import { createProjectResolver } from './claude/projectResolver.ts';
 import { sdkSessionSource, type SessionSource } from './claude/sessionSource.ts';
 import { findCheckout, githubPage } from './git/remotes.ts';
-import { checkoutRoot, DivergedError, fileDiff, listBranches, listChanges, removeWorktree, revert, stage, stageForCommit, switchBranch, syncCommand, updateCheckout, worktreeStatus } from './git/gitChanges.ts';
+import { checkoutRoot, DivergedError, fileDiff, git, listBranches, listChanges, removeWorktree, revert, stage, stageForCommit, switchBranch, syncCommand, updateCheckout, worktreeStatus } from './git/gitChanges.ts';
+import { deleteBranches, fetchAllRemotes, listBranchOverview } from './git/branches.ts';
+import { fetchPullRequests, ignoredFiles, listWorktrees, measureSize, removeWorktrees, type SessionActivity, type SessionPlace } from './git/worktrees.ts';
 import { SearchIndex } from './sessions/searchIndex.ts';
 import { installedPlugins } from './host/capabilities.ts';
 import { ActionStore, expandCommand, suggestActions } from './actions/actionStore.ts';
@@ -445,6 +449,55 @@ export function createEngine(options: EngineOptions): Engine {
       if (existsSync(other) && (await checkoutRoot(other)) === root) {
         throw new RpcError('SESSION_BUSY', 'Claude is working in this folder. Wait for it to finish, or stop it first.');
       }
+    }
+  };
+
+  /** Where every known session is (transcripts, Switchboard's processes and the live registry), for the worktree overview. */
+  const sessionPlaces = (): SessionPlace[] => {
+    const places = new Map<string, SessionPlace>(sessions.snapshot().sessions.map((s) => [s.id, { id: s.id, cwd: s.cwd, updatedAt: s.updatedAt }]));
+    for (const l of liveList()) if (!places.has(l.sessionId) && l.origin !== 'sdk') places.set(l.sessionId, { id: l.sessionId, cwd: l.cwd, updatedAt: l.updatedAt ?? l.startedAt ?? 0 });
+    for (const h of hosts.list().hosts) if (!places.has(h.sessionId)) places.set(h.sessionId, { id: h.sessionId, cwd: h.cwd, updatedAt: h.promptedAt ?? h.startedAt });
+    return [...places.values()];
+  };
+  /** What could be working in a worktree: Switchboard's sessions, and every process in the live registry. */
+  const sessionActivity = (): SessionActivity[] => {
+    scanLive();
+    const here = hosts.list().hosts.filter((h) => h.state !== 'closed' && h.state !== 'error');
+    const hosted = new Set(here.map((h) => h.sessionId));
+    return [
+      ...here.map((h) => ({ sessionId: h.sessionId, cwd: h.cwd, busy: h.state === 'starting' || h.state === 'running' || h.state === 'needs-you', hosted: true })),
+      ...liveList()
+        .filter((l) => !hosted.has(l.sessionId) && !ephemeral.has(l.sessionId))
+        .map((l) => ({ sessionId: l.sessionId, cwd: l.cwd, busy: l.status !== 'idle', hosted: false })),
+    ];
+  };
+  /** Pull requests by branch from `gh`, per repository, kept for a few minutes (it's a network call). */
+  const pullRequestCache = new Map<string, { at: number; prs: Promise<Map<string, WorktreePullRequest> | null> }>();
+  const pullRequestsFor = (root: string, fresh: boolean) => {
+    const cached = pullRequestCache.get(root);
+    if (cached && !fresh && Date.now() - cached.at < 5 * 60_000) return cached.prs;
+    const prs = shell.ready.then(({ env }) => fetchPullRequests(root, env)).catch(() => null);
+    pullRequestCache.set(root, { at: Date.now(), prs });
+    return prs;
+  };
+  /** Worktree sizes measured so far; `du` runs in the background, two at a time, and results go out with `worktrees.sizes`. */
+  const worktreeSizes = new Map<string, WorktreeSize>();
+  const sizeQueue: string[] = [];
+  let measuring = 0;
+  const measureNext = () => {
+    while (measuring < 2 && sizeQueue.length) {
+      const path = sizeQueue.shift()!;
+      measuring++;
+      void measureSize(path)
+        .then((bytes) => {
+          const size = { path, bytes: bytes ?? 0, at: Date.now() };
+          worktreeSizes.set(path, size);
+          broadcast('worktrees.sizes', { sizes: [size] });
+        })
+        .finally(() => {
+          measuring--;
+          measureNext();
+        });
     }
   };
 
@@ -1051,6 +1104,99 @@ export function createEngine(options: EngineOptions): Engine {
         throw new RpcError('GIT_FAILED', (error as Error).message);
       }
       return { terminalId: null };
+    },
+    'worktrees.list': async ({ root, fetch }) => {
+      if (!resolver.resolve(root).gitDir) throw new RpcError('NOT_A_REPO', 'Not a git repository');
+      if (fetch) {
+        // Merged and pushed are only as current as the last fetch. Offline or signed out, the list still comes.
+        await updateCheckout(root, 'fetch', (await shell.ready).env).catch((error: Error) => log('warn', `worktrees: fetch in ${root} failed: ${error.message}`));
+      }
+      // gh and git at the same time; the pull requests are matched to branches afterwards.
+      const pullRequests = pullRequestsFor(root, fetch);
+      const list = await listWorktrees(root, { sessions: sessionPlaces() }).catch((error: Error) => {
+        throw new RpcError('GIT_FAILED', error.message);
+      });
+      const prs = await pullRequests;
+      if (!prs) return list;
+      return { ...list, pullRequests: true, worktrees: list.worktrees.map((w) => (w.branch && !w.isMain ? { ...w, pr: prs.get(w.branch) ?? null } : w)) };
+    },
+    'worktrees.size': async ({ paths, refresh }) => {
+      const known: WorktreeSize[] = [];
+      for (const path of paths) {
+        const size = worktreeSizes.get(path);
+        if (size) known.push(size);
+        if ((!size || refresh) && !sizeQueue.includes(path) && existsSync(path)) sizeQueue.push(path);
+      }
+      measureNext();
+      return { sizes: known };
+    },
+    'worktrees.remove': async ({ root, items }) => {
+      if (!resolver.resolve(root).gitDir) throw new RpcError('NOT_A_REPO', 'Not a git repository');
+      const results = await removeWorktrees(root, items, {
+        activity: sessionActivity,
+        release: async (ids) => {
+          for (const id of ids) await hosts.release(id);
+        },
+      });
+      for (const result of results) if (result.removed) worktreeSizes.delete(result.path);
+      for (const result of results) {
+        if (result.ok) log('info', `worktrees: removed ${result.path}${result.branchDeleted ? ' and its branch' : ''}${result.recoveryRef ? ` (kept ${result.recoveryRef})` : ''}`);
+      }
+      return { results };
+    },
+    'worktrees.push': async ({ path }) => {
+      if (!existsSync(path) || !resolver.resolve(path).gitDir) throw new RpcError('NOT_A_REPO', 'Not a git repository');
+      const status = await worktreeStatus(path).catch((error: Error) => {
+        throw new RpcError('GIT_FAILED', error.message);
+      });
+      const sync = syncCommand(status, 'push', (await terminals.shell()).quote);
+      if ('code' in sync) throw new RpcError(sync.code, sync.message);
+      const args = status.upstream ? ['push', '--quiet'] : ['push', '--quiet', '-u', status.pushRemote!, status.branch!];
+      try {
+        await git(status.path, args, { env: { ...(await shell.ready).env, GIT_TERMINAL_PROMPT: '0' }, timeout: 120_000 });
+      } catch (error) {
+        throw new RpcError('GIT_FAILED', (error as Error).message);
+      }
+      return {};
+    },
+    'worktrees.ignoredFiles': async ({ path }) => {
+      if (!existsSync(path)) return { files: [], total: 0 };
+      try {
+        return await ignoredFiles(path);
+      } catch (error) {
+        throw new RpcError('GIT_FAILED', (error as Error).message);
+      }
+    },
+    'branches.list': async ({ root, fetch }) => {
+      if (!resolver.resolve(root).gitDir) throw new RpcError('NOT_A_REPO', 'Not a git repository');
+      if (fetch) {
+        // Gone and merged are only as current as the last fetch. Offline or signed out, the list still comes.
+        await fetchAllRemotes(root, (await shell.ready).env).catch((error: Error) => log('warn', `branches: fetch in ${root} failed: ${error.message}`));
+      }
+      const pullRequests = await pullRequestsFor(root, fetch);
+      try {
+        return await listBranchOverview(root, { pullRequests });
+      } catch (error) {
+        throw new RpcError('GIT_FAILED', (error as Error).message);
+      }
+    },
+    'branches.delete': async ({ root, items }) => {
+      if (!resolver.resolve(root).gitDir) throw new RpcError('NOT_A_REPO', 'Not a git repository');
+      // Deleting a branch on GitHub closes its open pull request: refuse those, as far as gh can tell.
+      const prs = await pullRequestsFor(root, false);
+      const results = await deleteBranches(root, items, {
+        env: (await shell.ready).env,
+        openPullRequest: (name) => {
+          const pr = prs?.get(name);
+          return pr?.state === 'open' ? pr : null;
+        },
+      }).catch((error: Error) => {
+        throw new RpcError('GIT_FAILED', error.message);
+      });
+      for (const result of results) {
+        if (result.ok) log('info', `branches: deleted ${result.name}${result.localDeleted ? ' here' : ''}${result.localDeleted && result.remoteDeleted ? ' and' : ''}${result.remoteDeleted ? ' on the remote' : ''}${result.recoveryRef ? ` (kept ${result.recoveryRef})` : ''}`);
+      }
+      return { results };
     },
     'terminal.open': async (params) => {
       if (params.kind === 'claude' && params.sessionId && !params.fork) {

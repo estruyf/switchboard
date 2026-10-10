@@ -135,6 +135,9 @@ export const ImageRef = z.object({
   mediaType: z.string(),
   /** Approximate size of the decoded image. */
   bytes: z.number(),
+  /** Pixel size, read from the image's header; missing for a format the engine can't read. */
+  width: z.number().optional(),
+  height: z.number().optional(),
 });
 export type ImageRef = z.infer<typeof ImageRef>;
 

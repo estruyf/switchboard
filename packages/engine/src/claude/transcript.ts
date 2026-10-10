@@ -1,4 +1,5 @@
 import type { ImageRef, TranscriptBlock, TranscriptMessage } from '@switchboard/protocol';
+import { imageSize } from './imageSize.ts';
 
 /** Receives image data found while normalising, so it can be served on demand instead of inline. */
 export type ImageSink = (imageId: string, mediaType: string, data: string) => void;
@@ -62,7 +63,7 @@ function imageRef(source: unknown, imageId: string, sink: ImageSink | undefined)
   const s = source as { type?: unknown; media_type?: unknown; data?: unknown } | undefined;
   if (s?.type !== 'base64' || typeof s.data !== 'string' || typeof s.media_type !== 'string') return null;
   sink?.(imageId, s.media_type, s.data);
-  return { imageId, mediaType: s.media_type, bytes: Math.floor((s.data.length * 3) / 4) };
+  return { imageId, mediaType: s.media_type, bytes: Math.floor((s.data.length * 3) / 4), ...imageSize(s.data) };
 }
 
 function toolResultImages(content: unknown, idPrefix: string, sink: ImageSink | undefined): ImageRef[] {

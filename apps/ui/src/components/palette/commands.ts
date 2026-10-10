@@ -109,6 +109,10 @@ export interface PaletteApi {
   goToSession(direction: 1 | -1): void;
   goToNextNeedsYou(): void;
   manageProjects(): void;
+  /** A project's page, on a tab or the one it was last left on. */
+  openProject(root: string, tab?: 'worktrees' | 'branches'): void;
+  /** A project's Worktrees tab with the clean-up confirmation for what it suggests. */
+  cleanUpWorktrees(root: string): void;
   addProject(): void;
   checkClaudeUpdate(): void;
   reloadSkills(): void;
@@ -309,6 +313,53 @@ export const COMMANDS: PaletteCommand[] = [
   { id: 'export-theme', title: 'Export current theme…', group: 'general', icon: Download, keywords: 'colours colors json file save', when: always, run: (api) => api.exportTheme() },
   { id: 'manage-projects', title: 'Manage projects', group: 'general', icon: FolderCog, keywords: 'folders defaults', when: (ctx) => ctx.view !== 'projects', run: (api) => api.manageProjects() },
   { id: 'add-project', title: 'Add project…', group: 'general', icon: FolderPlus, keywords: 'folder', when: always, run: (api) => api.addProject() },
+  {
+    id: 'worktrees-here',
+    title: (ctx) => `Worktrees in ${ctx.currentProject?.name ?? 'this project'}`,
+    group: 'general',
+    hint: 'current project',
+    icon: FolderGit2,
+    keywords: 'worktree branches clean up remove disk space overview',
+    when: (ctx) => ctx.currentProject !== null && ctx.projects.some((p) => p.root === ctx.currentProject!.root),
+    run: (api, ctx) => api.openProject(ctx.currentProject!.root, 'worktrees'),
+  },
+  {
+    id: 'worktrees',
+    title: 'Worktrees…',
+    group: 'general',
+    icon: FolderGit2,
+    keywords: 'worktree branches clean up remove disk space overview project',
+    when: (ctx) => ctx.projects.length > 0 && ctx.connected,
+    next: () => ({ kind: 'projects', purpose: 'worktrees', worktree: false, chip: 'Worktrees' }),
+  },
+  {
+    id: 'branches-here',
+    title: (ctx) => `Branches in ${ctx.currentProject?.name ?? 'this project'}`,
+    group: 'general',
+    hint: 'current project',
+    icon: GitBranch,
+    keywords: 'git branches local remote origin delete prune merged clean up overview',
+    when: (ctx) => ctx.currentProject !== null && ctx.projects.some((p) => p.root === ctx.currentProject!.root),
+    run: (api, ctx) => api.openProject(ctx.currentProject!.root, 'branches'),
+  },
+  {
+    id: 'branches',
+    title: 'Branches…',
+    group: 'general',
+    icon: GitBranch,
+    keywords: 'git branches local remote origin delete prune merged clean up overview project',
+    when: (ctx) => ctx.projects.length > 0 && ctx.connected,
+    next: () => ({ kind: 'projects', purpose: 'branches', worktree: false, chip: 'Branches' }),
+  },
+  {
+    id: 'clean-up-worktrees',
+    title: (ctx) => `Clean up worktrees in ${ctx.currentProject?.name ?? 'this project'}…`,
+    group: 'general',
+    icon: Trash2,
+    keywords: 'worktree remove prune merged disk space',
+    when: (ctx) => ctx.connected && ctx.currentProject !== null && ctx.projects.some((p) => p.root === ctx.currentProject!.root),
+    run: (api, ctx) => api.cleanUpWorktrees(ctx.currentProject!.root),
+  },
   {
     id: 'rename-project',
     title: 'Rename project…',
@@ -535,9 +586,22 @@ export function themeCommands(ctx: PaletteContext): PaletteCommand[] {
   }));
 }
 
+/** "Project: <name>" for each of your projects, opening its page (not the one already on screen). */
+export function projectCommands(ctx: PaletteContext): PaletteCommand[] {
+  return ctx.projects.map((project) => ({
+    id: `project:${project.root}`,
+    title: `Project: ${project.name}`,
+    group: 'general',
+    icon: Folder,
+    keywords: 'open page sessions worktrees actions defaults',
+    when: (c) => !(c.view === 'project' && c.currentProject?.root === project.root),
+    run: (api) => api.openProject(project.root),
+  }));
+}
+
 /** Every command that can show here, before matching what is typed. */
 export function visibleCommands(ctx: PaletteContext, commands: readonly PaletteCommand[] = COMMANDS): PaletteCommand[] {
-  return [...commands, ...actionCommands(ctx), ...themeCommands(ctx)].filter((command) => command.when(ctx));
+  return [...commands, ...actionCommands(ctx), ...themeCommands(ctx), ...projectCommands(ctx)].filter((command) => command.when(ctx));
 }
 
 /** A command as a row: its title for this context, and which letters matched what was typed. */

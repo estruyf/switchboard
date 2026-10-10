@@ -10,6 +10,7 @@ import { useQueue } from '../../state/useQueue.ts';
 import { usePaletteBus } from '../../state/paletteBus.ts';
 import { usePreferences } from '../../state/preferencesStore.ts';
 import { addedProjects } from '../../state/projectList.ts';
+import { useProjectPage } from '../../state/projectPageStore.ts';
 import { useProjects } from '../../state/projectsStore.ts';
 import { isQuestionsFolder } from '../../lib/questions.ts';
 import { toRows, useSessions } from '../../state/sessionsStore.ts';
@@ -85,7 +86,8 @@ export function usePaletteContext(): PaletteContext {
   const boxes = useComposerTargets((s) => s.boxes);
   const editors = useHosts((s) => s.editors);
 
-  const view: PaletteView = mainView === 'new' ? 'new-session' : mainView === 'settings' ? 'settings' : mainView === 'projects' ? 'projects' : selectedId ? 'session' : 'home';
+  const pageRoot = useProjectPage((s) => s.root);
+  const view: PaletteView = mainView === 'new' ? 'new-session' : mainView === 'settings' ? 'settings' : mainView === 'projects' ? 'projects' : mainView === 'project' ? 'project' : selectedId ? 'session' : 'home';
   const id = view === 'session' ? selectedId : null;
 
   const session = useMemo<PaletteSession | null>(() => {
@@ -123,7 +125,7 @@ export function usePaletteContext(): PaletteContext {
   const { actions } = useProjectActionList(projectRoot);
 
   const added = useMemo(() => addedProjects(projects), [projects]);
-  const currentRoot = projectRoot && isAbsolutePath(projectRoot) ? projectRoot : projectFilter;
+  const currentRoot = view === 'project' && pageRoot ? pageRoot : projectRoot && isAbsolutePath(projectRoot) ? projectRoot : projectFilter;
   const activeTerminal = id ? (terminals.get(activeTerminals.get(id) ?? '') ?? [...terminals.values()].filter((t) => t.sessionId === id).at(-1)) : undefined;
 
   return {
@@ -142,6 +144,7 @@ export function usePaletteContext(): PaletteContext {
     queue: { count: queue.entries.length, readyCount: queue.readyCount, firstReady: queue.firstReady ? { id: queue.firstReady.item.id, prompt: promptLabel(queue.firstReady.item.prompt, 40) } : null },
     unsent,
     projectCount: added.length,
+    projects: added.map((p) => ({ root: p.root, name: p.name })),
     currentProject: currentRoot ? { root: currentRoot, name: projects.get(currentRoot)?.name ?? basename(currentRoot) } : null,
     actions: actions.map((a) => ({ id: a.id, name: a.name, shortcut: a.shortcut ?? null, icon: a.icon })),
     canEditActions: !!projectRoot && isAbsolutePath(projectRoot),

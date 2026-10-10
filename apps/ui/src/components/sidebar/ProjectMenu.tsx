@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode, type RefObject } from 'react';
-import { Check, ChevronDown, Ellipsis, FolderCog, FolderOpen, FolderPlus, Image, Layers, Pencil, RotateCcw, Smile, Type, X } from 'lucide-react';
+import { Check, ChevronDown, Ellipsis, FolderCog, FolderGit2, FolderOpen, FolderPlus, GitBranch, Image, Layers, Pencil, RotateCcw, SlidersHorizontal, Smile, Type, X } from 'lucide-react';
 import { isAbsolutePath, type ProjectIconChoice } from '@switchboard/protocol/client';
 import { useEngineConnection } from '../../engine/useEngine.ts';
 import { useProfiles } from '../../state/profilesStore.ts';
 import { addedProjects } from '../../state/projectList.ts';
+import { openProject } from '../../state/projectPageStore.ts';
 import { useProjects } from '../../state/projectsStore.ts';
 import { useSessions } from '../../state/sessionsStore.ts';
 import { ConfirmDialog } from '../ConfirmDialog.tsx';
@@ -122,15 +123,16 @@ export function RemoveProjectDialog({ root, name, onClose }: { root: string; nam
   );
 }
 
-/** Opens the Projects view, scrolled to one project when given. */
+/** Opens the Projects view, or one project's page on its Settings tab when given. */
 export function manage(root: string | null = null): void {
-  useProjects.getState().setManageFocus(root);
-  useSessions.getState().setView('projects');
+  if (root) openProject(root, 'settings');
+  else useSessions.getState().setView('projects');
 }
 
 /**
  * Menu entries to rename a project, change its icon or remove it, and the emoji picker, rename dialog and remove confirmation they open (`overlays`).
- * `remove: false` leaves out "Remove from Switchboard…", for menus about something else (a session).
+ * `remove: false` leaves out "Remove from Switchboard…", for menus about something else (a session); `identity: true`
+ * keeps only what the project is (profile, icon, name, folder), for the icon button on a project's row and page.
  */
 export function useProjectIconEntries() {
   const actions = useProjectActions();
@@ -143,7 +145,7 @@ export function useProjectIconEntries() {
   const [removing, setRemoving] = useState<string | null>(null);
   const [renaming, setRenaming] = useState<string | null>(null);
 
-  const entries = (root: string, at: { x: number; y: number }, { remove = true }: { remove?: boolean } = {}): MenuEntry[] => {
+  const entries = (root: string, at: { x: number; y: number }, { remove = true, identity = false }: { remove?: boolean; identity?: boolean } = {}): MenuEntry[] => {
     // Quick questions are not a project: no icon, name, profile or "Add to projects".
     if (isQuestionsFolder(root, questionsDir)) return [];
     const project = projects.get(root);
@@ -179,14 +181,19 @@ export function useProjectIconEntries() {
       'separator',
       ...(isAbsolutePath(root) ? [{ label: 'Rename project…', icon: <Pencil size={13} />, onSelect: () => setRenaming(root), data: { 'data-rename-project': true } } satisfies MenuEntry] : []),
       { label: 'Open folder in editor', icon: <FolderOpen size={13} />, disabled: !project?.exists, onSelect: () => void openIn(root).catch(() => {}) },
-      ...(project?.added
-        ? ([
-            { label: 'Project settings…', icon: <FolderCog size={13} />, onSelect: () => manage(root) },
-            ...(remove ? [{ label: 'Remove from Switchboard…', icon: <X size={13} />, danger: true, onSelect: () => setRemoving(root) }] : []),
-          ] satisfies MenuEntry[])
-        : isAbsolutePath(root)
-          ? [{ label: 'Add to projects', icon: <FolderPlus size={13} />, disabled: !project?.exists, onSelect: () => void actions.add(root) } satisfies MenuEntry]
-          : []),
+      ...(identity
+        ? []
+        : project?.added
+          ? ([
+              { label: 'Open project', icon: <FolderCog size={13} />, onSelect: () => openProject(root), data: { 'data-open-project': true } },
+              { label: 'Worktrees…', icon: <FolderGit2 size={13} />, disabled: !project.exists, onSelect: () => openProject(root, 'worktrees'), data: { 'data-open-worktrees': true } },
+              { label: 'Branches…', icon: <GitBranch size={13} />, disabled: !project.exists, onSelect: () => openProject(root, 'branches'), data: { 'data-open-branches': true } },
+              { label: 'Project settings…', icon: <SlidersHorizontal size={13} />, onSelect: () => manage(root) },
+              ...(remove ? [{ label: 'Remove from Switchboard…', icon: <X size={13} />, danger: true, onSelect: () => setRemoving(root), data: { 'data-remove-project': true } }] : []),
+            ] satisfies MenuEntry[])
+          : isAbsolutePath(root)
+            ? [{ label: 'Add to projects', icon: <FolderPlus size={13} />, disabled: !project?.exists, onSelect: () => void actions.add(root) } satisfies MenuEntry]
+            : []),
     ];
   };
 

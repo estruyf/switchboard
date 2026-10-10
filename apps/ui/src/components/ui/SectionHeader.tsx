@@ -2,14 +2,23 @@ import { ChevronRight } from 'lucide-react';
 import type { HTMLAttributes, MouseEvent, ReactNode } from 'react';
 import { CountBadge } from './Pill.tsx';
 
-export type SectionTone = 'neutral' | 'needs-you' | 'working';
+export type SectionTone = 'neutral' | 'needs-you' | 'working' | 'ok' | 'info' | 'caution' | 'error';
 
-const TONE: Record<SectionTone, string> = { neutral: 'text-faint', 'needs-you': 'text-warn', working: 'text-accent-ink' };
+/** The status colours, plus the worktree overview's groups: safe (`ok`), probably done (`info`), keep (`caution`), stale (`error`). */
+const TONE: Record<SectionTone, string> = {
+  neutral: 'text-faint',
+  'needs-you': 'text-warn',
+  working: 'text-accent-ink',
+  ok: 'text-ok',
+  info: 'text-link',
+  caution: 'text-caution',
+  error: 'text-error',
+};
 
 interface SectionHeaderProps extends Omit<HTMLAttributes<HTMLDivElement>, 'children'> {
   /** The label, written in sentence case; it shows in capitals. */
   children: ReactNode;
-  /** The status colour: Needs you (pink), Working (yellow), or the quiet default. */
+  /** The status colour: Needs you (pink), Working (yellow), or the quiet default; the worktree groups have their own. */
   tone?: SectionTone;
   /** A count in a tinted badge; screen readers hear it as ", 3". */
   count?: number | null;
