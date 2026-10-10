@@ -24,7 +24,7 @@ export type PickList = 'model' | 'effort' | 'mode' | 'fork' | 'rewind' | 'focus-
  * project a prompt was written for before its project was changed, so the prompt moves along.
  */
 export type PaletteStep =
-  | { kind: 'projects'; purpose: 'new-session' | 'rename-project'; worktree: boolean; chip: string; from?: string }
+  | { kind: 'projects'; purpose: 'new-session' | 'rename-project' | 'worktrees' | 'branches'; worktree: boolean; chip: string; from?: string }
   | { kind: 'prompt'; root: string; worktree: boolean; chip: string; from?: string }
   | { kind: 'pick'; list: PickList; chip: string };
 

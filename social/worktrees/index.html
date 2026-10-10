@@ -1,0 +1,160 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<link rel="stylesheet" href="../shared/base.css">
+<style>
+  /* The project page, its Worktrees tab open. */
+  .win {
+    position: absolute; left: 0; top: 0; width: 560px; height: 478px;
+    background: var(--bg); border-radius: 12px; overflow: hidden;
+    box-shadow: 0 0 0 1px var(--edge), 0 24px 60px -12px rgba(0,0,0,0.75);
+  }
+  .ph { padding: 14px 18px 0; border-bottom: 1px solid var(--border); }
+  .crumb { font-size: 11px; color: var(--muted); }
+  .crumb span { color: var(--faint); margin: 0 4px; }
+  .who { display: flex; align-items: center; gap: 10px; margin-top: 8px; }
+  .picon { width: 30px; height: 30px; border-radius: 8px; background: #74c0fc; color: #15181f; font-weight: 700; font-size: 15px; display: grid; place-items: center; }
+  .who .name { font-size: 20px; font-weight: 650; color: #f3f4f7; }
+  .who .new { margin-left: auto; height: 26px; padding: 0 10px; border-radius: 7px; background: var(--accent); color: var(--on-accent); font-weight: 650; font-size: 11.5px; display: flex; align-items: center; }
+  .tabs { display: flex; gap: 4px; margin-top: 10px; }
+  .tab { padding: 7px 9px 8px; font-size: 12px; color: var(--muted); border-bottom: 2px solid transparent; margin-bottom: -1px; }
+  .tab.on { color: var(--text); font-weight: 600; border-color: var(--accent); }
+
+  .body { padding: 12px 14px; display: grid; gap: 10px; }
+  .summary { display: flex; align-items: center; gap: 20px; padding: 9px 14px; border-radius: 11px; background: var(--card); box-shadow: inset 0 0 0 1px var(--border); }
+  .stat { display: grid; gap: 1px; }
+  .stat b { font-size: 15px; font-weight: 650; color: var(--text); }
+  .stat span { font-size: 10.5px; color: var(--muted); }
+  .stat.ok b { color: var(--ok); } .stat.error b { color: var(--error); }
+  .remove { margin-left: auto; height: 28px; padding: 0 10px; border-radius: 7px; font-size: 11.5px; font-weight: 600; color: var(--error); box-shadow: inset 0 0 0 1px rgba(255,107,107,0.55); display: flex; align-items: center; gap: 6px; }
+  .remove i { font-style: normal; font-weight: 400; opacity: 0.8; }
+
+  .table { border-radius: 11px; background: var(--card); box-shadow: inset 0 0 0 1px var(--border); overflow: hidden; }
+  .row { display: grid; grid-template-columns: 22px 1fr 62px 100px 52px; align-items: center; gap: 8px; padding: 0 14px; }
+  .cols { height: 28px; font-size: 10px; font-weight: 600; letter-spacing: 0.8px; text-transform: uppercase; color: var(--faint); }
+  .grp { height: 28px; padding: 0 14px; display: flex; align-items: center; background: rgba(45,49,66,0.35); border-top: 1px solid var(--border); }
+  .grp .note { margin-left: 6px; font-size: 10.5px; color: var(--muted); font-weight: 400; letter-spacing: 0; text-transform: none; }
+  .wt { height: 44px; border-top: 1px solid var(--border); }
+  .wt.picked { background: rgba(255,255,255,0.025); }
+  .nm { display: grid; gap: 1px; min-width: 0; }
+  .nm b { font-size: 12px; font-weight: 600; color: var(--text); }
+  .nm .br { font-size: 10.5px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .nm .why { font-size: 10.5px; color: var(--caution); }
+  .size { font-size: 10.5px; color: var(--muted); text-align: right; }
+  .lock { width: 14px; height: 14px; color: var(--faint); }
+
+  /* The confirmation that follows Remove selected… */
+  .dlg {
+    position: absolute; right: 6px; bottom: -22px; width: 300px; padding: 16px;
+    background: var(--popover); border-radius: 12px;
+    box-shadow: 0 0 0 1px var(--edge), 0 4px 10px rgba(0,0,0,0.35), 0 28px 60px -10px rgba(0,0,0,0.85);
+  }
+  .dlg h2 { font-size: 15px; font-weight: 650; color: var(--text); }
+  .dlg .subt { margin-top: 3px; font-size: 11px; color: var(--muted); }
+  .dlg ul { list-style: none; display: grid; gap: 5px; margin-top: 12px; }
+  .dlg li { display: flex; justify-content: space-between; padding: 6px 10px; border-radius: 8px; box-shadow: inset 0 0 0 1px var(--edge); background: var(--card); font-size: 11.5px; font-weight: 600; }
+  .dlg li span { font-weight: 400; font-size: 10.5px; color: var(--muted); }
+  .opt { display: flex; align-items: center; gap: 8px; margin-top: 10px; font-size: 11.5px; color: var(--text); }
+  .opt + .opt { margin-top: 7px; }
+  .opt .mono { font-size: 10px; color: var(--muted); }
+  .dlg .foot { display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px; }
+  .dlg .b { height: 28px; padding: 0 10px; border-radius: 7px; font-size: 11.5px; font-weight: 600; display: flex; align-items: center; gap: 6px; }
+  .dlg .cancel { color: var(--text); box-shadow: inset 0 0 0 1px var(--edge); }
+  .dlg .go { background: #e5484d; color: #fff; }
+</style>
+</head>
+<body>
+  <div class="dots"></div>
+
+  <div class="copy">
+    <div class="brand">
+      <img src="../../apps/desktop/build/icon.png" alt="">
+      <span class="name">Switchboard</span>
+    </div>
+    <div class="eyebrow"><span class="dot"></span>New in Switchboard</div>
+    <h1>See which worktrees are <span class="hl">safe to remove</span></h1>
+    <p class="sub">Every project gets its own page. Its <b>Worktrees</b> tab shows sessions, <b>uncommitted changes</b>, <b>merges</b> and <b>size on disk</b>, and clears out the ones you're done with in one go.</p>
+  </div>
+
+  <div class="cta">
+    <span class="btn">Download Switchboard</span>
+    <span class="where">github.com/estruyf/switchboard</span>
+  </div>
+
+  <div class="stage">
+    <div class="win">
+      <div class="ph">
+        <div class="crumb">Projects<span>›</span>acme-store</div>
+        <div class="who">
+          <span class="picon">A</span>
+          <span class="name">acme-store</span>
+          <span class="new">New session</span>
+        </div>
+        <div class="tabs">
+          <span class="tab">Overview</span><span class="tab">Sessions</span><span class="tab on">Worktrees</span><span class="tab">Actions</span><span class="tab">Settings</span>
+        </div>
+      </div>
+
+      <div class="body">
+        <div class="summary">
+          <div class="stat"><b>5</b><span>worktrees</span></div>
+          <div class="stat"><b>3.6 GB</b><span>on disk</span></div>
+          <div class="stat ok"><b>2</b><span>safe to remove</span></div>
+          <div class="stat error"><b>1</b><span>stale</span></div>
+          <span class="remove">Remove 3 selected… <i>frees 1.5 GB</i></span>
+        </div>
+
+        <div class="table">
+          <div class="row cols"><span></span><span>Worktree</span><span>Changes</span><span>Merged / PR</span><span style="text-align:right">Size</span></div>
+
+          <div class="grp"><span class="section" style="color:var(--ok)">Safe to remove <span class="count" style="background:rgba(81,207,102,0.15)">2</span><span class="note">merged, clean, no session</span></span></div>
+          <div class="row wt picked">
+            <span class="check on"></span>
+            <span class="nm"><b>dark-mode</b><span class="br mono">feat/dark-mode</span></span>
+            <span><span class="pill ok">clean</span></span>
+            <span><span class="pill ok"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="4" cy="3.5" r="1.8"/><circle cx="4" cy="12.5" r="1.8"/><circle cx="12" cy="8" r="1.8"/><path d="M4 5.3v5.4M4 5.5c0 2.5 2 2.5 6.2 2.5"/></svg>merged</span></span>
+            <span class="size mono">812 MB</span>
+          </div>
+          <div class="row wt picked">
+            <span class="check on"></span>
+            <span class="nm"><b>invoice-rounding</b><span class="br mono">fix/invoice-rounding</span></span>
+            <span><span class="pill ok">clean</span></span>
+            <span><span class="pill ok"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="4" cy="3.5" r="1.8"/><circle cx="4" cy="12.5" r="1.8"/><circle cx="12" cy="8" r="1.8"/><path d="M4 5.3v5.4M4 5.5c0 2.5 2 2.5 6.2 2.5"/></svg>PR #42 merged</span></span>
+            <span class="size mono">640 MB</span>
+          </div>
+
+          <div class="grp"><span class="section" style="color:var(--caution)">Keep <span class="count" style="background:rgba(255,169,77,0.15)">1</span></span></div>
+          <div class="row wt">
+            <svg class="lock" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="7" width="10" height="7" rx="1.5"/><path d="M5.5 7V5a2.5 2.5 0 0 1 5 0v2"/></svg>
+            <span class="nm"><b>stripe-v18</b><span class="why">a session is working here</span></span>
+            <span><span class="pill caution">3 files</span></span>
+            <span><span class="pill link">PR #57 open</span></span>
+            <span class="size mono">1.1 GB</span>
+          </div>
+
+          <div class="grp"><span class="section" style="color:var(--error)">Stale <span class="count" style="background:rgba(255,107,107,0.15)">1</span><span class="note">folder is gone</span></span></div>
+          <div class="row wt picked">
+            <span class="check on"></span>
+            <span class="nm"><b>flaky-checkout</b><span class="br mono">fix/flaky-checkout</span></span>
+            <span style="font-size:11px;color:var(--muted)">missing</span>
+            <span style="color:var(--faint)">–</span>
+            <span class="size mono">0 B</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="dlg">
+      <h2>Remove 3 worktrees?</h2>
+      <div class="subt">Uses <span class="mono">git worktree remove</span>. Frees about 1.5 GB.</div>
+      <div class="opt" style="margin-top:14px"><span class="check on"></span>Also delete their branches</div>
+      <div class="opt"><span class="check on"></span>Keep a recovery ref for each branch</div>
+      <div class="foot">
+        <span class="b cancel">Cancel <span class="kbd" style="background:rgba(255,255,255,0.08);color:var(--muted)">Esc</span></span>
+        <span class="b go">Remove 3</span>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

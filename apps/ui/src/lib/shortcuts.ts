@@ -216,7 +216,7 @@ export const sameShortcut = (a: string, b: string) =>
 
 /** Where you are, for `when()`. Built from the stores (and where focus was) when the shortcuts sheet opens. */
 export interface ShortcutContext {
-  view: "home" | "new-session" | "session" | "settings" | "projects";
+  view: "home" | "new-session" | "session" | "settings" | "projects" | "project";
   /** A session is open in the session view. */
   session: boolean;
   /** Claude is working, or waiting for you, in that session. */

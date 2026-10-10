@@ -18,6 +18,9 @@ import { SearchDialog } from './components/search/SearchDialog.tsx';
 import { AddProjectDialog } from './components/projects/AddProjectDialog.tsx';
 import { BackupDialogs } from './components/backup/BackupDialogs.tsx';
 import { ProjectManagerView } from './components/projects/ProjectManagerView.tsx';
+import { ProjectPage } from './components/projects/ProjectPage.tsx';
+import { useProjectPage } from './state/projectPageStore.ts';
+import { useWorktreesSync } from './state/worktreesStore.ts';
 import { SettingsView } from './components/SettingsView.tsx';
 import { useUsageSync } from './components/UsageBand.tsx';
 import { SessionHud } from './components/sidebar/SessionHud.tsx';
@@ -114,6 +117,10 @@ function useShortcuts() {
         closePane(activePane === 'main' ? 'split' : 'main');
       } else if (matches(event, 'session.new')) {
         event.preventDefault();
+        // On a project's page, the new session starts in that project (its New session button says ⌘N).
+        const { view } = useSessions.getState();
+        const projectRoot = useProjectPage.getState().root;
+        if (view === 'project' && projectRoot) useProjects.getState().startIn(projectRoot);
         useSessions.getState().openNewSession();
       } else if (matches(event, 'session.question')) {
         // New session with Quick question picked: no project, the scratch folder the engine keeps.
@@ -169,6 +176,7 @@ export function App() {
   useQueueToasts();
   useSidebarSectionsSync();
   useCompanionSync();
+  useWorktreesSync();
   // Listen for links before telling main the window is ready: main hands over waiting links then.
   useLinksSync();
   useReadyReport();
@@ -199,6 +207,8 @@ export function App() {
         <div className="flex min-h-0 min-w-0 flex-1 flex-col" inert={view === 'settings'}>
         {behind === 'projects' ? (
           <ProjectManagerView />
+        ) : behind === 'project' ? (
+          <ProjectPage />
         ) : behind === 'new' ? (
           <NewSessionView />
         ) : mainId ? (

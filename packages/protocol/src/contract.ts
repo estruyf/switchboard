@@ -34,6 +34,8 @@ import { UsageSnapshot } from './usage.ts';
 import { ActionRunResult, ActionSuggestion, ListedAction, ProjectAction } from './actions.ts';
 import { ChangesBase, GitChanges, GitSyncAction, WorktreeStatus } from './git.ts';
 import { Capabilities } from './capabilities.ts';
+import { WorktreeList, WorktreeRemoveItem, WorktreeRemoveResult, WorktreeSize } from './worktrees.ts';
+import { BranchDeleteItem, BranchDeleteResult, BranchList } from './branches.ts';
 import { ProfileColor, ProfilesSnapshot } from './profiles.ts';
 import { ClaudeUpdateState } from './claudeUpdate.ts';
 import { BackupSectionSchema, FolderMapping, ImportMode, ImportPreview } from './backup.ts';
@@ -414,6 +416,47 @@ export const contract = {
       result: z.object({ terminalId: z.string().nullable() }),
     },
 
+    // --- Worktree overview (a project's worktrees and their clean-up) ------------------------------
+    /**
+     * Every worktree of the repository at `root` (`git worktree list`), main checkout first, with what it takes to decide
+     * whether it can go. `fetch` runs `git fetch` first so "merged" and "pushed" are current; pull requests come from `gh`
+     * (cached for a few minutes; `fetch` asks again). NOT_A_REPO outside git.
+     */
+    'worktrees.list': { params: z.object({ root: AbsolutePath, fetch: z.boolean().default(false) }), result: WorktreeList },
+    /**
+     * Sizes on disk measured so far (cached), right away. Missing ones, and with `refresh` all of them, are measured in
+     * the background and arrive through `worktrees.sizes`.
+     */
+    'worktrees.size': { params: z.object({ paths: z.array(AbsolutePath).max(500), refresh: z.boolean().default(false) }), result: z.object({ sizes: z.array(WorktreeSize) }) },
+    /**
+     * Removes worktrees of the repository at `root`, one after the other, each with `git worktree remove` (never a plain
+     * delete) or, when its folder is gone, `git worktree prune`. Refuses (per item) the main checkout, a locked worktree,
+     * uncommitted changes and a session working there or open in another Claude Code process; a session idle in
+     * Switchboard is stopped first. Optionally deletes the branch, after saving a recovery ref.
+     */
+    'worktrees.remove': { params: z.object({ root: AbsolutePath, items: z.array(WorktreeRemoveItem).min(1).max(200) }), result: z.object({ results: z.array(WorktreeRemoveResult) }) },
+    /**
+     * Pushes the branch checked out in a worktree, without a session or terminal (the overview has none): `git push`, or
+     * `git push -u <remote> <branch>` the first time. Nothing can ask for a password, so a remote that wants one fails.
+     */
+    'worktrees.push': { params: z.object({ path: AbsolutePath }), result: z.object({}) },
+    /** Ignored files in a worktree that removing it would delete, leaving out dependencies and build output (node_modules, dist, …). */
+    'worktrees.ignoredFiles': { params: z.object({ path: AbsolutePath }), result: z.object({ files: z.array(z.string()), total: z.number() }) },
+
+    // --- Branch overview (a project's branches, here and on its remotes) ---------------------------
+    /**
+     * Every local branch of the repository at `root`, each with its copy on a remote, and the remote branches that have
+     * no local copy, with what it takes to decide whether they can go. `fetch` runs `git fetch --prune` first, so
+     * branches deleted on the remote show as gone. Pull requests come from `gh` (shared with `worktrees.list`). NOT_A_REPO outside git.
+     */
+    'branches.list': { params: z.object({ root: AbsolutePath, fetch: z.boolean().default(false) }), result: BranchList },
+    /**
+     * Deletes branches of the repository at `root`, one after the other: the local branch with `git branch -D` (after an
+     * optional recovery ref), the remote one with `git push <remote> --delete`. Refuses (per item) the base branch, the
+     * remote's default branch, a branch checked out in a worktree, and a remote branch with an open pull request.
+     */
+    'branches.delete': { params: z.object({ root: AbsolutePath, items: z.array(BranchDeleteItem).min(1).max(500) }), result: z.object({ results: z.array(BranchDeleteResult) }) },
+
     // --- Terminals ---------------------------------------------------------------------------
     /**
      * Starts a terminal. `claude` runs `claude --resume <session>` (or `--fork-session` with `fork`);
@@ -586,6 +629,8 @@ export const contract = {
     /** Full list whenever terminals start, exit or close. */
     'terminals.changed': z.object({ terminals: z.array(TerminalInfo) }),
     'claudeUpdate.changed': ClaudeUpdateState,
+    /** Worktree sizes measured in the background (`worktrees.size`), as they finish. */
+    'worktrees.sizes': z.object({ sizes: z.array(WorktreeSize) }),
     /** The whole queue, in order, whenever an item is added, moved, changed, started or removed. */
     'later.changed': z.object({ items: z.array(LaterItem), started: z.array(QueueStarted) }),
     /** Skills were reloaded: ask for slash command lists again. */

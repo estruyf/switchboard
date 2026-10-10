@@ -433,6 +433,26 @@ describe('panes', () => {
     s.closePane('main');
     expect(state()).toEqual({ main: 'd', split: null, active: 'main', selected: 'd' });
   });
+
+  it('closes the panes showing archived sessions', () => {
+    reset();
+    const s = useSessions.getState();
+    s.select('a');
+    s.openBeside('b');
+    s.closeSessions(['x']);
+    expect(state()).toEqual({ main: 'a', split: 'b', active: 'split', selected: 'b' });
+    s.closeSessions(['a']);
+    expect(state()).toEqual({ main: 'b', split: null, active: 'main', selected: 'b' });
+    s.openBeside('c');
+    s.closeSessions(['c']);
+    expect(state()).toEqual({ main: 'b', split: null, active: 'main', selected: 'b' });
+    s.openBeside('c');
+    s.closeSessions(['b', 'c']);
+    expect(state()).toEqual({ main: null, split: null, active: 'main', selected: null });
+    s.select('d');
+    s.closeSessions(['d']);
+    expect(state()).toEqual({ main: null, split: null, active: 'main', selected: null });
+  });
 });
 
 describe('startupSession', () => {

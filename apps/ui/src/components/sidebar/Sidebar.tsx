@@ -182,7 +182,7 @@ function useNow(intervalMs = 60_000): number {
   return now;
 }
 
-const SessionRow = memo(function SessionRow({
+export const SessionRow = memo(function SessionRow({
   data,
   selected,
   beside = false,
@@ -274,6 +274,7 @@ const SessionRow = memo(function SessionRow({
     // The visible lines lean on icons, colour and short ages; this says the same in words.
     // Indexed sessions have a transcript, so they can be pinned and archived.
     'data-indexed': data.summary !== null,
+    'data-archived': archived || undefined,
     'data-picked': picked || undefined,
     'data-has-draft': draft !== null || undefined,
     'aria-label': sessionRowLabel({ title: data.title, project: projectName, status, pinned: data.pinned, archived, picked, beside, draft: draft !== null, updatedAt: data.updatedAt, now }),
@@ -1037,8 +1038,8 @@ export function Sidebar() {
           iconOnly
           icon={<FolderCog size={15} aria-hidden />}
           aria-label="Projects"
-          selected={view === 'projects'}
-          aria-current={view === 'projects' ? 'page' : undefined}
+          selected={view === 'projects' || view === 'project'}
+          aria-current={view === 'projects' || view === 'project' ? 'page' : undefined}
           data-open-projects
           onClick={() => setView(view === 'projects' ? 'session' : 'projects')}
         />

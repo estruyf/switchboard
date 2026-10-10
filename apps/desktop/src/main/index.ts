@@ -1563,20 +1563,25 @@ async function runProjectsStep(win: BrowserWindow): Promise<string> {
   await click('[data-manager-add]');
   if (!(await waitInPage(win, "document.querySelector('[data-add-project-dialog] [data-known-project]')", 5_000))) return 'no folders with sessions offered';
   const known = (await js("document.querySelectorAll('[data-known-project]').length")) as number;
-  const root = (await js("document.querySelector('[data-known-project][data-added=\"false\"]')?.dataset.knownProject ?? null")) as string | null;
+  // Switchboard's own repository when Claude Code has sessions there (a git repository, so the Worktrees tab has
+  // something to show), else the first folder offered.
+  const ownRepo = sourceRepository();
+  const preferred = ownRepo ? ((await js(`document.querySelector(${JSON.stringify(`[data-known-project=${JSON.stringify(ownRepo)}][data-added="false"]`)})?.dataset.knownProject ?? null`)) as string | null) : null;
+  const root = preferred ?? ((await js("document.querySelector('[data-known-project][data-added=\"false\"]')?.dataset.knownProject ?? null")) as string | null);
   if (!root) return 'every offered folder was already a project';
   const rowSelector = `[data-project-row=${JSON.stringify(root)}]`;
   const row = (selector = '') => `document.querySelector(${JSON.stringify(selector ? `${rowSelector} ${selector}` : rowSelector)})`;
+  const pageSelector = `[data-project-page=${JSON.stringify(root)}]`;
+  const page = (selector = '') => `document.querySelector(${JSON.stringify(selector ? `${pageSelector} ${selector}` : pageSelector)})`;
   await shot(win, 'add-project.png');
   await click(`[data-known-project=${JSON.stringify(root)}]`);
   if (!(await waitInPage(win, "document.querySelector('[data-known-project][data-added=\"true\"]')", 3_000))) return 'the folder was not marked as added';
   win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Escape' });
-  if (!(await waitInPage(win, `!document.querySelector('[data-add-project-dialog]') && ${row()} && !document.querySelector('[data-sidebar-onboarding]')`, 3_000))) return 'the project did not appear in the list';
 
-  // Closing the dialog opens the project just added, so its profile and defaults can be set.
-  if (!(await waitInPage(win, `${row('[data-default-effort]')}`, 3_000))) return 'the new project did not open in the Projects view';
+  // Closing the dialog opens the page of the project just added, on Settings, so its profile and defaults can be set.
+  if (!(await waitInPage(win, `!document.querySelector('[data-add-project-dialog]') && ${page('[data-default-effort]')} && !document.querySelector('[data-sidebar-onboarding]')`, 3_000))) return "the new project's page did not open on Settings";
   // Themed dropdown: open with a click, ↓ moves, Escape closes and focus returns.
-  const modelSelect = `${rowSelector} [data-default-model]`;
+  const modelSelect = `${pageSelector} [data-default-model]`;
   await js(`document.querySelector(${JSON.stringify(modelSelect)}).click()`);
   if (!(await waitInPage(win, `document.querySelectorAll('[data-select-list] [role=option]').length > 1 && document.querySelector(${JSON.stringify(modelSelect)}).getAttribute('aria-expanded') === 'true'`, 3_000))) return 'the model dropdown did not open';
   const before = (await js("document.querySelector('[data-select-list]').getAttribute('aria-activedescendant')")) as string;
@@ -1587,19 +1592,30 @@ async function runProjectsStep(win: BrowserWindow): Promise<string> {
   win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Escape' });
   if (!(await waitInPage(win, `!document.querySelector('[data-select-list]') && document.activeElement?.matches(${JSON.stringify(modelSelect)})`, 2_000))) return 'Escape did not close the dropdown';
   if (before === after) return '↓ did not move in the dropdown';
-  if (!(await waitInPage(win, `${row('[data-default-model]')}.dataset.value === ''`, 1_000))) return 'Escape changed the model default';
-  if (!(await chooseOption(win, `${rowSelector} [data-default-effort]`, 'high'))) return 'could not pick an effort default';
-  if (!(await waitInPage(win, `${row('[data-defaults-summary]')}.innerText.includes('high effort')`, 3_000))) return 'the effort default was not saved';
+  if (!(await waitInPage(win, `${page('[data-default-model]')}.dataset.value === ''`, 1_000))) return 'Escape changed the model default';
+  if (!(await chooseOption(win, `${pageSelector} [data-default-effort]`, 'high'))) return 'could not pick an effort default';
+
+  // The page's other tabs, read-only: Overview, Sessions, and the worktrees of a real repository.
+  const pageResult = await smokeRun.step('project page and worktrees', () => runProjectPageStep(win, root), { cleanup: false });
+  await smokeRun.step('project branches', () => runProjectBranchesStep(win, root), { cleanup: false });
+
+  // The Projects list shows the saved default (and a worktree pill when the project has worktrees).
+  await click('[data-project-breadcrumb]');
+  if (!(await waitInPage(win, `${row('[data-defaults-summary]')}?.innerText.includes('high effort')`, 3_000))) return 'the effort default was not saved';
   await shot(win, 'projects.png');
 
   // Renaming only changes the name Switchboard shows; it reaches the sidebar filter too.
   const renameDialog = "document.querySelector('[data-rename-project-dialog]')";
   const folder = basename(root);
-  await js(`${row('[data-project-rename]')}.click()`);
+  await js(`${row('[data-project-open]')}.click()`);
+  if (!(await waitInPage(win, page('[data-project-tab="settings"]'), 3_000))) return 'a click on the project did not open its page';
+  await js(`${page('[data-project-tab="settings"]')}.click()`);
+  if (!(await waitInPage(win, page('[data-project-rename]'), 3_000))) return 'no Rename… on the Settings tab';
+  await js(`${page('[data-project-rename]')}.click()`);
   if (!(await waitInPage(win, `${renameDialog} && document.activeElement?.matches('[data-rename-project-input]') && document.activeElement.value === ${JSON.stringify(folder)}`, 3_000))) return "Rename… did not open with the folder's name";
   await setFieldValue(win, '[data-rename-project-input]', 'Smoke project');
   await js("document.querySelector('[data-rename-project-save]').click()");
-  if (!(await waitInPage(win, `!${renameDialog} && ${row('[data-project-toggle]')}.innerText.includes('Smoke project')`, 3_000))) return 'the new name did not reach the Projects view';
+  if (!(await waitInPage(win, `!${renameDialog} && ${page('[data-project-name]')}.innerText.includes('Smoke project')`, 3_000))) return 'the new name did not reach the project page';
 
   // A project's ⋯ menu in the sidebar filter: one real click outside closes the filter and the menu.
   const more = `[data-project-filter-menu] [data-project-more=${JSON.stringify(root)}]`;
@@ -1608,14 +1624,14 @@ async function runProjectsStep(win: BrowserWindow): Promise<string> {
   if ((await js(`document.querySelector(${JSON.stringify(more)}).getAttribute('aria-label')`)) !== 'Options for Smoke project') return 'the sidebar filter does not show the new name';
   await click(more);
   if (!(await waitInPage(win, "document.querySelectorAll('[role=menu]').length === 2", 2_000))) return 'the project options menu did not open from the filter';
-  const outside = (await js("(() => { const r = document.querySelector('[data-project-manager]').getBoundingClientRect(); return { x: Math.round(r.right - 24), y: Math.round(r.bottom - 24) }; })()")) as { x: number; y: number };
+  const outside = (await js("(() => { const r = document.querySelector('[data-project-page]').getBoundingClientRect(); return { x: Math.round(r.right - 24), y: Math.round(r.bottom - 24) }; })()")) as { x: number; y: number };
   win.webContents.sendInputEvent({ type: 'mouseDown', x: outside.x, y: outside.y, button: 'left', clickCount: 1 });
   win.webContents.sendInputEvent({ type: 'mouseUp', x: outside.x, y: outside.y, button: 'left', clickCount: 1 });
   if (!(await waitInPage(win, "!document.querySelector('[role=menu]')", 2_000))) return 'a click outside left the project options menu open';
-  await js(`${row('[data-project-rename]')}.click()`);
+  await js(`${page('[data-project-rename]')}.click()`);
   if (!(await waitInPage(win, "document.querySelector('[data-rename-project-reset]')", 3_000))) return 'no Use folder name for a renamed project';
   await click('[data-rename-project-reset]');
-  if (!(await waitInPage(win, `!${renameDialog} && ${row('[data-project-toggle]')}.innerText.startsWith(${JSON.stringify(folder)})`, 3_000))) return 'Use folder name did not bring back the folder name';
+  if (!(await waitInPage(win, `!${renameDialog} && ${page('[data-project-name]')}.innerText.startsWith(${JSON.stringify(folder)})`, 3_000))) return 'Use folder name did not bring back the folder name';
 
   // A new session in the project starts from its defaults; a change there can be saved back.
   await click('[data-new-session]');
@@ -1649,12 +1665,153 @@ async function runProjectsStep(win: BrowserWindow): Promise<string> {
 
   await click('[data-open-projects]');
   if (!(await waitInPage(win, `${row('[data-defaults-summary]')}?.innerText.includes('low effort')`, 3_000))) return 'the saved default did not reach the Projects view';
-  await js(`${row('[data-remove-project]')}.click()`);
+  // Removing is in the row's ⋯ menu (it only takes the project off Switchboard's list).
+  await js(`${row('[data-project-more-button]')}.click()`);
+  if (!(await waitInPage(win, "document.querySelector('[role=menu] [data-remove-project]')", 2_000))) return "no Remove in the project's ⋯ menu";
+  await click('[role=menu] [data-remove-project]');
   if (!(await waitInPage(win, "document.querySelector('[data-confirm]')", 3_000))) return 'no confirmation before removing';
   await click('[data-confirm]');
   if (!(await waitInPage(win, "document.querySelector('[data-no-projects]')", 3_000))) return 'the project was not removed';
   await click('[data-open-projects]');
-  return `ok: ${known} folders offered; added one and it opened, dropdown keyboard and Escape, renamed it and back, an outside click closed its filter menus, its defaults reached New session (git button: ${catchUp}), saved a change back, removed it`;
+  return `ok: ${known} folders offered; added one and its page opened (${pageResult.startsWith('ok') ? 'tabs checked' : 'page step failed'}), dropdown keyboard and Escape, renamed it and back, an outside click closed its filter menus, its defaults reached New session (git button: ${catchUp}), saved a change back, removed it`;
+}
+
+/** The main checkout of the repository this app was built from, when it runs from source (the smoke test does). */
+function sourceRepository(): string | null {
+  try {
+    const common = execFileSync('git', ['rev-parse', '--path-format=absolute', '--git-common-dir'], { cwd: app.getAppPath(), encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
+    return common.endsWith('/.git') ? realpathSync(common.slice(0, -5)) : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * A project's page, read-only on a real project: the Overview's cards, the Sessions tab, and the Worktrees tab, where
+ * the main checkout is locked and the groups render. The row menu and the clean-up confirmation open and close with
+ * Escape; nothing is ever removed, pushed or merged.
+ */
+async function runProjectPageStep(win: BrowserWindow, root: string): Promise<string> {
+  const js = (code: string) => win.webContents.executeJavaScript(code);
+  const pageSelector = `[data-project-page=${JSON.stringify(root)}]`;
+  const q = (selector: string) => `document.querySelector(${JSON.stringify(`${pageSelector} ${selector}`)})`;
+  const tab = async (id: string) => js(`${q(`[data-project-tab="${id}"]`)}.click()`);
+  if (!(await waitInPage(win, `${q('[data-project-name]')} && ${q('[data-project-tab="worktrees"]')}`, 3_000))) return 'the project page has no header or tabs';
+
+  // The header's icon opens the icon choices (only opened and closed: picking an image needs the system dialog).
+  await js(`${q('[data-project-icon-button]')}.click()`);
+  if (!(await waitInPage(win, "[...document.querySelectorAll('[role=menu] [role=menuitem]')].some((e) => e.innerText.includes('Choose image'))", 2_000))) return "the project's icon did not open its icon menu";
+  win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Escape' });
+  if (!(await waitInPage(win, "!document.querySelector('[role=menu]')", 2_000))) return 'Escape did not close the icon menu';
+
+  await tab('overview');
+  if (!(await waitInPage(win, `document.querySelectorAll(${JSON.stringify(`${pageSelector} [data-overview-card]`)}).length >= 3`, 3_000))) return 'the Overview cards did not show';
+  const cards = (await js(`document.querySelectorAll(${JSON.stringify(`${pageSelector} [data-overview-card]`)}).length`)) as number;
+  await tab('sessions');
+  if (!(await waitInPage(win, q('[data-project-sessions]'), 3_000))) return 'the Sessions tab did not show';
+  if (await js(`(() => { const t = ${q('[role=tablist]')}; return t.scrollHeight > t.clientHeight; })()`)) return 'the tab row scrolls vertically';
+  // Archived sessions have their own section at the end, opening and closing from its header.
+  let archived = 'no archived sessions';
+  if (await js(`!!${q('[data-project-archived]')}`)) {
+    const toggle = q('[data-project-archived] [data-archived-toggle]');
+    const open = (await js(`${toggle}.dataset.open === 'true'`)) as boolean;
+    await js(`${toggle}.click()`);
+    if (!(await waitInPage(win, `${toggle}.dataset.open === ${JSON.stringify(String(!open))} && !!${q('[data-project-archived] [data-session-id]')} === ${!open}`, 2_000))) return 'the Archived section did not open or close';
+    const count = (await js(`document.querySelector(${JSON.stringify(`${pageSelector} [data-project-archived] [data-archived-toggle]`)}).querySelector('.sr-only')?.innerText ?? ''`)) as string;
+    await js(`${toggle}.click()`);
+    if (!(await waitInPage(win, `${toggle}.dataset.open === ${JSON.stringify(String(open))}`, 2_000))) return 'the Archived section did not toggle back';
+    archived = `${count.replace(/\D/g, '')} archived, opened and closed`;
+  }
+  await tab('worktrees');
+  if (!(await waitInPage(win, `${q('[data-project-tab="worktrees"]')}.getAttribute('aria-selected') === 'true' && (${q('[data-worktrees-tab]')} || ${q('[data-worktrees-not-repo]')})`, 20_000))) return 'the Worktrees tab did not load';
+  if (await js(`!!${q('[data-worktrees-not-repo]')}`)) return `ok: ${cards} overview cards, sessions (${archived}); not a git repository, so no worktrees`;
+
+  const main = '[data-worktree-row][data-group="main"]';
+  if (!(await js(`!!${q(main)}`))) return 'the main checkout is not listed';
+  if (!(await js(`${q(main)}.hasAttribute('data-locked') && !${q(`${main} [data-worktree-pick]`)}`))) return 'the main checkout can be picked';
+  const rows = (await js(`document.querySelectorAll(${JSON.stringify(`${pageSelector} [data-worktree-row]`)}).length`)) as number;
+  const groups = (await js(`[...document.querySelectorAll(${JSON.stringify(`${pageSelector} [data-worktree-group]`)})].map((e) => e.dataset.worktreeGroup)`)) as string[];
+  if (rows === 1 && !(await js(`!!${q('[data-worktrees-empty]')}`))) return 'no empty state with only the main checkout';
+  await shot(win, 'project-worktrees.png');
+
+  // A row's ⋯ menu opens and closes.
+  let menu = 'no other worktrees';
+  if (await js(`!!${q('[data-worktree-more]')}`)) {
+    await js(`${q('[data-worktree-more]')}.click()`);
+    if (!(await waitInPage(win, "document.querySelector('[role=menu]')", 2_000))) return 'the row menu did not open';
+    win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Escape' });
+    if (!(await waitInPage(win, "!document.querySelector('[role=menu]')", 2_000))) return 'Escape did not close the row menu';
+    menu = 'row menu opened and closed';
+  }
+  // The clean-up confirmation opens on Cancel and closes with Escape. Its Remove button is never pressed.
+  let cleanup = 'nothing picked';
+  if (await js(`!!document.querySelector(${JSON.stringify(`${pageSelector} [data-worktree-remove]:not(:disabled)`)})`)) {
+    await js(`${q('[data-worktree-remove]')}.click()`);
+    if (!(await waitInPage(win, "document.querySelector('[data-worktree-cleanup]')", 3_000))) return 'the clean-up confirmation did not open';
+    if (!(await waitInPage(win, "document.activeElement && !document.activeElement.matches('[data-worktree-cleanup-confirm]') && document.querySelector('[data-worktree-cleanup]').contains(document.activeElement)", 2_000))) return 'the clean-up confirmation did not start on Cancel';
+    await shot(win, 'worktree-cleanup.png');
+    win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Escape' });
+    if (!(await waitInPage(win, "!document.querySelector('[data-worktree-cleanup]')", 2_000))) return 'Escape did not close the clean-up confirmation';
+    cleanup = 'clean-up confirmation opened and cancelled';
+  }
+  return `ok: ${cards} overview cards, sessions (${archived}), ${rows} worktree rows (groups: ${groups.join(', ') || 'none'}), main checkout locked, ${menu}, ${cleanup}`;
+}
+
+/**
+ * A project's Branches tab, read-only on a real project: the base branch is locked, the groups render, the filter
+ * narrows the rows, and a row's menu and the delete confirmation open and close with Escape. Nothing is ever
+ * deleted, and Refresh (which fetches) is never pressed.
+ */
+async function runProjectBranchesStep(win: BrowserWindow, root: string): Promise<string> {
+  const js = (code: string) => win.webContents.executeJavaScript(code);
+  const pageSelector = `[data-project-page=${JSON.stringify(root)}]`;
+  const q = (selector: string) => `document.querySelector(${JSON.stringify(`${pageSelector} ${selector}`)})`;
+  const count = (selector: string) => js(`document.querySelectorAll(${JSON.stringify(`${pageSelector} ${selector}`)}).length`) as Promise<number>;
+  if (!(await waitInPage(win, q('[data-project-tab="branches"]'), 3_000))) return 'the project page has no Branches tab';
+  await js(`${q('[data-project-tab="branches"]')}.click()`);
+  if (!(await waitInPage(win, `${q('[data-project-tab="branches"]')}.getAttribute('aria-selected') === 'true' && (${q('[data-branches-tab]')} || ${q('[data-branches-not-repo]')})`, 20_000))) return 'the Branches tab did not load';
+  if (await js(`!!${q('[data-branches-not-repo]')}`)) return 'ok: not a git repository, so no branches';
+
+  // The base branch is in use and can't be picked. (Another branch in use, checked out in a worktree, may still be
+  // picked when its remote copy can go, so the check looks at the base itself.)
+  const inUse = '[data-branch-row][data-group="in-use"]';
+  if (!(await js(`!!${q(inUse)}`))) return 'no branch is listed as in use';
+  const baseRow = `${inUse}[data-base]`;
+  if (await js(`!!${q(baseRow)}`)) {
+    if (!(await js(`${q(baseRow)}.hasAttribute('data-locked') && !${q(`${baseRow} [data-branch-pick]`)}`))) return 'the base branch can be picked';
+  }
+  const rows = await count('[data-branch-row]');
+  const groups = (await js(`[...document.querySelectorAll(${JSON.stringify(`${pageSelector} [data-branch-group]`)})].map((e) => e.dataset.branchGroup)`)) as string[];
+  await shot(win, 'project-branches.png');
+
+  // The filter narrows the rows to what matches, and clearing it brings them back.
+  const first = (await js(`${q('[data-branch-row]')}.dataset.branchRow`)) as string;
+  const filter = q('[data-branch-filter]');
+  const type = (text: string) => js(`(() => { const f = ${filter}; Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(f, ${JSON.stringify(text)}); f.dispatchEvent(new Event('input', { bubbles: true })); })()`);
+  await type(first);
+  if (!(await waitInPage(win, `[...document.querySelectorAll(${JSON.stringify(`${pageSelector} [data-branch-row]`)})].every((r) => r.innerText.toLowerCase().includes(${JSON.stringify(first.toLowerCase())})) && !!document.querySelector(${JSON.stringify(`${pageSelector} [data-branch-row="${first}"]`)})`, 2_000))) return 'the filter did not narrow the rows';
+  await type('');
+  if (!(await waitInPage(win, `document.querySelectorAll(${JSON.stringify(`${pageSelector} [data-branch-row]`)}).length === ${rows}`, 2_000))) return 'clearing the filter did not bring the rows back';
+
+  // A row's ⋯ menu opens and closes.
+  await js(`${q('[data-branch-more]')}.click()`);
+  if (!(await waitInPage(win, "document.querySelector('[role=menu]')", 2_000))) return 'the row menu did not open';
+  win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Escape' });
+  if (!(await waitInPage(win, "!document.querySelector('[role=menu]')", 2_000))) return 'Escape did not close the row menu';
+
+  // The delete confirmation opens on Cancel and closes with Escape. Its Delete button is never pressed.
+  let confirm = 'nothing picked';
+  if (await js(`!!document.querySelector(${JSON.stringify(`${pageSelector} [data-branch-delete-selected]:not(:disabled)`)})`)) {
+    await js(`${q('[data-branch-delete-selected]')}.click()`);
+    if (!(await waitInPage(win, "document.querySelector('[data-branch-delete]')", 3_000))) return 'the delete confirmation did not open';
+    if (!(await waitInPage(win, "document.activeElement && !document.activeElement.matches('[data-branch-delete-confirm]') && document.querySelector('[data-branch-delete]').contains(document.activeElement)", 2_000))) return 'the delete confirmation did not start on Cancel';
+    if (await js(`document.querySelector('[data-branch-delete-remote]')?.getAttribute('aria-checked') === 'true'`)) return 'deleting on the remote was on by default';
+    await shot(win, 'branch-delete.png');
+    win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Escape' });
+    if (!(await waitInPage(win, "!document.querySelector('[data-branch-delete]')", 2_000))) return 'Escape did not close the delete confirmation';
+    confirm = 'delete confirmation opened and cancelled';
+  }
+  return `ok: ${rows} branch rows (groups: ${groups.join(', ') || 'none'}), in-use branch locked, filter narrowed and cleared, row menu opened and closed, ${confirm}`;
 }
 
 /**
@@ -3571,12 +3728,20 @@ async function runControlsStep(win: BrowserWindow): Promise<string> {
   const cursors = (await js("({ button: getComputedStyle(document.querySelector('[data-new-session]')).cursor, handle: getComputedStyle(document.querySelector('[data-sidebar-resize]')).cursor })")) as { button: string; handle: string };
   if (cursors.button !== 'pointer' || cursors.handle !== 'col-resize') return `cursors: ${JSON.stringify(cursors)}`;
 
-  // Tooltip on hover.
+  // Tooltip on hover. The layer drops a tooltip that is waiting to show on a scroll around it, a key, a
+  // click or the window losing focus, so note those to say why it didn't show. The conversation scrolls
+  // to its end after the resize above, which must not count.
+  await js(
+    "(() => { const seen = []; const stop = new AbortController(); window.__smokeTooltipWatch = { seen, stop }; const opts = { capture: true, signal: stop.signal }; const name = (t) => !t || t === document ? 'document' : t.tagName + Object.keys(t.dataset ?? {}).map((k) => '[data-' + k + ']').join(''); for (const type of ['scroll', 'keydown', 'pointerdown']) document.addEventListener(type, (e) => seen.push(type + ' on ' + name(e.target)), opts); window.addEventListener('blur', () => seen.push('window blur'), { signal: stop.signal }); document.addEventListener('mouseout', (e) => e.relatedTarget === null && seen.push('pointer left the window'), { signal: stop.signal }); })()",
+  );
   const tip = await center('[data-new-session]');
   win.webContents.sendInputEvent({ type: 'mouseMove', x: tip.x, y: tip.y });
   const tooltip = await waitInPage(win, "document.querySelector('[data-tooltip-layer]')?.innerText.includes('New session')", 2_000);
+  const under = (await js(
+    `(() => { const watch = window.__smokeTooltipWatch; watch.stop.abort(); delete window.__smokeTooltipWatch; const el = document.elementFromPoint(${tip.x}, ${tip.y}); return { at: el ? el.tagName + (el.closest('[data-new-session]') ? ' in the button' : '') : 'nothing', layer: document.querySelector('[data-tooltip-layer]')?.innerText ?? null, events: [...new Set(watch.seen)] }; })()`,
+  )) as { at: string; layer: string | null; events: string[] };
   win.webContents.sendInputEvent({ type: 'mouseMove', x: tip.x + 400, y: tip.y + 300 });
-  if (!tooltip) return 'no themed tooltip on the New session button';
+  if (!tooltip) return `no themed tooltip on the New session button (${JSON.stringify(under)})`;
 
   // Tab that picks a slash command stays in the message box: it must not turn on the keyboard focus ring.
   // Picking only fills in the text; the box is emptied again and nothing is sent.
@@ -3600,7 +3765,8 @@ async function runControlsStep(win: BrowserWindow): Promise<string> {
   }
 
   if (smokeSessionId) await js(`document.querySelector('[data-session-id="${smokeSessionId}"]')?.click()`);
-  return `ok: sidebar ${start} → ${widest} → ${narrowest} → ${reset}px, pointer cursors, themed tooltip${slashTab}`;
+  const scrolledElsewhere = under.events.some((event) => event.startsWith('scroll')) ? ' (through a scroll elsewhere)' : '';
+  return `ok: sidebar ${start} → ${widest} → ${narrowest} → ${reset}px, pointer cursors, themed tooltip${scrolledElsewhere}${slashTab}`;
 }
 
 /**
@@ -3895,8 +4061,9 @@ async function runArchiveStep(win: BrowserWindow): Promise<string> {
     return `archived session not found under Archived: ${seen}`;
   }
   if (!(await menu('Unarchive'))) return 'no Unarchive item';
-  await js(toTop);
-  if (!(await waitInPage(win, inMainList, 3_000))) return 'unarchiving did nothing';
+  // Scroll to the top on every check: opening Archived above slides the list down to it for 200ms, which would undo a
+  // single scroll made while it runs and leave the unarchived row out of the virtualised list.
+  if (!(await waitInPage(win, `(${toTop}, ${inMainList})`, 3_000))) return 'unarchiving did nothing';
   return `ok: archived ${working ? 'a working session' : 'a session'} and unarchived it`;
 }
 
@@ -3933,8 +4100,8 @@ async function runRenameStep(win: BrowserWindow): Promise<string> {
 }
 
 /**
- * ⌘-click picks a second session, right-click → "Archive 2 sessions" moves both under "Archived", and the selection bar
- * there brings them back. Flags live in the throwaway profile.
+ * ⌘-click picks a second session, right-click → "Archive 2 sessions" moves both under "Archived" and closes the one that
+ * was open, and the selection bar there brings them back. Flags live in the throwaway profile.
  */
 async function runArchiveManyStep(win: BrowserWindow): Promise<string> {
   const js = (code: string) => win.webContents.executeJavaScript(code);
@@ -3957,7 +4124,9 @@ async function runArchiveManyStep(win: BrowserWindow): Promise<string> {
     `(() => { const r = ${row(id)}; if (!r) return false; const h = document.querySelector('[data-archived-toggle]'); return !h || r.getBoundingClientRect().top < h.getBoundingClientRect().top; })()`;
   const [a, b] = ids as [string, string];
 
+  const open = (id: string) => `!!document.querySelector('[data-current-session="${id}"]')`;
   await click(a, false);
+  if (!(await waitInPage(win, open(a), 3_000))) return 'clicking a session did not open it';
   await click(b, true);
   if (!(await waitInPage(win, "document.querySelector('[data-selection-count]')?.dataset.selectionCount === '2'", 2_000))) return 'picking a second session with ⌘-click showed no selection bar for 2';
   // While picking, every row shows a round checkbox in place of its project icon, and picked rows sit on a tinted block.
@@ -3974,6 +4143,7 @@ async function runArchiveManyStep(win: BrowserWindow): Promise<string> {
   await js(`${item}.click()`);
   await js(`${list}.scrollTop = 0`);
   if (!(await waitInPage(win, `!${inMainList(a)} && !${inMainList(b)} && !document.querySelector('[data-selection-bar]')`, 3_000))) return 'archiving left the sessions in the main list';
+  if (!(await waitInPage(win, `!${open(a)}`, 2_000))) return 'archiving the open session left it open';
 
   // Find them under Archived (scroll until its header renders) and bring them back.
   for (let i = 0; i < 80 && !(await js("!!document.querySelector('[data-archived-toggle]')")); i++) {
@@ -3992,11 +4162,30 @@ async function runArchiveManyStep(win: BrowserWindow): Promise<string> {
   await click(b, true);
   if (!(await waitInPage(win, "!!document.querySelector('[data-unarchive-selected]')", 2_000))) return 'no Unarchive button for two archived sessions';
   await js("document.querySelector('[data-unarchive-selected]').click()");
-  await js(`${list}.scrollTop = 0`);
-  if (!(await waitInPage(win, `${inMainList(a)} && ${inMainList(b)}`, 3_000))) return 'unarchiving did not bring the sessions back: ' + (await js(`JSON.stringify({ scroll: ${list}.scrollTop, h: ${list}.clientHeight, sh: ${list}.scrollHeight, a: ${row(a)}?.getBoundingClientRect().top ?? null, b: ${row(b)}?.getBoundingClientRect().top ?? null, header: document.querySelector('[data-archived-toggle]')?.getBoundingClientRect().top ?? null, bar: !!document.querySelector('[data-selection-bar]'), rows: [...document.querySelectorAll('[data-session-id]')].length })`));
+  // Clicking `a` in Archived opened it again, so the list may follow it: look for both rows wherever they now sit.
+  const unarchived = async () => {
+    const seen = new Set<string>();
+    await js(`${list}.scrollTop = 0`);
+    for (let i = 0; i < 80 && seen.size < 2; i++) {
+      for (const id of [a, b]) if (await js(`!!${row(id)} && !${row(id)}.dataset.archived`)) seen.add(id);
+      if (await js(`${list}.scrollTop + ${list}.clientHeight >= ${list}.scrollHeight`)) break;
+      await js(`${list}.scrollTop += 300`);
+      await pause();
+    }
+    return seen.size === 2;
+  };
+  let back = false;
+  for (const started = Date.now(); !back && Date.now() - started < 3_000; ) back = await unarchived();
+  if (!back) return 'unarchiving did not bring the sessions back to the main list';
   if (opened && (await js("document.querySelector('[data-archived-toggle]')?.dataset.open")) === 'true') await js("document.querySelector('[data-archived-toggle]').click()");
-  if (smokeSessionId) await js(`${row(smokeSessionId)}?.click()`);
-  return 'ok: ⌘-click picked two sessions, archived both from the menu and unarchived them from the selection bar';
+  if (smokeSessionId) {
+    // Back to the smoke session for the steps after this one; its row is near the top of the virtualised list.
+    await js(`${list}.scrollTop = 0`);
+    await waitInPage(win, `!!${row(smokeSessionId)}`, 2_000);
+    await js(`${row(smokeSessionId)}?.click()`);
+    if (!(await waitInPage(win, open(smokeSessionId), 3_000))) return 'the smoke session did not open again';
+  }
+  return 'ok: ⌘-click picked two sessions, archived both from the menu (closing the open one) and unarchived them from the selection bar';
 }
 
 /** Closes a dialog, menu or palette a step left open (with Escape, as a person would), so the next step starts clean. */

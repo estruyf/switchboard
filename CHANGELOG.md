@@ -7,15 +7,25 @@ All notable changes to Switchboard are listed here. Each release is also on the 
 ### New
 
 - **Answer prompts from VS Code.** With the VS Code companion, a permission prompt, question or plan from a session in the open workspace shows as a VS Code notification you can answer there. Your answer works as if you gave it in Switchboard, and the card goes away.
+- **Branch overview and clean-up.** A project's new Branches tab lists every branch here and on the remote, with whether it's pushed, merged (or its pull request, with the GitHub CLI), deleted on the remote, and its last commit. It groups them into *In use*, *Safe to delete*, *Deleted on the remote*, *Inactive* and *Active*, and deletes the ones you tick after one confirmation: the local branches, their copies on the remote, or both, with a recovery ref if you like. The base branch, checked-out branches and branches with an open pull request are never deleted. Open it from the project page, **Branches…** in a project's menu, or the command palette (*Branches…*).
 - Save an image from the conversation: use the save button on the image, right-click it and choose Save image…, or press ⌘S while it is open full size.
+- **A page for each project.** Click a project in Projects, choose **Open project** in its menu in the sidebar, or run *Project: &lt;name&gt;* in the command palette. Its tabs hold an Overview (sessions, worktrees, queue and git at a glance), its Sessions (archived ones in their own section at the end), its Worktrees, its Actions and its Settings. A project opens on the tab you left it on, and ⌘N there starts a session in it. Click its icon at the top to choose an image, an emoji or a letter, or to rename it; the Settings tab has Choose image… too.
+- **Worktree overview and clean-up.** A project's Worktrees tab lists every worktree with its sessions, uncommitted changes, commits ahead of the base branch, whether it's pushed and merged (or its pull request, with the GitHub CLI), its size on disk and when it was last active. It groups them into *Safe to remove*, *Probably done*, *Keep* (with the reason) and *Stale*, and removes the ones you tick after one confirmation that shows the space freed and any ignored files that would be lost. Branches can go too, with a recovery ref if you like. Worktrees with uncommitted changes, a session working in them, or a lock are never removed, and removing always goes through `git worktree remove`. Open it from the project page, the new worktree pill in Projects, **Worktrees…** in a project's menu, or the command palette (*Worktrees…*, *Clean up worktrees in &lt;project&gt;…*).
 - **Switchboard runs on Windows**, built from source for now. Shortcuts use Ctrl, the terminal panel runs PowerShell, Open in knows VS Code, Cursor, File Explorer and Windows Terminal, the VS Code companion connects, and a session that needs you flashes the taskbar button. See [Windows support](docs/windows-support.md).
 - Settings files move between a Mac and a Windows PC: their project folders show as missing until you point them at folders on the new computer.
+
+### Changed
+
+- Archiving a session that is open closes it. With two sessions side by side, the other one takes the full width.
+- **Projects list.** Each project shows its defaults on one line, a worktree pill, New session, ⋯ and the reorder buttons. Defaults, the profile choice and actions moved to the project's page; Remove is in the ⋯ menu.
+- **Images in your messages.** They show above the text, so Show more never hides them: one image at its own shape, two to four as thumbnails, and five or more as tiles with a +N for the rest. Hover one for its type, size and pixel size. Full size, ← and → step through all of a message's images, with a filmstrip at the bottom.
 
 ### Fixed
 
 - The pointer turns into a text cursor over text you can select in the conversation (messages, code blocks, diffs), instead of staying an arrow.
 - Collapsible sections in the sidebar (your session groups, the Queue, Archived) always show their chevron, pointing right when closed and down when open, so you can tell their state without hovering.
 - Archived stays at the bottom of the sidebar while it is closed, so a short list no longer shows a scrollbar. Opening it slides it up right under your other sessions, with no gap, and closing it slides it back down.
+- Tooltips show while Claude is writing. The conversation scrolling along no longer hides the tooltip of a button you point at in the sidebar or a header.
 
 ## [0.0.13] - 2026-10-10
 

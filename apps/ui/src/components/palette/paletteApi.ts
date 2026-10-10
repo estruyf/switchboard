@@ -8,6 +8,7 @@ import { startQueued, useLater } from '../../state/laterStore.ts';
 import { useOverlay } from '../../state/overlayStore.ts';
 import { usePaletteBus } from '../../state/paletteBus.ts';
 import { usePreferences } from '../../state/preferencesStore.ts';
+import { cleanUpWorktrees, openProject } from '../../state/projectPageStore.ts';
 import { useProjects } from '../../state/projectsStore.ts';
 import { goToAdjacentSession, goToNextNeedsYou } from '../../state/sessionNav.ts';
 import { useSessions } from '../../state/sessionsStore.ts';
@@ -63,6 +64,8 @@ export function createPaletteApi(ctx: PaletteContext, client: EngineClient | nul
     goToSession: (direction) => goToAdjacentSession(direction),
     goToNextNeedsYou: () => goToNextNeedsYou(),
     manageProjects: () => manage(),
+    openProject: (root, tab) => openProject(root, tab),
+    cleanUpWorktrees: (root) => cleanUpWorktrees(root),
     addProject: () => useProjects.getState().showAdd(true),
     checkClaudeUpdate: () => {
       useSessions.getState().openSettings('about');

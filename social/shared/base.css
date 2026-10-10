@@ -1,0 +1,101 @@
+/*
+  Shared look of Switchboard's social images: a 1200×630 card in the app's dark theme
+  (the values of apps/ui/src/styles.css), copy on the left and a mockup on the right.
+  Each post links this file and adds the styles of its own mockup.
+*/
+:root {
+  --bg: #15181f; --card: #202736; --border: #2d3142; --popover: #2a3244; --edge: #414861;
+  --text: #d9dbe1; --muted: #9ba4b7; --faint: #8b94a6;
+  --accent: #ffd43b; --on-accent: #15181f; --warn: #ed217c; --ok: #51cf66; --link: #74c0fc;
+  --caution: #ffa94d; --error: #ff6b6b;
+  /* The two cables of the app icon. */
+  --warm1: #f3a27f; --warm2: #c95f3d; --gold1: #ffd27a; --gold2: #e09a2c;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { width: 1200px; height: 630px; overflow: hidden; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Inter', system-ui, sans-serif;
+  color: var(--text);
+  background:
+    radial-gradient(900px 500px at 92% 110%, rgba(224,154,44,0.20), transparent 60%),
+    radial-gradient(700px 420px at 105% -10%, rgba(201,95,61,0.18), transparent 60%),
+    radial-gradient(600px 400px at -10% 0%, rgba(116,192,252,0.08), transparent 60%),
+    var(--bg);
+  position: relative;
+}
+.dots {
+  position: absolute; inset: 0;
+  background-image: radial-gradient(rgba(255,255,255,0.06) 1.2px, transparent 1.2px);
+  background-size: 22px 22px;
+  mask-image: linear-gradient(90deg, transparent 0%, #000 55%, #000 100%);
+}
+.mono { font-family: 'SF Mono', ui-monospace, Menlo, monospace; }
+
+/* Left column: brand, eyebrow, headline, one line of detail. */
+.copy { position: absolute; left: 64px; top: 64px; width: 470px; }
+.brand { display: flex; align-items: center; gap: 14px; margin-bottom: 34px; }
+.brand img { width: 52px; height: 52px; }
+.brand .name { font-size: 15px; color: var(--muted); font-weight: 500; letter-spacing: 0.2px; }
+.eyebrow {
+  display: inline-flex; align-items: center; gap: 8px;
+  font-size: 13px; font-weight: 600; letter-spacing: 1.4px; text-transform: uppercase;
+  color: var(--accent); margin-bottom: 16px;
+}
+.eyebrow .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 4px rgba(255,212,59,0.18); }
+h1 { font-size: 46px; line-height: 1.06; font-weight: 700; letter-spacing: -1.2px; color: #f3f4f7; }
+h1 .hl { color: var(--accent); }
+.sub { margin-top: 20px; font-size: 18px; line-height: 1.5; color: var(--muted); }
+.sub b { color: var(--text); font-weight: 600; }
+
+/* Bottom left: the one call to action and where to get it. */
+.cta { position: absolute; left: 64px; bottom: 58px; display: flex; align-items: center; gap: 12px; }
+.btn {
+  height: 40px; padding: 0 18px; border-radius: 9px; display: inline-flex; align-items: center; gap: 10px;
+  background: var(--accent); color: var(--on-accent); font-weight: 650; font-size: 15px;
+}
+.where { font-size: 14px; color: var(--faint); }
+
+/* Right: the mockup. Children are positioned inside it. */
+.stage { position: absolute; right: 44px; top: 46px; width: 600px; height: 540px; }
+.cable { position: absolute; inset: 0; pointer-events: none; overflow: visible; }
+
+/* Switchboard's message box, with context chips. */
+.sb {
+  position: absolute; width: 430px;
+  background: var(--card); border-radius: 14px; padding: 14px 14px 12px;
+  box-shadow: 0 0 0 1px var(--edge), 0 0 0 5px rgba(255,212,59,0.10), 0 28px 60px -14px rgba(0,0,0,0.8);
+}
+.sb .head { display: flex; align-items: center; gap: 9px; margin-bottom: 12px; }
+.sb .head img { width: 22px; height: 22px; }
+.sb .head .title { font-size: 13.5px; font-weight: 600; color: var(--text); }
+.sb .head .meta { margin-left: auto; font-size: 11px; color: var(--faint); }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
+.chip {
+  display: inline-flex; align-items: center; gap: 6px; height: 24px; padding: 0 9px;
+  border-radius: 7px; background: rgba(255,255,255,0.04); box-shadow: inset 0 0 0 1px var(--edge);
+  font-size: 11.5px; color: var(--text);
+}
+.chip svg { width: 12px; height: 12px; color: var(--muted); }
+.chip.new { box-shadow: inset 0 0 0 1px rgba(255,212,59,0.55); background: rgba(255,212,59,0.08); }
+.msg { font-size: 13.5px; color: var(--text); padding: 2px 2px 12px; }
+.msg .caret { display: inline-block; width: 1.5px; height: 15px; background: var(--accent); vertical-align: -2px; margin-left: 1px; }
+.sb .foot { display: flex; align-items: center; gap: 12px; font-size: 11.5px; color: var(--muted); }
+.sb .foot .send { margin-left: auto; height: 30px; padding: 0 12px; border-radius: 8px; background: var(--accent); color: var(--on-accent); font-weight: 650; font-size: 12px; display: flex; align-items: center; gap: 8px; }
+.kbd { font-size: 10.5px; padding: 1px 5px; border-radius: 4px; background: rgba(21,24,31,0.14); }
+
+/* Small rounded chip in a table or row (Pill in the app), in a status tone. */
+.pill { display: inline-flex; align-items: center; gap: 4px; height: 20px; padding: 0 8px; border-radius: 999px; font-size: 11px; white-space: nowrap; background: rgba(255,255,255,0.06); color: var(--muted); }
+.pill svg { width: 11px; height: 11px; }
+.pill.ok { background: rgba(81,207,102,0.14); color: var(--ok); }
+.pill.caution { background: rgba(255,169,77,0.14); color: var(--caution); }
+.pill.link { background: rgba(116,192,252,0.14); color: var(--link); }
+.pill.error { background: rgba(255,107,107,0.14); color: var(--error); }
+
+/* Checkbox, ticked or not. */
+.check { width: 14px; height: 14px; border-radius: 4px; box-shadow: inset 0 0 0 1.5px var(--edge); display: grid; place-items: center; flex: none; }
+.check.on { background: var(--accent); box-shadow: none; }
+.check.on::after { content: ''; width: 7px; height: 4px; border-left: 2px solid var(--on-accent); border-bottom: 2px solid var(--on-accent); transform: translateY(-1px) rotate(-45deg); }
+
+/* Small caps over a group of rows (SectionHeader in the app). */
+.section { font-size: 11px; font-weight: 600; letter-spacing: 0.9px; text-transform: uppercase; display: flex; align-items: center; gap: 6px; }
+.section .count { min-width: 18px; height: 16px; padding: 0 5px; border-radius: 999px; font-size: 10px; display: grid; place-items: center; background: rgba(255,255,255,0.08); }

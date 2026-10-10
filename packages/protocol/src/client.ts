@@ -9,6 +9,8 @@ export * from './bridge.ts';
 export type * from './sessions.ts';
 export type * from './host.ts';
 export type * from './git.ts';
+export type * from './worktrees.ts';
+export type * from './branches.ts';
 export type * from './capabilities.ts';
 export type * from './terminal.ts';
 export type * from './actions.ts';
