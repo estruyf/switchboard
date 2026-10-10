@@ -19,8 +19,9 @@ import {
 } from '@switchboard/protocol';
 import type { SessionSource } from '../claude/sessionSource.ts';
 import { createEngine } from '../engine.ts';
-import type { SessionSummary } from '@switchboard/protocol';
-import { companionSessions, inFolders, isWithin, RECENT_MS, sessionsFor } from './companionSessions.ts';
+import type { PermissionDecision, PermissionRequest, SessionSummary } from '@switchboard/protocol';
+import { CompanionHub } from './companionHub.ts';
+import { companionSessions, inFolders, isWithin, promptsFor, RECENT_MS, sessionsFor } from './companionSessions.ts';
 
 const SESSION_ID = '44444444-4444-4444-8444-444444444444';
 const source: SessionSource = {
@@ -185,6 +186,63 @@ describe('companion socket', () => {
     await window.call('companion.focus', { sessionId: SESSION_ID });
     await until(() => changes, (c) => c.length > 0);
     expect(changes).toEqual([SESSION_ID]);
+  });
+});
+
+const prompt = (requestId: string, sessionId: string, createdAt = 1): PermissionRequest => ({
+  requestId,
+  sessionId,
+  toolName: 'Bash',
+  toolUseId: null,
+  input: { command: 'npm test' },
+  title: 'Claude wants to run npm test',
+  description: null,
+  decisionReason: null,
+  blockedPath: null,
+  alwaysLabel: null,
+  agentId: null,
+  createdAt,
+});
+
+describe('prompts', () => {
+  it('lists the prompts of the listed sessions, oldest first', () => {
+    const prompts = [prompt('b', 's1', 2), prompt('elsewhere', 's2', 0), prompt('a', 's1', 1)];
+    expect(promptsFor(prompts, [{ id: 's1' }]).map((p) => p.requestId)).toEqual(['a', 'b']);
+  });
+
+  it('hands an editor the prompts of its folders, and its answers to the engine', async () => {
+    const dataDir = mkdtempSync(join(tmpdir(), 'switchboard-companion-'));
+    const answers: Array<[string, PermissionDecision, boolean]> = [];
+    const summary = { id: SESSION_ID, title: 'Fix the login form', firstPrompt: null, customTitle: null, cwd: '/work/web', projectRoot: '/work/web', gitBranch: 'main', worktree: null, origin: 'app', createdAt: null, updatedAt: Date.now(), fileSize: null, tag: null, pinned: false, archivedAt: null, viewedAt: null, unread: false, inApp: true, profileId: 'default' } satisfies SessionSummary;
+    const hub = new CompanionHub({
+      infoDir: join(dataDir, COMPANION_DIR),
+      appVersion: '9.9.9',
+      sources: () => ({ summaries: [summary], live: [], hosts: [], permissions: [prompt('ask', SESSION_ID), prompt('other', 'not-listed')] }),
+      windows: () => 1,
+      respond: (requestId, decision, acceptEdits) => {
+        if (requestId !== 'ask') throw new Error('gone');
+        answers.push([requestId, decision, acceptEdits]);
+      },
+      log: () => {},
+    });
+    cleanups.push(() => {
+      hub.stop();
+      rmSync(dataDir, { recursive: true, force: true });
+    });
+    await hub.start();
+    const info = JSON.parse(readFileSync(hub.infoFile, 'utf8')) as CompanionInfo;
+    const { client } = editor(info);
+    await hello(client, info.token);
+    expect((await client.call('sessions.list', { folders: ['/work'] })).prompts?.map((p) => p.requestId)).toEqual(['ask']);
+    expect((await client.call('sessions.list', { folders: ['/elsewhere'] })).prompts).toEqual([]);
+
+    await client.call('prompt.respond', { requestId: 'ask', decision: { behavior: 'allow' }, acceptEdits: true });
+    await client.call('prompt.respond', { requestId: 'ask', decision: { behavior: 'deny', message: 'Use pnpm' } });
+    expect(answers).toEqual([
+      ['ask', { behavior: 'allow', always: false }, true],
+      ['ask', { behavior: 'deny', message: 'Use pnpm', interrupt: false }, false],
+    ]);
+    await expect(client.call('prompt.respond', { requestId: 'ask', decision: { behavior: 'maybe' } as never })).rejects.toMatchObject({ code: 'INVALID_PARAMS' });
   });
 });
 

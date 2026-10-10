@@ -4,7 +4,7 @@ import { pillClass, type PillTone } from './buttonStyles.ts';
 import { Kbd } from './Kbd.tsx';
 
 interface PillProps extends Omit<HTMLAttributes<HTMLElement>, 'onClick'> {
-  /** `default`, `muted` (quiet, on a card), `accent` (at a limit), `ok` (background work), `warn` (needs you or over a limit), `count` (the number next to a group heading). */
+  /** `default`, `muted` (quiet, on a card), `accent` (at a limit), `ok` (background work, clean), `warn` (needs you or over a limit), `caution` (look before it goes), `link` (an open pull request), `count` (the number next to a group heading). */
   tone?: PillTone;
   /** A button when given, otherwise a label. */
   onClick?: MouseEventHandler<HTMLButtonElement>;
@@ -46,7 +46,7 @@ export function Pill({ tone = 'default', onClick, dashed = false, selected = fal
   );
 }
 
-const COUNT_TINT = { 'needs-you': 'bg-warn/15', working: 'bg-accent/20', neutral: 'bg-border/60' } as const;
+const COUNT_TINT = { 'needs-you': 'bg-warn/15', working: 'bg-accent/20', neutral: 'bg-border/60', ok: 'bg-ok/15', info: 'bg-link/15', caution: 'bg-caution/15', error: 'bg-error/15' } as const;
 
 /**
  * The count next to a group heading (Needs you, Working, Archived), tinted like the heading's status.

@@ -7,4 +7,5 @@ export { lineTransport, LineDecoder, type TextStream } from './lineTransport.ts'
 export type { Transport, WireMessage } from './wire.ts';
 export type * from './companion.ts';
 export type * from './context.ts';
+export type { PermissionDecision, PermissionRequest } from './host.ts';
 export * from './companionConstants.ts';
