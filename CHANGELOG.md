@@ -14,6 +14,7 @@ All notable changes to Switchboard are listed here. Each release is also on the 
 
 ### Changed
 
+- Archiving a session that is open closes it. With two sessions side by side, the other one takes the full width.
 - **Projects list.** Each project shows its defaults on one line, a worktree pill, New session, ⋯ and the reorder buttons. Defaults, the profile choice and actions moved to the project's page; Remove is in the ⋯ menu.
 - **Images in your messages.** They show above the text, so Show more never hides them: one image at its own shape, two to four as thumbnails, and five or more as tiles with a +N for the rest. Hover one for its type, size and pixel size. Full size, ← and → step through all of a message's images, with a filmstrip at the bottom.
 

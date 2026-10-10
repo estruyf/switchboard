@@ -46,6 +46,8 @@ interface SessionsState {
   closePane(pane?: Pane): void;
   /** Closes the open session(s) and shows Home. A working session keeps running. */
   closeSession(): void;
+  /** Closes the panes showing any of these sessions (after archiving them); the other pane takes the full width, and with none left, Home shows. */
+  closeSessions(ids: readonly string[]): void;
   /** Shows Home: what needs you, what is working, and your projects. */
   goHome(): void;
   focusPane(pane: Pane): void;
@@ -119,6 +121,13 @@ export const useSessions = create<SessionsState>()((set) => ({
       return panes({ mainId: pane === 'main' ? s.splitId : s.mainId, splitId: null, activePane: 'main' });
     }),
   closeSession: () => set({ ...panes({ mainId: null, splitId: null, activePane: 'main' }), view: 'session' }),
+  closeSessions: (ids) =>
+    set((s) => {
+      const keepMain = s.mainId !== null && !ids.includes(s.mainId);
+      const keepSplit = s.splitId !== null && !ids.includes(s.splitId);
+      if (keepMain === (s.mainId !== null) && keepSplit === (s.splitId !== null)) return {};
+      return panes({ mainId: keepMain ? s.mainId : keepSplit ? s.splitId : null, splitId: keepMain && keepSplit ? s.splitId : null, activePane: keepMain && keepSplit ? s.activePane : 'main' });
+    }),
   goHome: () => set({ ...panes({ mainId: null, splitId: null, activePane: 'main' }), view: 'session' }),
   focusPane: (pane) => set((s) => (s.activePane === pane || (pane === 'split' && !s.splitId) ? {} : panes({ ...s, activePane: pane }))),
   setView: (view) => set({ view }),

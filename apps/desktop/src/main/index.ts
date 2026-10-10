@@ -4029,8 +4029,8 @@ async function runRenameStep(win: BrowserWindow): Promise<string> {
 }
 
 /**
- * ⌘-click picks a second session, right-click → "Archive 2 sessions" moves both under "Archived", and the selection bar
- * there brings them back. Flags live in the throwaway profile.
+ * ⌘-click picks a second session, right-click → "Archive 2 sessions" moves both under "Archived" and closes the one that
+ * was open, and the selection bar there brings them back. Flags live in the throwaway profile.
  */
 async function runArchiveManyStep(win: BrowserWindow): Promise<string> {
   const js = (code: string) => win.webContents.executeJavaScript(code);
@@ -4053,7 +4053,9 @@ async function runArchiveManyStep(win: BrowserWindow): Promise<string> {
     `(() => { const r = ${row(id)}; if (!r) return false; const h = document.querySelector('[data-archived-toggle]'); return !h || r.getBoundingClientRect().top < h.getBoundingClientRect().top; })()`;
   const [a, b] = ids as [string, string];
 
+  const open = (id: string) => `!!document.querySelector('[data-current-session="${id}"]')`;
   await click(a, false);
+  if (!(await waitInPage(win, open(a), 3_000))) return 'clicking a session did not open it';
   await click(b, true);
   if (!(await waitInPage(win, "document.querySelector('[data-selection-count]')?.dataset.selectionCount === '2'", 2_000))) return 'picking a second session with ⌘-click showed no selection bar for 2';
   // While picking, every row shows a round checkbox in place of its project icon, and picked rows sit on a tinted block.
@@ -4070,6 +4072,7 @@ async function runArchiveManyStep(win: BrowserWindow): Promise<string> {
   await js(`${item}.click()`);
   await js(`${list}.scrollTop = 0`);
   if (!(await waitInPage(win, `!${inMainList(a)} && !${inMainList(b)} && !document.querySelector('[data-selection-bar]')`, 3_000))) return 'archiving left the sessions in the main list';
+  if (!(await waitInPage(win, `!${open(a)}`, 2_000))) return 'archiving the open session left it open';
 
   // Find them under Archived (scroll until its header renders) and bring them back.
   for (let i = 0; i < 80 && !(await js("!!document.querySelector('[data-archived-toggle]')")); i++) {
@@ -4088,11 +4091,30 @@ async function runArchiveManyStep(win: BrowserWindow): Promise<string> {
   await click(b, true);
   if (!(await waitInPage(win, "!!document.querySelector('[data-unarchive-selected]')", 2_000))) return 'no Unarchive button for two archived sessions';
   await js("document.querySelector('[data-unarchive-selected]').click()");
-  await js(`${list}.scrollTop = 0`);
-  if (!(await waitInPage(win, `${inMainList(a)} && ${inMainList(b)}`, 3_000))) return 'unarchiving did not bring the sessions back: ' + (await js(`JSON.stringify({ scroll: ${list}.scrollTop, h: ${list}.clientHeight, sh: ${list}.scrollHeight, a: ${row(a)}?.getBoundingClientRect().top ?? null, b: ${row(b)}?.getBoundingClientRect().top ?? null, header: document.querySelector('[data-archived-toggle]')?.getBoundingClientRect().top ?? null, bar: !!document.querySelector('[data-selection-bar]'), rows: [...document.querySelectorAll('[data-session-id]')].length })`));
+  // Clicking `a` in Archived opened it again, so the list may follow it: look for both rows wherever they now sit.
+  const unarchived = async () => {
+    const seen = new Set<string>();
+    await js(`${list}.scrollTop = 0`);
+    for (let i = 0; i < 80 && seen.size < 2; i++) {
+      for (const id of [a, b]) if (await js(`!!${row(id)} && !${row(id)}.dataset.archived`)) seen.add(id);
+      if (await js(`${list}.scrollTop + ${list}.clientHeight >= ${list}.scrollHeight`)) break;
+      await js(`${list}.scrollTop += 300`);
+      await pause();
+    }
+    return seen.size === 2;
+  };
+  let back = false;
+  for (const started = Date.now(); !back && Date.now() - started < 3_000; ) back = await unarchived();
+  if (!back) return 'unarchiving did not bring the sessions back to the main list';
   if (opened && (await js("document.querySelector('[data-archived-toggle]')?.dataset.open")) === 'true') await js("document.querySelector('[data-archived-toggle]').click()");
-  if (smokeSessionId) await js(`${row(smokeSessionId)}?.click()`);
-  return 'ok: ⌘-click picked two sessions, archived both from the menu and unarchived them from the selection bar';
+  if (smokeSessionId) {
+    // Back to the smoke session for the steps after this one; its row is near the top of the virtualised list.
+    await js(`${list}.scrollTop = 0`);
+    await waitInPage(win, `!!${row(smokeSessionId)}`, 2_000);
+    await js(`${row(smokeSessionId)}?.click()`);
+    if (!(await waitInPage(win, open(smokeSessionId), 3_000))) return 'the smoke session did not open again';
+  }
+  return 'ok: ⌘-click picked two sessions, archived both from the menu (closing the open one) and unarchived them from the selection bar';
 }
 
 /** Closes a dialog, menu or palette a step left open (with Escape, as a person would), so the next step starts clean. */

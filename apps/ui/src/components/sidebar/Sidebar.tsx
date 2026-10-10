@@ -273,6 +273,7 @@ export const SessionRow = memo(function SessionRow({
     // The visible lines lean on icons, colour and short ages; this says the same in words.
     // Indexed sessions have a transcript, so they can be pinned and archived.
     'data-indexed': data.summary !== null,
+    'data-archived': archived || undefined,
     'data-picked': picked || undefined,
     'data-has-draft': draft !== null || undefined,
     'aria-label': sessionRowLabel({ title: data.title, project: projectName, status, pinned: data.pinned, archived, picked, beside, draft: draft !== null, updatedAt: data.updatedAt, now }),
