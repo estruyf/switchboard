@@ -1,0 +1,18 @@
+{
+  "profile": {
+    "frames": 202,
+    "fps": 30
+  },
+  "project": {
+    "frames": 366,
+    "fps": 30
+  },
+  "companion": {
+    "frames": 197,
+    "fps": 30
+  },
+  "companion-code": {
+    "frames": 197,
+    "fps": 30
+  }
+}
