@@ -21,9 +21,6 @@ export const slugify = (name: string) =>
 
 const hash = (command: string) => createHash('sha256').update(command).digest('hex');
 
-/** Quotes a value for POSIX shells: `it's` → `'it'\''s'`. */
-export const shellQuote = (value: string) => `'${value.replace(/'/g, `'\\''`)}'`;
-
 export interface ActionVariables {
   cwd: string;
   projectRoot: string;
@@ -34,15 +31,15 @@ export interface ActionVariables {
 }
 
 /**
- * Fills in `${cwd}`, `${branch}`, … . For shell actions every value is
- * shell-quoted, so a branch or title can never inject a command.
+ * Fills in `${cwd}`, `${branch}`, … . For shell actions every value is quoted for the shell that runs them
+ * (`quote`, from `UserShell`), so a branch or title can never inject a command; prompts pass null.
  * Unknown variables are left as they are.
  */
-export function expandCommand(command: string, vars: ActionVariables, forShell: boolean): string {
+export function expandCommand(command: string, vars: ActionVariables, quote: ((value: string) => string) | null): string {
   return command.replace(/\$\{(\w+)\}/g, (match, name: string) => {
     if (!Object.hasOwn(vars, name)) return match;
     const value = vars[name as keyof ActionVariables];
-    return forShell ? shellQuote(value) : value;
+    return quote ? quote(value) : value;
   });
 }
 
