@@ -96,7 +96,10 @@ function editor(info: CompanionInfo): { client: RpcClient<CompanionContract>; so
 
 const hello = (client: RpcClient<CompanionContract>, token: string) => client.call('hello', { token, protocol: COMPANION_PROTOCOL, client: { name: 'test', version: '0' } });
 
-describe('companion socket', () => {
+// The companion listens on a Unix socket; on Windows it will be a named pipe (docs/windows-support.md, 2.4).
+const noSocket = process.platform === 'win32';
+
+describe.skipIf(noSocket)('companion socket', () => {
   it('writes where it listens to a file only you can read', async () => {
     const { info, infoFile } = await start();
     expect(statSync(infoFile).mode & 0o777).toBe(0o600);
@@ -210,7 +213,7 @@ describe('prompts', () => {
     expect(promptsFor(prompts, [{ id: 's1' }]).map((p) => p.requestId)).toEqual(['a', 'b']);
   });
 
-  it('hands an editor the prompts of its folders, and its answers to the engine', async () => {
+  it.skipIf(noSocket)('hands an editor the prompts of its folders, and its answers to the engine', async () => {
     const dataDir = mkdtempSync(join(tmpdir(), 'switchboard-companion-'));
     const answers: Array<[string, PermissionDecision, boolean]> = [];
     const summary = { id: SESSION_ID, title: 'Fix the login form', firstPrompt: null, customTitle: null, cwd: '/work/web', projectRoot: '/work/web', gitBranch: 'main', worktree: null, origin: 'app', createdAt: null, updatedAt: Date.now(), fileSize: null, tag: null, pinned: false, archivedAt: null, viewedAt: null, unread: false, inApp: true, profileId: 'default' } satisfies SessionSummary;

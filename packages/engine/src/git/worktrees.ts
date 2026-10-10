@@ -1,7 +1,7 @@
 import { execFile } from 'node:child_process';
 import { existsSync, statSync } from 'node:fs';
-import { basename, join, sep } from 'node:path';
-import type { WorktreeEntry, WorktreeList, WorktreePullRequest, WorktreeRemoveItem, WorktreeRemoveResult } from '@switchboard/protocol';
+import { basename, join, resolve } from 'node:path';
+import { isSameOrInside, type WorktreeEntry, type WorktreeList, type WorktreePullRequest, type WorktreeRemoveItem, type WorktreeRemoveResult } from '@switchboard/protocol';
 import { baseBranch, git, GitError } from './gitChanges.ts';
 
 /** One block of `git worktree list --porcelain`. */
@@ -36,8 +36,18 @@ export function parseWorktreeList(output: string): PorcelainWorktree[] {
   return entries;
 }
 
+/**
+ * The checkouts `git worktree list` names, in this platform's form: git prints `C:/…` on Windows, where every
+ * other path (and every comparison with one) uses `C:\…`.
+ */
+export const checkoutsOf = (output: string) =>
+  parseWorktreeList(output)
+    .filter((w) => !w.bare)
+    .map((w) => ({ ...w, path: resolve(w.path) }));
+
 const shortBranch = (ref: string) => ref.replace(/^refs\/heads\//, '');
-const inside = (path: string, folder: string) => path === folder || path.startsWith(folder.endsWith(sep) ? folder : folder + sep);
+/** `path` is `folder` or inside it; on Windows without regard to case or slash. */
+const inside = (path: string, folder: string) => isSameOrInside(path, folder);
 
 /** Runs a few promises at a time, keeping the order of `items`. */
 export async function mapLimit<T, R>(items: readonly T[], limit: number, run: (item: T) => Promise<R>): Promise<R[]> {
@@ -70,7 +80,7 @@ export interface SessionPlace {
  * `pullRequests` maps branch names to their newest pull request (null: unknown, `gh` isn't there).
  */
 export async function listWorktrees(root: string, options: { sessions?: readonly SessionPlace[]; pullRequests?: ReadonlyMap<string, WorktreePullRequest> | null } = {}): Promise<WorktreeList> {
-  const raw = parseWorktreeList(await git(root, ['worktree', 'list', '--porcelain'])).filter((w) => !w.bare);
+  const raw = checkoutsOf(await git(root, ['worktree', 'list', '--porcelain']));
   if (raw.length === 0) throw new GitError('No worktrees listed');
   const mainPath = raw[0]!.path;
   const base = await baseBranch(mainPath);

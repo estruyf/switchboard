@@ -1,4 +1,4 @@
-import { MAX_CONTEXT_ITEMS, type ContextItem } from '@switchboard/protocol/client';
+import { isAbsolutePath, MAX_CONTEXT_ITEMS, type ContextItem } from '@switchboard/protocol/client';
 
 /** A chip in the context tray: an item to send with the message, and an id to remove it by. */
 export type ContextChip = ContextItem & { id: string };
@@ -82,7 +82,7 @@ export function promptWithContext(text: string, chips: readonly ContextItem[], c
 
 /** Dropped files and folders, as context. */
 export const droppedItems = (dropped: ReadonlyArray<{ path: string; directory: boolean }>): ContextItem[] =>
-  dropped.filter((f) => f.path.startsWith('/')).map((f) => ({ kind: 'file', path: f.path, directory: f.directory }));
+  dropped.filter((f) => isAbsolutePath(f.path)).map((f) => ({ kind: 'file', path: f.path, directory: f.directory }));
 
 /** A short summary of chips for a list (the Unsent list, a sidebar row): "2 files", "1 file and 1 text". */
 export function chipsSummary(chips: readonly ContextItem[]): string {

@@ -63,7 +63,9 @@ function updater(install: ReturnType<typeof fakeNativeInstall>, extra: Partial<C
   return { instance, states, store };
 }
 
-describe('ClaudeUpdater', () => {
+// The fake install is a shell script behind a symlink, which Windows can't run. Updating on Windows has its own
+// tests with the work in docs/windows-support.md (2.7).
+describe.skipIf(process.platform === 'win32')('ClaudeUpdater', () => {
   it('finds a newer version, updates with the native installer, and reads the new version', async () => {
     const install = fakeNativeInstall('2.1.0', { to: '2.2.0' });
     const { instance, states } = updater(install);

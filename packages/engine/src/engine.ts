@@ -32,7 +32,7 @@ import { deleteBranches, fetchAllRemotes, listBranchOverview } from './git/branc
 import { fetchPullRequests, ignoredFiles, listWorktrees, measureSize, removeWorktrees, type SessionActivity, type SessionPlace } from './git/worktrees.ts';
 import { SearchIndex } from './sessions/searchIndex.ts';
 import { installedPlugins } from './host/capabilities.ts';
-import { ActionStore, expandCommand, shellQuote, suggestActions } from './actions/actionStore.ts';
+import { ActionStore, expandCommand, suggestActions } from './actions/actionStore.ts';
 import { LaterStore } from './later/laterStore.ts';
 import { HostManager, type SdkRuntime } from './host/hostManager.ts';
 import { createSessionSettingsStore } from './host/sessionSettings.ts';
@@ -552,7 +552,7 @@ export function createEngine(options: EngineOptions): Engine {
           continue;
         }
         const vars = { cwd: path, projectRoot: root, branch: `worktree-${worktreeName}`, worktreeName, sessionId, sessionTitle: '' };
-        const id = await runShellAction(sessionId, action.cwd === 'project-root' ? root : path, `Setup: ${action.name}`, expandCommand(action.command, vars, true));
+        const id = await runShellAction(sessionId, action.cwd === 'project-root' ? root : path, `Setup: ${action.name}`, expandCommand(action.command, vars, (await terminals.shell()).quote));
         const code = await terminals.waitForExit(id);
         if (code !== 0) log('warn', `Setup action "${action.name}" exited with ${code}`);
       }
@@ -930,12 +930,12 @@ export function createEngine(options: EngineOptions): Engine {
       const action = findAction(projectRoot, id);
       const vars = actionVars(sessionId, projectRoot, cwd);
       if (action.type === 'prompt') {
-        const sent = await hosts.send({ sessionId, text: expandCommand(action.command, vars, false), attachments: [], fork: false });
+        const sent = await hosts.send({ sessionId, text: expandCommand(action.command, vars, null), attachments: [], fork: false });
         sessions.wake(sessionId);
         return { kind: 'prompt' as const, sessionId: sent.sessionId, messageUuid: sent.messageUuid };
       }
       const runIn = action.cwd === 'project-root' ? projectRoot : cwd;
-      const terminalId = await runShellAction(sessionId, runIn, action.name, expandCommand(action.command, vars, true));
+      const terminalId = await runShellAction(sessionId, runIn, action.name, expandCommand(action.command, vars, (await terminals.shell()).quote));
       actionRuns.set(terminalId, { sessionId, projectRoot, cwd, id });
       return { kind: 'terminal' as const, terminalId };
     },
@@ -1040,7 +1040,7 @@ export function createEngine(options: EngineOptions): Engine {
       const status = await worktreeStatus(cwd).catch((error: Error) => {
         throw new RpcError('GIT_FAILED', error.message);
       });
-      const sync = syncCommand(status, action, shellQuote);
+      const sync = syncCommand(status, action, (await terminals.shell()).quote);
       if ('code' in sync) throw new RpcError(sync.code, sync.message);
       if (action === 'pull') await assertCheckoutIdle(cwd);
       const title = action === 'fetch' ? 'Fetch' : action === 'pull' ? 'Pull' : action === 'push' ? 'Push' : 'Pull request';
@@ -1051,7 +1051,7 @@ export function createEngine(options: EngineOptions): Engine {
       const status = await worktreeStatus(cwd).catch((error: Error) => {
         throw new RpcError('GIT_FAILED', error.message);
       });
-      const sync = syncCommand(status, action, shellQuote);
+      const sync = syncCommand(status, action, (await terminals.shell()).quote);
       if ('code' in sync) throw new RpcError(sync.code, sync.message);
       if (action === 'pull') await assertCheckoutIdle(cwd);
       try {
@@ -1069,7 +1069,7 @@ export function createEngine(options: EngineOptions): Engine {
       });
       if (files === 0) throw new RpcError('NOTHING_TO_COMMIT', 'There is nothing to commit.');
       // In a terminal tab: commit hooks can take a while, and their output is worth seeing.
-      return { terminalId: await runShellAction(sessionId, cwd, 'Commit', `git commit -m ${shellQuote(message)}`) };
+      return { terminalId: await runShellAction(sessionId, cwd, 'Commit', `git commit -m ${(await terminals.shell()).quote(message)}`) };
     },
     'worktree.status': async ({ cwd }) => {
       try {
@@ -1083,7 +1083,7 @@ export function createEngine(options: EngineOptions): Engine {
         throw new RpcError('GIT_FAILED', error.message);
       });
       if (!status.isWorktree || !status.branch) throw new RpcError('NOT_A_WORKTREE', 'This session is not in a worktree');
-      const branch = shellQuote(status.branch);
+      const branch = (await terminals.shell()).quote(status.branch);
       if (action === 'merge') {
         if (status.uncommitted > 0) throw new RpcError('UNCOMMITTED', 'Commit or revert the uncommitted changes first; a merge only takes commits.');
         if (!status.baseBranch || status.mainCheckout.branch !== status.baseBranch) {
@@ -1149,7 +1149,7 @@ export function createEngine(options: EngineOptions): Engine {
       const status = await worktreeStatus(path).catch((error: Error) => {
         throw new RpcError('GIT_FAILED', error.message);
       });
-      const sync = syncCommand(status, 'push', shellQuote);
+      const sync = syncCommand(status, 'push', (await terminals.shell()).quote);
       if ('code' in sync) throw new RpcError(sync.code, sync.message);
       const args = status.upstream ? ['push', '--quiet'] : ['push', '--quiet', '-u', status.pushRemote!, status.branch!];
       try {
@@ -1301,7 +1301,7 @@ export function createEngine(options: EngineOptions): Engine {
         const action = findAction(run.projectRoot, run.id);
         if (action.type !== 'shell') throw new RpcError('NOT_FOUND', `"${action.name}" no longer runs in a terminal`);
         change = {
-          command: expandCommand(action.command, actionVars(run.sessionId, run.projectRoot, run.cwd), true),
+          command: expandCommand(action.command, actionVars(run.sessionId, run.projectRoot, run.cwd), (await terminals.shell()).quote),
           cwd: action.cwd === 'project-root' ? run.projectRoot : run.cwd,
         };
       }

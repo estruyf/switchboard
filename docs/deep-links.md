@@ -17,7 +17,7 @@ switchboard://new-session?repo=acme/payments&prompt=Review%20the%20open%20pull%2
 | Parameter | What it does |
 |---|---|
 | `prompt` (or `q`) | Text for the message box, URL-encoded. Use `%0A` for a new line. At most 5,000 characters. |
-| `cwd` | The absolute path of the folder to start in, such as `/Users/me/dev/payments`. |
+| `cwd` | The absolute path of the folder to start in, such as `/Users/me/dev/payments` (on Windows `C:\Users\me\dev\payments`, URL-encoded). |
 | `project` | One of your projects, by the name it has in Switchboard (or its folder's name), ignoring case: `project=payments`. If two projects share the name, the first in your list wins. A name that isn't one of your projects is refused, and nothing changes. |
 | `repo` | A GitHub repository as `owner/name`. Switchboard looks for a checkout with a git remote on that repository, first among your projects, then among the other folders you've used Claude Code in (most recent first). If there's none, the folder field stays empty and New session says so. |
 | `autostart` | `1` (or `true`) starts the session right away, as if you'd pressed Enter. Leave it out (or use `0`) to fill in New session and wait for you. |
@@ -55,7 +55,7 @@ Links can come from any web page, chat message or script, so Switchboard checks 
 
 - an action other than `new-session` or `session`;
 - a prompt longer than 5,000 characters, or one with control characters (other than tabs and new lines) or invisible characters such as right-to-left overrides and zero-width spaces, which can hide text;
-- a `cwd` that isn't an absolute path, is a network location (`//server/share`, `smb://…`), contains `.` or `..` segments, or has control or invisible characters;
+- a `cwd` that isn't an absolute path (on Windows: a drive path, not `/…`), is a network location (`//server/share`, `\\server\share`, `smb://…`), contains `.` or `..` segments, has a colon after the drive on Windows, or has control or invisible characters;
 - a `project` that isn't one of your projects, or has control or invisible characters;
 - a `repo` that isn't `owner/name`;
 - an `autostart` value other than `1`, `true`, `yes`, `0`, `false` or `no`;

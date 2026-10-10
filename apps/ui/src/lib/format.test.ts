@@ -17,4 +17,13 @@ describe('format', () => {
     expect(tildify('/Users/me/dev/app', '/Users/me')).toBe('~/dev/app');
     expect(tildify('/Users/meow/app', '/Users/me')).toBe('/Users/meow/app');
   });
+
+  it('handles Windows paths', () => {
+    expect(basename('C:\\Users\\me\\dev\\app\\')).toBe('app');
+    expect(guessHome(['E:\\repos\\app', 'C:\\Users\\me\\.claude'])).toBe('C:\\Users\\me');
+    expect(tildify('C:\\Users\\me\\dev\\app', 'C:\\Users\\me')).toBe('~\\dev\\app');
+    expect(tildify('c:\\Users\\me\\dev', 'C:\\Users\\me')).toBe('~\\dev');
+    expect(tildify('C:\\Users\\meow\\app', 'C:\\Users\\me')).toBe('C:\\Users\\meow\\app');
+    expect(tildify('/Users/Me/app', '/Users/me')).toBe('/Users/Me/app');
+  });
 });

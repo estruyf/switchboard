@@ -197,6 +197,7 @@ export function BranchesTab({ root, name, scrollRef }: { root: string; name: str
         data-branch-row={row.key}
         data-group={row.group}
         data-locked={row.locked ? true : undefined}
+        data-base={row.entry.isBase ? true : undefined}
         data-picked={isPicked || undefined}
         onFocus={(e) => e.target === e.currentTarget && setFocused(row.key)}
         onKeyDown={(e) => onRowKey(e, row)}

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import type { ListedAction } from '@switchboard/protocol/client';
+import { isAbsolutePath, type ListedAction } from '@switchboard/protocol/client';
 import { useEngineConnection } from '../../engine/useEngine.ts';
 
 export { ACTION_ICON } from './actionIcon.ts';
@@ -14,7 +14,7 @@ export function useProjectActionList(projectRoot: string | null) {
 
   useEffect(() => {
     // Sessions without a recorded folder have no project to hold actions.
-    if (!client || !projectRoot?.startsWith('/')) {
+    if (!client || !(projectRoot && isAbsolutePath(projectRoot))) {
       setState({ actions: [], sharedFile: null, errors: [] });
       return;
     }

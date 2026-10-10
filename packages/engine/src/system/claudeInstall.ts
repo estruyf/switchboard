@@ -1,4 +1,4 @@
-import { join } from 'node:path';
+import { posix, win32 } from 'node:path';
 import type { ClaudeChannel, ClaudeInstallMethod } from '@switchboard/protocol';
 
 /** How to update one install: the command to show, and the program and arguments to run it with. */
@@ -16,13 +16,19 @@ export interface ClaudeInstallInfo {
  * Works out how `claude` was installed from where it lives. `path` is the binary that is run, `realPath` the
  * same with symlinks followed (the native installer links `~/.local/bin/claude` to a versioned file).
  */
-export function detectInstall(path: string, realPath: string, options: { home: string; channel: ClaudeChannel }): ClaudeInstallInfo {
-  const { home, channel } = options;
-  const under = (dir: string) => realPath.startsWith(dir.endsWith('/') ? dir : `${dir}/`);
+export function detectInstall(path: string, realPath: string, options: { home: string; channel: ClaudeChannel; platform?: NodeJS.Platform }): ClaudeInstallInfo {
+  const { home, channel, platform = process.platform } = options;
+  const windows = platform === 'win32';
+  const { join, sep } = windows ? win32 : posix;
+  // Windows paths compare without regard to case, as Windows does.
+  const same = (a: string) => (windows ? a.toLowerCase() : a);
+  const under = (dir: string) => same(realPath).startsWith(same(dir.endsWith(sep) ? dir : `${dir}${sep}`));
 
   // ~/.claude/local is the old "migrate to local" install: an npm package with a wrapper script, updated by `claude update`.
   if (under(join(home, '.claude', 'local'))) return { method: 'local', cask: null, command: 'claude update', run: { file: path, args: ['update'] } };
   if (under(join(home, '.local', 'share', 'claude'))) return { method: 'native', cask: null, command: 'claude update', run: { file: path, args: ['update'] } };
+  // On Windows the native installer copies claude.exe into ~/.local/bin instead of linking it there.
+  if (windows && same(realPath) === same(join(home, '.local', 'bin', 'claude.exe'))) return { method: 'native', cask: null, command: 'claude update', run: { file: path, args: ['update'] } };
 
   const cask = /^(.*)\/Caskroom\/(claude-code(?:@[\w.-]+)?)\//.exec(realPath);
   if (cask) {

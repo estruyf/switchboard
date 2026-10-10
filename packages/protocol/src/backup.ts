@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { AbsolutePath } from './absolutePath.ts';
 import { BACKUP_SECTIONS, SETTINGS_FILE_FORMAT } from './backupConstants.ts';
 import { PROJECT_NAME_MAX } from './projectConstants.ts';
 
@@ -6,7 +7,6 @@ export { BACKUP_SECTIONS, SETTINGS_FILE_FORMAT, settingsFileName, type BackupSec
 
 export const BackupSectionSchema = z.enum(BACKUP_SECTIONS);
 
-const AbsolutePath = z.string().min(1).max(4096).startsWith('/');
 const SessionId = z.string().min(1).max(200);
 
 /** Image types a project icon can have (the same ones Settings accepts). */

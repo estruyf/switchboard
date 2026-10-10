@@ -1,6 +1,6 @@
 import { chmodSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, sep } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { appStateFake } from './testing.ts';
 import { openCommand } from './editors.ts';
@@ -92,6 +92,8 @@ describe('file search', () => {
     ]);
     // Without a folder only absolute and ~ paths resolve.
     expect(await index.resolve(null, ['src/index.ts', '~/repo/docs'], home)).toEqual([null, join(dir, 'docs')]);
+    // On Windows Claude may write them with backslashes.
+    if (sep === '\\') expect(await index.resolve(dir, ['search\\suggestions.ts', '~\\repo\\docs'], home)).toEqual([join(dir, 'src', 'search', 'suggestions.ts'), join(dir, 'docs')]);
   });
 
   it('walks shallow folders first, skips the home folder\'s Library and stops at its time budget', async () => {

@@ -1,11 +1,11 @@
-import { execFileSync } from 'node:child_process';
 import { mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { ProjectAction } from '@switchboard/protocol';
 import { openCacheDatabase } from '../db/database.ts';
-import { ActionStore, expandCommand, shellQuote, suggestActions } from './actionStore.ts';
+import { posixQuote, powershellQuote } from '../system/shell.ts';
+import { ActionStore, expandCommand, suggestActions } from './actionStore.ts';
 
 const dirs: string[] = [];
 afterEach(() => dirs.splice(0).forEach((d) => rmSync(d, { recursive: true, force: true })));
@@ -76,13 +76,13 @@ describe('ActionStore', () => {
 
 describe('expandCommand', () => {
   const vars = { cwd: '/repo/wt', projectRoot: '/repo', branch: "feat/x'; rm -rf ~ #", worktreeName: 'wt', sessionId: 's1', sessionTitle: 'Fix "login"' };
-  it('quotes values for the shell so they cannot inject commands', () => {
-    const command = expandCommand('git push origin ${branch} && echo ${unknown}', vars, true);
-    expect(command).toBe(`git push origin ${shellQuote(vars.branch)} && echo \${unknown}`);
-    expect(execFileSync('/bin/sh', ['-c', `printf %s ${shellQuote(vars.branch)}`]).toString()).toBe(vars.branch);
+  // That the quoting holds in each shell is tested in system/shell.test.ts.
+  it('quotes values for the shell that runs them, so they cannot inject commands', () => {
+    expect(expandCommand('git push origin ${branch} && echo ${unknown}', vars, posixQuote)).toBe(`git push origin ${posixQuote(vars.branch)} && echo \${unknown}`);
+    expect(expandCommand('git push origin ${branch}', vars, powershellQuote)).toBe(`git push origin 'feat/x''; rm -rf ~ #'`);
   });
   it('leaves prompt text unquoted', () => {
-    expect(expandCommand('Review ${sessionTitle} on ${branch}', vars, false)).toBe(`Review Fix "login" on ${vars.branch}`);
+    expect(expandCommand('Review ${sessionTitle} on ${branch}', vars, null)).toBe(`Review Fix "login" on ${vars.branch}`);
   });
 });
 

@@ -68,8 +68,16 @@ export async function switchBranch(cwd: string, branch: string): Promise<void> {
 
 /** The top folder of the checkout `cwd` is in (a worktree is its own checkout), or null outside git. */
 export async function checkoutRoot(cwd: string): Promise<string | null> {
-  const root = await git(cwd, ['rev-parse', '--show-toplevel']).catch(() => '');
-  return root.trim() || null;
+  const root = (await git(cwd, ['rev-parse', '--show-toplevel']).catch(() => '')).trim();
+  return root ? resolve(root) : null;
+}
+
+/**
+ * The top folder of the checkout, in this platform's form: git prints `C:/…` on Windows, where every other
+ * path (and every comparison with one) uses `C:\…`. Throws outside git.
+ */
+async function topLevel(cwd: string): Promise<string> {
+  return resolve((await git(cwd, ['rev-parse', '--show-toplevel'])).trim());
 }
 
 /** The commit `base` mode compares against: where this branch left the base branch. */
@@ -159,7 +167,7 @@ export function countNewLines(path: string): { lines: number; bytes: number } {
  * uncommitted work together), which is what a merge or PR would contain.
  */
 export async function listChanges(cwd: string, base: ChangesBase): Promise<GitChanges> {
-  const root = (await git(cwd, ['rev-parse', '--show-toplevel'])).trim();
+  const root = await topLevel(cwd);
   const branch = (await git(root, ['branch', '--show-current'])).trim() || null;
   const baseName = await baseBranch(root);
   const files = new Map<string, ChangedFile>();
@@ -216,7 +224,7 @@ export function insideRepo(root: string, path: string): string {
 
 /** One file's unified diff, for the mode the list was made in. Large diffs are cut off. */
 export async function fileDiff(cwd: string, base: ChangesBase, path: string): Promise<{ diff: string; truncated: boolean }> {
-  const root = (await git(cwd, ['rev-parse', '--show-toplevel'])).trim();
+  const root = await topLevel(cwd);
   const rel = insideRepo(root, path);
   let diff: string;
   if (base === 'branch') {
@@ -239,7 +247,7 @@ export async function fileDiff(cwd: string, base: ChangesBase, path: string): Pr
 }
 
 export async function stage(cwd: string, paths: string[], staged: boolean): Promise<void> {
-  const root = (await git(cwd, ['rev-parse', '--show-toplevel'])).trim();
+  const root = await topLevel(cwd);
   const rels = paths.map((p) => insideRepo(root, p));
   if (rels.length === 0) return;
   if (staged) await git(root, ['add', '--', ...rels]);
@@ -254,7 +262,7 @@ export async function stage(cwd: string, paths: string[], staged: boolean): Prom
  * deleted outright. Reverting the new name of a rename also brings back the old one.
  */
 export async function revert(cwd: string, paths: string[]): Promise<{ root: string; untracked: string[] }> {
-  const root = (await git(cwd, ['rev-parse', '--show-toplevel'])).trim();
+  const root = await topLevel(cwd);
   const rels = paths.map((p) => insideRepo(root, p));
   const renamed = await renames(root);
   const tracked = new Set<string>();
@@ -276,7 +284,7 @@ export async function revert(cwd: string, paths: string[]): Promise<{ root: stri
 
 /** Where a worktree stands before finishing it: what a merge, PR or removal would involve. */
 export async function worktreeStatus(cwd: string): Promise<WorktreeStatus> {
-  const path = (await git(cwd, ['rev-parse', '--show-toplevel'])).trim();
+  const path = await topLevel(cwd);
   const commonDir = resolve(path, (await git(path, ['rev-parse', '--git-common-dir'])).trim());
   const root = commonDir.endsWith(`${sep}.git`) ? commonDir.slice(0, -5) : commonDir;
   const isWorktree = root !== path;
@@ -354,7 +362,7 @@ export async function updateCheckout(cwd: string, action: 'fetch' | 'pull', env:
  * change is staged first (like VS Code's smart commit). Returns how many files the commit takes.
  */
 export async function stageForCommit(cwd: string): Promise<number> {
-  const root = (await git(cwd, ['rev-parse', '--show-toplevel'])).trim();
+  const root = await topLevel(cwd);
   const staged = () => git(root, ['diff', '--cached', '--name-only', '-z']).then((out) => out.split('\0').filter(Boolean).length);
   const already = await staged();
   if (already > 0) return already;
