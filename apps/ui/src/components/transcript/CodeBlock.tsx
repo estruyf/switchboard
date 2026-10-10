@@ -1,10 +1,12 @@
-import { Check, Copy } from 'lucide-react';
-import { memo, useEffect, useState, type ReactNode } from 'react';
+import { Check, Copy, Play } from 'lucide-react';
+import { memo, useContext, useEffect, useState, type ReactNode } from 'react';
 import { highlight } from '../../lib/highlight.ts';
 import { useThemes } from '../../state/themeStore.ts';
 import { Button } from '../ui/Button.tsx';
 import { SegmentedControl } from '../ui/SegmentedControl.tsx';
 import { useFlash } from '../ui/useFlash.ts';
+import { MessageActionsContext } from './messageActions.tsx';
+import { commandToRun, isRunnable } from './runnable.ts';
 
 const idle = (fn: () => void) => {
   if ('requestIdleCallback' in window) {
@@ -19,7 +21,8 @@ const idle = (fn: () => void) => {
  * A code block: plain text right away, syntax-highlighted once the browser is
  * idle (and once it stops changing, for a block Claude is still writing). Only
  * blocks on screen exist (the transcript is virtualised). Hovering it, or tabbing to
- * it, shows a button that copies the code as it was written.
+ * it, shows a button that copies the code as it was written. A shell block in a session
+ * with a folder also gets a Run button, which types it into the session's terminal.
  *
  * With a `preview` (a markdown block, rendered), the block opens on the preview and a
  * Preview | Source switch sits in a header above it, next to the copy button.
@@ -31,6 +34,8 @@ export const CodeBlock = memo(function CodeBlock({ code, language, preview }: { 
   const [highlighted, setHighlighted] = useState<{ code: string; syntaxKey: string; html: string | null } | null>(null);
   // A new theme can bring other code colours: highlight again with them.
   const syntaxKey = useThemes((s) => s.syntaxKey);
+  const runCommand = useContext(MessageActionsContext)?.runCommand ?? null;
+  const command = runCommand && isRunnable(language) ? commandToRun(code) : '';
   const html = highlighted?.code === code && highlighted.syntaxKey === syntaxKey ? highlighted.html : null;
 
   useEffect(() => {
@@ -67,10 +72,13 @@ export const CodeBlock = memo(function CodeBlock({ code, language, preview }: { 
   if (preview) return <PreviewBlock language={language} source={source} preview={preview} copyButton={copyButton} />;
 
   return (
-    <div className="code-block group/code relative my-2 overflow-hidden rounded-md border border-border bg-code">
+    <div className="code-block group/code relative my-2 overflow-hidden rounded-md border border-border bg-code" data-code-language={language}>
       {language && <span className="absolute top-1 right-2 text-[10px] text-faint uppercase select-none group-focus-within/code:opacity-0 group-hover/code:opacity-0">{language}</span>}
       {/* Takes the language's place on hover, on the code's own background so the first line doesn't show through. Invisible rather than removed, so Tab still reaches it and it shows while it has focus. */}
-      <div className="pointer-events-none absolute top-1 right-1 z-10 rounded-md bg-code opacity-0 group-focus-within/code:pointer-events-auto group-focus-within/code:opacity-100 group-hover/code:pointer-events-auto group-hover/code:opacity-100">
+      <div className="pointer-events-none absolute top-1 right-1 z-10 flex rounded-md bg-code opacity-0 group-focus-within/code:pointer-events-auto group-focus-within/code:opacity-100 group-hover/code:pointer-events-auto group-hover/code:opacity-100">
+        {command && runCommand && (
+          <Button variant="quiet" size="sm" iconOnly icon={<Play size={12} aria-hidden />} aria-label="Run in terminal" onClick={() => runCommand(command)} data-code-run />
+        )}
         {copyButton}
       </div>
       {source}

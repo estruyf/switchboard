@@ -7,7 +7,7 @@ import { FolderPicker } from './FolderPicker.tsx';
 import { routeHint } from './route.ts';
 import { filterBranches } from '../worktree/branchMenu.ts';
 import { basename, guessHome, shortAge } from '../../lib/format.ts';
-import { nextMode, worktreeSlug } from '../../lib/modes.ts';
+import { nextMode, randomWorktreeName } from '../../lib/modes.ts';
 import { passFocusGate, useFocus } from '../../state/focusGate.ts';
 import { useHosts } from '../../state/hostsStore.ts';
 import { addToQueue, removeFromQueue, setWaitFor, updateQueued, useLater } from '../../state/laterStore.ts';
@@ -85,6 +85,8 @@ export function NewSessionView() {
   const [gitStatus, setGitStatus] = useState<WorktreeStatus | null>(null);
   const [worktreeName, setWorktreeName] = useState('');
   const [nameTouched, setNameTouched] = useState(false);
+  // Made up once and kept, so the name in the field is the one the worktree gets; a new one after each start.
+  const [suggestedName, setSuggestedName] = useState(randomWorktreeName);
   const [commands, setCommands] = useState<SlashCommand[]>([]);
   const [draftPrompt, setDraftPrompt] = useState('');
   /** The images in the message box, which go to the queue with the prompt. */
@@ -482,7 +484,7 @@ export function NewSessionView() {
 
   const canWorktree = options.git && (inspection?.isGitRepo ?? false);
   const useWorktree = d.workspace === 'worktree' && canWorktree;
-  const effectiveName = nameTouched ? worktreeName : worktreeSlug(draftPrompt);
+  const effectiveName = nameTouched ? worktreeName : suggestedName;
   const branch = inspection?.branch ?? (cwd ? (lastBranches.get(cwd) ?? null) : null);
   const folderBranches = useMemo(() => (cwd && inspection?.branch ? new Map(lastBranches).set(cwd, inspection.branch) : lastBranches), [lastBranches, cwd, inspection]);
   const checkoutBranch = checkoutBranchFor(d, useWorktree, gitBranches.current);
@@ -624,6 +626,7 @@ export function NewSessionView() {
           }
           // The view goes away before the composer empties itself, so forget the prompt and its images here.
           else useDrafts.getState().removeDraft(newDraftKey(cwd));
+          if (worktree && !nameTouched) setSuggestedName(randomWorktreeName());
           select(sessionId);
         },
       },
@@ -914,7 +917,7 @@ export function NewSessionView() {
                             aria-label="Worktree name"
                             className="w-full min-w-0 bg-transparent text-text outline-none placeholder:text-faint"
                             value={nameTouched ? worktreeName : ''}
-                            placeholder={worktreeSlug(draftPrompt)}
+                            placeholder={suggestedName}
                             spellCheck={false}
                             onChange={(e) => {
                               setNameTouched(e.target.value !== '');

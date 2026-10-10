@@ -108,21 +108,48 @@ export const useTerminals = create<TerminalsState>()((set) => ({
  * Opens a terminal tab for a session and shows it. When it can't (the session runs here or in another
  * Claude Code), the reason goes to the panel, which offers to stop it or open a fork.
  */
-export async function openTerminal(client: EngineClient, sessionId: string, cwd: string, kind: TerminalKind, fork = false): Promise<void> {
+export async function openTerminal(client: EngineClient, sessionId: string, cwd: string, kind: TerminalKind, fork = false): Promise<string | null> {
   // Claude in the terminal starts work too: the focus limit's gate, as for a message (a fork is a new session).
-  if (kind === 'claude' && (await passFocusGate({ target: fork ? null : sessionId })) !== 'start') return;
+  if (kind === 'claude' && (await passFocusGate({ target: fork ? null : sessionId })) !== 'start') return null;
   const state = useTerminals.getState();
   state.setNotice(sessionId, null);
   state.togglePanel(sessionId, true);
   try {
     const info = await client.call('terminal.open', { sessionId, cwd, kind, cols: 100, rows: 20, fork });
     useTerminals.getState().setActive(sessionId, info.id);
+    return info.id;
   } catch (e) {
     const code = (e as { code?: string }).code ?? '';
     const message = e instanceof Error ? e.message : String(e);
     const blocked = code === 'SESSION_RUNNING_HERE' || code === 'SESSION_BUSY_ELSEWHERE';
     useTerminals.getState().setNotice(sessionId, blocked ? { code, message } : { code: null, message: `Couldn't open the terminal: ${message}` });
+    return null;
   }
+}
+
+/** The shell tab each session's code blocks run in, so runs share one tab instead of opening a new one every time. */
+const runTabs = new Map<string, string>();
+
+/**
+ * Runs a command from the conversation (a code block's Run button) in the session's terminal: in the
+ * shell tab earlier runs used while that shell is still open, or a new one. The tab is shown, with the
+ * command typed and entered, so its output and any prompt it asks are right there.
+ */
+export async function runInTerminal(client: EngineClient, sessionId: string, cwd: string, command: string): Promise<void> {
+  const state = useTerminals.getState();
+  const reused = runTabs.get(sessionId);
+  let id = reused && state.terminals.get(reused)?.exitCode === null ? reused : null;
+  if (id) {
+    state.setNotice(sessionId, null);
+    state.togglePanel(sessionId, true);
+    state.setActive(sessionId, id);
+  } else {
+    id = await openTerminal(client, sessionId, cwd, 'shell');
+    if (!id) return;
+    runTabs.set(sessionId, id);
+  }
+  // A new shell reads this once it has started: the terminal holds what was typed until then.
+  await client.call('terminal.write', { id, data: `${command}\r` });
 }
 
 /**
