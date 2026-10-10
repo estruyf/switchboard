@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { createPathResolver, fileRefFromHref, parseFileRef } from './fileRefs.ts';
+import { createPathResolver, fileRefFromHref, fileUrl, parseFileRef } from './fileRefs.ts';
 
 describe('parseFileRef', () => {
   it('reads paths with and without a line', () => {
@@ -24,6 +24,14 @@ describe('parseFileRef', () => {
     for (const text of ['Description', 'npm run check', 'node:fs', 'https://example.com/a.ts', '5.4.1', 'v0.0.12', '..', '/', '\\', 'C:', 'a.ts && b.ts', 'fn(a.ts)', '']) {
       expect(parseFileRef(text), text).toBeNull();
     }
+  });
+});
+
+describe('fileUrl', () => {
+  it('makes file links from macOS and Windows paths, and reads them back', () => {
+    expect(fileUrl('/Users/me/my notes.md')).toBe('file:///Users/me/my%20notes.md');
+    expect(fileUrl('E:\\repos\\a b\\x.ts')).toBe('file:///E:/repos/a%20b/x.ts');
+    expect(fileRefFromHref(fileUrl('C:\\repo\\a.ts'))).toEqual({ path: 'C:/repo/a.ts' });
   });
 });
 
