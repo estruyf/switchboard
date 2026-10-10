@@ -349,6 +349,7 @@ Click a project in the **Projects** view, choose **Open project** in a project's
 - **Sessions:** the project's sessions as the sidebar groups them, and its queued prompts.
 - **Worktrees:** every worktree of the repository, not only the ones Switchboard made. See below.
 - **Branches:** every branch, here and on the remote. See [Branches](#branches).
+- **Memory:** what Claude Code remembers about the project, and the instructions the team shares. See [Memory](#memory).
 - **Actions:** the project's [actions](docs/project-actions.md); click one to edit it, or add a new one.
 - **Settings:** the Claude profile and the choices new sessions start with, and the project's name and icon in Switchboard.
 
@@ -389,6 +390,22 @@ They're grouped:
 Safe local branches start ticked. Tick others (⇧-click for a range, Space on a row), then **Delete N selected…**. The confirmation asks which copies go: the local branches (on), their copies on the remote (off; deleting there removes them for everyone), and whether to keep a recovery ref for each local branch under `refs/switchboard/removed/`. A branch that would lose commits gets a warning, with **Keep this branch**. Right-click a row (or its ⋯) to copy its name, open its pull request, or delete it here, on the remote, or both. **Refresh** fetches from every remote first and drops branches deleted there.
 
 Switchboard never deletes the base branch (here or on any remote), the remote's default branch, a branch that is checked out, or a branch on the remote with an open pull request (deleting it would close the pull request).
+
+### Memory
+
+Claude Code keeps what it learns about a project as *memory*: small Markdown files in a folder of its own, private to you and to this Mac. The **Memory** tab lists them (with their type and when they were written) next to the project's **instructions**, which Claude Code also loads: `CLAUDE.md` (at the root or in `.claude/`), the rules in `.claude/rules/` and your own `CLAUDE.local.md`. Each is marked *shared* (committed with the project) or *local only*. Click one to read it. Run *Memory of &lt;project&gt;* in the command palette to get there.
+
+**Share with the team.** Some of what Claude remembers is really team knowledge ("tests need a running Postgres"). Select a memory and choose **Share with the team…** (also in its right-click menu, and *Share memory with the team…* in the command palette). Pick where it goes:
+
+- **CLAUDE.md:** the project's instructions (a new one at the root when there is none);
+- **Rule file:** an existing rule in `.claude/rules/`, or a new one, optionally only for some paths (`apps/ui/**`);
+- **CLAUDE.local.md (only me):** your own instructions for the project, next to the shared ones.
+
+It's added at the end of that file as a section with a heading you can edit, and the dialog shows the change before anything is written. When the file already has a section with that heading, choose **Replace that section** or **Add as a new section**. Switchboard warns you when the text looks like it holds a password, token or key (tick *I checked, it's safe to share* first), when the text is in the file already, when the file has uncommitted changes, and when git would commit `CLAUDE.local.md` (with a button to add it to `.gitignore`). By default the memory then moves to the Trash, so Claude doesn't load the same thing twice.
+
+Switchboard **never commits, stages or pushes** anything: the change shows up in **Changes** like any other edit, for you to review and commit. The toast afterwards has **Show in Changes** and **Undo**, which puts the file and the memory back as they were (until your next share, or until you quit).
+
+**Copy to my memory.** The other way round: select an instruction file and choose **Copy to my memory…**. Pick one of its sections, check the name, type and description, and see the memory file and the line it adds to `MEMORY.md` (Claude Code reads the first 200 lines of it; the dialog says how full it gets). The instruction file isn't changed.
 
 ## Unsent messages
 

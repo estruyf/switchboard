@@ -34,6 +34,7 @@ import { SearchIndex } from './sessions/searchIndex.ts';
 import { installedPlugins } from './host/capabilities.ts';
 import { ActionStore, expandCommand, shellQuote, suggestActions } from './actions/actionStore.ts';
 import { LaterStore } from './later/laterStore.ts';
+import { MemoryService, type MemoryTrashScope } from './memory/memoryService.ts';
 import { HostManager, type SdkRuntime } from './host/hostManager.ts';
 import { createSessionSettingsStore } from './host/sessionSettings.ts';
 import { UsageMonitor } from './host/usageMonitor.ts';
@@ -99,7 +100,8 @@ export interface EngineOptions {
   companion?: { appVersion: string; socketParent?: string };
 }
 
-export type TrashScope = { configDir: string } | { repoRoot: string };
+/** Session files go by their config folder, a revert's files by their repository, memory files by their folder. */
+export type TrashScope = { configDir: string } | { repoRoot: string } | MemoryTrashScope;
 
 export interface Engine {
   /** Serves the contract over a transport (one per window). Returns a detach function. */
@@ -427,6 +429,15 @@ export function createEngine(options: EngineOptions): Engine {
   const later = new LaterStore(cache.db);
   /** Every window keeps the whole queue: tell them all after a change. */
   const laterChanged = () => broadcast('later.changed', { items: later.list(), started: later.startedLinks() });
+  /** Projects' memory and instructions: every profile's memory folder, the project's own profile first. */
+  const memory = new MemoryService({
+    configDirs: (root) => {
+      const own = profiles.runtime(profiles.forProject(root)).configDir;
+      return [own, ...profiles.runtimes().map((p) => p.configDir).filter((dir) => dir !== own)];
+    },
+    repoRoot: (root) => resolver.resolve(root).root,
+    trash: (paths, scope) => trash(paths, scope),
+  });
 
   /** Runs an action's command in a terminal tab of the session and returns the terminal id. */
   const runShellAction = async (sessionId: string, cwd: string, name: string, command: string) =>
@@ -1246,6 +1257,29 @@ export function createEngine(options: EngineOptions): Engine {
     'terminal.stop': ({ id }) => {
       terminals.stop(id);
       return {};
+    },
+    'memory.list': ({ root }) => memory.list(root),
+    'memory.read': ({ root, path }) => ({ content: memory.read(root, path) }),
+    'memory.sharePreview': (params) => memory.sharePreview(params),
+    'memory.share': async (params) => {
+      const result = await memory.share(params);
+      log('info', `Shared ${params.memoryPath} into ${result.targetPath}${result.removed ? ' (memory moved to the Trash)' : ''}`);
+      broadcast('memory.changed', { root: params.root });
+      return result;
+    },
+    'memory.undoShare': async ({ undoToken }) => {
+      broadcast('memory.changed', { root: await memory.undoShare(undoToken) });
+      return {};
+    },
+    'memory.ignoreLocal': ({ root }) => {
+      const path = memory.ignoreLocal(root);
+      broadcast('memory.changed', { root });
+      return { path };
+    },
+    'memory.createFromSection': async (params) => {
+      const result = await memory.createFromSection(params);
+      if (!params.dryRun) broadcast('memory.changed', { root: params.root });
+      return result;
     },
     'companion.focus': ({ sessionId, scope }, context) => {
       companion?.focus(context, sessionId, scope);

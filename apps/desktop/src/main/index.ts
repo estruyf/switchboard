@@ -19,7 +19,7 @@ import { RendererQueue } from './rendererQueue.ts';
 import { runScreenshotTour } from './screenshotTour.ts';
 import { SmokeRun } from './smokeRunner.ts';
 import { ThemeStore } from './themes.ts';
-import { isConfigDir, isTrashableRepoFile, isTrashableSessionPath, isTrashableThemeFile } from './trashGuard.ts';
+import { isConfigDir, isTrashableInstructionFile, isTrashableMemoryFile, isTrashableRepoFile, isTrashableSessionPath, isTrashableThemeFile } from './trashGuard.ts';
 import { Updater } from './updater.ts';
 import { updatesDisabledReason } from './updateState.ts';
 import { placeWindow, WindowStateStore } from './windowState.ts';
@@ -254,10 +254,11 @@ function openSession(sessionId: string): void {
 }
 
 async function handleEngineRequest(message: unknown): Promise<unknown> {
-  const request = message as { type?: unknown; id?: unknown; paths?: unknown; repoRoot?: unknown; configDir?: unknown } | null;
+  const request = message as { type?: unknown; id?: unknown; paths?: unknown; repoRoot?: unknown; configDir?: unknown; memoryDir?: unknown; instructionsRoot?: unknown } | null;
   if (request?.type !== 'trash' || typeof request.id !== 'number' || !Array.isArray(request.paths)) return undefined;
   // Always answer: the engine waits for a reply to every trash request.
   try {
+    if (typeof request.memoryDir === 'string' || typeof request.instructionsRoot === 'string') return await trashMemoryForEngine(request.id, request.paths, request.memoryDir, request.instructionsRoot);
     return await trashForEngine(request.id, request.paths, request.repoRoot, request.configDir);
   } catch (error) {
     return { type: 'trash-result', id: request.id, error: (error as Error).message };
@@ -275,6 +276,19 @@ async function trashForEngine(id: number, requested: unknown[], requestedRoot: u
   if (refused.length > 0 || paths.length !== requested.length) {
     const where = repoRoot ? `the repository ${repoRoot}` : "Claude Code's projects folder";
     return { type: 'trash-result', id, error: `Refusing to move files outside ${where}: ${refused.join(', ')}` };
+  }
+  for (const path of paths) await shell.trashItem(path);
+  return { type: 'trash-result', id };
+}
+
+/** Moves a memory file shared with the team, or an instruction file a share made (its undo), to the Trash after checking it. */
+async function trashMemoryForEngine(id: number, requested: unknown[], memoryDir: unknown, instructionsRoot: unknown): Promise<unknown> {
+  const paths = requested.filter((p): p is string => typeof p === 'string');
+  const allowed = (p: string) =>
+    typeof memoryDir === 'string' ? isTrashableMemoryFile(p, memoryDir) : typeof instructionsRoot === 'string' && isTrashableInstructionFile(p, instructionsRoot);
+  const refused = paths.filter((p) => !allowed(p));
+  if (refused.length > 0 || paths.length !== requested.length) {
+    return { type: 'trash-result', id, error: `Refusing to move these to the Trash: ${refused.join(', ')}` };
   }
   for (const path of paths) await shell.trashItem(path);
   return { type: 'trash-result', id };
@@ -1560,6 +1574,7 @@ async function runProjectsStep(win: BrowserWindow): Promise<string> {
   // The page's other tabs, read-only: Overview, Sessions, and the worktrees of a real repository.
   const pageResult = await smokeRun.step('project page and worktrees', () => runProjectPageStep(win, root), { cleanup: false });
   await smokeRun.step('project branches', () => runProjectBranchesStep(win, root), { cleanup: false });
+  await smokeRun.step('project memory and share dialog', () => runProjectMemoryStep(win, root), { cleanup: false });
 
   // The Projects list shows the saved default (and a worktree pill when the project has worktrees).
   await click('[data-project-breadcrumb]');
@@ -1770,6 +1785,133 @@ async function runProjectBranchesStep(win: BrowserWindow, root: string): Promise
     confirm = 'delete confirmation opened and cancelled';
   }
   return `ok: ${rows} branch rows (groups: ${groups.join(', ') || 'none'}), in-use branch locked, filter narrowed and cleared, row menu opened and closed, ${confirm}`;
+}
+
+/**
+ * The Memory tab, read-only: the project's memory and instructions are listed and a file shows in the viewer. With a
+ * memory, its share dialog opens, the preview follows the three targets, and Cancel closes it. Share (and Copy to
+ * memory) are never pressed: this is the user's real memory and project.
+ */
+async function runProjectMemoryStep(win: BrowserWindow, root: string): Promise<string> {
+  const js = (code: string) => win.webContents.executeJavaScript(code);
+  const pageSelector = `[data-project-page=${JSON.stringify(root)}]`;
+  const q = (selector: string) => `document.querySelector(${JSON.stringify(`${pageSelector} ${selector}`)})`;
+  if (!(await waitInPage(win, q('[data-project-tab="memory"]'), 3_000))) return 'the project page has no Memory tab';
+  await js(`${q('[data-project-tab="memory"]')}.click()`);
+  if (!(await waitInPage(win, `${q('[data-project-tab="memory"]')}.getAttribute('aria-selected') === 'true' && ${q('[data-project-memory-tab]')}`, 10_000))) return 'the Memory tab did not load';
+  const memories = (await js(`document.querySelectorAll(${JSON.stringify(`${pageSelector} [data-memory-row][data-memory-kind="memory"]`)}).length`)) as number;
+  const instructions = (await js(`document.querySelectorAll(${JSON.stringify(`${pageSelector} [data-memory-row][data-memory-kind="instruction"]`)}).length`)) as number;
+  const listed = `${memories} memories, ${instructions} instruction files`;
+  if (instructions > 0 && memories === 0 && !(await waitInPage(win, `${q('[data-memory-content]')} && ${q('[data-memory-content]')}.innerText !== 'Reading…'`, 5_000))) return 'the viewer did not show the instruction file';
+  if (memories > 0) return checkShareDialog(win, root, listed);
+
+  // No memory in the real project: a throwaway Claude profile in the app's sandbox gets one (the tab lists every
+  // profile's memory), so the dialog can be opened. The profile is removed again afterwards.
+  const memoryDir = (await js(`${q('[data-project-memory-tab]')}.dataset.memoryDir`)) as string;
+  const encoded = /\/projects\/([^/]+)\/memory$/.exec(memoryDir)?.[1];
+  if (!encoded) {
+    await shot(win, 'project-memory.png');
+    return `ok: ${listed}; memory lives in a folder of its own (autoMemoryDirectory), so no sandbox memory to share`;
+  }
+  const sandbox = join(app.getPath('userData'), 'smoke-claude-memory');
+  const dir = join(sandbox, 'projects', encoded, 'memory');
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, 'smoke-share.md'), '---\nname: smoke-share\ndescription: Made by the smoke test\nmetadata:\n  type: project\n---\n\nRun `npm run check` before reporting work as done. See [[smoke-other]].\n');
+  writeFileSync(join(dir, 'MEMORY.md'), '- [Smoke share](smoke-share.md) — Made by the smoke test\n');
+  const profile = await addSmokeProfile(win, 'Smoke memory', sandbox);
+  if (!profile.startsWith('id:')) return profile;
+  try {
+    // Settings returns to the project page; leaving the tab and coming back reads the memory again.
+    await js(`${q('[data-project-tab="overview"]')}.click()`);
+    await js(`${q('[data-project-tab="memory"]')}.click()`);
+    if (!(await waitInPage(win, q('[data-memory-row][data-memory-kind="memory"]'), 5_000))) return "the sandbox profile's memory was not listed";
+    return await checkShareDialog(win, root, `${listed} (+1 in a sandbox profile)`);
+  } finally {
+    await removeSmokeProfile(win, profile.slice(3));
+  }
+}
+
+/** Adds a Claude profile for a sandbox folder through Settings; returns `id:<id>`, or what went wrong. */
+async function addSmokeProfile(win: BrowserWindow, name: string, folder: string): Promise<string> {
+  const js = (code: string) => win.webContents.executeJavaScript(code);
+  const click = (selector: string) => js(`document.querySelector(${JSON.stringify(selector)}).click()`);
+  await click('[data-open-settings]');
+  if (!(await waitInPage(win, "document.querySelector('[data-settings-section=\"profiles\"]')", 3_000))) return 'Settings did not open';
+  await click('[data-settings-section="profiles"]');
+  if (!(await waitInPage(win, "document.querySelector('[data-add-profile]')", 3_000))) return 'no Add profile in Settings';
+  const before = (await js("document.querySelectorAll('[data-profiles] [data-profile]').length")) as number;
+  await click('[data-add-profile]');
+  if (!(await waitInPage(win, "document.querySelector('[data-new-profile-folder]')", 3_000))) return 'the add profile form did not open';
+  await setFieldValue(win, '[data-new-profile-name]', name);
+  await setFieldValue(win, '[data-new-profile-folder]', folder);
+  await click('[data-add-profile-submit]');
+  if (!(await waitInPage(win, `document.querySelectorAll('[data-profiles] [data-profile]').length === ${before + 1}`, 5_000))) return 'the sandbox profile was not added';
+  const id = (await js(`document.querySelectorAll('[data-profiles] [data-profile]')[${before}].dataset.profile`)) as string;
+  await click('[data-close-settings]');
+  return `id:${id}`;
+}
+
+/** Removes a profile `addSmokeProfile` added (its sandbox folder goes with the throwaway app profile). */
+async function removeSmokeProfile(win: BrowserWindow, id: string): Promise<void> {
+  const js = (code: string) => win.webContents.executeJavaScript(code);
+  const click = (selector: string) => js(`document.querySelector(${JSON.stringify(selector)})?.click()`);
+  const card = `[data-profile=${JSON.stringify(id)}]`;
+  await click('[data-open-settings]');
+  await waitInPage(win, "document.querySelector('[data-settings-section=\"profiles\"]')", 3_000);
+  await click('[data-settings-section="profiles"]');
+  if (!(await waitInPage(win, `document.querySelector(${JSON.stringify(`${card} [data-remove-profile]`)})`, 3_000))) return;
+  await click(`${card} [data-remove-profile]`);
+  if (await waitInPage(win, "document.querySelector('[data-confirm]')", 3_000)) await click('[data-confirm]');
+  await waitInPage(win, `!document.querySelector(${JSON.stringify(card)})`, 5_000);
+  await click('[data-close-settings]');
+}
+
+/**
+ * Opens the share dialog on the first memory of the project's Memory tab: the preview follows CLAUDE.md, a rule and
+ * CLAUDE.local.md, and Cancel closes it. Share is never pressed.
+ */
+async function checkShareDialog(win: BrowserWindow, root: string, listed: string): Promise<string> {
+  const js = (code: string) => win.webContents.executeJavaScript(code);
+  const pageSelector = `[data-project-page=${JSON.stringify(root)}]`;
+  const q = (selector: string) => `document.querySelector(${JSON.stringify(`${pageSelector} ${selector}`)})`;
+  const dialog = (selector = '') => `document.querySelector(${JSON.stringify(`[data-share-dialog]${selector ? ` ${selector}` : ''}`)})`;
+
+  // The first memory shows in the viewer.
+  const path = (await js(`${q('[data-memory-row][data-memory-kind="memory"]')}.dataset.memoryRow`)) as string;
+  await js(`${q('[data-memory-row][data-memory-kind="memory"]')}.click()`);
+  if (!(await waitInPage(win, `${q('[data-memory-viewer]')}.dataset.memoryViewer === ${JSON.stringify(path)} && ${q('[data-memory-content]')}.innerText !== 'Reading…'`, 5_000))) return 'the memory did not show in the viewer';
+  await shot(win, 'project-memory.png');
+
+  // Its share dialog: the preview is read for CLAUDE.md, then a rule, then CLAUDE.local.md.
+  await js(`${q('[data-memory-share]')}.click()`);
+  const preview = () => js(`${dialog('[data-share-preview]')}?.dataset.sharePreview ?? null`) as Promise<string | null>;
+  const previewIs = (test: string) => waitInPage(win, `(() => { const p = ${dialog('[data-share-preview]')}?.dataset.sharePreview ?? ''; return ${test}; })()`, 5_000);
+  if (!(await waitInPage(win, dialog(), 3_000))) return 'Share with the team… did not open the dialog';
+  if (!(await previewIs(`p.endsWith('CLAUDE.md') && !p.endsWith('local.md')`))) return `no CLAUDE.md preview (got ${await preview()})`;
+  if (!(await js(`${dialog('[data-share-remove]')}.getAttribute('aria-checked') === 'true'`))) return 'Remove from memory was off for CLAUDE.md';
+  const confirmLabel = async () => ((await js(`${dialog('[data-share-confirm]')}.innerText`)) as string).split('\n')[0];
+  const labels = [await confirmLabel()];
+
+  await js(`${dialog('[data-share-target-option="rule"]')}.click()`);
+  if (!(await waitInPage(win, `${dialog('[data-share-target]')}.dataset.shareTarget === 'rule'`, 2_000))) return 'the Rule file target did not switch';
+  // With no rules yet, a new rule needs a name before there is a preview. Typing it writes nothing.
+  if (await js(`!!${dialog('[data-share-rule-name]')}`)) await setFieldValue(win, '[data-share-dialog] [data-share-rule-name]', 'smoke-preview');
+  if (!(await previewIs(`p.startsWith('.claude/rules/')`))) return `no rule preview (got ${await preview()})`;
+  labels.push(await confirmLabel());
+
+  await js(`${dialog('[data-share-target-option="local"]')}.click()`);
+  if (!(await previewIs(`p === 'CLAUDE.local.md'`))) return `no CLAUDE.local.md preview (got ${await preview()})`;
+  if (!(await js(`${dialog('[data-share-remove]')}.getAttribute('aria-checked') === 'false'`))) return 'Remove from memory was on for CLAUDE.local.md';
+  labels.push(await confirmLabel());
+  const lines = (await js(`document.querySelectorAll('[data-share-dialog] [data-share-line="add"]').length`)) as number;
+  if (lines === 0) return 'the preview shows no added lines';
+  await shot(win, 'share-dialog.png');
+
+  // Cancel (Escape) closes it, and the memory is still there.
+  win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Escape' });
+  if (!(await waitInPage(win, `!${dialog()}`, 2_000))) return 'Escape did not close the share dialog';
+  if (!(await js(`!!document.querySelector(${JSON.stringify(`${pageSelector} [data-memory-row=${JSON.stringify(path)}]`)})`))) return 'the memory left the list without sharing';
+  return `ok: ${listed}; share dialog previewed ${labels.join(', ')} and was cancelled`;
 }
 
 /**

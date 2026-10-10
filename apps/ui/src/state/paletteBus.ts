@@ -31,7 +31,9 @@ export type PaletteDialog =
   | { kind: 'delete-session'; sessionId: string; title: string }
   | { kind: 'rename-project'; root: string }
   | { kind: 'revert-all'; cwd: string; paths: string[] }
-  | { kind: 'transcript-diagnosis'; sessionId: string; title: string | null };
+  | { kind: 'transcript-diagnosis'; sessionId: string; title: string | null }
+  | { kind: 'share-memory'; root: string; memoryPath: string; name: string }
+  | { kind: 'copy-section'; root: string; file: string };
 
 /** A prompt the palette moves into the full New session view (⌘E), with the choices made there. */
 export interface NewSessionHandoff {

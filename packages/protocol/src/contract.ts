@@ -43,6 +43,7 @@ import { PROJECT_NAME_MAX } from './projectConstants.ts';
 import { ContextItems } from './context.ts';
 import { CompanionTarget } from './companion.ts';
 import { CONTINUE_EDITORS } from './companionConstants.ts';
+import { MemoryList, SectionCopy, SharePreview, ShareTarget } from './memory.ts';
 
 export const ClaudeInstall = z.object({
   path: z.string(),
@@ -96,6 +97,10 @@ const ProfileName = z.string().trim().min(1).max(60);
 const SettingsFilePath = AbsolutePath.regex(/\.json$/i, 'Settings files end in .json');
 /** The app's preferences, which main keeps: the renderer passes them in and applies what comes back. */
 const PreferencesRecord = z.record(z.string(), z.unknown());
+/** A Markdown heading's text: one line. */
+const SectionHeading = z.string().trim().min(1).max(200).regex(/^[^\r\n]+$/, 'A heading is one line');
+/** `add` a new section, or `replace` the section with the same heading. */
+const SharePlacement = z.enum(['add', 'replace']).default('add');
 /** Theme files as main keeps them (validated where they are read). */
 const ThemeFiles = z.array(z.unknown()).max(500).default([]);
 
@@ -595,6 +600,60 @@ export const contract = {
       result: z.object({}),
     },
 
+    // --- Memory and project instructions ------------------------------------------------------
+    /**
+     * A project's auto memory (the `*.md` files in its memory folder, for every Claude profile, `MEMORY.md` left out)
+     * and its instruction files (CLAUDE.md, .claude/CLAUDE.md, CLAUDE.local.md, .claude/rules/). Read-only.
+     */
+    'memory.list': { params: z.object({ root: AbsolutePath }), result: MemoryList },
+    /** One memory or instruction file. Only inside the project's memory folders or the project itself (FORBIDDEN otherwise). */
+    'memory.read': { params: z.object({ root: AbsolutePath, path: AbsolutePath }), result: z.object({ content: z.string() }) },
+    /**
+     * What sharing a memory with the team would change: the target file before and after, a unified diff and warnings.
+     * `placement` matters only when the target has a section with the same heading (`sameHeading`).
+     */
+    'memory.sharePreview': {
+      params: z.object({ root: AbsolutePath, memoryPath: AbsolutePath, target: ShareTarget, heading: SectionHeading, placement: SharePlacement }),
+      result: SharePreview,
+    },
+    /**
+     * Writes the memory into the target (never stages or commits), and with `removeMemory` moves the memory file to the
+     * Trash and takes its line out of MEMORY.md. Refused when the text is already there (ALREADY_THERE), and when it looks
+     * like a secret until `secretsChecked` (SECRETS). `undoToken` works with `memory.undoShare` until the next share.
+     */
+    'memory.share': {
+      params: z.object({
+        root: AbsolutePath,
+        memoryPath: AbsolutePath,
+        target: ShareTarget,
+        heading: SectionHeading,
+        placement: SharePlacement,
+        removeMemory: z.boolean(),
+        secretsChecked: z.boolean().default(false),
+      }),
+      result: z.object({ targetPath: z.string(), removed: z.boolean(), undoToken: z.string() }),
+    },
+    /** Puts the last share back: the target as it was (deleted when the share made it), the memory file and its MEMORY.md line. */
+    'memory.undoShare': { params: z.object({ undoToken: z.string().min(1).max(100) }), result: z.object({}) },
+    /** Adds CLAUDE.local.md to the project's .gitignore (created when missing). Nothing is staged. */
+    'memory.ignoreLocal': { params: z.object({ root: AbsolutePath }), result: z.object({ path: z.string() }) },
+    /**
+     * Copies a section (`## ` or `### ` heading) of an instruction file into a new memory of the project's profile, and adds
+     * its MEMORY.md line. The instruction file is never changed. `dryRun` returns what it would write.
+     */
+    'memory.createFromSection': {
+      params: z.object({
+        root: AbsolutePath,
+        file: AbsolutePath,
+        heading: SectionHeading,
+        name: z.string().trim().min(1).max(80),
+        type: z.string().trim().min(1).max(40),
+        description: z.string().trim().max(300),
+        dryRun: z.boolean().default(false),
+      }),
+      result: SectionCopy,
+    },
+
     // --- Claude Code updates -----------------------------------------------------------------
     'claudeUpdate.get': { params: z.object({}), result: ClaudeUpdateState },
     /** Compares the installed Claude Code with the newest on its channel now. The result arrives through `claudeUpdate.changed`. */
@@ -644,6 +703,8 @@ export const contract = {
     'companion.context': z.object({ deliveryId: z.string(), target: CompanionTarget, items: ContextItems, reveal: z.boolean() }),
     /** The companion asked to show a session (its status bar item): select it and bring the window forward. */
     'companion.reveal': z.object({ sessionId: z.string() }),
+    /** A project's memory or instruction files changed through Switchboard (shared, undone, copied): list them again. */
+    'memory.changed': z.object({ root: z.string() }),
   },
 } as const satisfies ContractShape;
 
