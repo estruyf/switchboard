@@ -8,6 +8,7 @@ import {
   ProjectAction,
   RpcError,
   SETTINGS_FILE_FORMAT,
+  isLocalAbsolutePath,
   parseSettingsFile,
   sanitizePreferences,
   type BackupSection,
@@ -200,7 +201,11 @@ export interface ThemeToAdd {
   how: 'add' | 'replace';
 }
 
-const isFolder = (path: string) => existsSync(path) && statSync(path).isDirectory();
+/**
+ * A folder here. A path in another platform's form (a Mac folder in a file imported on Windows) is never one,
+ * though Windows would read `/Users/…` as a folder on the current drive.
+ */
+const isFolder = (path: string) => isLocalAbsolutePath(path, process.platform) && existsSync(path) && statSync(path).isDirectory();
 
 /**
  * Works out what importing a file would change and how. Merge adds what is missing and keeps your

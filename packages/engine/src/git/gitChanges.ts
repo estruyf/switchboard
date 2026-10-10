@@ -16,6 +16,12 @@ const DIFF = ['-c', 'diff.suppressBlankEmpty=false', 'diff', '--no-ext-diff', '-
 export class GitError extends Error {}
 
 /**
+ * Settings every git run here gets. On Windows, Git for Windows skips files whose full path is over 260 characters
+ * without saying so (they would be missing from Changes) unless `core.longpaths` is on, which it isn't by default.
+ */
+export const GIT_SETTINGS: readonly string[] = process.platform === 'win32' ? ['-c', 'core.longpaths=true'] : [];
+
+/**
  * Runs git in `cwd`; resolves with stdout. Never goes through a shell. Pathspecs are literal: the paths
  * passed come from the file list, and `app/[id]/page.tsx` or `a*.txt` must not match other files.
  */
@@ -23,7 +29,7 @@ export function git(cwd: string, args: string[], options: { env?: Record<string,
   return new Promise((resolvePromise, reject) => {
     execFile(
       'git',
-      args,
+      [...GIT_SETTINGS, ...args],
       { cwd, env: { ...process.env, ...options.env, GIT_OPTIONAL_LOCKS: '0', GIT_LITERAL_PATHSPECS: '1', LC_ALL: 'C' }, maxBuffer: 32 * 1024 * 1024, timeout: options.timeout ?? 20_000 },
       (error, stdout, stderr) => {
         const code = typeof error?.code === 'number' ? error.code : error ? 1 : 0;

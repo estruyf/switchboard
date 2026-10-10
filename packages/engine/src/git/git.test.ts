@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -24,6 +24,15 @@ beforeEach(async () => {
 afterEach(() => rmSync(repo, { recursive: true, force: true }));
 
 describe('listChanges', () => {
+  // Git for Windows leaves these out without a word unless core.longpaths is on.
+  it('lists a new file whose path is longer than Windows\' 260 characters', async () => {
+    const deep = Array.from({ length: 12 }, (_, i) => `folder-with-a-long-name-${i}`).join('/');
+    mkdirSync(join(repo, deep), { recursive: true });
+    write(`${deep}/file.txt`, 'x\n');
+    expect(join(repo, deep, 'file.txt').length).toBeGreaterThan(260);
+    expect((await listChanges(repo, 'uncommitted')).files.map((f) => f.path)).toEqual([`${deep}/file.txt`]);
+  });
+
   it('lists uncommitted changes with line counts, staging and new files', async () => {
     write('a.txt', 'one\nTWO\nthree\n');
     write('new.txt', 'hello\nworld\n');

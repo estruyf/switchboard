@@ -2,6 +2,7 @@ import { execFile } from 'node:child_process';
 import { readdir, stat } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { isAbsolute, join, normalize, relative, resolve, sep } from 'node:path';
+import { GIT_SETTINGS } from '../git/gitChanges.ts';
 
 const MAX_FILES = 50_000;
 const CACHE_MS = 30_000;
@@ -14,7 +15,7 @@ function gitFiles(cwd: string): Promise<string[] | null> {
   return new Promise((resolve) => {
     execFile(
       'git',
-      ['ls-files', '--cached', '--others', '--exclude-standard', '-z'],
+      [...GIT_SETTINGS, 'ls-files', '--cached', '--others', '--exclude-standard', '-z'],
       { cwd, maxBuffer: 64 * 1024 * 1024, timeout: 5000 },
       (error, stdout) => resolve(error ? null : stdout.split('\0').filter(Boolean).slice(0, MAX_FILES)),
     );
