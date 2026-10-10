@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode, type RefObject } from 'react';
-import { Check, ChevronDown, Ellipsis, FolderCog, FolderOpen, FolderPlus, Image, Layers, Pencil, RotateCcw, Smile, Type, X } from 'lucide-react';
+import { Check, ChevronDown, Ellipsis, FolderCog, FolderOpen, FolderPlus, GitBranch, Image, Layers, Pencil, RotateCcw, SlidersHorizontal, Smile, Type, X } from 'lucide-react';
 import type { ProjectIconChoice } from '@switchboard/protocol/client';
 import { useEngineConnection } from '../../engine/useEngine.ts';
 import { useProfiles } from '../../state/profilesStore.ts';
 import { addedProjects } from '../../state/projectList.ts';
+import { openProject } from '../../state/projectPageStore.ts';
 import { useProjects } from '../../state/projectsStore.ts';
 import { useSessions } from '../../state/sessionsStore.ts';
 import { ConfirmDialog } from '../ConfirmDialog.tsx';
@@ -122,10 +123,10 @@ export function RemoveProjectDialog({ root, name, onClose }: { root: string; nam
   );
 }
 
-/** Opens the Projects view, scrolled to one project when given. */
+/** Opens the Projects view, or one project's page on its Defaults tab when given. */
 export function manage(root: string | null = null): void {
-  useProjects.getState().setManageFocus(root);
-  useSessions.getState().setView('projects');
+  if (root) openProject(root, 'defaults');
+  else useSessions.getState().setView('projects');
 }
 
 /**
@@ -181,8 +182,10 @@ export function useProjectIconEntries() {
       { label: 'Open folder in editor', icon: <FolderOpen size={13} />, disabled: !project?.exists, onSelect: () => void openIn(root).catch(() => {}) },
       ...(project?.added
         ? ([
-            { label: 'Project settings…', icon: <FolderCog size={13} />, onSelect: () => manage(root) },
-            ...(remove ? [{ label: 'Remove from Switchboard…', icon: <X size={13} />, danger: true, onSelect: () => setRemoving(root) }] : []),
+            { label: 'Open project', icon: <FolderCog size={13} />, onSelect: () => openProject(root), data: { 'data-open-project': true } },
+            { label: 'Worktrees…', icon: <GitBranch size={13} />, disabled: !project.exists, onSelect: () => openProject(root, 'worktrees'), data: { 'data-open-worktrees': true } },
+            { label: 'Project settings…', icon: <SlidersHorizontal size={13} />, onSelect: () => manage(root) },
+            ...(remove ? [{ label: 'Remove from Switchboard…', icon: <X size={13} />, danger: true, onSelect: () => setRemoving(root), data: { 'data-remove-project': true } }] : []),
           ] satisfies MenuEntry[])
         : root.startsWith('/')
           ? [{ label: 'Add to projects', icon: <FolderPlus size={13} />, disabled: !project?.exists, onSelect: () => void actions.add(root) } satisfies MenuEntry]

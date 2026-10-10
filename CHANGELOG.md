@@ -4,6 +4,15 @@ All notable changes to Switchboard are listed here. Each release is also on the 
 
 ## [Unreleased]
 
+### New
+
+- **A page for each project.** Click a project in Projects, choose **Open project** in its menu in the sidebar, or run *Project: &lt;name&gt;* in the command palette. Its tabs hold an Overview (sessions, worktrees, queue and git at a glance), its Sessions, its Worktrees, its Actions and its Defaults. A project opens on the tab you left it on, and ⌘N there starts a session in it.
+- **Worktree overview and clean-up.** A project's Worktrees tab lists every worktree with its sessions, uncommitted changes, commits ahead of the base branch, whether it's pushed and merged (or its pull request, with the GitHub CLI), its size on disk and when it was last active. It groups them into *Safe to remove*, *Probably done*, *Keep* (with the reason) and *Stale*, and removes the ones you tick after one confirmation that shows the space freed and any ignored files that would be lost. Branches can go too, with a recovery ref if you like. Worktrees with uncommitted changes, a session working in them, or a lock are never removed, and removing always goes through `git worktree remove`. Open it from the project page, the new worktree pill in Projects, **Worktrees…** in a project's menu, or the command palette (*Worktrees…*, *Clean up worktrees in &lt;project&gt;…*).
+
+### Changed
+
+- **Projects list.** Each project shows its defaults on one line, a worktree pill, New session, ⋯ and the reorder buttons. Defaults, the profile choice and actions moved to the project's page; Remove is in the ⋯ menu.
+
 ### Fixed
 
 - The pointer turns into a text cursor over text you can select in the conversation (messages, code blocks, diffs), instead of staying an arrow.

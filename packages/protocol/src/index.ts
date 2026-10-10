@@ -7,6 +7,7 @@ export * from './host.ts';
 export * from './terminal.ts';
 export * from './actions.ts';
 export * from './git.ts';
+export * from './worktrees.ts';
 export * from './capabilities.ts';
 export * from './usage.ts';
 export * from './profiles.ts';

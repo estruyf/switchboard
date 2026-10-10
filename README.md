@@ -36,7 +36,8 @@ It uses the Claude Code you already have installed, with your login, settings, c
 **Work with Claude**
 - Start a session in a folder (⌘N): pick a project by typing a few letters, then work on the current branch (or check out another one first) or in a **new worktree**, just like `claude --worktree`.
 - **Quick questions** (⌘⇧N): ask Claude something without picking a project. Choose *Quick question* under the project tiles in New session. Claude works in a scratch folder of Switchboard's own, so there are no git options and nothing is added to your projects. These sessions show as *Questions* in the sidebar.
-- **Projects** are the folders you choose to work in. Add them from the folders you've used Claude Code in, or any folder, then reorder, rename or remove them in the **Projects** view (the folder icon at the bottom of the sidebar). Renaming only changes the name Switchboard shows; the folder keeps its own. Give a project its own defaults for new sessions: model, effort, permission mode, worktree or current folder, and a branch. The New session view starts from them; change something there for one session, or click *Save as project default*.
+- **Projects** are the folders you choose to work in. Add them from the folders you've used Claude Code in, or any folder, then reorder, rename or remove them in the **Projects** view (the folder icon at the bottom of the sidebar). Renaming only changes the name Switchboard shows; the folder keeps its own. Each project has its own **page**: see [Project pages and worktrees](#project-pages-and-worktrees). Give a project its own defaults for new sessions there: model, effort, permission mode, worktree or current folder, and a branch. The New session view starts from them; change something there for one session, or click *Save as project default*.
+- **Clean up worktrees.** A project's **Worktrees** tab lists every worktree with its sessions, changes, commits, pull request and size on disk, and suggests which ones can go. Remove several at once after one confirmation. See [Project pages and worktrees](#project-pages-and-worktrees).
 - Chat as you would in the terminal. You get streaming replies, `/` commands (your own commands and skills included), `@` file mentions, and images you paste, drop or attach. Drag files anywhere over a session and the message box shows what a drop does: images are attached, other files and folders are added as context.
 - **Context** shows as chips above the message: files you drop, pick from the `@` list, or choose several at once with **Add context** (⌘⇧A, or the paperclip). Remove one with its ×. Files go to Claude as references it reads itself, so a large file stays small. With the [VS Code companion](#vs-code-companion) you can send the lines you have selected in VS Code, problems and terminal output too.
 - Approve or deny permission requests, answer Claude's questions and review plans in the conversation.
@@ -276,7 +277,7 @@ Open Settings with ⌘, or the gear at the bottom of the sidebar. While it is op
 - **Sidebar:** *Large icons* (easy to spot each project), *Standard*, or *Compact* (one line per session). *When collapsed* picks what ⌘B does: a *Minimal rail* of project icons, or *Hidden*. *Show sessions from other apps* also lists sessions from the terminal, Claude desktop and your editor (off by default), and notifies you when a terminal session is waiting.
 - **Conversation:** *Summarised* (the default) shows each run of tool calls as one line, like Claude Code: what Claude is doing right now, or what it did, with how long it took. Click it to see the steps, and a step to see its details. *Every step* shows each tool call as its own card.
 - **Focus:** the [focus limit](#focus-limit): on or off, how many sessions at the same time (1 to 10, 3 to start with), *Nudge* or *Strict*, and whether sessions from the terminal and your editor count.
-- **Claude profiles:** use more than one Claude account, for example a personal plan and a work one. Each profile is a Claude Code config folder with its own login, settings, plugins and sessions (`~/.claude` is the first). Add one, sign in there once in a terminal with the command Settings shows (`CLAUDE_CONFIG_DIR=~/.claude-work claude`, then `/login`), and pick the default. *How to set up another profile* under the list walks through it step by step. Link a project to a profile from its menu or the Projects view; New session shows the profile a folder uses and lets you pick another for one session. With more than one profile, sessions show which account they use, and the usage band shows that account's limits.
+- **Claude profiles:** use more than one Claude account, for example a personal plan and a work one. Each profile is a Claude Code config folder with its own login, settings, plugins and sessions (`~/.claude` is the first). Add one, sign in there once in a terminal with the command Settings shows (`CLAUDE_CONFIG_DIR=~/.claude-work claude`, then `/login`), and pick the default. *How to set up another profile* under the list walks through it step by step. Link a project to a profile from its menu or the Defaults tab of its page; New session shows the profile a folder uses and lets you pick another for one session. With more than one profile, sessions show which account they use, and the usage band shows that account's limits.
 - **VS Code:** what the [VS Code companion](#vs-code-companion) sends, links to install it (Visual Studio Marketplace, or Open VSX for Cursor and Windsurf), and whether an editor is connected right now. *VS Code extension* in the command palette opens it.
 - **Backup:** export your settings to a file and import them again. See [Back up and move your settings](#back-up-and-move-your-settings).
 - **Diagnostics:** whether the engine is connected, which Claude Code it found, version numbers and the engine's recent log. Useful when something doesn't work.
@@ -332,6 +333,38 @@ When the project you picked in New session has a session working, a line under t
 **Where it shows.** The **Queue** section in the sidebar sits right under Working. Ready items have a green tint and a **Start** button; the others show what they wait for, with Start on hover. Home has a Queue card with every item. When an item turns ready because a session finished, a message in the corner says so ("switchboard is free") with **Start it** and **Review first**, and the "Claude finished" notification names what's next in the queue.
 
 **Working with items.** Click an item to open it in New session, filled in, to check or change it first; it stays queued until you start it or add it again. **Start** starts it straight away, through the focus limit. Right-click an item (or ⋯ on Home) for Start now, Edit in New session…, Wait for…, Move to top, Move up and down, and Remove. Drag an item to reorder it, or use ⌥↑ and ⌥↓. Removing one doesn't ask: **Undo** brings it back. *Start next in queue* and *Queue: pick one to start…* are in the command palette.
+
+## Project pages and worktrees
+
+Click a project in the **Projects** view, choose **Open project** in a project's menu in the sidebar, or run *Project: &lt;name&gt;* in the command palette to open its page. The header shows the folder, the branch checked out and its upstream, with **Open in editor** and **New session** (⌘N starts in this project while its page is open). The tabs below:
+
+- **Overview:** a card per area: sessions (working, needing you, in total), worktrees (how many, their size, how many can go), the queue (when something is queued here) and git (branch, commits behind its upstream, changed files). Each card opens its tab.
+- **Sessions:** the project's sessions as the sidebar groups them, and its queued prompts.
+- **Worktrees:** every worktree of the repository, not only the ones Switchboard made. See below.
+- **Actions:** the project's [actions](docs/project-actions.md); click one to edit it, or add a new one.
+- **Defaults:** the Claude profile and the choices new sessions start with, and the project's name in Switchboard.
+
+A project opens on the tab you left it on.
+
+**Worktrees.** Sessions you start in a new worktree each get a full checkout under `.claude/worktrees/`, often with its own `node_modules`, and they pile up. The Worktrees tab shows, for each one: its branch and folder, its sessions (working or done), uncommitted changes, commits that aren't in the base branch and whether they're pushed, whether it's merged (or the state of its pull request, when the [GitHub CLI](https://cli.github.com) `gh` is installed and signed in), its size on disk (measured in the background) and when it was last active. Open it from the project page, the worktree pill in the Projects list ("6 worktrees · 2 can go"), **Worktrees…** in a project's menu in the sidebar, or *Worktrees…* in the command palette.
+
+They're grouped so the decision is quick:
+
+- **Safe to remove:** merged, or no commits of its own; no uncommitted changes; no session working there.
+- **Probably done:** pushed or with an open pull request, no uncommitted changes, and nothing happened there for 14 days.
+- **Keep:** everything else, with the reason: a session is working there, uncommitted changes, commits that aren't pushed anywhere, made outside `.claude/worktrees`, or active in the last 14 days.
+- **Stale:** the folder is gone but git still lists it. **Prune** clears those entries.
+
+Safe and stale worktrees start ticked. Tick others with their checkboxes (⇧-click for a range, Space on a row), then **Remove N selected…**. One confirmation lists what goes, how much space it frees and ignored files that would be lost with the folder (a local `.env`, editor settings; not `node_modules` or build output). It can also delete their branches (on by default only when all of them are merged) and keep a recovery ref for each under `refs/switchboard/removed/`, so a deleted branch can be brought back. A branch with commits that aren't pushed anywhere gets a warning, with **Push branch** and **Remove worktree, keep branch**. Right-click a row (or its ⋯) to open its session, start a new session in it, open it in your editor or Finder, copy its path, merge it into the base branch, push its branch or remove it. *Clean up worktrees in &lt;project&gt;…* in the command palette goes straight to the confirmation for what's suggested. **Refresh** fetches from the remote first, so merged and pushed are up to date, and measures sizes again.
+
+**Safety.** Switchboard only ever removes a worktree with `git worktree remove` (or `git worktree prune` when its folder is already gone), never by deleting the folder itself, and it won't remove:
+
+- the main checkout;
+- a worktree with uncommitted changes (commit or revert them first);
+- a worktree locked with `git worktree lock`;
+- a worktree where a session is working, or where a Claude Code session is open in another app or a terminal. A session that is idle in Switchboard is stopped first; its conversation stays.
+
+Worktrees outside `.claude/worktrees` are listed but never suggested: they're only removed when you tick them yourself.
 
 ## Unsent messages
 

@@ -14,6 +14,12 @@ export function shortAge(timestamp: number, now = Date.now()): string {
   return date.toLocaleDateString(undefined, sameYear ? { month: 'short', day: 'numeric' } : { month: 'short', day: 'numeric', year: 'numeric' });
 }
 
+/** How long ago, for a line of text: "now", "5m ago", "3d ago", "on Sep 21". */
+export function agoText(timestamp: number, now = Date.now()): string {
+  const age = shortAge(timestamp, now);
+  return age === 'now' ? 'now' : /^\d+[mhd]$/.test(age) ? `${age} ago` : `on ${age}`;
+}
+
 export function basename(path: string): string {
   const trimmed = path.replace(/[\\/]+$/, '');
   return trimmed.slice(Math.max(trimmed.lastIndexOf('/'), trimmed.lastIndexOf('\\')) + 1) || trimmed;
