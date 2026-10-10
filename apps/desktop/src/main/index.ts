@@ -4,7 +4,7 @@ import { homedir, tmpdir } from 'node:os';
 import { createConnection } from 'node:net';
 import { join } from 'node:path';
 import { app, BrowserWindow, dialog, ipcMain, Menu, MessageChannelMain, nativeTheme, screen, shell, type MenuItemConstructorOptions } from 'electron';
-import { IpcChannel, isThemeId, sanitizePreferences, type AppInfo, type DeepLinkMessage, type RendererReadyReport, type ThemeCommand, type UpdateCommand } from '@switchboard/protocol/bridge';
+import { IMAGE_EXTENSIONS, IpcChannel, isThemeId, sanitizePreferences, type AppInfo, type DeepLinkMessage, type RendererReadyReport, type ThemeCommand, type UpdateCommand } from '@switchboard/protocol/bridge';
 import { COMPANION_DIR, COMPANION_INFO_FILE, COMPANION_PROTOCOL, createRpcClient, lineTransport, type CompanionContract, type CompanionInfo } from '@switchboard/protocol/companion-client';
 import { BUILT_IN_THEMES } from '../../../ui/src/themes/index.ts';
 import { EngineProcess } from './engineProcess.ts';
@@ -563,6 +563,41 @@ ipcMain.handle(IpcChannel.chooseImportFile, async (event) => {
   return result.canceled ? null : (result.filePaths[0] ?? null);
 });
 
+/** The smoke run has no one to answer the save dialog: images go to a folder in its throwaway profile. */
+const smokeImageExports = () => join(app.getPath('userData'), 'smoke-image-exports');
+/** Images saved this run: the only paths Show in Finder will reveal. */
+const savedImages = new Set<string>();
+
+ipcMain.handle(IpcChannel.saveImage, async (event, request: unknown) => {
+  const { mediaType, data, fileName } = (request ?? {}) as Record<string, unknown>;
+  const extension = typeof mediaType === 'string' ? IMAGE_EXTENSIONS[mediaType] : undefined;
+  if (!extension || typeof data !== 'string' || !data) throw new Error('Not an image that can be saved');
+  const name = typeof fileName === 'string' && /^[\w .-]{1,80}$/.test(fileName) && fileName.toLowerCase().endsWith(`.${extension}`) ? fileName : `image.${extension}`;
+  let path: string;
+  if (smokeOutDir) {
+    mkdirSync(smokeImageExports(), { recursive: true });
+    path = join(smokeImageExports(), name);
+  } else {
+    const win = BrowserWindow.fromWebContents(event.sender);
+    const options: Electron.SaveDialogOptions = {
+      title: 'Save image',
+      defaultPath: join(app.getPath('downloads'), name),
+      filters: [{ name: `${extension.toUpperCase()} image`, extensions: extension === 'jpg' ? ['jpg', 'jpeg'] : [extension] }],
+      properties: ['createDirectory', 'showOverwriteConfirmation'],
+    };
+    const result = win ? await dialog.showSaveDialog(win, options) : await dialog.showSaveDialog(options);
+    if (result.canceled || !result.filePath) return null;
+    path = result.filePath;
+  }
+  writeFileSync(path, Buffer.from(data, 'base64'));
+  savedImages.add(path);
+  return path;
+});
+
+ipcMain.on(IpcChannel.showSavedImage, (_event, path: unknown) => {
+  if (typeof path === 'string' && savedImages.has(path)) shell.showItemInFolder(path);
+});
+
 const readyReports: TimedReport[] = [];
 ipcMain.on(IpcChannel.rendererReady, (event, report: RendererReadyReport) => {
   const timed: TimedReport = {
@@ -659,6 +694,17 @@ async function runLiveSessionStep(win: BrowserWindow, cwd: string): Promise<stri
   await new Promise((resolve) => setTimeout(resolve, 800));
   await shot('session.png');
   if (!(await waitInPage(win, "document.querySelector('[data-transcript-image] img')", 5_000))) return 'the attached image is not shown in the transcript';
+  // Save it from its context menu: the smoke run writes it to its throwaway profile instead of asking where.
+  await win.webContents.executeJavaScript(`(() => {
+    const thumb = document.querySelector('[data-transcript-image]');
+    const r = thumb.getBoundingClientRect();
+    thumb.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: r.left + 4, clientY: r.top + 4 }));
+  })()`);
+  if (!(await waitInPage(win, "document.querySelector('[data-image-menu-save]')", 3_000))) return 'the image has no Save image… in its context menu';
+  await click('[data-image-menu-save]');
+  if (!(await waitInPage(win, "document.querySelector('[data-image-saved]')", 5_000))) return 'saving the image did not confirm';
+  const savedPath = (await win.webContents.executeJavaScript("document.querySelector('[data-image-saved]').dataset.imageSaved")) as string;
+  if (!savedPath.startsWith(smokeImageExports()) || !existsSync(savedPath) || !readFileSync(savedPath).subarray(1, 4).equals(Buffer.from('PNG'))) return `the saved image is not a PNG at ${savedPath}`;
   const colour = await win.webContents.executeJavaScript(
     "[...document.querySelectorAll('[data-item-kind=\"text\"]')].map((el) => el.innerText).find((t) => t.includes('SMOKE OK'))",
   );

@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron';
-import { ENGINE_PORT_MESSAGE, IpcChannel, type AppInfo, type DeepLinkMessage, type Preferences, type RendererReadyReport, type SwitchboardBridge, type ThemeCommand, type UpdateState } from '@switchboard/protocol/bridge';
+import { ENGINE_PORT_MESSAGE, IpcChannel, type AppInfo, type DeepLinkMessage, type Preferences, type RendererReadyReport, type SaveImageRequest, type SwitchboardBridge, type ThemeCommand, type UpdateState } from '@switchboard/protocol/bridge';
 import type { ThemeFileCheck, ThemeState } from '@switchboard/protocol/theme-format';
 
 // MessagePorts can't cross contextBridge, so forward them to the page with window.postMessage.
@@ -22,6 +22,8 @@ const bridge: SwitchboardBridge = {
   pickImage: (defaultPath?: string) => ipcRenderer.invoke(IpcChannel.pickImage, defaultPath) as Promise<string | null>,
   chooseExportFile: (defaultName: string) => ipcRenderer.invoke(IpcChannel.chooseExportFile, defaultName) as Promise<string | null>,
   chooseImportFile: () => ipcRenderer.invoke(IpcChannel.chooseImportFile) as Promise<string | null>,
+  saveImage: (request: SaveImageRequest) => ipcRenderer.invoke(IpcChannel.saveImage, request) as Promise<string | null>,
+  showSavedImage: (path: string) => ipcRenderer.send(IpcChannel.showSavedImage, path),
   // File.path is gone from Electron; webUtils is how a sandboxed page learns where a dropped file lives.
   getPathForFile: (file: File) => webUtils.getPathForFile(file),
   reportFocus: (sessionId: string | null) => ipcRenderer.send(IpcChannel.focusSession, sessionId),
