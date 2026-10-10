@@ -14,6 +14,7 @@ import { formatKeys, keysFor, shortcutById } from '../../lib/shortcuts.ts';
 import { usePaletteBus } from '../../state/paletteBus.ts';
 import { usePreferences } from '../../state/preferencesStore.ts';
 import { addedProjects } from '../../state/projectList.ts';
+import { openProject } from '../../state/projectPageStore.ts';
 import { useProjects } from '../../state/projectsStore.ts';
 import { toRows, useSessions, type SessionRowData } from '../../state/sessionsStore.ts';
 import { GROUP_LABEL, inScope } from '../../state/sidebarRows.ts';
@@ -362,6 +363,11 @@ export function CommandPalette() {
         if (step?.kind === 'projects' && step.purpose === 'rename-project') {
           close();
           usePaletteBus.getState().showDialog({ kind: 'rename-project', root: row.root });
+          return;
+        }
+        if (step?.kind === 'projects' && step.purpose === 'worktrees') {
+          close();
+          openProject(row.root, 'worktrees');
           return;
         }
         const worktree = alt || (step?.kind === 'projects' && step.worktree);

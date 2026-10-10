@@ -181,7 +181,7 @@ function useNow(intervalMs = 60_000): number {
   return now;
 }
 
-const SessionRow = memo(function SessionRow({
+export const SessionRow = memo(function SessionRow({
   data,
   selected,
   beside = false,
@@ -1036,8 +1036,8 @@ export function Sidebar() {
           iconOnly
           icon={<FolderCog size={15} aria-hidden />}
           aria-label="Projects"
-          selected={view === 'projects'}
-          aria-current={view === 'projects' ? 'page' : undefined}
+          selected={view === 'projects' || view === 'project'}
+          aria-current={view === 'projects' || view === 'project' ? 'page' : undefined}
           data-open-projects
           onClick={() => setView(view === 'projects' ? 'session' : 'projects')}
         />

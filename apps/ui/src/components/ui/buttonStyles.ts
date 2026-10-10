@@ -50,7 +50,7 @@ export function buttonClass({ variant, size, iconOnly, filled, selected, segment
   return `inline-flex items-center justify-center gap-1.5 ${corners} text-ui whitespace-nowrap disabled:opacity-50 ${box} ${tone}`;
 }
 
-export type PillTone = 'default' | 'muted' | 'accent' | 'ok' | 'warn' | 'count';
+export type PillTone = 'default' | 'muted' | 'accent' | 'ok' | 'warn' | 'caution' | 'link' | 'count';
 
 const PILL_TONE: Record<Exclude<PillTone, 'count'>, string> = {
   default: 'border-border text-text',
@@ -60,6 +60,10 @@ const PILL_TONE: Record<Exclude<PillTone, 'count'>, string> = {
   // Running in the background (green), as in the status colours.
   ok: 'border-ok/40 bg-ok/10 text-ok',
   warn: 'border-warn/40 bg-warn/10 text-warn',
+  // Something to look at before it goes (uncommitted files in a worktree).
+  caution: 'border-caution/40 bg-caution/10 text-caution',
+  // Something that lives elsewhere and is still open (a pull request).
+  link: 'border-link/40 bg-link/10 text-link',
 };
 
 export interface PillLook {

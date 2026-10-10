@@ -2,7 +2,8 @@ import { create } from 'zustand';
 import type { LiveSession, SessionHostInfo, SessionsChanged, SessionsSnapshot, SessionSummary } from '@switchboard/protocol/client';
 import { hostAsLive, isActiveHost } from './hostsStore.ts';
 
-export type MainView = 'session' | 'new' | 'settings' | 'projects';
+/** `project` is one project's page (`useProjectPage` says which); `projects` is the list of them. */
+export type MainView = 'session' | 'new' | 'settings' | 'projects' | 'project';
 /** The pages of Settings, listed in its own sidebar. */
 export type SettingsSection = 'general' | 'theme' | 'sidebar' | 'conversation' | 'focus' | 'profiles' | 'vscode' | 'backup' | 'diagnostics' | 'about';
 export type Pane = 'main' | 'split';

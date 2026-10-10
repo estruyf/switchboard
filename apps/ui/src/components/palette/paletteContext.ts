@@ -5,7 +5,8 @@ import type { TerminalDock } from '../terminal/terminalLayout.ts';
 import type { SettingsSection } from '../../state/sessionsStore.ts';
 
 /** Where you are: what the main area shows. */
-export type PaletteView = 'home' | 'new-session' | 'session' | 'settings' | 'projects';
+/** `projects` is the list of projects; `project` one project's page. */
+export type PaletteView = 'home' | 'new-session' | 'session' | 'settings' | 'projects' | 'project';
 
 /** The session in the active pane, as far as the palette's commands care. */
 export interface PaletteSession {
@@ -70,7 +71,9 @@ export interface PaletteContext {
   /** Unsent messages (sessions and New session prompts) that count. */
   unsent: number;
   projectCount: number;
-  /** The project a "New session in …" starts in: the open session's, else the sidebar's filter. */
+  /** Your projects, in your order ("Project: <name>"). */
+  projects: Array<{ root: string; name: string }>;
+  /** The project a "New session in …" starts in: the page on screen, the open session's, else the sidebar's filter. */
   currentProject: { root: string; name: string } | null;
   /** The open session's project actions. */
   actions: Array<{ id: string; name: string; shortcut: string | null; icon: ActionIcon }>;
