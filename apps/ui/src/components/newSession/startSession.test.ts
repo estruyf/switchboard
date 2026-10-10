@@ -34,8 +34,11 @@ describe('sessionCreateParams', () => {
     expect(sessionCreateParams({ ...START, choices: { ...CHOICES, model: '', effort: '' } })).toMatchObject({ model: null, effort: null });
   });
 
-  it('names a worktree after the prompt unless it was named', () => {
-    expect(sessionCreateParams({ ...START, worktree: true }).worktree).toEqual({ name: 'fix-the-login-redirect', baseRef: 'fresh' });
+  it('gives a worktree a made-up name unless it was named', () => {
+    const made = sessionCreateParams({ ...START, worktree: true }).worktree;
+    expect(made?.baseRef).toBe('fresh');
+    expect(made?.name).toMatch(/^[a-z]+-[a-z]+-[a-z]+$/);
+    expect(made?.name).not.toContain('login');
     expect(sessionCreateParams({ ...START, worktree: true, worktreeName: 'login' }).worktree).toEqual({ name: 'login', baseRef: 'fresh' });
   });
 

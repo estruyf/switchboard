@@ -1,5 +1,5 @@
 import type { ImageAttachment, PermissionMode } from '@switchboard/protocol/client';
-import { worktreeSlug } from '../../lib/modes.ts';
+import { randomWorktreeName } from '../../lib/modes.ts';
 import type { GateOutcome } from '../../state/focusGate.ts';
 import { linkPermissionMode, type Choices } from './choices.ts';
 
@@ -11,7 +11,7 @@ export interface NewSessionStart {
   choices: Choices;
   /** It runs in a new worktree (asked for, in a git repository). */
   worktree: boolean;
-  /** The worktree's name as typed; empty or missing: made from the prompt. */
+  /** The worktree's name as typed; empty or missing: a made-up three-word name. */
   worktreeName?: string;
   /** The branch checked out now: choosing it checks nothing out. */
   currentBranch: string | null;
@@ -55,7 +55,7 @@ export function checkoutBranchFor(choices: Choices, worktree: boolean, currentBr
   return !worktree && choices.branch && choices.branch !== currentBranch ? choices.branch : null;
 }
 
-/** What `session.create` gets: the worktree named from the prompt unless you named it. */
+/** What `session.create` gets: a worktree with a made-up name unless you named it. */
 export function sessionCreateParams(start: NewSessionStart): SessionCreateParams {
   const { choices } = start;
   return {
@@ -66,7 +66,7 @@ export function sessionCreateParams(start: NewSessionStart): SessionCreateParams
     // A link never starts a session in a mode that skips permission prompts.
     permissionMode: start.fromLink ? linkPermissionMode(choices.permissionMode) : choices.permissionMode,
     effort: choices.effort || null,
-    worktree: start.worktree ? { name: start.worktreeName || worktreeSlug(start.prompt), baseRef: choices.baseRef } : null,
+    worktree: start.worktree ? { name: start.worktreeName || randomWorktreeName(), baseRef: choices.baseRef } : null,
     checkoutBranch: checkoutBranchFor(choices, start.worktree, start.currentBranch),
     profileId: start.profileId,
   };
