@@ -1,14 +1,14 @@
 import { execFile } from 'node:child_process';
 import { readFile, stat } from 'node:fs/promises';
 import { homedir } from 'node:os';
-import { basename, dirname, join, relative } from 'node:path';
+import { basename, dirname, join, relative, sep } from 'node:path';
 import * as vscode from 'vscode';
 import type { CompanionSessions, CompanionTarget, ContextItemInput } from '@switchboard/protocol/companion-client';
 import { SwitchboardConnection, type CompanionClient } from './connection.ts';
 import { deniedByRead, excludedBy, readRules, type ClaudeSettingsFile } from './exclusions.ts';
 import { describeItems, itemPaths, problemsItem, resourceItems, selectionItem, terminalItem, type EditorSelection, type Problem } from './payload.ts';
 import { PromptNotifier } from './promptNotifier.ts';
-import { focusedTarget, folderFor, sessionRow, statusBarView } from './targets.ts';
+import { focusedTarget, folderFor, isWithin, sessionRow, statusBarView } from './targets.ts';
 
 /** Switchboard's bundle id, to open it without changing what it shows. */
 const APP_ID = 'dev.switchboard.app';
@@ -355,7 +355,7 @@ async function gitChanges(): Promise<vscode.Uri[]> {
   const api = (git?.isActive ? git.exports : await git?.activate())?.getAPI(1);
   if (!api?.repositories.length) return [];
   const active = vscode.window.activeTextEditor?.document.uri.fsPath;
-  const repo = (active && api.repositories.find((r) => active.startsWith(`${r.rootUri.fsPath}/`))) || api.repositories[0]!;
+  const repo = (active && api.repositories.find((r) => isWithin(active, r.rootUri.fsPath))) || api.repositories[0]!;
   return [...repo.state.mergeChanges, ...repo.state.indexChanges, ...repo.state.workingTreeChanges].map((c) => c.uri);
 }
 
@@ -397,7 +397,8 @@ async function withholdReason(path: string): Promise<string | null> {
   const folder = vscode.workspace.getWorkspaceFolder(uri)?.uri.fsPath ?? null;
   const name = basename(path);
   if (folder) {
-    const inside = relative(folder, path);
+    // The exclude globs are /-separated, also on Windows.
+    const inside = relative(folder, path).split(sep).join('/');
     const files = vscode.workspace.getConfiguration('files', uri).get<Record<string, unknown>>('exclude', {});
     const search = vscode.workspace.getConfiguration('search', uri).get<Record<string, unknown>>('exclude', {});
     if (excludedBy(inside, files) || excludedBy(inside, search)) return `${name} is excluded in your settings`;
