@@ -7,6 +7,7 @@ import { contextMenuPoint, isContextMenuKey, type ContextMenuPoint } from '../..
 import { toast } from '../../state/toastStore.ts';
 import { Menu } from '../Menu.tsx';
 import { Button } from '../ui/Button.tsx';
+import { basename } from '../../lib/format.ts';
 import { useModalFocus } from '../ui/useModalFocus.ts';
 import { imageFileName, parseDataUrl } from './imageFile.ts';
 
@@ -51,7 +52,7 @@ async function saveImage(url: string, imageId: string) {
     const path = await bridge.saveImage({ ...image, fileName: imageFileName(imageId, image.mediaType) });
     if (!path) return;
     toast('Image saved', {
-      body: path.split('/').pop(),
+      body: basename(path),
       actions: [{ label: 'Show in Finder', onSelect: () => bridge.showSavedImage(path) }],
       data: { 'data-image-saved': path },
     });

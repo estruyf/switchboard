@@ -20,6 +20,7 @@ import { syncStep } from '../git/gitPlan.ts';
 import { manage } from '../sidebar/ProjectMenu.tsx';
 import { archiveSessions } from '../drafts/ArchiveDraftDialog.tsx';
 import { openUnsentList } from '../drafts/UnsentList.tsx';
+import { basename } from '../../lib/format.ts';
 import type { PaletteApi } from './commands.ts';
 import type { PaletteContext } from './paletteContext.ts';
 
@@ -72,7 +73,7 @@ export function createPaletteApi(ctx: PaletteContext, client: EngineClient | nul
     importTheme: () => void useThemes.getState().chooseImport(),
     exportTheme: () => {
       const { active, exportTheme } = useThemes.getState();
-      void exportTheme(active.entry.id).then((path) => path && toast(`Exported ${active.entry.file.name} to ${path.split('/').pop()}`), failed('export the theme'));
+      void exportTheme(active.entry.id).then((path) => path && toast(`Exported ${active.entry.file.name} to ${basename(path)}`), failed('export the theme'));
     },
     setFocusLimit: (on) => usePreferences.getState().update({ focusLimit: on ? lastLimit() : null }),
 

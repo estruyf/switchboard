@@ -1,6 +1,6 @@
 import { ImagePlus, Paperclip } from 'lucide-react';
 import { useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
-import type { ContextItem, ImageAttachment, SlashCommand } from '@switchboard/protocol/client';
+import { joinPath, type ContextItem, type ImageAttachment, type SlashCommand } from '@switchboard/protocol/client';
 import { useEngineConnection } from '../../engine/useEngine.ts';
 import { Button } from '../ui/Button.tsx';
 import { attachmentsAfterSend, textAfterSend } from './afterSend.ts';
@@ -287,7 +287,7 @@ export function Composer(props: ComposerProps) {
       const next = `${text.slice(0, palette.start)}${text.slice(caret).replace(/^ /, '')}`;
       setText(next);
       closePalette();
-      addContext([{ kind: 'file', path: `${cwd.replace(/\/+$/, '')}/${item.value.slice(1)}`, directory: false }]);
+      addContext([{ kind: 'file', path: joinPath(cwd, item.value.slice(1)), directory: false }]);
       requestAnimationFrame(() => el.setSelectionRange(palette.start, palette.start));
       return;
     }

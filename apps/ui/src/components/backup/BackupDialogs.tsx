@@ -3,7 +3,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { BACKUP_SECTIONS, settingsFileName, type BackupSection, type FolderMapping, type ImportChange, type ImportMode, type ImportPreview } from '@switchboard/protocol/client';
 import { useEngineConnection } from '../../engine/useEngine.ts';
 import { DEFAULT_EXPORT_SECTIONS, groupChanges, hasEffect, SECTION_INFO, summarizeChanges } from '../../lib/backup.ts';
-import { guessHome, tildify } from '../../lib/format.ts';
+import { basename, guessHome, tildify } from '../../lib/format.ts';
 import { useBackup } from '../../state/backupStore.ts';
 import { usePreferences } from '../../state/preferencesStore.ts';
 import { useThemes } from '../../state/themeStore.ts';
@@ -203,8 +203,8 @@ export function ImportDialog({ onClose }: { onClose(): void }) {
       title="Import settings"
       subtitle={
         preview
-          ? `From ${path.split('/').pop()}${exported && !Number.isNaN(exported.getTime()) ? `, exported ${exported.toLocaleDateString()}` : ''}${preview.appVersion !== 'unknown' ? ` by Switchboard ${preview.appVersion}` : ''}.`
-          : `Reading ${path.split('/').pop()}…`
+          ? `From ${basename(path)}${exported && !Number.isNaN(exported.getTime()) ? `, exported ${exported.toLocaleDateString()}` : ''}${preview.appVersion !== 'unknown' ? ` by Switchboard ${preview.appVersion}` : ''}.`
+          : `Reading ${basename(path)}…`
       }
       onClose={onClose}
       data-import-dialog

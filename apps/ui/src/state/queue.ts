@@ -42,7 +42,7 @@ export interface QueueSummary {
 }
 
 /** A worktree inside a project (`<root>/.claude/worktrees/<name>/…`) counts as the project. */
-export const projectOf = (path: string) => path.replace(/\/\.claude\/worktrees\/[^/]+.*$/, '').replace(/\/+$/, '');
+export const projectOf = (path: string) => path.replace(/[\\/]\.claude[\\/]worktrees[\\/][^\\/]+.*$/, '').replace(/(.)[\\/]+$/, '$1');
 
 /** Starting, running or waiting for you: what the sidebar shows under Needs you and Working. */
 export const isBusy = (row: SessionRowData) => {

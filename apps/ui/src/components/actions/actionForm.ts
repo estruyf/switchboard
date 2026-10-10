@@ -1,4 +1,5 @@
 import type { ActionScope, ActionSuggestion, ListedAction, ProjectAction } from '@switchboard/protocol/client';
+import { basename } from '../../lib/format.ts';
 import { formatShortcut, RESERVED_SHORTCUTS, normalizeShortcut, sameShortcut } from '../../lib/shortcuts.ts';
 
 /** The form's state: an action plus where it is saved. `shared` only appears read-only. */
@@ -124,4 +125,4 @@ export function insertVariable(text: string, start: number, end: number, name: s
 }
 
 /** The last folder of a path, as the dialog's subtitle. */
-export const projectName = (root: string) => root.replace(/\/+$/, '').split('/').pop() || root;
+export const projectName = (root: string) => basename(root);

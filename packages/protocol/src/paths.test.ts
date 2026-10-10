@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { AbsolutePath } from './absolutePath.ts';
-import { expandHome, isAbsolutePath, isLocalAbsolutePath, isSameOrInside, separatorOf } from './paths.ts';
+import { expandHome, isAbsolutePath, isLocalAbsolutePath, isSameOrInside, joinPath, pathInside, separatorOf } from './paths.ts';
 
 describe('isAbsolutePath', () => {
   it('takes absolute paths on macOS, Linux and Windows', () => {
@@ -32,6 +32,17 @@ describe('isAbsolutePath', () => {
     expect(isSameOrInside('c:/users/me/q', 'C:\\Users\\me\\q\\')).toBe(true);
     expect(isSameOrInside('C:\\Users\\me\\qq', 'C:\\Users\\me\\q')).toBe(false);
     expect(isSameOrInside('D:\\Users\\me\\q', 'C:\\Users\\me\\q')).toBe(false);
+  });
+
+  it('takes a path apart from its folder, and puts one together in the folder\'s separator', () => {
+    expect(pathInside('/repo/src/a.ts', '/repo/')).toBe('src/a.ts');
+    expect(pathInside('/repo', '/repo')).toBe('');
+    expect(pathInside('/repository/a.ts', '/repo')).toBeNull();
+    expect(pathInside('C:\\repo\\src\\a.ts', 'c:\\repo')).toBe('src\\a.ts');
+    expect(joinPath('/repo/', 'src/a.ts')).toBe('/repo/src/a.ts');
+    expect(joinPath('/', 'etc')).toBe('/etc');
+    expect(joinPath('C:\\repo', 'src/a.ts')).toBe('C:\\repo\\src\\a.ts');
+    expect(joinPath('C:\\', 'repo')).toBe('C:\\repo');
   });
 
   it('takes only the local form for paths from outside', () => {

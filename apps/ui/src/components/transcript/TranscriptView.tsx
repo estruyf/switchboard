@@ -1,10 +1,10 @@
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { Blocks, ChevronDown, CircleAlert, FileDiff, GitBranch, ListTodo, LoaderCircle, SquareTerminal, X } from 'lucide-react';
 import { lazy, Suspense, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type RefObject } from 'react';
-import type { ChangesBase, GitChanges, ImageAttachment, PermissionRequest, RewindResult, SlashCommand } from '@switchboard/protocol/client';
+import { pathInside, type ChangesBase, type GitChanges, type ImageAttachment, type PermissionRequest, type RewindResult, type SlashCommand } from '@switchboard/protocol/client';
 import { useEngineConnection } from '../../engine/useEngine.ts';
 import { clearFindHighlights, rangesIn, setFindHighlights } from '../../lib/findHighlights.ts';
-import { guessHome, shortAge, tildify } from '../../lib/format.ts';
+import { basename, guessHome, shortAge, tildify } from '../../lib/format.ts';
 import { nextMode } from '../../lib/modes.ts';
 import { hostAsLive, isActiveHost, useHosts } from '../../state/hostsStore.ts';
 import { useCheckoutBranches } from '../../state/checkoutBranchesStore.ts';
@@ -636,7 +636,7 @@ export function TranscriptView({ sessionId, pane = null, active = true }: { sess
   ]
     .filter(Boolean)
     .join('\n');
-  const projectName = question ? QUESTION_LABEL : (project?.name ?? (projectRoot ? projectRoot.slice(projectRoot.lastIndexOf('/') + 1) : null));
+  const projectName = question ? QUESTION_LABEL : (project?.name ?? (projectRoot ? basename(projectRoot) : null));
   const failed = !activeHost && host?.state === 'error';
   const statusLabel = live ? liveLabel(live) : failed ? 'Failed' : 'Not running';
   const statusTone = live ? (live.status === 'idle' && live.background?.length ? 'text-ok' : STATUS_TONE[live.status]) : failed ? 'text-error' : 'text-muted';
@@ -920,7 +920,7 @@ export function TranscriptView({ sessionId, pane = null, active = true }: { sess
                       <ul className="mt-2 max-h-40 overflow-y-auto font-mono text-meta text-text" data-rewind-files>
                         {rewinding.preview.files.map((file) => (
                           <li key={file} className="truncate">
-                            {cwd && file.startsWith(`${cwd}/`) ? file.slice(cwd.length + 1) : file}
+                            {(cwd && pathInside(file, cwd)) || file}
                           </li>
                         ))}
                       </ul>

@@ -43,6 +43,22 @@ export function isSameOrInside(path: string, dir: string): boolean {
   return other === base || other.startsWith(base + (windows ? '\\' : '/'));
 }
 
+/**
+ * The part of `path` inside the folder `root`, without a leading separator ('' for the folder itself), or null when
+ * it isn't inside. Compared as `isSameOrInside` does; the part keeps the path's own separators.
+ */
+export function pathInside(path: string, root: string): string | null {
+  if (!isSameOrInside(path, root)) return null;
+  return path.slice(root.replace(/[\\/]+$/, '').length).replace(/^[\\/]+/, '');
+}
+
+/** `relative` (written with `/` or `\`) inside the folder `root`, in the root's own separator. */
+export function joinPath(root: string, relative: string): string {
+  const sep = separatorOf(root);
+  const tail = relative.replace(/^[\\/]+/, '');
+  return `${root.replace(/[\\/]+$/, '')}${sep}${sep === '\\' ? tail.replace(/\//g, '\\') : tail}`;
+}
+
 /** `~/…` (or `~\…`) with the home folder in front, in the home folder's own separator; anything else as it is. */
 export function expandHome(path: string, home: string | null): string {
   if (!home || !/^~(?=[\\/]|$)/.test(path)) return path;

@@ -1,5 +1,6 @@
 import { FileText } from 'lucide-react';
 import { useEffect, useId, useRef, useState } from 'react';
+import { joinPath } from '@switchboard/protocol/client';
 import { useEngineConnection } from '../../engine/useEngine.ts';
 import { useComposerTargets, type ComposerTarget } from '../../state/composerTargets.ts';
 import { useDrafts } from '../../state/draftsStore.ts';
@@ -53,10 +54,9 @@ function AddContextDialog({ target, onClose }: { target: ComposerTarget & { cwd:
   const toggle = (file: string) => setPicked((list) => (list.includes(file) ? list.filter((f) => f !== file) : [...list, file]));
   const add = (chosen = picked.length ? picked : files.slice(active, active + 1)) => {
     if (chosen.length === 0) return;
-    const root = target.cwd.replace(/\/+$/, '');
     useDrafts.getState().addContext(
       target.key,
-      chosen.map((file) => ({ kind: 'file', path: `${root}/${file}`, directory: false })),
+      chosen.map((file) => ({ kind: 'file', path: joinPath(target.cwd, file), directory: false })),
     );
     onClose();
     useDrafts.getState().requestFocus(target.key);

@@ -12,6 +12,7 @@ import { Button } from '../ui/Button.tsx';
 import { Notice } from '../ui/Notice.tsx';
 import { RadioGroup } from '../ui/Radio.tsx';
 import { SegmentedControl } from '../ui/SegmentedControl.tsx';
+import { basename } from '../../lib/format.ts';
 import { useFlash } from '../ui/useFlash.ts';
 import { ThemePreview } from './ThemePreview.tsx';
 
@@ -146,7 +147,7 @@ export function ThemeSettings() {
       onSelect: () =>
         void run(async () => {
           const path = await useThemes.getState().exportTheme(entry.id);
-          return path ? `Exported “${entry.file.name}” to ${path.split('/').pop()}.` : null;
+          return path ? `Exported “${entry.file.name}” to ${basename(path)}.` : null;
         }),
     },
     {
