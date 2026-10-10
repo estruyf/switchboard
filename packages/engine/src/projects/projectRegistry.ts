@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { copyFileSync, existsSync, mkdirSync, statSync, writeFileSync } from 'node:fs';
 import { basename, extname, join } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
-import { ProjectDefaults, RpcError, type ProjectIcon, type ProjectIconChoice, type ProjectInfo } from '@switchboard/protocol';
+import { isAbsolutePath, ProjectDefaults, RpcError, type ProjectIcon, type ProjectIconChoice, type ProjectInfo } from '@switchboard/protocol';
 import { detectIconPath, iconDataUrl, MAX_ICON_BYTES } from './projectIcons.ts';
 
 /** A custom icon as stored: a file is Switchboard's own copy, in the icon folder. */
@@ -110,7 +110,7 @@ export class ProjectRegistry {
     const added = this.addedRows();
     const addedSet = new Set(added.map((r) => r.root));
     const others = [...activity.entries()]
-      .filter(([root]) => root.startsWith('/') && !addedSet.has(root))
+      .filter(([root]) => isAbsolutePath(root) && !addedSet.has(root))
       .sort((a, b) => b[1].lastActivity - a[1].lastActivity)
       .map(([root]) => root);
     return [

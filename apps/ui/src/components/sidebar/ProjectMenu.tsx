@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode, type RefObject } from 'react';
 import { Check, ChevronDown, Ellipsis, FolderCog, FolderOpen, FolderPlus, Image, Layers, Pencil, RotateCcw, Smile, Type, X } from 'lucide-react';
-import type { ProjectIconChoice } from '@switchboard/protocol/client';
+import { isAbsolutePath, type ProjectIconChoice } from '@switchboard/protocol/client';
 import { useEngineConnection } from '../../engine/useEngine.ts';
 import { useProfiles } from '../../state/profilesStore.ts';
 import { addedProjects } from '../../state/projectList.ts';
@@ -150,7 +150,7 @@ export function useProjectIconEntries() {
     const linked = project?.profileId ?? null;
     // Which account new sessions here use; only worth asking once there is more than one.
     const profileEntries: MenuEntry[] =
-      profiles.length > 1 && root.startsWith('/')
+      profiles.length > 1 && isAbsolutePath(root)
         ? [
             { heading: 'Claude profile' },
             {
@@ -177,14 +177,14 @@ export function useProjectIconEntries() {
         onSelect: () => void actions.setIcon(root, { kind: 'auto' }),
       },
       'separator',
-      ...(root.startsWith('/') ? [{ label: 'Rename project…', icon: <Pencil size={13} />, onSelect: () => setRenaming(root), data: { 'data-rename-project': true } } satisfies MenuEntry] : []),
+      ...(isAbsolutePath(root) ? [{ label: 'Rename project…', icon: <Pencil size={13} />, onSelect: () => setRenaming(root), data: { 'data-rename-project': true } } satisfies MenuEntry] : []),
       { label: 'Open folder in editor', icon: <FolderOpen size={13} />, disabled: !project?.exists, onSelect: () => void openIn(root).catch(() => {}) },
       ...(project?.added
         ? ([
             { label: 'Project settings…', icon: <FolderCog size={13} />, onSelect: () => manage(root) },
             ...(remove ? [{ label: 'Remove from Switchboard…', icon: <X size={13} />, danger: true, onSelect: () => setRemoving(root) }] : []),
           ] satisfies MenuEntry[])
-        : root.startsWith('/')
+        : isAbsolutePath(root)
           ? [{ label: 'Add to projects', icon: <FolderPlus size={13} />, disabled: !project?.exists, onSelect: () => void actions.add(root) } satisfies MenuEntry]
           : []),
     ];

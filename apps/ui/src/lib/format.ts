@@ -19,15 +19,20 @@ export function basename(path: string): string {
   return trimmed.slice(Math.max(trimmed.lastIndexOf('/'), trimmed.lastIndexOf('\\')) + 1) || trimmed;
 }
 
-/** Shows paths under the home folder as `~/…`. */
+/** Shows paths under the home folder as `~/…` (`~\…` on Windows, where the drive letter's case may differ). */
 export function tildify(path: string, home: string | null): string {
-  return home && (path === home || path.startsWith(`${home}/`)) ? `~${path.slice(home.length)}` : path;
+  if (!home) return path;
+  const windows = /^[A-Za-z]:\\/.test(home);
+  const head = path.slice(0, home.length);
+  const same = windows ? head.toLowerCase() === home.toLowerCase() : head === home;
+  const rest = path.slice(home.length);
+  return same && (rest === '' || rest.startsWith(windows ? '\\' : '/')) ? `~${rest}` : path;
 }
 
 /** Best-effort home folder from the paths we already know (the UI has no Node APIs). */
 export function guessHome(paths: Iterable<string>): string | null {
   for (const p of paths) {
-    const match = /^(\/Users\/[^/]+|\/home\/[^/]+)/.exec(p);
+    const match = /^(\/Users\/[^/]+|\/home\/[^/]+|[A-Za-z]:\\Users\\[^\\]+)/.exec(p);
     if (match) return match[1]!;
   }
   return null;

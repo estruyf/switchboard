@@ -1,0 +1,54 @@
+import { describe, expect, it } from 'vitest';
+import { AbsolutePath } from './absolutePath.ts';
+import { expandHome, isAbsolutePath, isLocalAbsolutePath, isSameOrInside, separatorOf } from './paths.ts';
+
+describe('isAbsolutePath', () => {
+  it('takes absolute paths on macOS, Linux and Windows', () => {
+    for (const path of ['/', '/Users/me/dev/app', 'C:\\Users\\me\\dev\\app', 'c:/Users/me', 'E:\\']) expect(isAbsolutePath(path), path).toBe(true);
+  });
+
+  it('refuses relative, home-relative, drive-relative and network paths', () => {
+    for (const path of ['', 'src', './src', '~/dev', '~\\dev', 'C:', 'C:folder', '\\\\server\\share', '\\folder']) expect(isAbsolutePath(path), path).toBe(false);
+  });
+
+  it('knows which separator a path uses, and puts the home folder in front of ~ in it', () => {
+    expect(separatorOf('/Users/me')).toBe('/');
+    expect(separatorOf('C:\\Users\\me')).toBe('\\');
+    expect(separatorOf('C:/Users/me')).toBe('/');
+    expect(expandHome('~/.claude-work', '/Users/me')).toBe('/Users/me/.claude-work');
+    expect(expandHome('~\\.claude-work', 'C:\\Users\\me')).toBe('C:\\Users\\me\\.claude-work');
+    expect(expandHome('~/dev/app', 'C:\\Users\\me')).toBe('C:\\Users\\me\\dev\\app');
+    expect(expandHome('~', '/Users/me')).toBe('/Users/me');
+    expect(expandHome('~other/x', '/Users/me')).toBe('~other/x');
+    expect(expandHome('~/x', null)).toBe('~/x');
+  });
+
+  it('tells whether a path is a folder or inside it', () => {
+    expect(isSameOrInside('/Users/me/q', '/Users/me/q/')).toBe(true);
+    expect(isSameOrInside('/Users/me/q/sub', '/Users/me/q')).toBe(true);
+    expect(isSameOrInside('/Users/me/qq', '/Users/me/q')).toBe(false);
+    expect(isSameOrInside('/Users/Me/q', '/Users/me/q')).toBe(false);
+    expect(isSameOrInside('C:\\Users\\me\\q\\sub', 'C:\\Users\\me\\q')).toBe(true);
+    expect(isSameOrInside('c:/users/me/q', 'C:\\Users\\me\\q\\')).toBe(true);
+    expect(isSameOrInside('C:\\Users\\me\\qq', 'C:\\Users\\me\\q')).toBe(false);
+    expect(isSameOrInside('D:\\Users\\me\\q', 'C:\\Users\\me\\q')).toBe(false);
+  });
+
+  it('takes only the local form for paths from outside', () => {
+    expect(isLocalAbsolutePath('/Users/me', 'darwin')).toBe(true);
+    expect(isLocalAbsolutePath('C:\\Users\\me', 'darwin')).toBe(false);
+    expect(isLocalAbsolutePath('C:\\Users\\me', 'win32')).toBe(true);
+    expect(isLocalAbsolutePath('C:/Users/me', 'win32')).toBe(true);
+    // On Windows /x means "on the current drive": relative to something after all.
+    expect(isLocalAbsolutePath('/Users/me', 'win32')).toBe(false);
+    expect(isLocalAbsolutePath('\\\\server\\share', 'win32')).toBe(false);
+  });
+
+  it('is what the protocol checks paths with, for the platform it runs on', () => {
+    const local = process.platform === 'win32' ? 'C:\\Users\\me' : '/Users/me';
+    const other = process.platform === 'win32' ? '/Users/me' : 'C:\\Users\\me';
+    expect(AbsolutePath.safeParse(local).success).toBe(true);
+    expect(AbsolutePath.safeParse(other).success).toBe(false);
+    expect(AbsolutePath.safeParse('Users/me').success).toBe(false);
+  });
+});
