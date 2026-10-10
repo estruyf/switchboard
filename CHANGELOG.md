@@ -2,6 +2,12 @@
 
 All notable changes to Switchboard are listed here. Each release is also on the [releases page](https://github.com/estruyf/switchboard/releases), with the `.dmg` to download.
 
+## [Unreleased]
+
+### Fixed
+
+- The pointer turns into a text cursor over text you can select in the conversation (messages, code blocks, diffs), instead of staying an arrow.
+
 ## [0.0.13] - 2026-10-10
 
 ### New
