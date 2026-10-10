@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { LaterItem, LiveSession, SessionHostInfo } from '@switchboard/protocol/client';
 import { toRows, useSessions, type SessionRowData } from './sessionsStore.ts';
 import type { QueueEntry } from './queue.ts';
-import { archivedFiller, archivesOnMiddleClick, buildListRows, buildSessionList, groupSessions, headerSummary, inScope, isActive, RECENT_MS, rowStatus, sectionOfSession, sessionGroup, sessionsByHeader, startOfDay, startupSession, waitingLabel } from './sidebarRows.ts';
+import { archivedPlacement, archivedRevealTop, archivesOnMiddleClick, buildListRows, buildSessionList, groupSessions, headerSummary, inScope, isActive, RECENT_MS, rowStatus, sectionOfSession, sessionGroup, sessionsByHeader, startOfDay, startupSession, waitingLabel } from './sidebarRows.ts';
 import { closedSections, DEFAULT_SECTIONS, parseSections, toggleAllSections } from './sidebarSections.ts';
 
 const NOW = Date.UTC(2026, 9, 5, 12);
@@ -240,8 +240,9 @@ describe('buildListRows', () => {
   const entry = (prompt: string, state: QueueEntry['state'] = 'waiting'): QueueEntry => ({ item: saved(prompt), state, label: null, detail: null, blockers: [] });
   const queueOf = (...prompts: string[]) => ({ entries: prompts.map((p) => entry(p)), ready: 0 });
 
-  it('puts a header above each section and the Archived toggle last', () => {
-    expect(shape(buildListRows(active, archived, { now: NOW, archivedOpen: false }))).toEqual(['[working 1 first]', 'busy', '[today 2]', 'a', 'b', '[archived 1 closed]']);
+  it('puts a header above each section and an open Archived last', () => {
+    // Closed, its header is docked under the list rather than in it.
+    expect(shape(buildListRows(active, archived, { now: NOW, archivedOpen: false }))).toEqual(['[working 1 first]', 'busy', '[today 2]', 'a', 'b']);
     const open = buildListRows(active, archived, { now: NOW, archivedOpen: true });
     expect(shape(open)).toEqual(['[working 1 first]', 'busy', '[today 2]', 'a', 'b', '[archived 1 open]', 'old']);
     expect(open.at(-1)).toMatchObject({ kind: 'session', archived: true });
@@ -266,7 +267,6 @@ describe('buildListRows', () => {
       '[today 2]',
       'a',
       'b',
-      '[archived 1 closed]',
     ]);
     // Without Working, it takes Working's place: after Needs you, before the rest.
     const waiting = row('ask', { live: live('needs-you') });
@@ -319,18 +319,27 @@ describe('buildListRows', () => {
   it('lists the sessions under each header, for Select all', () => {
     const open = sessionsByHeader(buildListRows(active, archived, { now: NOW, archivedOpen: true }));
     expect([...open]).toEqual([['working', ['busy']], ['today', ['a', 'b']], ['archived', ['old']]]);
-    expect(sessionsByHeader(buildListRows(active, archived, { now: NOW, archivedOpen: false })).get('archived')).toEqual([]);
+    expect(sessionsByHeader(buildListRows(active, archived, { now: NOW, archivedOpen: false })).has('archived')).toBe(false);
   });
 
-  it('leaves room above Archived to keep it at the bottom, whether it is open or not', () => {
-    const height = (r: ReturnType<typeof buildListRows>[number]) => (r.kind === 'session' ? 40 : 30);
-    const closed = buildListRows(active, archived, { now: NOW, archivedOpen: false });
-    // Working, Today and Archived headers and three sessions: 210px of a 400px list.
-    expect(archivedFiller(closed, height, 400)).toBe(190);
-    expect(archivedFiller(buildListRows(active, archived, { now: NOW, archivedOpen: true }), height, 400)).toBe(190);
-    // A list taller than the sidebar needs none, and nor does one without archived sessions.
-    expect(archivedFiller(closed, height, 100)).toBe(0);
-    expect(archivedFiller(buildListRows(active, [], { now: NOW, archivedOpen: false }), height, 400)).toBe(0);
+  it('docks Archived while it is closed, and lists it while it is open or a search shows its matches', () => {
+    expect(archivedPlacement(3, { open: false, searching: false })).toBe('dock');
+    expect(archivedPlacement(3, { open: true, searching: false })).toBe('list');
+    expect(archivedPlacement(3, { open: false, searching: true })).toBe('list');
+    expect(archivedPlacement(0, { open: true, searching: true })).toBeNull();
+  });
+
+  it('scrolls an opened Archived to the top only when its header landed below the middle', () => {
+    const view = { scrollTop: 0, height: 400, maxScroll: 1000 };
+    // High enough already: left alone.
+    expect(archivedRevealTop(150, view)).toBeNull();
+    expect(archivedRevealTop(200, view)).toBeNull();
+    // Below the middle: the header goes 8px from the top.
+    expect(archivedRevealTop(320, view)).toBe(312);
+    // Measured from where the list is scrolled to, and never past the end.
+    expect(archivedRevealTop(550, { ...view, scrollTop: 400 })).toBeNull();
+    expect(archivedRevealTop(700, { ...view, scrollTop: 400 })).toBe(692);
+    expect(archivedRevealTop(900, { ...view, maxScroll: 500 })).toBe(500);
   });
 });
 

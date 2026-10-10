@@ -2960,6 +2960,137 @@ async function runSectionsStep(win: BrowserWindow): Promise<string> {
   return `ok: closed ${group} (${before} ${before === 1 ? 'row' : 'rows'} hidden, header "${header}"${summary ? `, summary "${summary}"` : ''}), ← → on the header, Earlier ${earlier === 'none' ? 'not shown' : 'starts closed'}`;
 }
 
+/**
+ * Archived docks under the list while closed (a list that fits doesn't scroll), moves into the list right under the
+ * last active row when opened (no gap, its header in the upper half), and back to the dock when closed; → and ← do the
+ * same from the keyboard, with focus following the header. Every collapsible header shows its chevron. Sidebar shots
+ * of both, in light and dark. Only the throwaway profile's UI state changes.
+ */
+async function runArchivedDockStep(win: BrowserWindow): Promise<string> {
+  const js = (code: string) => win.webContents.executeJavaScript(code);
+  const list = "document.querySelector('[data-session-list]')";
+  const dock = "document.querySelector('[data-archived-dock]')";
+  const header = "document.querySelector('[data-archived-header]')";
+  const toggle = (where: string) => `${where}?.querySelector('[data-archived-toggle]')`;
+  // Done moving: the header carries no FLIP transform and the archived rows are fully shown.
+  const landed = `!!${header} && !${dock} && ${header}.style.transform === '' && ![...document.querySelectorAll('[data-session-list] [role=listitem].opacity-0')].length`;
+  const scheme = preferences.get().colorScheme;
+  try {
+    await js(`${list}.scrollTop = 0`);
+    if (await js(`${toggle(header)}?.dataset.open === 'true'`)) {
+      await js(`${toggle(header)}.click()`);
+      if (!(await waitInPage(win, `!!${dock}`, 2_000))) return 'closing Archived did not dock it';
+    }
+    if (!(await js(`!!${dock}`))) return 'ok: skipped, no archived sessions';
+    // Every collapsible header shows its chevron, open or closed, without hovering.
+    const hidden = (await js("[...document.querySelectorAll('[data-section-toggle], [data-archived-toggle]')].filter((b) => { const svg = b.querySelector('svg'); return !svg || getComputedStyle(svg).opacity !== '1'; }).length")) as number;
+    if (hidden) return `${hidden} section header(s) without a visible chevron`;
+    const docked = (await js(`(() => {
+      const l = ${list}, d = ${dock}, lr = l.getBoundingClientRect(), dr = d.getBoundingClientRect();
+      const content = l.firstElementChild.offsetHeight + parseFloat(getComputedStyle(l).paddingBottom);
+      return { outside: !l.contains(d), below: dr.top >= lr.bottom - 1, fits: content <= l.clientHeight, scrolls: l.scrollHeight > l.clientHeight };
+    })()`)) as { outside: boolean; below: boolean; fits: boolean; scrolls: boolean };
+    if (!docked.outside || !docked.below) return 'the closed Archived header is not docked under the list';
+    if (docked.fits && docked.scrolls) return 'a list that fits still scrolls';
+    const sidebarShot = async (name: string) => {
+      await settle(win);
+      const rect = (await js("(() => { const r = document.querySelector('[data-sidebar-open]').getBoundingClientRect(); return { x: Math.round(r.x), y: Math.round(r.y), width: Math.round(r.width), height: Math.round(r.height) }; })()")) as Electron.Rectangle;
+      writeFileSync(join(smokeOutDir!, name), (await win.webContents.capturePage(rect)).toPNG());
+    };
+    for (const colorScheme of ['light', 'dark'] as const) {
+      await setColorScheme(win, colorScheme);
+      await sidebarShot(`archived-closed-${colorScheme}.png`);
+    }
+
+    await js(`${toggle(dock)}.click()`);
+    if (!(await waitInPage(win, landed, 2_000))) return 'opening Archived did not move its header into the list';
+    const open = (await js(`(() => {
+      const item = ${header}.closest('[role=listitem]'), at = Number(item.getAttribute('aria-posinset'));
+      const prev = [...document.querySelectorAll('[data-session-list] [role=listitem]')].find((r) => Number(r.getAttribute('aria-posinset')) === at - 1);
+      const l = ${list};
+      return { gap: prev ? Math.round(item.getBoundingClientRect().top - prev.getBoundingClientRect().bottom) : 0, top: item.getBoundingClientRect().top - l.getBoundingClientRect().top, half: l.clientHeight / 2 };
+    })()`)) as { gap: number; top: number; half: number };
+    if (open.gap !== 0) return `a ${open.gap}px gap above the open Archived header`;
+    if (open.top > open.half) return `the open Archived header sits low in the list (${Math.round(open.top)}px of ${Math.round(open.half * 2)}px)`;
+    for (const colorScheme of ['light', 'dark'] as const) {
+      await setColorScheme(win, colorScheme);
+      await sidebarShot(`archived-open-${colorScheme}.png`);
+    }
+
+    await js(`${toggle(header)}.click()`);
+    if (!(await waitInPage(win, `!!${dock} && !${header} && ${dock}.style.transform === ''`, 2_000))) return 'closing Archived did not dock it again';
+    // From the keyboard: → opens it and focus follows the header into the list, ← sends both back to the dock.
+    await js(`${toggle(dock)}.focus()`);
+    pressKey(win, 'Right');
+    if (!(await waitInPage(win, `${landed} && document.activeElement === ${toggle(header)}`, 2_000))) return '→ on the docked header did not open Archived with focus on its header';
+    pressKey(win, 'Left');
+    if (!(await waitInPage(win, `!!${dock} && document.activeElement === ${toggle(dock)}`, 2_000))) return '← on the open header did not dock it with focus';
+    // A long list: check a short one too, with the project that has the fewest sessions.
+    const short = docked.fits ? null : await shortArchivedList(win, sidebarShot);
+    if (short && !short.startsWith('ok')) return short;
+    return `ok: docked under the list${docked.fits ? ' (no scrollbar)' : ' (long list scrolls)'}, opens with no gap at ${Math.round(open.top)}px, closes to the dock, → ← with focus${short ? `; ${short.slice(4)}` : ''}`;
+  } finally {
+    updatePreferences({ colorScheme: scheme });
+  }
+}
+
+/**
+ * The Archived dock on a short list: with every section closed (⌥-click), the list fits without scrolling and Archived
+ * opens right under it. The sections that were open are opened again afterwards, from the bottom up.
+ */
+async function shortArchivedList(win: BrowserWindow, sidebarShot: (name: string) => Promise<void>): Promise<string> {
+  const js = (code: string) => win.webContents.executeJavaScript(code);
+  const list = "document.querySelector('[data-session-list]')";
+  const dock = "document.querySelector('[data-archived-dock]')";
+  const header = "document.querySelector('[data-archived-header]')";
+  // Which sections are open: the list is virtualised, so walk it from top to bottom.
+  const open: string[] = [];
+  const seen = new Set<string>();
+  await js(`${list}.scrollTop = 0`);
+  for (let i = 0; i < 60; i++) {
+    await settle(win, 100);
+    const headers = (await js("[...document.querySelectorAll('[data-section-toggle]')].map((b) => [b.dataset.sectionToggle, b.dataset.open])")) as Array<[string, string]>;
+    for (const [section, state] of headers) {
+      if (seen.has(section)) continue;
+      seen.add(section);
+      if (state === 'true') open.push(section);
+    }
+    if (await js(`${list}.scrollTop + ${list}.clientHeight >= ${list}.scrollHeight - 1`)) break;
+    await js(`${list}.scrollTop += ${list}.clientHeight / 2`);
+  }
+  await js(`${list}.scrollTop = 0`);
+  if (open.length === 0) return 'ok: every section already closed';
+  const toggle = (section: string) => `document.querySelector('[data-section-toggle="${section}"]')`;
+  await settle(win, 100);
+  await js(`${toggle(open[0]!)}.dispatchEvent(new MouseEvent('click', { bubbles: true, altKey: true }))`);
+  try {
+    if (!(await waitInPage(win, "[...document.querySelectorAll('[data-section-toggle]')].every((b) => b.dataset.open === 'false')", 2_000))) return '⌥-click did not close every section';
+    await settle(win);
+    const fit = (await js(`(() => { const l = ${list}; const content = l.firstElementChild.offsetHeight + parseFloat(getComputedStyle(l).paddingBottom); return { fits: content <= l.clientHeight, scrolls: l.scrollHeight > l.clientHeight }; })()`)) as { fits: boolean; scrolls: boolean };
+    if (!fit.fits) return 'ok: the list fills the sidebar even with every section closed';
+    if (fit.scrolls) return 'a short list still scrolls';
+    await sidebarShot('archived-short-closed.png');
+    await js(`${dock}.querySelector('[data-archived-toggle]').click()`);
+    if (!(await waitInPage(win, `!!${header} && !${dock} && ${header}.style.transform === '' && ![...document.querySelectorAll('[data-session-list] [role=listitem].opacity-0')].length`, 2_000))) return 'Archived did not open on the short list';
+    const placed = (await js(`(() => {
+      const item = ${header}.closest('[role=listitem]'), at = Number(item.getAttribute('aria-posinset'));
+      const prev = [...document.querySelectorAll('[data-session-list] [role=listitem]')].find((r) => Number(r.getAttribute('aria-posinset')) === at - 1);
+      return { gap: prev ? Math.round(item.getBoundingClientRect().top - prev.getBoundingClientRect().bottom) : 0, top: item.getBoundingClientRect().top - ${list}.getBoundingClientRect().top, half: ${list}.clientHeight / 2 };
+    })()`)) as { gap: number; top: number; half: number };
+    await sidebarShot('archived-short-open.png');
+    await js(`${header}.querySelector('[data-archived-toggle]').click()`);
+    if (!(await waitInPage(win, `!!${dock}`, 2_000))) return 'Archived did not dock again on the short list';
+    if (placed.gap !== 0) return `a ${placed.gap}px gap above the open Archived header on a short list`;
+    if (placed.top > placed.half) return `the open Archived header sits low on a short list (${Math.round(placed.top)}px)`;
+    return 'ok: a short list (every section closed) has no scrollbar, and Archived opens right under it';
+  } finally {
+    for (const section of [...open].reverse()) {
+      await js(`${toggle(section)}?.dataset.open === 'false' && ${toggle(section)}.click()`);
+      await settle(win, 50);
+    }
+  }
+}
+
 /** Presses a key in the page (down and up), with modifiers. */
 function pressKey(win: BrowserWindow, keyCode: string, modifiers: Array<'meta' | 'shift' | 'alt' | 'control'> = []): void {
   win.webContents.sendInputEvent({ type: 'keyDown', keyCode, modifiers });
@@ -3955,6 +4086,7 @@ async function runSmokeStep(win: BrowserWindow | null): Promise<void> {
   await step('VS Code companion', () => runCompanionStep(win));
   await step('queue', () => runQueueStep(win));
   await step('collapsible sections', () => runSectionsStep(win));
+  await step('archived dock', () => runArchivedDockStep(win));
   await step('quick question', () => runQuickQuestionStep(win));
   await step('usage band above the composer', async () => {
     if (!(await waitInPage(win, "document.querySelector('[data-usage-band]')", 15_000))) return 'failed: not shown';
