@@ -20,6 +20,7 @@ All notable changes to Switchboard are listed here. Each release is also on the 
 
 ### Fixed
 
+- Search (⌘⇧F) with **Show sessions from other apps** turned off no longer misses your own sessions, or finds nothing, when other apps' sessions mention the same words more often.
 - Typing in a long message no longer scrolls the conversation up a little with each key.
 - The Catppuccin theme's text has more contrast, in light and dark mode, so messages and the message box are easier to read.
 - Images in the message box are kept when you add the prompt to the queue, and go with it when the queued session starts. Opening a queued item in New session shows them too.

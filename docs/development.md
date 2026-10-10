@@ -53,6 +53,8 @@ SWITCHBOARD_DATA_DIR="$HOME/Library/Application Support/Switchboard Dev 2" npm r
 - the usage band
 - recovery after the engine process is killed
 
+Each check is a step run by `SmokeRun` (`apps/desktop/src/main/smokeRunner.ts`): it is timed, a throw becomes a failed result, and a dialog or menu the step left open is closed before the next one. A step has 30 seconds; one that takes longer stops the run, and the steps after it are reported as not run, instead of failing one by one on a page in an unknown state. The output lists every step with its time and the slowest ones. The page runs with Chromium's focus emulation, so it behaves as the focused window (toasts count down, focus moves as with a person at the keyboard) even when macOS keeps the window in the background; you can keep working while it runs. When you add a step, wait for something on the page (`waitInPage`, or `settle` for an animation to finish) rather than for a fixed time: `shot` already settles before it takes a picture.
+
 Screenshots and `result.json` go to `apps/desktop/.smoke`. Set `SWITCHBOARD_COLOR_SCHEME=light` or `dark` to force a colour scheme for a run without saving it.
 
 ### README screenshots

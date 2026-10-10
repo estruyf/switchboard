@@ -28,6 +28,19 @@ const until = async (check: () => boolean, timeoutMs = 3000) => {
   }
 };
 
+/**
+ * Writes a new transcript and waits until the index has it. FSEvents starts reporting a moment after a watcher
+ * is made, and a write before then is never seen: keep appending (as Claude Code does) until one is.
+ */
+const writeUntilSeen = (file: string, seen: () => boolean) => {
+  writeFileSync(file, '{"entrypoint":"cli"}\n');
+  return until(() => {
+    if (seen()) return true;
+    appendFileSync(file, '{}\n');
+    return false;
+  });
+};
+
 const ID_A = '11111111-1111-4111-8111-111111111111';
 const ID_B = '22222222-2222-4222-8222-222222222222';
 
@@ -160,8 +173,7 @@ describe('SessionIndex', () => {
     await until(() => changes.length === 1);
     infos.set(ID_A, info(ID_A, { summary: 'New one' }));
     const file = join(projectsDir, '-repo', `${ID_A}.jsonl`);
-    writeFileSync(file, '{"entrypoint":"cli"}\n');
-    await until(() => index.snapshot().sessions.length === 1);
+    await writeUntilSeen(file, () => index.snapshot().sessions.length === 1);
     expect(index.snapshot().sessions[0]).toMatchObject({ title: 'New one', origin: 'cli' });
     expect(transcriptChanges).toContain(ID_A);
     unlinkSync(file);
@@ -193,20 +205,12 @@ describe('SessionIndex', () => {
     await index.refresh();
     fake.infos.set(ID_A, info(ID_A));
     mkdirSync(join(configDir, 'projects', '-repo'), { recursive: true });
-    writeFileSync(join(configDir, 'projects', '-repo', `${ID_A}.jsonl`), '{"entrypoint":"cli"}\n');
-    await until(() => index.get(ID_A) !== null);
+    await writeUntilSeen(join(configDir, 'projects', '-repo', `${ID_A}.jsonl`), () => index.get(ID_A) !== null);
 
     mkdirSync(join(later, 'projects', '-repo'), { recursive: true });
     await index.refresh();
     fake.infos.set(ID_B, info(ID_B));
-    // FSEvents can miss a write made the moment a watcher starts, so keep appending (as Claude Code does) until it is seen.
-    const transcriptB = join(later, 'projects', '-repo', `${ID_B}.jsonl`);
-    writeFileSync(transcriptB, '{"entrypoint":"cli"}\n');
-    await until(() => {
-      if (index.get(ID_B) !== null) return true;
-      appendFileSync(transcriptB, '{}\n');
-      return false;
-    });
+    await writeUntilSeen(join(later, 'projects', '-repo', `${ID_B}.jsonl`), () => index.get(ID_B) !== null);
   });
 
   it('does not let a slow full scan undo a delete or a write that happened meanwhile', async () => {
@@ -222,8 +226,7 @@ describe('SessionIndex', () => {
 
     t.index.forget(ID_A);
     t.infos.set(ID_B, info(ID_B));
-    writeFileSync(join(t.projectsDir, '-repo', `${ID_B}.jsonl`), '{"entrypoint":"cli"}\n');
-    await until(() => t.index.get(ID_B) !== null);
+    await writeUntilSeen(join(t.projectsDir, '-repo', `${ID_B}.jsonl`), () => t.index.get(ID_B) !== null);
     release();
     await scan;
     expect(t.index.get(ID_A)).toBeNull();

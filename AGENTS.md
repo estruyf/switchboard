@@ -121,7 +121,7 @@ The design mockups these rules come from are in the Switchboard UI suggestions c
 
 ### Smoke test
 
-`apps/desktop/src/main/index.ts` holds the smoke steps (`run…Step` functions), and `apps/desktop/scripts/smoke.ts` prints their results. Steps find elements by `data-*` attributes, so give new UI a `data-` hook when you add it. Steps must be **read-only on real data**: the app runs against the user's real `~/.claude` and projects, with a throwaway app profile. Never stage, revert, delete or send anything outside the sandbox.
+`apps/desktop/src/main/index.ts` holds the smoke steps (`run…Step` functions); `runSmokeStep` runs each through `smokeRun.step(label, …)` (`smokeRunner.ts`: timed, 30s limit, cleaned up after), and `apps/desktop/scripts/smoke.ts` prints their results and times. A new step is one `step(...)` line there, returning `ok: …` or what went wrong. Wait for conditions (`waitInPage`, `until`, `settle`), never for a fixed time, except to show that something did *not* happen. Steps find elements by `data-*` attributes, so give new UI a `data-` hook when you add it. Steps must be **read-only on real data**: the app runs against the user's real `~/.claude` and projects, with a throwaway app profile. Never stage, revert, delete or send anything outside the sandbox.
 
 ### Live tests (real Claude Code, costs a little)
 

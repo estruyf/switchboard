@@ -69,6 +69,21 @@ describe('SearchIndex', () => {
     expect(reads()).toBe(2);
   });
 
+  it('keeps hits to the given sessions before the limit, so others cannot take every place', async () => {
+    const { index } = setup(
+      {
+        // Another app's long session that mentions the word far more often.
+        other: Array.from({ length: 10 }, (_, i) => user(`o${i}`, 'session session session notes')),
+        mine: [user('m1', 'a session I started in Switchboard')],
+      },
+      { other: '1', mine: '1' },
+    );
+    await index.sync();
+    expect(index.search('session', 3).every((h) => h.sessionId === 'other')).toBe(true);
+    expect(index.search('session', 3, ['mine']).map((h) => h.messageUuid)).toEqual(['m1']);
+    expect(index.search('session', 3, [])).toEqual([]);
+  });
+
   it('drops sessions that are gone', async () => {
     const versions: Record<string, string> = { a: '1' };
     const { index } = setup({ a: [user('a1', 'unique words here')] }, versions);

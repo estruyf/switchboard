@@ -922,7 +922,10 @@ export function createEngine(options: EngineOptions): Engine {
       laterChanged();
       return { sessionId };
     },
-    'search.query': async ({ query, limit }) => ({ hits: search.search(query, limit), indexing: { ...search.progress } }),
+    'search.query': async ({ query, limit, scope }) => ({
+      hits: search.search(query, limit, scope === 'switchboard' ? sessions.snapshot().sessions.filter((s) => s.inApp).map((s) => s.id) : undefined),
+      indexing: { ...search.progress },
+    }),
     'git.changes': async ({ cwd, base }) => {
       try {
         return await listChanges(cwd, base);

@@ -354,7 +354,8 @@ export const contract = {
      * `indexing` reports background progress while transcripts are still being indexed.
      */
     'search.query': {
-      params: z.object({ query: z.string().max(500), limit: z.number().int().min(1).max(500).default(200) }),
+      // `switchboard` searches only the sessions started or continued in Switchboard, as the sidebar lists them.
+      params: z.object({ query: z.string().max(500), limit: z.number().int().min(1).max(500).default(200), scope: z.enum(['switchboard', 'all']).default('all') }),
       result: z.object({ hits: z.array(SearchHit), indexing: z.object({ indexed: z.number(), total: z.number() }) }),
     },
 

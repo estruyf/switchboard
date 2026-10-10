@@ -11,12 +11,13 @@ import { EngineProcess } from './engineProcess.ts';
 import type { AttentionEvent } from './attention.ts';
 import { DEEP_LINK_SCHEME, linkFromArgv, parseDeepLink } from './deepLink.ts';
 import { Notifier } from './notifier.ts';
-import { setFieldValue, waitInPage } from './pageDriver.ts';
+import { setFieldValue, settle, until, waitInPage } from './pageDriver.ts';
 import { PreferencesStore } from './preferences.ts';
 import { QuitGuard } from './quitGuard.ts';
 import { ReloadLimiter } from './reloadLimiter.ts';
 import { RendererQueue } from './rendererQueue.ts';
 import { runScreenshotTour } from './screenshotTour.ts';
+import { SmokeRun } from './smokeRunner.ts';
 import { ThemeStore } from './themes.ts';
 import { isConfigDir, isTrashableRepoFile, isTrashableSessionPath, isTrashableThemeFile } from './trashGuard.ts';
 import { Updater } from './updater.ts';
@@ -650,7 +651,6 @@ async function runLiveSessionStep(win: BrowserWindow, cwd: string): Promise<stri
   await shot('new-session.png');
   await click('[data-composer-submit]');
   if (!(await waitInPage(win, "document.querySelector('[data-permission-allow]')", 60_000))) return 'no permission prompt';
-  await new Promise((resolve) => setTimeout(resolve, 300));
   await shot('permission.png');
   await click('[data-permission-allow]');
   // The prompt itself contains the phrase, so only an assistant text item counts.
@@ -670,7 +670,6 @@ async function runLiveSessionStep(win: BrowserWindow, cwd: string): Promise<stri
   if (!(await waitInPage(win, "document.querySelectorAll('[data-palette] [role=option]').length > 5", 15_000))) return 'slash palette did not open';
   const paletteCount = await win.webContents.executeJavaScript("document.querySelectorAll('[data-palette] [role=option]').length");
   await win.webContents.insertText('conte');
-  await new Promise((resolve) => setTimeout(resolve, 200));
   await shot('palette.png');
   win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Return' });
   win.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Return' });
@@ -776,74 +775,13 @@ async function runLiveSessionStep(win: BrowserWindow, cwd: string): Promise<stri
   return trashed ? 'ok' : 'deleted, but the transcript is not in ~/.Trash';
 }
 
-/**
- * Smoke test: first ready → screenshot, open the newest session and screenshot
- * its transcript, then kill the engine; second ready (after the automatic
- * restart + reconnect) → write results and quit.
- */
+/** When the smoke run killed the engine, to time the restart. */
 let crashedAt = 0;
-let transcriptOpened = false;
-let sessionsListed = false;
 /** The session the smoke steps work in (the newest one with messages). */
 let smokeSessionId: string | null = null;
-let liveSession: string | null = null;
-let terminalOpened = false;
-let actionRan = false;
-let actionTerminalResult = 'not run';
-let terminalLayoutResult = 'not run';
-let actionMenuResult = 'not run';
-let highlighted = false;
-/** Diagnostics shows a Finder button next to the config folder and the cache database (not clicked: it would open Finder). */
-let diagnosticsReveal = false;
-let codeCopy = false;
-/** A markdown block opens rendered and switches to its highlighted source and back. */
-let markdownPreview = false;
-let usageBand: string | null = null;
-let quitGuarded = false;
-let settingsResult = 'not run';
-let focusResult = 'not run';
-let transcriptAtBottom: number | null = null;
-/** The opened conversation is shorter than the window, so there is no end to scroll to and the gap is just empty space. */
-let transcriptFits = false;
-let activity: { groups: number; steps: number; label: string } | null = null;
-let changesPanel: string = 'not run';
-let branchResult: string = 'not run';
-let openInResult: string = 'not run';
-let gitResult: string = 'not run';
-let searchResult = 'not run';
-let findResult = 'not run';
-let fileLinksResult = 'not run';
-let longPromptResult = 'not run';
-let copyMessageResult = 'not run';
-let draftResult = 'not run';
-let unsentResult = 'not run';
-let unsentNewSessionResult = 'not run';
-let paletteResult = 'not run';
-let shortcutsResult = 'not run';
-let paletteNewSessionResult = 'not run';
-let terminalClearResult = 'not run';
-let toolsResult = 'not run';
-let splitResult = 'not run';
-let archiveResult = 'not run';
-let renameResult = 'not run';
-let checkTranscriptResult = 'not run';
-let archiveManyResult = 'not run';
-let dropResult = 'not run';
-let historyResult = 'not run';
-let controlsResult = 'not run';
-let sidebarStatesResult = 'not run';
-let projectsResult = 'not run';
-let profilesResult = 'not run';
-let aboutResult = 'not run';
-let backupResult = 'not run';
-let themeResult = 'not run';
-let newSessionResult = 'not run';
-let deepLinkResult = 'not run';
-let quickQuestionResult = 'not run';
-let companionResult = 'not run';
-let queueResult = 'not run';
-let sectionsResult = 'not run';
+/** What was on screen when the steps finished, for the report (not checked). */
 let rendering: Record<string, number> = {};
+const smokeRun = new SmokeRun({ log: (line) => console.log(line), cleanup: () => closeOverlays(BrowserWindow.getAllWindows()[0]) });
 
 /**
  * Adds a project action through the editor (saving closes it, says "Action saved" and adds its pill),
@@ -860,7 +798,6 @@ async function runActionStep(win: BrowserWindow): Promise<boolean> {
   if (!(await waitInPage(win, "document.querySelector('[data-action-name]')", 3_000))) return false;
   await setFieldValue(win, '[data-action-name]', 'Smoke action');
   await setFieldValue(win, '[data-action-command]', 'echo "action ran on ${branch} in $PWD"');
-  await new Promise((resolve) => setTimeout(resolve, 200));
   await shot(win, 'action-editor.png');
   await js("document.querySelector('[data-save-action]').click()");
   // Saving closes the editor and confirms it; the new action gets a pill above the message box.
@@ -872,7 +809,8 @@ async function runActionStep(win: BrowserWindow): Promise<boolean> {
   if (!(await waitInPage(win, "document.querySelector('[role=menuitem][data-action=\"smoke-action\"]')", 3_000))) return false;
   await js("document.querySelector('[role=menuitem][data-action=\"smoke-action\"]').click()");
   if (!(await waitInPage(win, "[...document.querySelectorAll('[data-terminal-panel] button')].some((b) => b.innerText.includes('Smoke action'))", 5_000))) return false;
-  await new Promise((resolve) => setTimeout(resolve, 1_500));
+  // A finished action is announced (recorded, not shown, in smoke mode): it ran to the end.
+  if (!(await until(() => recordedNotifications.some((n) => n.kind === 'action-done' && n.title.includes('Smoke action')), 10_000))) return false;
   await shot(win, 'action.png');
   await js("document.querySelector('[data-toggle-terminal]')?.click()");
   return true;
@@ -914,7 +852,7 @@ async function runActionTerminalStep(win: BrowserWindow): Promise<string> {
 }
 
 async function actionTerminalChecks(win: BrowserWindow, js: (code: string) => Promise<unknown>): Promise<string> {
-  updatePreferences({ colorScheme: 'light' });
+  await setColorScheme(win, 'light');
   const strip = "document.querySelector('[data-terminal-run-strip]')";
   const state = (value: string) => `${strip}?.dataset.terminalRunState === '${value}'`;
   const elapsed = `(${strip}?.querySelector('[data-terminal-run-elapsed]')?.innerText ?? '').trim()`;
@@ -924,6 +862,8 @@ async function actionTerminalChecks(win: BrowserWindow, js: (code: string) => Pr
   if (!(await waitInPage(win, "document.querySelector('[role=menuitem][data-action=\"smoke-wait\"]')", 3_000))) return 'failed: action not in the menu';
   await js("document.querySelector('[role=menuitem][data-action=\"smoke-wait\"]').click()");
   if (!(await waitInPage(win, `${state('running')} && document.querySelector('[data-terminal-stop]')`, 8_000))) return 'failed: no run strip with Stop on the running action';
+  // The strip shows the tab's title until the project's actions are read again, then the command.
+  await waitInPage(win, `${strip}.querySelector('[data-terminal-run-command]')?.innerText === 'sleep 60'`, 3_000);
   // The strip sits between the tabs and the terminal, not over it, and says what runs where, for how long.
   const look = (await js(`(() => {
     const s = ${strip}.getBoundingClientRect(), t = document.querySelector('[data-terminal-panel] [role=tabpanel]:not(.hidden)').getBoundingClientRect();
@@ -950,28 +890,40 @@ async function actionTerminalChecks(win: BrowserWindow, js: (code: string) => Pr
   if (!(await waitInPage(win, `${state('running')} && /^0:0[01]$/.test(${elapsed})`, 8_000))) return `failed: Restart on the running command (at ${before}, the click landed on ${again.at}) did not start a new run`;
 
   // The same from the keyboard, in the dark theme: Tab from the tab reaches the strip (xterm keeps Tab for the shell), Enter presses.
-  updatePreferences({ colorScheme: 'dark' });
-  await new Promise((resolve) => setTimeout(resolve, 500));
+  if (!(await setColorScheme(win, 'dark'))) return 'failed: the dark theme did not apply';
+  // A terminal that becomes active takes focus on the next frame (XTerm.tsx), and xterm keeps Tab for the shell:
+  // start from the tab again whenever focus ends up in the terminal, and wait for each Tab to move focus.
+  const focused = "(() => { const el = document.activeElement; return el ? (el.closest('.xterm') ? 'xterm' : el.tagName.toLowerCase() + (el.getAttribute('aria-label') ? ` \"${el.getAttribute('aria-label')}\"` : '')) : 'nothing'; })()";
   const tabTo = async (selector: string) => {
+    const trail: string[] = [];
     await js("document.querySelector('[data-terminal-panel] [role=tab][aria-selected=true]').focus()");
-    for (let i = 0; i < 12; i++) {
-      if (await js(`document.activeElement?.matches(${JSON.stringify(selector)})`)) return true;
+    for (let i = 0; i < 16; i++) {
+      if (await js(`document.activeElement?.matches(${JSON.stringify(selector)})`)) return null;
+      const before = (await js(focused)) as string;
+      trail.push(before);
+      if (before === 'xterm') {
+        await js("document.querySelector('[data-terminal-panel] [role=tab][aria-selected=true]').focus()");
+        continue;
+      }
+      await js('window.__smokeFocus = document.activeElement');
       win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Tab' });
       win.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Tab' });
-      await new Promise((resolve) => setTimeout(resolve, 50));
+      await waitInPage(win, 'document.activeElement !== window.__smokeFocus', 500);
     }
-    return false;
+    return trail.join(' → ');
   };
   const press = (keyCode: string) => {
     win.webContents.sendInputEvent({ type: 'keyDown', keyCode });
     win.webContents.sendInputEvent({ type: 'char', keyCode: keyCode === 'Return' ? '\r' : keyCode });
     win.webContents.sendInputEvent({ type: 'keyUp', keyCode });
   };
-  if (!(await tabTo('[data-terminal-stop]'))) return 'failed: Tab from the terminal tab did not reach Stop';
+  const toStop = await tabTo('[data-terminal-stop]');
+  if (toStop) return `failed: Tab from the terminal tab did not reach Stop (${toStop})`;
   press('Return');
   if (!(await waitInPage(win, state('failed'), 8_000))) return 'failed: Enter on Stop did not end the command';
   await shot(win, 'action-stopped-dark.png');
-  if (!(await tabTo('[data-terminal-restart]'))) return 'failed: Tab from the terminal tab did not reach Restart';
+  const toRestart = await tabTo('[data-terminal-restart]');
+  if (toRestart) return `failed: Tab from the terminal tab did not reach Restart (${toRestart})`;
   press('Return');
   if (!(await waitInPage(win, state('running'), 5_000))) return 'failed: Enter on Restart did not run it again';
   await clickLikeAUser(win, '[data-terminal-stop]');
@@ -1022,10 +974,10 @@ async function terminalLayoutChecks(win: BrowserWindow): Promise<string> {
     win.webContents.sendInputEvent({ type: 'keyDown', keyCode, modifiers });
     win.webContents.sendInputEvent({ type: 'keyUp', keyCode, modifiers });
   };
-  updatePreferences({ colorScheme: 'light' });
+  await setColorScheme(win, 'light');
   await js("document.querySelector('[data-toggle-terminal]')?.click()");
   if (!(await waitInPage(win, "document.querySelector('[data-terminal-panel] [data-terminal] textarea')", 5_000))) return 'failed: the panel did not open with a terminal';
-  await new Promise((resolve) => setTimeout(resolve, 600));
+  await settle(win);
 
   // Its own surface: the terminal background, a shadow on the top edge, a 36x4 pill centred on it, and padding round the terminal.
   const look = (await js(`(() => {
@@ -1046,7 +998,6 @@ async function terminalLayoutChecks(win: BrowserWindow): Promise<string> {
   await clickLikeAUser(win, '[data-folded-meter]');
   if (!(await waitInPage(win, "document.querySelector('[data-context-breakdown]')", 2_000))) return 'failed: the ring did not open the context popup';
   await shot(win, 'terminal-ring.png');
-  await new Promise((resolve) => setTimeout(resolve, 200));
   key('Escape');
   if (!(await waitInPage(win, "!document.querySelector('[data-context-breakdown]')", 2_000))) return 'failed: Escape did not close the ring popup';
 
@@ -1116,8 +1067,6 @@ async function terminalLayoutChecks(win: BrowserWindow): Promise<string> {
   const full = (await box())!;
   const view = (await js("Math.round(document.querySelector('[data-current-session]').getBoundingClientRect().width)")) as number;
   if (Math.abs(full.width - view) > 2) return `failed: maximized, the terminal is ${full.width}px of ${view}px`;
-  // Let xterm refit to the new size and redraw before the picture.
-  await new Promise((resolve) => setTimeout(resolve, 600));
   await shot(win, 'terminal-maximized.png');
   await js("document.querySelector('[data-terminal-maximize]').focus()");
   key('Escape');
@@ -1131,13 +1080,11 @@ async function terminalLayoutChecks(win: BrowserWindow): Promise<string> {
   if (!(await waitInPage(win, `!${PANEL_BOX}.maximized && !(${hidden})`, 2_000))) return 'failed: ⌘⇧J did not restore the terminal';
 
   // Dark theme, both docks.
-  updatePreferences({ colorScheme: 'dark' });
-  await new Promise((resolve) => setTimeout(resolve, 500));
+  await setColorScheme(win, 'dark');
   if ((await js("getComputedStyle(document.querySelector('[data-terminal-panel]')).backgroundColor")) !== 'rgb(13, 16, 22)') return 'failed: in dark the panel lost its own background';
   await shot(win, 'terminal-right-dark.png');
   await js("document.querySelector('[data-terminal-dock]').click()");
   if (!(await waitInPage(win, `${PANEL_BOX}.dock === 'bottom'`, 3_000))) return 'failed: Dock below did not move the panel back';
-  await new Promise((resolve) => setTimeout(resolve, 300));
   await shot(win, 'terminal-bottom-dark.png');
 
   // The narrowest window has no room for the terminal beside a usable conversation: docked right, it moves below
@@ -1149,7 +1096,7 @@ async function terminalLayoutChecks(win: BrowserWindow): Promise<string> {
   if (!(await waitInPage(win, `${PANEL_BOX}.dock === 'bottom' && document.querySelector('[data-terminal-dock]').disabled && document.querySelector('[data-terminal-dock]').dataset.tooltip.startsWith('Too narrow')`, 3_000))) {
     return 'failed: in the narrowest window the terminal stayed on the right';
   }
-  await new Promise((resolve) => setTimeout(resolve, 300));
+  await settle(win);
   const fits = "document.documentElement.scrollWidth <= innerWidth && document.querySelector('[data-terminal-hide]').getBoundingClientRect().right <= innerWidth && document.querySelector('[data-composer-submit]').getBoundingClientRect().right <= document.querySelector('[data-current-session] [data-transcript]').getBoundingClientRect().right";
   if (!(await js(fits))) return 'failed: the narrowest window scrolls sideways or cuts off the panel or Send';
   await shot(win, 'terminal-narrow.png');
@@ -1200,9 +1147,9 @@ async function actionMenuChecks(win: BrowserWindow): Promise<string> {
   const pill = (id: string) => `document.querySelector('[data-current-session] [data-action-pill="${id}"]')`;
   const items = "[...document.querySelectorAll('[role=menu] [data-action-menu-item]')].map((b) => b.dataset.actionMenuItem).join(',')";
   const status = "document.querySelector('[data-current-session] [data-action-status]')?.innerText ?? ''";
-  updatePreferences({ colorScheme: 'light' });
+  await setColorScheme(win, 'light');
   if (!(await waitInPage(win, pill('smoke-action'), 3_000))) return 'failed: no pill for Smoke action';
-  await new Promise((resolve) => setTimeout(resolve, 300));
+  await settle(win);
 
   const right = await clickLikeAUser(win, '[data-current-session] [data-action-pill="smoke-action"]', 'right');
   if (!(await waitInPage(win, `${items} === 'run,edit,delete'`, 2_000))) return `failed: a right-click on the pill (landed on ${right.at}) showed "${await js(items)}"`;
@@ -1214,7 +1161,7 @@ async function actionMenuChecks(win: BrowserWindow): Promise<string> {
   if (!(await waitInPage(win, `!document.querySelector('[role=dialog]') && ${pill('smoke-action')}?.innerText.includes('Smoke renamed')`, 3_000))) return 'failed: the pill did not show the new name after saving';
   if (!(await js(status)).includes('Action saved')) return 'failed: no "Action saved" after the rename';
 
-  updatePreferences({ colorScheme: 'dark' });
+  await setColorScheme(win, 'dark');
   await js(`${pill('smoke-action')}.focus()`);
   win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'F10', modifiers: ['shift'] });
   win.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'F10', modifiers: ['shift'] });
@@ -1241,27 +1188,49 @@ async function actionMenuChecks(win: BrowserWindow): Promise<string> {
   return `ok: right-click and Shift+F10 open Run, Edit…, Delete…; Edit… renamed the pill at once with "Action saved"; Delete… from "N more" asked, then removed ${hidden}`;
 }
 
+/** Switches light or dark from main, as View → Appearance does, and waits until the page has repainted in it. */
+async function setColorScheme(win: BrowserWindow, colorScheme: 'light' | 'dark'): Promise<boolean> {
+  updatePreferences({ colorScheme });
+  const applied = await waitInPage(win, `getComputedStyle(document.documentElement).colorScheme === '${colorScheme}'`, 2_000);
+  await settle(win);
+  return applied;
+}
+
+/** Saves a picture of the window once it has stopped moving (see `settle`), so no step needs a pause before one. */
 async function shot(win: BrowserWindow, name: string): Promise<void> {
+  await settle(win, 1_000);
   writeFileSync(join(smokeOutDir!, name), (await win.webContents.capturePage()).toPNG());
 }
 
-/** Opens the terminal panel on the open session (which starts a shell by itself), runs a harmless command and screenshots it. */
-async function runTerminalStep(win: BrowserWindow): Promise<boolean> {
+/**
+ * Opens the terminal panel on the open session (which starts a shell by itself) and runs a harmless command in it:
+ * the shell writes its folder to a file in the throwaway app profile, which shows it ran, in the session's folder.
+ */
+async function runTerminalStep(win: BrowserWindow): Promise<string> {
   const js = (code: string) => win.webContents.executeJavaScript(code);
-  await js("document.querySelector('[data-toggle-terminal]')?.click()");
-  if (!(await waitInPage(win, "document.querySelector('[data-terminal-panel]')", 3_000))) return false;
-  if (!(await waitInPage(win, "document.querySelector('[data-terminal] textarea')", 5_000))) return false;
-  await new Promise((resolve) => setTimeout(resolve, 1_000));
-  await js("document.querySelector('[data-terminal] textarea').focus()");
-  await win.webContents.insertText('echo "terminal works: $TERM_PROGRAM" && pwd');
-  win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Return' });
-  win.webContents.sendInputEvent({ type: 'char', keyCode: '\r' });
-  win.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Return' });
-  await new Promise((resolve) => setTimeout(resolve, 1_500));
-  writeFileSync(join(smokeOutDir!, 'terminal.png'), (await win.webContents.capturePage()).toPNG());
-  // Leave the next run's panel closed again.
-  await js("document.querySelector('[data-toggle-terminal]')?.click()");
-  return true;
+  const marker = join(app.getPath('userData'), 'smoke-terminal.txt');
+  rmSync(marker, { force: true });
+  try {
+    await js("document.querySelector('[data-toggle-terminal]')?.click()");
+    if (!(await waitInPage(win, "document.querySelector('[data-terminal-panel]')", 3_000))) return 'failed: the panel did not open';
+    if (!(await waitInPage(win, "document.querySelector('[data-terminal] textarea')", 5_000))) return 'failed: no terminal in the panel';
+    await js("document.querySelector('[data-terminal] textarea').focus()");
+    // Typed before the shell has started, the line waits in the terminal until it reads it.
+    await win.webContents.insertText(`echo "terminal works: $TERM_PROGRAM" && pwd > ${JSON.stringify(marker)}`);
+    win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Return' });
+    win.webContents.sendInputEvent({ type: 'char', keyCode: '\r' });
+    win.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Return' });
+    const read = () => (existsSync(marker) ? readFileSync(marker, 'utf8').trim() : '');
+    if (!(await until(() => read() !== '', 10_000))) return 'failed: the shell did not run the command';
+    const folder = (await js("document.querySelector('[data-current-session]')?.dataset.projectRoot ?? ''")) as string;
+    if (folder && realpathSync(read()) !== realpathSync(folder)) return `failed: the shell started in ${read()}, not ${folder}`;
+    await shot(win, 'terminal.png');
+    return `ok: ran a command in ${read()}`;
+  } finally {
+    rmSync(marker, { force: true });
+    // Leave the next run's panel closed again.
+    await js("document.querySelector('[data-terminal-panel]') && document.querySelector('[data-toggle-terminal]')?.click()");
+  }
 }
 /** ⌘Q asks first; Cancel keeps the app open; a second ⌘Q while asking quits (recorded, not performed, in smoke mode). */
 async function runQuitStep(win: BrowserWindow): Promise<boolean> {
@@ -1291,7 +1260,7 @@ async function runSettingsStep(win: BrowserWindow): Promise<string> {
   const click = (selector: string) => js(`document.querySelector(${JSON.stringify(selector)}).click()`);
   const background = 'getComputedStyle(document.body).backgroundColor';
   const rowHeight = "document.querySelector('[data-session-id]').offsetHeight";
-  const pause = () => new Promise((resolve) => setTimeout(resolve, 300));
+  const pause = () => settle(win);
 
   const section = async (id: string) => {
     await click(`[data-settings-section="${id}"]`);
@@ -1323,7 +1292,6 @@ async function runSettingsStep(win: BrowserWindow): Promise<string> {
   if (!(await section('sidebar'))) return 'the Sidebar section did not open';
   await click('[data-sidebar-style="large"]');
   if (!(await withSettingsClosed(`${rowHeight} === 48 && [...document.querySelectorAll('[data-session-id] > *')].some((el) => el.offsetWidth === 24)`))) return 'Large icons did not apply';
-  await pause();
   await shot(win, 'settings-light.png');
   await section('theme');
   await click('[data-color-scheme="dark"]');
@@ -1331,13 +1299,12 @@ async function runSettingsStep(win: BrowserWindow): Promise<string> {
   await section('sidebar');
   await click('[data-sidebar-style="compact"]');
   if (!(await withSettingsClosed(`${rowHeight} === 32`))) return 'Compact did not apply';
-  await pause();
   await shot(win, 'settings-dark.png');
 
   // The close button leaves Settings; opening it again returns to the same section.
   await section('conversation');
   await click('[data-tool-activity="steps"]');
-  await pause();
+  await until(() => preferences.get().toolActivity === 'steps');
   await click('[data-close-settings]');
   const everyStep = await waitInPage(win, "!document.querySelector('[data-settings]') && !document.querySelector('[data-activity]') && document.querySelector('[data-tool]')", 3_000);
   await click('[data-open-settings]');
@@ -1354,7 +1321,7 @@ async function runSettingsStep(win: BrowserWindow): Promise<string> {
   await click('[data-startup-view="new"]');
   await click('[data-project-order="yours"]');
   await click('[data-confirm-quit]');
-  await pause();
+  await until(() => !preferences.get().confirmQuit);
   Menu.getApplicationMenu()?.getMenuItemById('quit')?.click();
   const quitWithoutAsking = quitRecorded && !quitGuard.asking;
   quitRecorded = false;
@@ -1371,7 +1338,7 @@ async function runSettingsStep(win: BrowserWindow): Promise<string> {
   await click('[data-color-scheme="system"]');
   await section('conversation');
   await click('[data-tool-activity="summary"]');
-  await pause();
+  await until(() => preferences.get().toolActivity === 'summary');
   const restored = preferences.get();
   if (!scoped) return 'other apps\' sessions stayed in the sidebar with the setting off';
   if (!quitWithoutAsking) return '⌘Q still asked with the prompt turned off';
@@ -1395,7 +1362,7 @@ async function runFocusStep(win: BrowserWindow): Promise<string> {
   const counter = "document.querySelector('[data-sidebar] [data-focus-counter]')";
   const counterText = `${counter}?.innerText.trim()`;
   const counterColour = `getComputedStyle(${counter}).color`;
-  const pause = () => new Promise((resolve) => setTimeout(resolve, 300));
+  const pause = () => settle(win);
   const section = async (id: string) => {
     await click(`[data-settings-section="${id}"]`);
     return waitInPage(win, `document.querySelector('[data-settings-page="${id}"]')`, 2_000);
@@ -1417,7 +1384,7 @@ async function runFocusStep(win: BrowserWindow): Promise<string> {
   await click('[data-focus-limit-less]');
   if (!raised || !(await waitInPage(win, `/ \\/ 3$/.test(${counterText} ?? '')`, 2_000))) return 'the stepper did not change the limit';
   await click('[data-focus-mode="strict"]');
-  await pause();
+  await until(() => preferences.get().focusMode === 'strict');
   const saved = JSON.parse(readFileSync(join(app.getPath('userData'), 'preferences.json'), 'utf8')) as Record<string, unknown>;
   if (saved.focusLimit !== 3 || saved.focusMode !== 'strict') return `not saved: ${JSON.stringify({ focusLimit: saved.focusLimit, focusMode: saved.focusMode })}`;
 
@@ -1438,7 +1405,6 @@ async function runFocusStep(win: BrowserWindow): Promise<string> {
   // A click lists what counts, with the footer line; a second click closes it.
   await click('[data-focus-counter]');
   const listed = await waitInPage(win, "document.querySelector('[data-focus-popover]')?.innerText.includes('free a place')", 2_000);
-  await pause();
   await shot(win, 'focus-dark.png');
   await click('[data-focus-counter]');
   const closed = await waitInPage(win, "!document.querySelector('[data-focus-popover]')", 2_000);
@@ -1477,7 +1443,6 @@ async function runProjectsStep(win: BrowserWindow): Promise<string> {
   if (!root) return 'every offered folder was already a project';
   const rowSelector = `[data-project-row=${JSON.stringify(root)}]`;
   const row = (selector = '') => `document.querySelector(${JSON.stringify(selector ? `${rowSelector} ${selector}` : rowSelector)})`;
-  await new Promise((resolve) => setTimeout(resolve, 300));
   await shot(win, 'add-project.png');
   await click(`[data-known-project=${JSON.stringify(root)}]`);
   if (!(await waitInPage(win, "document.querySelector('[data-known-project][data-added=\"true\"]')", 3_000))) return 'the folder was not marked as added';
@@ -1492,7 +1457,7 @@ async function runProjectsStep(win: BrowserWindow): Promise<string> {
   if (!(await waitInPage(win, `document.querySelectorAll('[data-select-list] [role=option]').length > 1 && document.querySelector(${JSON.stringify(modelSelect)}).getAttribute('aria-expanded') === 'true'`, 3_000))) return 'the model dropdown did not open';
   const before = (await js("document.querySelector('[data-select-list]').getAttribute('aria-activedescendant')")) as string;
   win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Down' });
-  await new Promise((resolve) => setTimeout(resolve, 100));
+  await settle(win);
   const after = (await js("document.querySelector('[data-select-list]').getAttribute('aria-activedescendant')")) as string;
   await shot(win, 'select.png');
   win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Escape' });
@@ -1501,7 +1466,6 @@ async function runProjectsStep(win: BrowserWindow): Promise<string> {
   if (!(await waitInPage(win, `${row('[data-default-model]')}.dataset.value === ''`, 1_000))) return 'Escape changed the model default';
   if (!(await chooseOption(win, `${rowSelector} [data-default-effort]`, 'high'))) return 'could not pick an effort default';
   if (!(await waitInPage(win, `${row('[data-defaults-summary]')}.innerText.includes('high effort')`, 3_000))) return 'the effort default was not saved';
-  await new Promise((resolve) => setTimeout(resolve, 300));
   await shot(win, 'projects.png');
 
   // Renaming only changes the name Switchboard shows; it reaches the sidebar filter too.
@@ -1555,8 +1519,8 @@ async function runProjectsStep(win: BrowserWindow): Promise<string> {
   if (!(await waitInPage(win, "document.querySelector('[data-saved-note]') && !document.querySelector('[data-menu=\"workspace\"]')", 3_000))) return 'Save as project default did not save';
 
   // The command palette's New session needs a project: this is the one moment the throwaway profile has one.
-  paletteNewSessionResult = await runPaletteNewSessionStep(win).catch((error: Error) => `failed: ${error.message}`);
-  unsentNewSessionResult = await runUnsentNewSessionStep(win).catch((error: Error) => `failed: ${error.message}`);
+  await smokeRun.step('command palette, new session', () => runPaletteNewSessionStep(win), { cleanup: false });
+  await smokeRun.step('unsent New session prompt', () => runUnsentNewSessionStep(win), { cleanup: false });
 
   await click('[data-open-projects]');
   if (!(await waitInPage(win, `${row('[data-defaults-summary]')}?.innerText.includes('low effort')`, 3_000))) return 'the saved default did not reach the Projects view';
@@ -1583,7 +1547,6 @@ async function runProfilesStep(win: BrowserWindow): Promise<string> {
   if (!(await waitInPage(win, "document.querySelectorAll('[data-profiles] [data-profile]').length === 1", 3_000))) return 'Settings did not list the built-in profile';
   await click('[data-profile-guide-toggle]');
   if (!(await waitInPage(win, "document.querySelector('[data-profile-guide] ol')?.innerText.includes('CLAUDE_CONFIG_DIR=')", 2_000))) return 'the setup guide did not open';
-  await new Promise((resolve) => setTimeout(resolve, 300));
   await shot(win, 'profile-guide.png');
   await click('[data-profile-guide-toggle]');
   await click('[data-add-profile]');
@@ -1597,7 +1560,6 @@ async function runProfilesStep(win: BrowserWindow): Promise<string> {
   const id = (await js("document.querySelectorAll('[data-profiles] [data-profile]')[1].dataset.profile")) as string;
   const card = `[data-profile=${JSON.stringify(id)}]`;
   if (!(await js(`document.querySelector(${JSON.stringify(card)}).innerText.includes(${JSON.stringify(folder)})`))) return 'the sign-in command does not name the folder';
-  await new Promise((resolve) => setTimeout(resolve, 300));
   await shot(win, 'profiles.png');
   await click(`[data-profile-default=${JSON.stringify(id)}]`);
   await click('[data-close-settings]');
@@ -1671,7 +1633,6 @@ async function runAboutStep(win: BrowserWindow): Promise<string> {
   }
   const claudeCheck = await checkClaudeUpdates(win);
   if (!claudeCheck.startsWith('ok')) return `Claude Code: ${claudeCheck}`;
-  await new Promise((resolve) => setTimeout(resolve, 300));
   await shot(win, 'about.png');
   await js("document.querySelector('[data-close-settings]').click()");
   return `ok: ${navVersion}${off ? `, updates off ("${updater.state.disabledReason}")` : `, updates ${updater.state.status}`}${mockCheck}; ${claudeCheck.slice(4)}`;
@@ -1912,7 +1873,6 @@ async function runActivityStep(win: BrowserWindow): Promise<{ groups: number; st
   await js(`${group}?.querySelector('button')?.click()`);
   await waitInPage(win, `${group}?.querySelector('[data-steps]')`, 2_000);
   await js(`${group}?.querySelector('[data-step] button')?.click()`);
-  await new Promise((resolve) => setTimeout(resolve, 300));
   await shot(win, 'activity.png');
   const steps = (await js(`${group}?.querySelectorAll('[data-step]').length ?? 0`)) as number;
   await js(`${group}?.querySelector('[data-step] button')?.click()`);
@@ -1939,7 +1899,7 @@ async function checkDiffLayout(win: BrowserWindow): Promise<string | null> {
   if (!(await js("Boolean(document.querySelector('[data-diff-wrap-toggle]'))"))) return 'no wrap toggle in the Changes panel';
   const before = (await js(measure)) as { wrap: boolean; scroll: number; client: number; narrowest: number };
   await js(toggle);
-  await new Promise((resolve) => setTimeout(resolve, 100));
+  await settle(win);
   const after = (await js(measure)) as typeof before;
   await js(toggle);
   const [unwrapped, wrapped] = before.wrap ? [after, before] : [before, after];
@@ -1962,7 +1922,6 @@ async function runChangesStep(win: BrowserWindow): Promise<string> {
     const layout = await checkDiffLayout(win);
     if (layout) return layout;
   }
-  await new Promise((resolve) => setTimeout(resolve, 300));
   await shot(win, 'changes.png');
   const messageActions = (await js("document.querySelectorAll('[data-message-actions]').length")) as number;
   if (!wasOpen) await js("document.querySelector('[data-toggle-changes]').click()");
@@ -2048,8 +2007,6 @@ async function runOpenInStep(win: BrowserWindow): Promise<string> {
     `(() => { const menu = ${menu}; const r = [...menu.querySelectorAll('[role="menuitem"]')].at(-1).getBoundingClientRect(); return menu.contains(document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2)); })()`,
   )) as boolean;
   const github = (await js(`${menu}.querySelector('[data-open-github]')?.dataset.openGithub ?? null`)) as string | null;
-  // Let a frame with the menu paint before capturing.
-  await new Promise((resolve) => setTimeout(resolve, 200));
   await shot(win, 'open-in-menu.png');
   win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Escape' });
   win.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Escape' });
@@ -2106,7 +2063,6 @@ async function runGitStep(win: BrowserWindow): Promise<string> {
   if (!(await waitInPage(win, `${menu}?.querySelector('[role=\"menuitem\"]')`, 2_000))) return 'menu did not open';
   const items = (await js(`[...${menu}.querySelectorAll('[role="menuitem"][data-git-step]')].map((i) => (i.disabled ? '-' : '+') + i.dataset.gitStep)`)) as string[];
   const summary = (await js(`${menu}.querySelector('[data-menu-title]')?.innerText.replace(/\\s+/g, ' ') ?? ''`)) as string;
-  await new Promise((resolve) => setTimeout(resolve, 200));
   await shot(win, 'git-menu.png');
   win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Escape' });
   win.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Escape' });
@@ -2362,14 +2318,18 @@ async function runUnsentNewSessionStep(win: BrowserWindow): Promise<string> {
 
 async function runSearchStep(win: BrowserWindow): Promise<string> {
   const js = (code: string) => win.webContents.executeJavaScript(code);
-  win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'F', modifiers: ['meta', 'shift'] });
+  pressKey(win, 'F', ['meta', 'shift']);
   if (!(await waitInPage(win, "document.querySelector('[data-search] input')", 3_000))) return '⌘⇧F did not open search';
   await setFieldValue(win, '[data-search] input', 'session');
   // The index is built in the background from a fresh profile; hits fill in as it goes.
-  if (!(await waitInPage(win, "document.querySelector('[data-search-hit]')", 30_000))) {
-    const footer = await js("document.querySelector('[data-search]').innerText.slice(-80)");
-    win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Escape' });
-    return `no hits after 30 s (${JSON.stringify(footer)})`;
+  if (!(await waitInPage(win, "!document.querySelector('[data-search]') || document.querySelector('[data-search-hit]')", 20_000))) {
+    const footer = await js("document.querySelector('[data-search]')?.innerText.slice(-80) ?? ''");
+    pressKey(win, 'Escape');
+    return `no hits after 20 s (${JSON.stringify(footer)})`;
+  }
+  if (!(await js("!!document.querySelector('[data-search]')"))) {
+    const state = await js("JSON.stringify({ focus: document.activeElement?.outerHTML.slice(0, 80) ?? null, dialogs: [...document.querySelectorAll('[role=dialog], [role=alertdialog], [role=menu]')].map((el) => el.getAttribute('aria-label')) })");
+    return `the search dialog closed by itself before any hits (window focused: ${win.isFocused()}, ${state})`;
   }
   const groups = (await js("document.querySelectorAll('[data-search-group]').length")) as number;
   const indexing = (await js("document.querySelector('[data-search]').innerText.match(/Indexing \\d+ of \\d+/)?.[0] ?? 'index complete'")) as string;
@@ -2441,7 +2401,6 @@ async function runNewSessionStep(win: BrowserWindow): Promise<string> {
   if (clipped.length) return `chips cut off: ${clipped.join(', ')}`;
   await click('[data-mode-select]');
   if (!(await waitInPage(win, "document.querySelectorAll('[data-menu=\"mode\"] [role=menuitemradio]').length >= 4", 2_000))) return 'the permission menu did not open';
-  await new Promise((resolve) => setTimeout(resolve, 200));
   await shot(win, 'new-session-view.png');
   escape();
   // Put back the effort it had (the default, usually), so the remembered defaults are as they were.
@@ -2567,13 +2526,11 @@ async function runDeepLinkStep(win: BrowserWindow): Promise<string> {
     return `the link did not fill in New session (${String(await js(`${composer}?.value + ' in ' + document.querySelector('[data-folder-select]')?.dataset.value`))})`;
   }
   if (!(await waitInPage(win, "document.querySelector('[data-link-notice]')?.innerText.includes('external link')", 2_000))) return 'no notice that the prompt came from a link';
-  await new Promise((resolve) => setTimeout(resolve, 300));
   await shot(win, 'deep-link.png');
 
   // A refused link explains itself and leaves the prompt alone.
   openDeepLink('switchboard://delete-everything?cwd=/');
   if (!(await waitInPage(win, "document.querySelector('[data-link-error]')?.innerText.includes('delete-everything')", 3_000))) return 'an unknown action showed no error';
-  await new Promise((resolve) => setTimeout(resolve, 300));
   await shot(win, 'deep-link-error.png');
   if ((await js(`${composer}?.value`)) !== prompt) return 'a refused link changed the prompt';
   await js("document.querySelector('[data-link-error] button').click()");
@@ -2667,7 +2624,6 @@ async function runCompanionStep(win: BrowserWindow): Promise<string> {
     const labels = (await js(`[...${tray}.querySelectorAll('[data-context-chip]')].map((c) => c.innerText.trim()).join(', ')`)) as string;
     // Chips alone are something to send, so Start is ready; it is never pressed.
     if (!(await waitInPage(win, "!document.querySelector('[data-new-session-view] [data-composer-submit]')?.disabled", 3_000))) return 'Start session stayed disabled with only chips in the box';
-    await new Promise((resolve) => setTimeout(resolve, 200));
     await shot(win, 'context-tray.png');
 
     // The picker: ⌘⇧A in the message box, type to filter, Space picks the file, Enter adds it.
@@ -2683,8 +2639,12 @@ async function runCompanionStep(win: BrowserWindow): Promise<string> {
     if (!(await waitInPage(win, `!document.querySelector('[data-add-context-dialog]') && ${chips} === 3`, 3_000))) return 'Enter did not add the picked file as a chip';
 
     // Removing every chip empties the box: no unsent prompt is left behind.
-    for (let i = 0; i < 3; i++) await js(`${tray}?.querySelector('[data-context-chip-remove]')?.click()`);
-    if (!(await waitInPage(win, `!${tray} && !document.querySelector('[data-new-session-draft]')`, 3_000))) return 'removing the chips left something behind';
+    // One at a time: a second click before the first removal renders would land on the same chip.
+    for (let left = 3; left > 0; left--) {
+      await js(`${tray}?.querySelector('[data-context-chip-remove]')?.click()`);
+      if (!(await waitInPage(win, `${chips} === ${left - 1}`, 2_000))) return `removing a chip did not take it away (${String(await js(chips))} left of ${left})`;
+    }
+    if (!(await waitInPage(win, `!${tray} && !document.querySelector('[data-new-session-draft]')`, 3_000))) return `removing the chips left ${(await js(`${tray}`)) ? 'the tray' : 'an unsent New session prompt'} behind`;
 
     // Settings › VS Code counts this step's socket as a connected editor and links to the extension.
     await js("document.querySelector('[data-open-settings]').click()");
@@ -2764,7 +2724,6 @@ async function runQueueStep(win: BrowserWindow): Promise<string> {
     // An update pill takes the footer's place; otherwise it counts the queue.
     const footer = (await js("document.querySelector('[data-sidebar-open] footer')?.innerText ?? ''")) as string;
     if (/\d+ sessions?/.test(footer) && !(await js("!!document.querySelector('[data-footer-queued]')?.innerText.includes('2 queued')"))) return `the footer did not count 2 queued (${String(await js("document.querySelector('[data-sidebar-open] footer')?.innerText"))})`;
-    await new Promise((resolve) => setTimeout(resolve, 200));
     await shot(win, 'queue-sidebar.png');
 
     // ⌥↓ on the first moves it below the second.
@@ -2775,7 +2734,6 @@ async function runQueueStep(win: BrowserWindow): Promise<string> {
     // Home shows the same queue, in the same order.
     await js("document.querySelector('[data-go-home]').click()");
     if (!(await waitInPage(win, `JSON.stringify([...document.querySelectorAll('[data-home-queue] [data-queue-item]')].map((el) => el.dataset.queueItem)) === ${JSON.stringify(JSON.stringify([second, first]))}`, 3_000))) return 'the Home card did not show the queue in order';
-    await new Promise((resolve) => setTimeout(resolve, 200));
     await shot(win, 'queue-home.png');
 
     // ⌫ removes it; Undo puts it back in its place.
@@ -2833,7 +2791,6 @@ async function runSectionsStep(win: BrowserWindow): Promise<string> {
   const header = (await js(`${toggle}.closest('[data-session-group]')?.innerText.replace(/\\s+/g, ' ') ?? ''`)) as string;
   if (!/\d/.test(header)) return `the closed header lost its count (${header})`;
   const summary = (await js(`document.querySelector('[data-section-summary="${group}"]')?.innerText ?? ''`)) as string;
-  await new Promise((resolve) => setTimeout(resolve, 300));
   await shot(win, 'sections-closed.png');
   // → opens it again from the keyboard, ← closes it, → opens it.
   await js(`${toggle}.focus()`);
@@ -2898,7 +2855,7 @@ async function runPaletteStep(win: BrowserWindow): Promise<string> {
   const runCommand = async (text: string) => {
     if (!(await openPalette(win, 'K', ['meta'], 'commands'))) return null;
     await setFieldValue(win, '[data-palette-input]', text);
-    await new Promise((resolve) => setTimeout(resolve, 150));
+    await settle(win);
     const first = await js("document.querySelector('[data-command-palette] [data-palette-command]')?.dataset.paletteCommand ?? null");
     pressKey(win, 'Return');
     await waitInPage(win, "!document.querySelector('[data-command-palette]')", 2_000);
@@ -2964,8 +2921,7 @@ async function shortcutsChecks(win: BrowserWindow, js: (code: string) => Promise
   if (palette.edge !== '2px') return `keycaps have a ${palette.edge} bottom border, not 2px`;
   if ((await js("document.querySelector('[data-shortcuts-sheet]')?.getAttribute('role')")) !== 'dialog') return 'the sheet is not a dialog';
   for (const colorScheme of ['light', 'dark'] as const) {
-    updatePreferences({ colorScheme });
-    await new Promise((resolve) => setTimeout(resolve, 300));
+    await setColorScheme(win, colorScheme);
     if (!(await js(`!!document.querySelector('[data-shortcut-row="palette.commands"]')`))) return `the sheet lost its rows in ${colorScheme} mode`;
     await shot(win, `shortcuts-${colorScheme}.png`);
   }
@@ -3060,10 +3016,16 @@ async function runPaletteNewSessionStep(win: BrowserWindow): Promise<string> {
     const data = new DataTransfer();
     data.items.add(new File(['x'], 'smoke.png', { type: 'image/png' }));
     const prompt = document.querySelector('[data-palette-prompt]');
+    const read = () => document.querySelector('[data-command-palette] [data-drop-overlay]')?.dataset.dropState ?? 'none';
+    // Held like a real drag (dragover every 50ms), or the overlay times out before it is read (see runDropStep).
     prompt.dispatchEvent(new DragEvent('dragenter', { bubbles: true, cancelable: true, dataTransfer: data }));
-    prompt.dispatchEvent(new DragEvent('dragover', { bubbles: true, cancelable: true, dataTransfer: data }));
-    await new Promise((resolve) => setTimeout(resolve, 60));
-    const state = document.querySelector('[data-command-palette] [data-drop-overlay]')?.dataset.dropState ?? 'none';
+    const over = () => prompt.dispatchEvent(new DragEvent('dragover', { bubbles: true, cancelable: true, dataTransfer: data }));
+    over();
+    const hold = setInterval(over, 50);
+    const end = performance.now() + 2000;
+    while (performance.now() < end && read() !== 'ok') await new Promise((resolve) => setTimeout(resolve, 20));
+    const state = read();
+    clearInterval(hold);
     window.dispatchEvent(new DragEvent('dragend'));
     return state;
   })()`)) as string;
@@ -3093,7 +3055,7 @@ async function runPaletteNewSessionStep(win: BrowserWindow): Promise<string> {
   if (moved.text !== draft) return (await closePalette(win), `the draft did not move to the other project (${JSON.stringify(moved.text)})`);
   if (others > 1 && moved.project === project) return (await closePalette(win), 'picking the next project kept the same one');
   await setFieldValue(win, '[data-palette-prompt]', '');
-  await new Promise((resolve) => setTimeout(resolve, 100));
+  await settle(win);
   pressKey(win, 'Backspace');
   const wentBack = await waitInPage(win, `${PALETTE_STEP} === 'projects' && document.activeElement?.matches('[data-palette-input]')`, 2_000);
   await closePalette(win);
@@ -3107,13 +3069,14 @@ async function runTerminalClearStep(win: BrowserWindow): Promise<string> {
   const js = (code: string) => win.webContents.executeJavaScript(code);
   await js("document.querySelector('[data-toggle-terminal]')?.click()");
   if (!(await waitInPage(win, "document.querySelector('[data-terminal] textarea')", 5_000))) return 'the terminal did not open';
-  await new Promise((resolve) => setTimeout(resolve, 500));
+  await settle(win);
   await js("document.querySelector('[data-terminal] textarea').focus()");
   const cleared = "Number(document.activeElement?.closest('[data-terminal]')?.dataset.cleared ?? 0)";
   const before = (await js(cleared)) as number;
   pressKey(win, 'K', ['meta']);
   const didClear = await waitInPage(win, `${cleared} > ${before}`, 2_000);
-  await new Promise((resolve) => setTimeout(resolve, 200));
+  // The palette would open on the same key press: a settled page shows whether it did.
+  await settle(win);
   const paletteOpened = (await js("!!document.querySelector('[data-command-palette]')")) as boolean;
   if (paletteOpened) await closePalette(win);
   pressKey(win, 'P', ['meta', 'shift']);
@@ -3138,7 +3101,6 @@ async function runToolsStep(win: BrowserWindow): Promise<string> {
   )) as Record<string, number>;
   await shot(win, 'tools.png');
   await js("document.querySelector('[data-capabilities-tab=\"commands\"]').click()");
-  await new Promise((resolve) => setTimeout(resolve, 200));
   await shot(win, 'tools-commands.png');
   win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Escape' });
   await waitInPage(win, "!document.querySelector('[data-capabilities]')", 2_000);
@@ -3158,7 +3120,6 @@ async function runSplitStep(win: BrowserWindow): Promise<string> {
   // The git split button stays in a narrow pane (on a git checkout, where the Changes button shows).
   const gitInEveryPane = "[...document.querySelectorAll('[data-current-session]')].every((pane) => !pane.querySelector('[data-toggle-changes]') || pane.querySelector('[data-git-button]'))";
   if (!(await waitInPage(win, gitInEveryPane, 3_000))) return 'no git button in a narrow pane';
-  await new Promise((resolve) => setTimeout(resolve, 300));
   await shot(win, 'split.png');
   // Nothing may stick out past a pane's right edge (the composer and footer used to; the header's buttons could).
   const overflow = (await js(
@@ -3185,7 +3146,7 @@ async function runSplitStep(win: BrowserWindow): Promise<string> {
  */
 async function runControlsStep(win: BrowserWindow): Promise<string> {
   const js = (code: string) => win.webContents.executeJavaScript(code);
-  const pause = (ms = 200) => new Promise((resolve) => setTimeout(resolve, ms));
+  const pause = () => settle(win);
   const center = async (selector: string) => (await js(`(() => { const r = document.querySelector(${JSON.stringify(selector)}).getBoundingClientRect(); return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) }; })()`)) as { x: number; y: number };
   const width = () => js("Math.round(document.querySelector('[data-sidebar]').getBoundingClientRect().width)") as Promise<number>;
   const drag = async (dx: number) => {
@@ -3262,7 +3223,8 @@ async function runControlsStep(win: BrowserWindow): Promise<string> {
  */
 async function runSidebarStatesStep(win: BrowserWindow): Promise<string> {
   const js = (code: string) => win.webContents.executeJavaScript(code);
-  const pause = (ms = 250) => new Promise((resolve) => setTimeout(resolve, ms));
+  // Preferences reach the page over IPC; anything else is waited for with settle (the sidebar animates its width).
+  const pause = (ms?: number) => (ms ? new Promise((resolve) => setTimeout(resolve, ms)) : settle(win));
   const state = "document.querySelector('[data-sidebar]')?.dataset.sidebarState";
   const width = () => js("Math.round(document.querySelector('[data-sidebar]').getBoundingClientRect().width)") as Promise<number>;
   const inState = (name: string) => waitInPage(win, `${state} === '${name}'`, 2_000);
@@ -3276,8 +3238,7 @@ async function runSidebarStatesStep(win: BrowserWindow): Promise<string> {
   };
   const themed = async (name: string) => {
     for (const scheme of ['light', 'dark'] as const) {
-      updatePreferences({ colorScheme: scheme });
-      await pause(300);
+      await setColorScheme(win, scheme);
       await shot(win, `${name}-${scheme}.png`);
     }
     updatePreferences({ colorScheme: before.colorScheme });
@@ -3358,10 +3319,10 @@ async function runSidebarStatesStep(win: BrowserWindow): Promise<string> {
  */
 async function runDropStep(win: BrowserWindow): Promise<string> {
   if (smokeSessionId) await win.webContents.executeJavaScript(`document.querySelector('[data-session-id="${smokeSessionId}"]')?.click()`);
-  if (!(await waitInPage(win, "document.querySelector('[data-current-session] [data-composer]') && !document.querySelector('[data-drop-overlay]')", 5_000))) return 'no session view to drag onto';
+  const view = smokeSessionId ? `document.querySelector('[data-current-session=${JSON.stringify(smokeSessionId)}]')` : "document.querySelector('[data-current-session]')";
+  if (!(await waitInPage(win, `${view}?.querySelector('[data-composer]') && !document.querySelector('[data-drop-overlay]')`, 5_000))) return 'no session view to drag onto';
   const report = (await win.webContents.executeJavaScript(`(async () => {
     const view = document.querySelector('[data-current-session]');
-    const settle = () => new Promise((resolve) => setTimeout(resolve, 250));
     const overlay = () => { const el = view.querySelector('[data-drop-overlay]'); return el ? el.dataset.dropState + (Number(el.dataset.dropMention) > 0 ? '+mention' : '') + (el.dataset.dropOver === 'true' ? '+over' : '') : 'none'; };
     const drag = (type, target, extra = {}) => {
       const data = new DataTransfer();
@@ -3369,27 +3330,36 @@ async function runDropStep(win: BrowserWindow): Promise<string> {
       const event = new DragEvent(extra.kind ?? 'dragover', { bubbles: true, cancelable: true, dataTransfer: data, relatedTarget: extra.relatedTarget ?? null });
       target.dispatchEvent(event);
     };
+    // A real drag fires dragover every few dozen milliseconds, and the overlay goes when they stop (STALE_MS in
+    // useDropTarget): hold one over the target like that while waiting for the overlay, instead of one event and a sleep.
+    let hold;
+    const enter = (type, target) => {
+      clearInterval(hold);
+      drag(type, target, { kind: 'dragenter' });
+      drag(type, target);
+      hold = setInterval(() => drag(type, target), 50);
+    };
+    const release = () => clearInterval(hold);
+    const reach = async (want) => {
+      const end = performance.now() + 2000;
+      while (performance.now() < end && overlay() !== want) await new Promise((resolve) => setTimeout(resolve, 20));
+      return overlay();
+    };
     const transcript = view.querySelector('[data-transcript]');
     const composer = view.querySelector('[data-composer]');
     const steps = [];
-    drag('image/png', transcript, { kind: 'dragenter' });
-    drag('image/png', transcript);
-    await settle();
-    steps.push(overlay());
-    drag('image/png', composer, { kind: 'dragenter' });
-    drag('image/png', composer);
-    await settle();
-    steps.push(overlay());
+    enter('image/png', transcript);
+    steps.push(await reach('ok'));
+    enter('image/png', composer);
+    steps.push(await reach('ok+over'));
+    release();
     drag('image/png', composer, { kind: 'dragleave', relatedTarget: document.querySelector('[data-sidebar]') ?? document.body });
-    await settle();
-    steps.push(overlay());
-    drag('application/pdf', transcript, { kind: 'dragenter' });
-    drag('application/pdf', transcript);
-    await settle();
-    steps.push(overlay());
+    steps.push(await reach('none'));
+    enter('application/pdf', transcript);
+    steps.push(await reach('ok+mention'));
+    release();
     window.dispatchEvent(new DragEvent('dragend'));
-    await settle();
-    steps.push(overlay());
+    steps.push(await reach('none'));
     return steps;
   })()`)) as string[];
   // dropEffect can't be read back from synthetic events (it only sticks during a real drag), so this checks the overlay.
@@ -3405,7 +3375,6 @@ async function runDropStep(win: BrowserWindow): Promise<string> {
     window.__smokeDrag = setInterval(() => composer.dispatchEvent(new DragEvent('dragover', { bubbles: true, cancelable: true, dataTransfer: data })), 50);
   })()`);
   if (!(await waitInPage(win, "document.querySelector('[data-drop-overlay]')", 1_000))) return 'no overlay while a drag is held over the message box';
-  await new Promise((resolve) => setTimeout(resolve, 150));
   await shot(win, 'drop-target.png');
   await win.webContents.executeJavaScript("clearInterval(window.__smokeDrag); window.dispatchEvent(new DragEvent('dragend'))");
   if (!(await waitInPage(win, "!document.querySelector('[data-drop-overlay]')", 1_000))) return 'the overlay stayed after the drag ended';
@@ -3418,7 +3387,7 @@ async function runDropStep(win: BrowserWindow): Promise<string> {
  */
 async function runHistoryStep(win: BrowserWindow): Promise<string> {
   const js = (code: string) => win.webContents.executeJavaScript(code);
-  const pause = (ms = 150) => new Promise((resolve) => setTimeout(resolve, ms));
+  const pause = () => settle(win);
   const box = "document.querySelector('[data-current-session] [data-composer]')";
   const press = (keyCode: string) => {
     win.webContents.sendInputEvent({ type: 'keyDown', keyCode });
@@ -3584,8 +3553,6 @@ async function runArchiveManyStep(win: BrowserWindow): Promise<string> {
   // While picking, every row shows a round checkbox in place of its project icon, and picked rows sit on a tinted block.
   if (!(await js("[...document.querySelectorAll('[data-session-id]')].every((r) => r.querySelector('[data-pick-box]'))"))) return 'picking did not show a checkbox on every row';
   if (!(await js(`${row(a)}?.querySelector('[data-pick-box]')?.dataset.pickBox === 'true' && !!${row(a)}?.parentElement?.querySelector('[data-pick-block]')`))) return 'the picked row has no ticked checkbox or tinted block';
-  // Let the window paint the selection before capturing it.
-  await pause(150);
   await shot(win, 'multi-select.png');
   await js(`(() => { const r = ${row(a)}.getBoundingClientRect(); ${row(a)}.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, clientX: r.left + 40, clientY: r.top + 20 })); })()`);
   const item = "[...document.querySelectorAll('[role=menuitem]')].find((b) => b.innerText.startsWith('Archive 2 sessions'))";
@@ -3616,215 +3583,119 @@ async function runArchiveManyStep(win: BrowserWindow): Promise<string> {
   if (!(await waitInPage(win, "!!document.querySelector('[data-unarchive-selected]')", 2_000))) return 'no Unarchive button for two archived sessions';
   await js("document.querySelector('[data-unarchive-selected]').click()");
   await js(`${list}.scrollTop = 0`);
-  if (!(await waitInPage(win, `${inMainList(a)} && ${inMainList(b)}`, 3_000))) return 'unarchiving did not bring the sessions back DEBUG ' + (await js(`JSON.stringify({ scroll: ${list}.scrollTop, h: ${list}.clientHeight, sh: ${list}.scrollHeight, a: ${row(a)}?.getBoundingClientRect().top ?? null, b: ${row(b)}?.getBoundingClientRect().top ?? null, header: document.querySelector('[data-archived-toggle]')?.getBoundingClientRect().top ?? null, bar: !!document.querySelector('[data-selection-bar]'), rows: [...document.querySelectorAll('[data-session-id]')].length })`));
+  if (!(await waitInPage(win, `${inMainList(a)} && ${inMainList(b)}`, 3_000))) return 'unarchiving did not bring the sessions back: ' + (await js(`JSON.stringify({ scroll: ${list}.scrollTop, h: ${list}.clientHeight, sh: ${list}.scrollHeight, a: ${row(a)}?.getBoundingClientRect().top ?? null, b: ${row(b)}?.getBoundingClientRect().top ?? null, header: document.querySelector('[data-archived-toggle]')?.getBoundingClientRect().top ?? null, bar: !!document.querySelector('[data-selection-bar]'), rows: [...document.querySelectorAll('[data-session-id]')].length })`));
   if (opened && (await js("document.querySelector('[data-archived-toggle]')?.dataset.open")) === 'true') await js("document.querySelector('[data-archived-toggle]').click()");
   if (smokeSessionId) await js(`${row(smokeSessionId)}?.click()`);
   return 'ok: ⌘-click picked two sessions, archived both from the menu and unarchived them from the selection bar';
 }
 
-async function runSmokeStep(win: BrowserWindow | null): Promise<void> {
-  if (!smokeOutDir || !win) return;
-  mkdirSync(smokeOutDir, { recursive: true });
-  if (readyReports.length === 1) {
-    // The steps send real input and check focus, which break when another app takes focus mid-run.
-    const keepFocus = setInterval(() => { if (!win.isDestroyed() && !win.isFocused()) { win.show(); win.focus(); } }, 250);
-    keepFocus.unref();
-    win.once('closed', () => clearInterval(keepFocus));
-    sessionsListed = await waitInPage(win, "document.querySelector('[data-session-id]')", 5_000);
-    writeFileSync(join(smokeOutDir, 'window.png'), (await win.webContents.capturePage()).toPNG());
-    await win.webContents.executeJavaScript("document.querySelector('[data-project-filter]')?.click()");
-    await new Promise((resolve) => setTimeout(resolve, 300));
-    writeFileSync(join(smokeOutDir, 'projects.png'), (await win.webContents.capturePage()).toPNG());
-    await win.webContents.executeJavaScript("document.querySelector('[data-project-filter]')?.click()");
-    // The newest session with messages and tool activity (a brand-new or chat-only one has less to check);
-    // failing that, the newest with messages.
-    let fallback: string | null = null;
-    for (let i = 0; i < 8 && !transcriptOpened; i++) {
-      const id = (await win.webContents.executeJavaScript(
-        `(() => { const row = document.querySelectorAll('[data-session-id]')[${i}]; row?.click(); return row?.dataset.sessionId ?? null; })()`,
-      )) as string | null;
-      if (!id || !(await waitInPage(win, "document.querySelector('[data-transcript-item]')", 5_000))) continue;
-      // Later steps (actions, Changes, git) need a session whose folder is known.
-      if (!(await win.webContents.executeJavaScript("document.querySelector('[data-current-session]')?.dataset.projectRoot?.startsWith('/') ?? false"))) continue;
-      fallback ??= id;
-      if (await waitInPage(win, "document.querySelector('[data-activity], [data-tool]')", 1_000)) {
-        smokeSessionId = id;
-        transcriptOpened = true;
-      }
-    }
-    if (!transcriptOpened && fallback) {
-      smokeSessionId = fallback;
-      await win.webContents.executeJavaScript(`document.querySelector('[data-session-id="${fallback}"]').click()`);
-      transcriptOpened = await waitInPage(win, "document.querySelector('[data-transcript-item]')", 5_000);
-    }
-    // It must open scrolled to the very end, with space between the last message and the composer.
-    const atBottom = "(() => { const el = document.querySelector('[data-transcript]'); return el.scrollHeight - el.scrollTop - el.clientHeight < 2; })()";
-    const bottomGap =
-      "(() => { const el = document.querySelector('[data-transcript]'); const rows = [...el.querySelectorAll('[data-transcript-item]')]; const last = Math.max(...rows.map((r) => r.getBoundingClientRect().bottom)); return Math.round(el.getBoundingClientRect().bottom - last); })()";
-    // Images in the last rows load after they're first measured, and a live session keeps growing:
-    // read the position and the gap together, and give the view up to 4 s to settle at the end.
-    if (transcriptOpened) {
-      const deadline = Date.now() + 4_000;
-      let reading: { atEnd: boolean; gap: number; fits: boolean } = { atEnd: false, gap: 0, fits: false };
-      do {
-        reading = (await win.webContents.executeJavaScript(
-          `({ atEnd: ${atBottom}, gap: ${bottomGap}, fits: (() => { const el = document.querySelector('[data-transcript]'); return el.scrollHeight <= el.clientHeight + 1; })() })`,
-        )) as typeof reading;
-        if (reading.atEnd && (reading.fits || (reading.gap >= 16 && reading.gap <= 60))) break;
-        await new Promise((resolve) => setTimeout(resolve, 100));
-      } while (Date.now() < deadline);
-      transcriptAtBottom = reading.atEnd ? reading.gap : null;
-      transcriptFits = reading.fits;
-    }
-    if (!transcriptFits && (transcriptAtBottom === null || transcriptAtBottom < 16 || transcriptAtBottom > 60)) {
-      console.log(
-        `[smoke] transcript scroll: ${await win.webContents.executeJavaScript(
-          "(() => { const el = document.querySelector('[data-transcript]'); if (!el) return 'no transcript on screen'; const list = el.firstElementChild; return JSON.stringify({ scrollHeight: el.scrollHeight, scrollTop: Math.round(el.scrollTop), clientHeight: el.clientHeight, listHeight: list?.offsetHeight, streaming: !!el.querySelector('[data-streaming]'), lastKind: [...el.querySelectorAll('[data-transcript-item]')].at(-1)?.dataset.itemKind, gap: " + bottomGap + " }); })()",
-        )}`,
-      );
-    }
-    // Give the virtualiser a frame to measure and scroll to the end before capturing.
-    await new Promise((resolve) => setTimeout(resolve, 300));
-    writeFileSync(join(smokeOutDir, 'transcript.png'), (await win.webContents.capturePage()).toPNG());
-    activity = await runActivityStep(win);
-    changesPanel = await runChangesStep(win);
-    branchResult = await runBranchStep(win).catch((error: Error) => `failed: ${error.message}`);
-    openInResult = await runOpenInStep(win).catch((error: Error) => `failed: ${error.message}`);
-    checkTranscriptResult = await runCheckTranscriptStep(win).catch((error: Error) => `failed: ${error.message}`);
-    gitResult = await runGitStep(win).catch((error: Error) => `failed: ${error.message}`);
-    findResult = await runFindStep(win).catch((error: Error) => `failed: ${error.message}`);
-    fileLinksResult = await runFileLinksStep(win).catch((error: Error) => `failed: ${error.message}`);
-    longPromptResult = await runLongPromptStep(win).catch((error: Error) => `failed: ${error.message}`);
-    copyMessageResult = await runCopyMessageStep(win).catch((error: Error) => `failed: ${error.message}`);
-    draftResult = await runDraftStep(win).catch((error: Error) => `failed: ${error.message}`);
-    unsentResult = await runUnsentStep(win).catch((error: Error) => `failed: ${error.message}`);
-    searchResult = await runSearchStep(win).catch((error: Error) => `failed: ${error.message}`);
-    paletteResult = await runPaletteStep(win).catch((error: Error) => `failed: ${error.message}`);
-    shortcutsResult = await runShortcutsStep(win).catch((error: Error) => `failed: ${error.message}`);
-    toolsResult = await runToolsStep(win).catch((error: Error) => `failed: ${error.message}`);
-    splitResult = await runSplitStep(win).catch((error: Error) => `failed: ${error.message}`);
-    archiveResult = await runArchiveStep(win).catch((error: Error) => `failed: ${error.message}`);
-    renameResult = await runRenameStep(win).catch((error: Error) => `failed: ${error.message}`);
-    archiveManyResult = await runArchiveManyStep(win).catch((error: Error) => `failed: ${error.message}`);
-    dropResult = await runDropStep(win).catch((error: Error) => `failed: ${error.message}`);
-    historyResult = await runHistoryStep(win).catch((error: Error) => `failed: ${error.message}`);
-    controlsResult = await runControlsStep(win).catch((error: Error) => `failed: ${error.message}`);
-    sidebarStatesResult = await runSidebarStatesStep(win).catch((error: Error) => `failed: ${error.message}`);
-    newSessionResult = await runNewSessionStep(win).catch((error: Error) => `failed: ${error.message}`);
-    deepLinkResult = await runDeepLinkStep(win).catch((error: Error) => `failed: ${error.message}`);
-    companionResult = await runCompanionStep(win).catch((error: Error) => `failed: ${error.message}`);
-    queueResult = await runQueueStep(win).catch((error: Error) => `failed: ${error.message}`);
-    sectionsResult = await runSectionsStep(win).catch((error: Error) => `failed: ${error.message}`);
-    quickQuestionResult = await runQuickQuestionStep(win).catch((error: Error) => `failed: ${error.message}`);
-    usageBand = (await waitInPage(win, "document.querySelector('[data-usage-band]')", 15_000))
-      ? await win.webContents.executeJavaScript("document.querySelector('[data-usage-band]').innerText.replace(/\\s+/g, ' ')")
-      : null;
-    if (usageBand) await shot(win, 'usage.png');
-    quitGuarded = await runQuitStep(win);
-    settingsResult = await runSettingsStep(win).catch((error: Error) => `failed: ${error.message}`);
-    focusResult = await runFocusStep(win).catch((error: Error) => `failed: ${error.message}`);
-    terminalOpened = await runTerminalStep(win);
-    terminalClearResult = await runTerminalClearStep(win).catch((error: Error) => `failed: ${error.message}`);
-    terminalLayoutResult = await runTerminalLayoutStep(win).catch((error: Error) => `failed: ${error.message}`);
-    actionRan = await runActionStep(win);
-    actionTerminalResult = await runActionTerminalStep(win).catch((error: Error) => `failed: ${error.message}`);
-    actionMenuResult = await runActionMenuStep(win).catch((error: Error) => `failed: ${error.message}`);
-    projectsResult = await runProjectsStep(win).catch((error: Error) => `failed: ${error.message}`);
-    profilesResult = await runProfilesStep(win).catch((error: Error) => `failed: ${error.message}`);
-    aboutResult = await runAboutStep(win).catch((error: Error) => `failed: ${error.message}`);
-    backupResult = await runBackupStep(win).catch((error: Error) => `failed: ${error.message}`);
-    themeResult = await runThemeStep(win).catch((error: Error) => `failed: ${error.message}`);
-    // Diagnostics (in Settings) renders a sample through Shiki, which loads in its own chunks on first use.
-    await win.webContents.executeJavaScript("document.querySelector('[data-open-settings]').click()");
-    await waitInPage(win, "document.querySelector('[data-settings-section=\"diagnostics\"]')", 3_000);
-    await win.webContents.executeJavaScript("document.querySelector('[data-settings-section=\"diagnostics\"]').click()");
-    highlighted = await waitInPage(win, "document.querySelector('[data-rendering-check] .shiki span[style*=\"--shiki\"]')", 5_000);
-    // Present without hovering (only invisible), so it can be reached with Tab. Not clicked: that would overwrite the clipboard.
-    codeCopy = await win.webContents.executeJavaScript("document.querySelector('[data-rendering-check] [data-code-copy]')?.getAttribute('aria-label') === 'Copy code'");
-    markdownPreview =
-      (await waitInPage(win, "document.querySelector('[data-rendering-check] [data-code-preview] h2')", 3_000)) &&
-      (await win.webContents.executeJavaScript("document.querySelector('[data-rendering-check] [data-code-view=\"source\"]')?.click(), true")) &&
-      (await waitInPage(win, "!document.querySelector('[data-rendering-check] [data-code-preview]') && document.querySelector('[data-rendering-check] [data-code-preview-block]').innerText.includes('## Markdown blocks')", 3_000)) &&
-      (await win.webContents.executeJavaScript("document.querySelector('[data-rendering-check] [data-code-view=\"preview\"]')?.click(), true")) &&
-      (await waitInPage(win, "document.querySelector('[data-rendering-check] [data-code-preview] h2')", 3_000));
-    diagnosticsReveal = await waitInPage(win, "document.querySelector('[data-diagnostics-reveal=\"config-dir\"]') && document.querySelector('[data-diagnostics-reveal=\"database\"]')", 3_000);
-    await shot(win, 'diagnostics.png');
-    await win.webContents.executeJavaScript("document.querySelector('[data-close-settings]').click()");
-    rendering = await win.webContents.executeJavaScript(
-      "({ diffs: document.querySelectorAll('[data-diff]').length, highlighted: document.querySelectorAll('.shiki').length, codeBlocks: document.querySelectorAll('.code-block').length, todos: document.querySelectorAll('[data-todos]').length, images: document.querySelectorAll('[data-transcript-image] img').length })",
-    );
-    const liveCwd = process.env.SWITCHBOARD_SMOKE_LIVE_CWD;
-    if (liveCwd) liveSession = await runLiveSessionStep(win, liveCwd).catch((error: Error) => `failed: ${error.message}`);
-    crashedAt = performance.now();
-    engine.crash();
-    return;
+/** Closes a dialog, menu or palette a step left open (with Escape, as a person would), so the next step starts clean. */
+async function closeOverlays(win: BrowserWindow | undefined): Promise<string | null> {
+  if (!win || win.isDestroyed()) return null;
+  const open = "[...document.querySelectorAll('[role=dialog], [role=alertdialog], [role=menu], [data-command-palette]')].map((el) => el.getAttribute('aria-label') || el.dataset.menu || el.getAttribute('role'))";
+  let left = (await win.webContents.executeJavaScript(open)) as string[];
+  if (!left.length) return null;
+  const found = left.join(', ');
+  for (let i = 0; i < 4 && left.length; i++) {
+    pressKey(win, 'Escape');
+    await waitInPage(win, `${open}.length < ${left.length}`, 1_000);
+    left = (await win.webContents.executeJavaScript(open)) as string[];
   }
+  return left.length ? `could not close ${left.join(', ')}` : `closed what it left open (${found})`;
+}
+
+/**
+ * Opens the newest session with messages and tool activity (a brand-new or chat-only one has less to check);
+ * failing that, the newest with messages. Later steps (actions, Changes, git) need its folder to be known.
+ */
+async function openSmokeSession(win: BrowserWindow): Promise<string> {
+  const js = (code: string) => win.webContents.executeJavaScript(code);
+  let fallback: string | null = null;
+  for (let i = 0; i < 8; i++) {
+    const id = (await js(`(() => { const row = document.querySelectorAll('[data-session-id]')[${i}]; row?.click(); return row?.dataset.sessionId ?? null; })()`)) as string | null;
+    if (!id) break;
+    if (!(await waitInPage(win, `document.querySelector('[data-current-session]')?.dataset.currentSession === ${JSON.stringify(id)} && document.querySelector('[data-current-session] [data-transcript-item]')`, 5_000))) continue;
+    if (!(await js("document.querySelector('[data-current-session]')?.dataset.projectRoot?.startsWith('/') ?? false"))) continue;
+    fallback ??= id;
+    if (await waitInPage(win, "document.querySelector('[data-activity], [data-tool]')", 1_000)) {
+      smokeSessionId = id;
+      return 'ok: with tool activity';
+    }
+  }
+  if (!fallback) return 'failed: none of the newest 8 sessions opened with messages in a known folder';
+  smokeSessionId = fallback;
+  await js(`document.querySelector('[data-session-id="${fallback}"]').click()`);
+  return (await waitInPage(win, "document.querySelector('[data-transcript-item]')", 5_000)) ? 'ok: without tool activity' : 'failed: the fallback session did not render';
+}
+
+/** The opened transcript is scrolled to the very end, with space between the last message and the composer. */
+async function checkTranscriptEnd(win: BrowserWindow): Promise<string> {
+  const atBottom = "(() => { const el = document.querySelector('[data-transcript]'); return el.scrollHeight - el.scrollTop - el.clientHeight < 2; })()";
+  const bottomGap =
+    "(() => { const el = document.querySelector('[data-transcript]'); const rows = [...el.querySelectorAll('[data-transcript-item]')]; const last = Math.max(...rows.map((r) => r.getBoundingClientRect().bottom)); return Math.round(el.getBoundingClientRect().bottom - last); })()";
+  const fits = "(() => { const el = document.querySelector('[data-transcript]'); return el.scrollHeight <= el.clientHeight + 1; })()";
+  // Images in the last rows load after they're first measured, and a live session keeps growing:
+  // read the position and the gap together, and give the view up to 4 s to settle at the end.
+  const deadline = Date.now() + 4_000;
+  let reading = { atEnd: false, gap: 0, fits: false };
+  do {
+    reading = (await win.webContents.executeJavaScript(`({ atEnd: ${atBottom}, gap: ${bottomGap}, fits: ${fits} })`)) as typeof reading;
+    if (reading.atEnd && (reading.fits || (reading.gap >= 16 && reading.gap <= 60))) break;
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  } while (Date.now() < deadline);
+  await shot(win, 'transcript.png');
+  if (reading.fits) return 'ok: conversation shorter than the window';
+  if (reading.atEnd && reading.gap >= 16 && reading.gap <= 60) return `ok: ${reading.gap}px above the composer`;
+  const detail = await win.webContents.executeJavaScript(
+    "(() => { const el = document.querySelector('[data-transcript]'); if (!el) return 'no transcript on screen'; const list = el.firstElementChild; return JSON.stringify({ scrollHeight: el.scrollHeight, scrollTop: Math.round(el.scrollTop), clientHeight: el.clientHeight, listHeight: list?.offsetHeight, streaming: !!el.querySelector('[data-streaming]'), lastKind: [...el.querySelectorAll('[data-transcript-item]')].at(-1)?.dataset.itemKind, gap: " + bottomGap + " }); })()",
+  );
+  return `failed: ${reading.atEnd ? `${reading.gap}px above the composer` : 'not at the end'} (${detail})`;
+}
+
+/** Diagnostics (in Settings) renders a sample through Shiki, which loads in its own chunks on first use. */
+async function runDiagnosticsStep(win: BrowserWindow): Promise<string> {
+  const js = (code: string) => win.webContents.executeJavaScript(code);
+  await js("document.querySelector('[data-open-settings]').click()");
+  if (!(await waitInPage(win, "document.querySelector('[data-settings-section=\"diagnostics\"]')", 3_000))) return 'failed: Settings did not open';
+  await js("document.querySelector('[data-settings-section=\"diagnostics\"]').click()");
+  try {
+    if (!(await waitInPage(win, "document.querySelector('[data-rendering-check] .shiki span[style*=\"--shiki\"]')", 5_000))) return 'failed: syntax highlighting did not colour the code block';
+    // Present without hovering (only invisible), so it can be reached with Tab. Not clicked: that would overwrite the clipboard.
+    if (!(await js("document.querySelector('[data-rendering-check] [data-code-copy]')?.getAttribute('aria-label') === 'Copy code'"))) return 'failed: the code block has no copy button';
+    const markdownPreview =
+      (await waitInPage(win, "document.querySelector('[data-rendering-check] [data-code-preview] h2')", 3_000)) &&
+      (await js("document.querySelector('[data-rendering-check] [data-code-view=\"source\"]')?.click(), true")) &&
+      (await waitInPage(win, "!document.querySelector('[data-rendering-check] [data-code-preview]') && document.querySelector('[data-rendering-check] [data-code-preview-block]').innerText.includes('## Markdown blocks')", 3_000)) &&
+      (await js("document.querySelector('[data-rendering-check] [data-code-view=\"preview\"]')?.click(), true")) &&
+      (await waitInPage(win, "document.querySelector('[data-rendering-check] [data-code-preview] h2')", 3_000));
+    if (!markdownPreview) return 'failed: the markdown block did not open rendered and switch to its source and back';
+    // Not clicked: it would open Finder.
+    if (!(await waitInPage(win, "document.querySelector('[data-diagnostics-reveal=\"config-dir\"]') && document.querySelector('[data-diagnostics-reveal=\"database\"]')", 3_000))) return 'failed: no Finder buttons for the config folder and the cache database';
+    await shot(win, 'diagnostics.png');
+    return 'ok: syntax highlighting coloured a code block with a copy button, markdown opens rendered and switches to its source, Finder buttons for the config folder and cache database';
+  } finally {
+    await js("document.querySelector('[data-close-settings]')?.click()");
+  }
+}
+
+let smokeFinished = false;
+
+/** Writes result.json once: the steps' results and what the run measured. */
+function writeSmokeResult(): void {
+  if (smokeFinished || !smokeOutDir) return;
+  smokeFinished = true;
+  mkdirSync(smokeOutDir, { recursive: true });
   writeFileSync(
     join(smokeOutDir, 'result.json'),
     JSON.stringify(
       {
-        ok: true,
-        connectedMs: readyReports[0]!.connectedMs,
-        loadedMs: readyReports[0]!.loadedMs,
-        restartRecoveryMs: Math.round(performance.now() - crashedAt),
-        sessionCount: readyReports[0]!.sessionCount,
-        sessionsListed,
+        connectedMs: readyReports[0]?.connectedMs ?? null,
+        loadedMs: readyReports[0]?.loadedMs ?? null,
+        sessionCount: readyReports[0]?.sessionCount ?? 0,
+        steps: smokeRun.steps,
+        stoppedBy: smokeRun.stoppedBy,
+        slowest: smokeRun.slowest(8),
         notifications: recordedNotifications,
-        transcriptOpened,
-        transcriptAtBottom,
-        transcriptFits,
-        activity,
-        changesPanel,
-        branchResult,
-        openInResult,
-        gitResult,
-        searchResult,
-        findResult,
-        fileLinksResult,
-        longPromptResult,
-        copyMessageResult,
-        draftResult,
-        unsentResult,
-        unsentNewSessionResult,
-        paletteResult,
-        shortcutsResult,
-        paletteNewSessionResult,
-        terminalClearResult,
-        toolsResult,
-        splitResult,
-        archiveResult,
-        renameResult,
-        checkTranscriptResult,
-        archiveManyResult,
-        dropResult,
-        historyResult,
-        controlsResult,
-        sidebarStatesResult,
-        newSessionResult,
-        deepLinkResult,
-        quickQuestionResult,
-        companionResult,
-        queueResult,
-        sectionsResult,
-        liveSession,
-        terminalOpened,
-        quitGuarded,
-        settingsResult,
-        focusResult,
-        actionRan,
-        actionTerminalResult,
-        terminalLayoutResult,
-        actionMenuResult,
-        projectsResult,
-        profilesResult,
-        aboutResult,
-        backupResult,
-        themeResult,
-        highlighted,
-        codeCopy,
-        markdownPreview,
-        diagnosticsReveal,
-        usageBand,
         rendering,
         reports: readyReports,
         versions: { electron: process.versions.electron, chrome: process.versions.chrome, node: process.versions.node },
@@ -3833,7 +3704,113 @@ async function runSmokeStep(win: BrowserWindow | null): Promise<void> {
       2,
     ),
   );
-  exitApp(0);
+}
+
+/**
+ * Smoke test: first ready → run every step against the real UI, then kill the engine; second ready (after
+ * the automatic restart and reconnect) → record how long that took, write the results and quit.
+ */
+async function runSmokeStep(win: BrowserWindow | null): Promise<void> {
+  if (!smokeOutDir || !win) return;
+  mkdirSync(smokeOutDir, { recursive: true });
+  if (readyReports.length > 1) {
+    await smokeRun.step('engine restarted and renderer reconnected', async () => `ok: in ${Math.round(performance.now() - crashedAt)}ms`, { cleanup: false });
+    writeSmokeResult();
+    exitApp(0);
+    return;
+  }
+  // The page must act as the focused window (toasts count down only then, focus moves as with a person at the
+  // keyboard), but macOS won't let an app take focus while another is in front or the screen is locked. Chromium's
+  // focus emulation makes the page behave as focused whatever the system does, and leaves your focus alone.
+  win.webContents.debugger.attach('1.3');
+  await win.webContents.debugger.sendCommand('Emulation.setFocusEmulationEnabled', { enabled: true });
+  console.log(`[smoke] page focused: ${await win.webContents.executeJavaScript('document.hasFocus()')} (window focused: ${win.isFocused()})`);
+  const js = (code: string) => win.webContents.executeJavaScript(code);
+  const step = smokeRun.step.bind(smokeRun);
+
+  await step('sessions listed after the initial scan', async () => {
+    if (!(await waitInPage(win, "document.querySelector('[data-session-id]')", 5_000))) return 'failed: no session rows';
+    await shot(win, 'window.png');
+    await js("document.querySelector('[data-project-filter]')?.click()");
+    await waitInPage(win, "document.querySelector('[role=menu]')", 1_000);
+    await shot(win, 'projects.png');
+    pressKey(win, 'Escape');
+    await waitInPage(win, "!document.querySelector('[role=menu]')", 1_000);
+    return `ok: ${await js("document.querySelectorAll('[data-session-id]').length")} rows (${readyReports[0]!.sessionCount} in the first snapshot)`;
+  });
+  await step('newest session with messages rendered', () => openSmokeSession(win));
+  await step('transcript opens at the end', () => checkTranscriptEnd(win));
+  await step('tool calls summarised', async () => {
+    const activity = await runActivityStep(win);
+    if (!activity) return 'failed: no groups';
+    const summary = `${activity.groups} groups; "${activity.label}" opens to ${activity.steps} steps`;
+    return activity.steps ? `ok: ${summary}` : `failed: ${summary}`;
+  });
+  await step('changes panel', () => runChangesStep(win));
+  await step('branch button', () => runBranchStep(win));
+  await step('open in menu', () => runOpenInStep(win));
+  await step('check transcript', () => runCheckTranscriptStep(win));
+  await step('git menu', () => runGitStep(win));
+  await step('find in session', () => runFindStep(win));
+  await step('file links', () => runFileLinksStep(win));
+  await step('long prompts', () => runLongPromptStep(win));
+  await step('copy messages', () => runCopyMessageStep(win));
+  await step('unsent drafts', () => runDraftStep(win));
+  await step('unsent messages', () => runUnsentStep(win));
+  await step('search', () => runSearchStep(win));
+  await step('command palette', () => runPaletteStep(win));
+  await step('shortcuts sheet', () => runShortcutsStep(win));
+  await step('tools', () => runToolsStep(win));
+  await step('split panes', () => runSplitStep(win));
+  await step('archive', () => runArchiveStep(win));
+  await step('rename', () => runRenameStep(win));
+  await step('multi-select and archive', () => runArchiveManyStep(win));
+  await step('drop target', () => runDropStep(win));
+  await step('prompt history', () => runHistoryStep(win));
+  await step('controls', () => runControlsStep(win));
+  await step('sidebar states', () => runSidebarStatesStep(win));
+  await step('new session view', () => runNewSessionStep(win));
+  // Finding a checkout of an unknown repository walks the folders on disk.
+  await step('links', () => runDeepLinkStep(win), { timeoutMs: 45_000 });
+  await step('VS Code companion', () => runCompanionStep(win));
+  await step('queue', () => runQueueStep(win));
+  await step('collapsible sections', () => runSectionsStep(win));
+  await step('quick question', () => runQuickQuestionStep(win));
+  await step('usage band above the composer', async () => {
+    if (!(await waitInPage(win, "document.querySelector('[data-usage-band]')", 15_000))) return 'failed: not shown';
+    await shot(win, 'usage.png');
+    return `ok: ${await js("document.querySelector('[data-usage-band]').innerText.replace(/\\s+/g, ' ')")}`;
+  });
+  await step('⌘Q asks first, Cancel keeps the app open, a second ⌘Q quits', () => runQuitStep(win));
+  await step('settings: theme, sidebar style, session scope, tool activity, startup and quit prompt apply at once and are saved', () => runSettingsStep(win));
+  await step('focus limit', () => runFocusStep(win));
+  await step('terminal panel opened a shell', () => runTerminalStep(win));
+  await step('⌘K in the terminal', () => runTerminalClearStep(win));
+  await step('terminal layout', () => runTerminalLayoutStep(win));
+  await step('project action added through the editor and run in a terminal tab', () => runActionStep(win));
+  await step('action terminal', () => runActionTerminalStep(win));
+  await step('action menu', () => runActionMenuStep(win));
+  await step('projects', () => runProjectsStep(win), { timeoutMs: 60_000 });
+  await step('profiles', () => runProfilesStep(win));
+  await step('about', () => runAboutStep(win));
+  await step('backup', () => runBackupStep(win));
+  await step('themes: export, import, pick, remove, and every built-in in light and dark', () => runThemeStep(win));
+  await step('diagnostics', () => runDiagnosticsStep(win));
+  rendering = (await js(
+    "({ diffs: document.querySelectorAll('[data-diff]').length, highlighted: document.querySelectorAll('.shiki').length, codeBlocks: document.querySelectorAll('.code-block').length, todos: document.querySelectorAll('[data-todos]').length, images: document.querySelectorAll('[data-transcript-image] img').length })",
+  )) as Record<string, number>;
+  const liveCwd = process.env.SWITCHBOARD_SMOKE_LIVE_CWD;
+  if (liveCwd) await step('live session through the UI', () => runLiveSessionStep(win, liveCwd), { timeoutMs: 180_000 });
+  crashedAt = performance.now();
+  engine.crash();
+  // The second ready finishes the run; if it never comes, say so instead of waiting for the watchdog.
+  setTimeout(() => {
+    if (smokeFinished) return;
+    void smokeRun.step('engine restarted and renderer reconnected', async () => 'failed: the renderer did not reconnect within 15s', { cleanup: false }).then(() => {
+      writeSmokeResult();
+      exitApp(0);
+    });
+  }, 15_000).unref();
 }
 
 app.whenReady().then(() => {
@@ -3879,8 +3856,13 @@ app.whenReady().then(() => {
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });
-  // A watchdog for a run that hangs; the full run takes about a minute (drafts wait a moment before they count).
-  if (smokeOutDir) setTimeout(() => exitApp(2), process.env.SWITCHBOARD_SMOKE_LIVE_CWD ? 300_000 : 180_000).unref();
+  // A last resort for a run that hangs outside a step (each step has its own time limit); it still writes what ran.
+  if (smokeOutDir) {
+    setTimeout(() => {
+      writeSmokeResult();
+      exitApp(2);
+    }, process.env.SWITCHBOARD_SMOKE_LIVE_CWD ? 300_000 : 180_000).unref();
+  }
   if (screenshotOutDir) setTimeout(() => exitApp(2), 240_000).unref();
 });
 

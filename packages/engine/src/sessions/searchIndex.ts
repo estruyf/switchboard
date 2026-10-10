@@ -75,6 +75,12 @@ export class SearchIndex {
                 snippet(transcript_fts, 4, '${MARK_START}', '${MARK_END}', '…', 18) AS snippet
          FROM transcript_fts WHERE transcript_fts MATCH ? ORDER BY bm25(transcript_fts) LIMIT ?`,
       ),
+      searchIn: db.prepare(
+        `SELECT session_id AS sessionId, uuid AS messageUuid, role, at,
+                snippet(transcript_fts, 4, '${MARK_START}', '${MARK_END}', '…', 18) AS snippet
+         FROM transcript_fts WHERE transcript_fts MATCH ? AND session_id IN (SELECT value FROM json_each(?))
+         ORDER BY bm25(transcript_fts) LIMIT ?`,
+      ),
     };
     this.begin = db.prepare('BEGIN');
     this.commit = db.prepare('COMMIT');
@@ -147,10 +153,15 @@ export class SearchIndex {
     }
   }
 
-  search(input: string, limit: number): SearchHit[] {
+  /**
+   * The best matches, at most `limit`. `only` keeps them to those sessions; it is applied before the limit,
+   * so sessions left out (other apps', with "Switchboard sessions only") can't take every place.
+   */
+  search(input: string, limit: number, only?: Iterable<string>): SearchHit[] {
     const query = toFtsQuery(input);
     if (!query) return [];
     try {
+      if (only) return this.statements.searchIn.all(query, JSON.stringify([...only]), limit) as unknown as SearchHit[];
       return this.statements.search.all(query, limit) as unknown as SearchHit[];
     } catch (error) {
       this.log('debug', `Search for ${JSON.stringify(input)} failed: ${(error as Error).message}`);

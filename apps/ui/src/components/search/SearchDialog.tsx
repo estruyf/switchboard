@@ -63,7 +63,7 @@ export function SearchDialog() {
     let timer: ReturnType<typeof setTimeout>;
     // While the index is still being built (or hasn't started), ask again so results fill in.
     const ask = (first: boolean) => {
-      client.call('search.query', { query }).then((result) => {
+      client.call('search.query', { query, scope }).then((result) => {
         if (cancelled) return;
         setHits(result.hits);
         setIndexing(result.indexing);
@@ -78,20 +78,19 @@ export function SearchDialog() {
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [client, query]);
+  }, [client, query, scope]);
 
   // Best match first, grouped by session in the order their best match appears.
   const groups = useMemo(() => {
     const bySession = new Map<string, SearchHit[]>();
     for (const hit of hits) {
-      // Same sessions as the sidebar: with "Switchboard sessions only", others aren't searched either.
-      if (scope === 'switchboard' && !sessions.get(hit.sessionId)?.inApp) continue;
+      // Same sessions as the sidebar: with "Switchboard sessions only", the engine searches only those.
       const list = bySession.get(hit.sessionId) ?? [];
       list.push(hit);
       bySession.set(hit.sessionId, list);
     }
     return [...bySession.entries()].map(([sessionId, list]) => ({ sessionId, hits: list.slice(0, HITS_PER_SESSION), more: Math.max(0, list.length - HITS_PER_SESSION) }));
-  }, [hits, scope, sessions]);
+  }, [hits]);
   const flat = useMemo(() => groups.flatMap((g) => g.hits), [groups]);
 
   const open = (hit: SearchHit) => {
