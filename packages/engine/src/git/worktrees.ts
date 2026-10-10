@@ -1,5 +1,6 @@
 import { execFile } from 'node:child_process';
-import { existsSync, statSync } from 'node:fs';
+import { existsSync, statSync, type Dirent } from 'node:fs';
+import { lstat, readdir } from 'node:fs/promises';
 import { basename, join, resolve } from 'node:path';
 import { isSameOrInside, type WorktreeEntry, type WorktreeList, type WorktreePullRequest, type WorktreeRemoveItem, type WorktreeRemoveResult } from '@switchboard/protocol';
 import { baseBranch, git, GitError } from './gitChanges.ts';
@@ -209,8 +210,12 @@ export async function fetchPullRequests(root: string, env: Record<string, string
   }
 }
 
-/** A folder's size on disk in bytes (`du -sk`), or null when it can't be measured. Unreadable parts are left out. */
-export async function measureSize(path: string): Promise<number | null> {
+/**
+ * A folder's size on disk in bytes (`du -sk`), or null when it can't be measured. Unreadable parts are left out.
+ * Windows has no `du`, so there the folder is walked and its files' sizes added up.
+ */
+export async function measureSize(path: string, platform: string = process.platform): Promise<number | null> {
+  if (platform === 'win32') return walkSize(path);
   return new Promise((resolvePromise) => {
     // du exits with 1 when it couldn't read part of the tree, and still prints the total of the rest.
     execFile('du', ['-sk', path], { timeout: 5 * 60_000, maxBuffer: 1024 * 1024 }, (_error, stdout) => {
@@ -218,6 +223,36 @@ export async function measureSize(path: string): Promise<number | null> {
       resolvePromise(Number.isFinite(kb) ? kb * 1024 : null);
     });
   });
+}
+
+/** The sizes of the files under `path` added up, without following links or junctions; null when it isn't a folder. */
+async function walkSize(path: string): Promise<number | null> {
+  try {
+    if (!(await lstat(path)).isDirectory()) return null;
+  } catch {
+    return null;
+  }
+  let total = 0;
+  const pending = [path];
+  while (pending.length) {
+    const dir = pending.pop()!;
+    let entries: Dirent[];
+    try {
+      entries = await readdir(dir, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+    const sizes = await Promise.all(
+      entries.map(async (entry) => {
+        const full = join(dir, entry.name);
+        if (entry.isDirectory()) return pending.push(full), 0;
+        if (!entry.isFile()) return 0;
+        return lstat(full).then((stat) => stat.size, () => 0);
+      }),
+    );
+    for (const size of sizes) total += size;
+  }
+  return total;
 }
 
 /**
