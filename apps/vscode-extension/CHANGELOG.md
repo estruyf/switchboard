@@ -1,5 +1,10 @@
 # Changelog
 
+## [Unreleased]
+
+- Answer Switchboard's prompts in VS Code: when a session in this workspace asks for a permission, has a question or a plan, a notification lets you allow or deny it, answer the questions, or read and approve the plan. *Switchboard: Answer Prompts* shows the ones you closed again. Needs Switchboard 0.0.14 or later.
+- **Fix in Switchboard** in the quick fixes (⌘.) of an error or warning adds the problem and the lines it is on to a session.
+
 ## [0.1.1]
 
 - Documentation updates.

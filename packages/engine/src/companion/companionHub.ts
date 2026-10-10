@@ -6,9 +6,10 @@ import {
   type CompanionSessions,
   type Contract,
   type HandlerContext,
+  type PermissionDecision,
 } from '@switchboard/protocol';
 import { CompanionServer } from './companionServer.ts';
-import { companionSessions, sessionsFor, type ListingOptions, type SessionSources } from './companionSessions.ts';
+import { companionSessions, promptsFor, sessionsFor, type ListingOptions, type SessionSources } from './companionSessions.ts';
 
 type SessionScope = NonNullable<ListingOptions['scope']>;
 
@@ -19,6 +20,8 @@ export interface CompanionHubOptions {
   sources(): SessionSources;
   /** Switchboard windows attached to the engine. */
   windows(): number;
+  /** Answers a permission prompt, question or plan (throws NOT_FOUND when it was already answered). */
+  respond(requestId: string, decision: PermissionDecision, acceptEdits: boolean): void | Promise<void>;
   log(level: 'info' | 'warn' | 'error', message: string): void;
   socketParent?: string;
   /** How long a window may take to add context before `context.add` fails (default 10 s). */
@@ -77,6 +80,10 @@ export class CompanionHub {
         'session.reveal': ({ sessionId }) => {
           if (!this.knows(sessionId)) throw new RpcError('NOT_FOUND', 'Switchboard has no session with that id');
           this.focusWindow().emit('companion.reveal', { sessionId });
+          return {};
+        },
+        'prompt.respond': async ({ requestId, decision, acceptEdits }) => {
+          await this.options.respond(requestId, decision, acceptEdits);
           return {};
         },
       },
@@ -144,11 +151,14 @@ export class CompanionHub {
     // The editor lists what the sidebar of the window that reported focus last lists.
     const window = this.windowFocus.at(-1);
     const focusedId = window?.sessionId ?? null;
-    const all = companionSessions(this.options.sources(), { keep: focusedId, scope: window?.scope ?? 'switchboard' });
+    const sources = this.options.sources();
+    const all = companionSessions(sources, { keep: focusedId, scope: window?.scope ?? 'switchboard' });
+    const sessions = sessionsFor(all, folders, limit);
     return {
-      sessions: sessionsFor(all, folders, limit),
+      sessions,
       focused: (focusedId && all.find((s) => s.id === focusedId)) || null,
       windows: this.options.windows(),
+      prompts: promptsFor(sources.permissions ?? [], sessions),
     };
   }
 

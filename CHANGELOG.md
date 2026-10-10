@@ -4,6 +4,10 @@ All notable changes to Switchboard are listed here. Each release is also on the 
 
 ## [Unreleased]
 
+### New
+
+- **Answer prompts from VS Code.** With the VS Code companion, a permission prompt, question or plan from a session in the open workspace shows as a VS Code notification you can answer there. Your answer works as if you gave it in Switchboard, and the card goes away.
+
 ### Fixed
 
 - The pointer turns into a text cursor over text you can select in the conversation (messages, code blocks, diffs), instead of staying an arrow.

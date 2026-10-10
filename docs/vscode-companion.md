@@ -1,6 +1,6 @@
 # VS Code companion
 
-The VS Code companion (`apps/vscode-extension`) sends what you're looking at in the editor to a Switchboard session: the selected lines, the active file, Explorer files and folders, open editors, problems, terminal output and changed files. It arrives as chips in the session's message box (the context tray). Nothing goes to Claude until you press send in Switchboard.
+The VS Code companion (`apps/vscode-extension`) sends what you're looking at in the editor to a Switchboard session: the selected lines, the active file, Explorer files and folders, open editors, problems, terminal output and changed files. It arrives as chips in the session's message box (the context tray). Nothing goes to Claude until you press send in Switchboard. The other way round, it shows the prompts those sessions wait on (a permission, a question, a plan) as notifications you can answer.
 
 [← Back to the README](../README.md)
 
@@ -30,12 +30,19 @@ One JSON message per line, in the same request, response and event shape the UI 
 | Request | What it does |
 |---|---|
 | `hello` `{ token, protocol, client }` | The first message. Answers the protocol version and the app's version. |
-| `sessions.list` `{ folders, limit? }` | The sessions in these workspace folders (a session working in one of them, or whose folder holds one) that Switchboard's sidebar shows outside Archived, under its scope (`companion.focus` reports it), what needs you first, then what is working, then the most recent. Also the session on screen in Switchboard (`focused`, wherever it is) and how many windows are open. |
+| `sessions.list` `{ folders, limit? }` | The sessions in these workspace folders (a session working in one of them, or whose folder holds one) that Switchboard's sidebar shows outside Archived, under its scope (`companion.focus` reports it), what needs you first, then what is working, then the most recent. Also the session on screen in Switchboard (`focused`, wherever it is), how many windows are open, and `prompts`: the permission requests, questions and plans those sessions wait on, oldest first. |
 | `sessions.watch` `{ folders }` | From now on, `sessions.changed` with the same answer whenever it changes. |
 | `context.add` `{ target, items, reveal }` | Adds context items to a session's message box (`{ kind: 'session', sessionId }`) or to New session on a folder (`{ kind: 'new', cwd }`). Resolves once a window has added them; fails with `NO_WINDOW`, `NOT_FOUND`, `NOT_ADDED` or `TIMEOUT`. `reveal` shows the session and brings Switchboard to the front. |
 | `session.reveal` `{ sessionId }` | Shows a session in Switchboard and brings it to the front (the status bar item). |
+| `prompt.respond` `{ requestId, decision, acceptEdits? }` | Answers one of `prompts` with the same decision a card in Switchboard sends (`session.respond`); `acceptEdits` then switches the session to accepting edits, for an approved plan. Fails with `NOT_FOUND` when it was already answered. |
 
 A context item (`packages/protocol/src/context.ts`) is a file or folder by reference, optionally with a range of lines, or a piece of text with a label (`selection` with unsaved changes, `problems`, `terminal`, `output`). At most 100 per message.
+
+## Prompts
+
+The engine re-sends `sessions.changed` when a prompt appears or is answered (`session.permission`, `session.permissionResolved`). The extension (`promptNotifier.ts`, with the pure parts in `prompts.ts`) announces each new prompt once as a warning notification: a permission with Allow, Always allow and Deny…; a question with Answer… (a quick pick per question) and Skip; a plan with Read the plan (a read-only Markdown preview under the `switchboard-plan:` scheme), then Approve or Keep planning…. VS Code can't close a notification itself, so one answered in Switchboard stays until you click it, and then says it was already answered. `switchboard.prompts` turns the notifications off.
+
+`prompts` is optional in the contract, so an older engine just has none, and an older extension ignores it; `prompt.respond` on an older engine fails with `METHOD_NOT_FOUND`, which the extension reports as "Update Switchboard". The protocol version stays 1.
 
 ## Inside Switchboard
 
@@ -54,6 +61,8 @@ The extension sends references for files, and Claude Code applies its own permis
 - a `Read(…)` rule in `permissions.deny` of `~/.claude/settings.json`, `.claude/settings.json` or `.claude/settings.local.json` matches it (gitignore patterns: `//abs`, `~/home`, `/from-the-settings`, `relative`).
 
 In those cases only the reference goes, and the extension says your unsaved changes weren't sent. The checks are in `apps/vscode-extension/src/exclusions.ts`.
+
+Answering prompts gives whoever holds the token what a Switchboard window has: allowing a tool Claude asked for. The token is in a file only your account can read, and the socket only your account can open, so this adds nothing a process running as you couldn't already do (it could run `claude` itself).
 
 ## Developing the extension
 
