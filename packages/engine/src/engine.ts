@@ -19,7 +19,7 @@ import {
   type SlashCommand,
   type SystemInfo,
   type Transport,
-  worktreeSlug,
+  randomWorktreeName,
 } from '@switchboard/protocol';
 import { LiveRegistry } from './claude/liveRegistry.ts';
 import { createProjectResolver } from './claude/projectResolver.ts';
@@ -906,7 +906,7 @@ export function createEngine(options: EngineOptions): Engine {
     'later.start': async ({ id }) => {
       const item = later.get(id);
       if (!item) throw new RpcError('NOT_FOUND', 'That item is no longer in the queue');
-      // The same path as New session: its folder, choices and route, the worktree named from the prompt.
+      // The same path as New session: its folder, choices and route, and a worktree with a made-up name.
       const { sessionId } = await createSession({
         cwd: item.cwd,
         prompt: item.prompt,
@@ -914,7 +914,7 @@ export function createEngine(options: EngineOptions): Engine {
         model: item.model,
         permissionMode: item.permissionMode,
         effort: item.effort,
-        worktree: item.workspace === 'worktree' ? { name: worktreeSlug(item.prompt), baseRef: item.baseRef } : null,
+        worktree: item.workspace === 'worktree' ? { name: randomWorktreeName(), baseRef: item.baseRef } : null,
         profileId: item.profileId,
         checkoutBranch: item.workspace === 'worktree' ? null : item.branch,
       });

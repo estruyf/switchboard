@@ -1561,6 +1561,7 @@ async function runProjectsStep(win: BrowserWindow): Promise<string> {
   // The command palette's New session needs a project: this is the one moment the throwaway profile has one.
   await smokeRun.step('command palette, new session', () => runPaletteNewSessionStep(win), { cleanup: false });
   await smokeRun.step('unsent New session prompt', () => runUnsentNewSessionStep(win), { cleanup: false });
+  await smokeRun.step('worktree name', () => runWorktreeNameStep(win), { cleanup: false });
 
   await click('[data-open-projects]');
   if (!(await waitInPage(win, `${row('[data-defaults-summary]')}?.innerText.includes('low effort')`, 3_000))) return 'the saved default did not reach the Projects view';
@@ -2354,6 +2355,56 @@ async function runUnsentNewSessionStep(win: BrowserWindow): Promise<string> {
   await js("document.querySelector('[data-new-session-view] [data-draft-discard]').click()");
   if (!(await waitInPage(win, `${prompt}?.value === '' && !document.querySelector('[data-new-session-draft]') && !document.querySelector('[data-draft-banner]')`, 3_000))) return 'Discard in New session left the prompt or the pen';
   return 'ok: a prompt left in New session put a pen on the + button, which opened it with "Your unsent prompt for…"; Discard cleared it';
+}
+
+/**
+ * Worktree name, read-only: with the worktree switch on, New session offers a made-up three-word name
+ * (`brave-humming-otter`) that stays put while you type a prompt. Nothing is started; the switch and
+ * the prompt are put back as they were.
+ */
+async function runWorktreeNameStep(win: BrowserWindow): Promise<string> {
+  const js = (code: string) => win.webContents.executeJavaScript(code);
+  const click = (selector: string) => js(`document.querySelector(${JSON.stringify(selector)}).click()`);
+  const prompt = '[data-new-session-view] [data-composer]';
+  const toggle = "document.querySelector('[data-worktree-switch]')";
+  const nameField = "document.querySelector('[data-worktree-name]')";
+  win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'N', modifiers: ['meta'] });
+  if (!(await waitInPage(win, `!!document.querySelector('[data-folder-select]')?.dataset.value && ${toggle}`, 5_000))) return 'New session has no folder with a worktree switch';
+  // The switch waits for the folder's git check; a folder that isn't a repository has no worktree to name.
+  if (!(await waitInPage(win, `!${toggle}.disabled`, 5_000))) return 'ok: the folder is not a git repository, no worktree to name';
+  const wasOn = (await js(`${toggle}.getAttribute('aria-checked') === 'true'`)) as boolean;
+  const putBack = async () => {
+    if (await js("!!document.querySelector('[data-menu=\"workspace\"]')")) {
+      pressKey(win, 'Escape');
+      await waitInPage(win, "!document.querySelector('[data-menu=\"workspace\"]')", 2_000);
+    }
+    await setFieldValue(win, prompt, '');
+    if (!wasOn && (await js(`${toggle}.getAttribute('aria-checked') === 'true'`))) await click('[data-worktree-switch]');
+    await waitInPage(win, `${toggle}.getAttribute('aria-checked') === ${JSON.stringify(String(wasOn))}`, 2_000);
+  };
+  const suggested = async () => {
+    await click('[data-workspace-select]');
+    if (!(await waitInPage(win, nameField, 3_000))) return null;
+    const name = (await js(`${nameField}.placeholder`)) as string;
+    pressKey(win, 'Escape');
+    await waitInPage(win, "!document.querySelector('[data-menu=\"workspace\"]')", 2_000);
+    return name;
+  };
+  if (!wasOn) await click('[data-worktree-switch]');
+  if (!(await waitInPage(win, `${toggle}.getAttribute('aria-checked') === 'true'`, 2_000))) return (await putBack(), 'the worktree switch did not turn on');
+  const first = await suggested();
+  if (!first) return (await putBack(), 'the Where menu has no worktree name field');
+  if (!/^[a-z]+-[a-z]+-[a-z]+$/.test(first) || first.length > 30) return (await putBack(), `the suggested name is not three short words: "${first}"`);
+  const hint = (await js("document.querySelector('[data-workspace-select]').dataset.tooltip ?? ''")) as string;
+  if (!hint.includes(`.claude/worktrees/${first}`)) return (await putBack(), `the Where tooltip names another folder: "${hint}"`);
+  // The name doesn't come from the prompt any more, so typing one leaves it as it was.
+  await setFieldValue(win, prompt, 'Fix the login redirect after the OAuth callback');
+  await settle(win);
+  const second = await suggested();
+  if (second !== first) return (await putBack(), `the suggested name changed while typing: "${first}" became "${second}"`);
+  await shot(win, 'new-session-worktree-name.png');
+  await putBack();
+  return `ok: suggested worktree-${first}, unchanged by the prompt`;
 }
 
 async function runSearchStep(win: BrowserWindow): Promise<string> {
