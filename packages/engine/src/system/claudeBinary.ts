@@ -1,7 +1,7 @@
 import { execFile } from 'node:child_process';
 import { accessSync, constants } from 'node:fs';
 import { homedir } from 'node:os';
-import { delimiter, join } from 'node:path';
+import { posix, win32 } from 'node:path';
 import type { ClaudeInstall } from '@switchboard/protocol';
 
 function isExecutable(path: string): boolean {
@@ -13,15 +13,18 @@ function isExecutable(path: string): boolean {
   }
 }
 
-/** Candidate locations in priority order: PATH first, then the usual install spots. */
-export function claudeCandidates(env: Record<string, string>, home = homedir()): string[] {
-  const fromPath = (env.PATH ?? '').split(delimiter).filter(Boolean).map((dir) => join(dir, 'claude'));
-  const wellKnown = [
-    join(home, '.claude', 'local', 'claude'),
-    join(home, '.local', 'bin', 'claude'),
-    '/opt/homebrew/bin/claude',
-    '/usr/local/bin/claude',
-  ];
+/**
+ * Candidate locations in priority order: PATH first, then the usual install spots. On Windows that is the
+ * native installer's `claude.exe` (npm's `claude.cmd` shim is not run directly; see docs/windows-support.md).
+ */
+export function claudeCandidates(env: Record<string, string>, home = homedir(), platform = process.platform): string[] {
+  const { delimiter, join } = platform === 'win32' ? win32 : posix;
+  const binary = platform === 'win32' ? 'claude.exe' : 'claude';
+  const fromPath = (env.PATH ?? '').split(delimiter).filter(Boolean).map((dir) => join(dir, binary));
+  const wellKnown =
+    platform === 'win32'
+      ? [join(home, '.local', 'bin', 'claude.exe')]
+      : [join(home, '.claude', 'local', 'claude'), join(home, '.local', 'bin', 'claude'), '/opt/homebrew/bin/claude', '/usr/local/bin/claude'];
   return [...new Set([...fromPath, ...wellKnown])];
 }
 

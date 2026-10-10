@@ -26,7 +26,20 @@ export function parseEnvOutput(output: string): Record<string, string> | null {
 }
 
 function processEnv(): Record<string, string> {
-  return Object.fromEntries(Object.entries(process.env).filter((e): e is [string, string] => e[1] !== undefined));
+  const env = Object.fromEntries(Object.entries(process.env).filter((e): e is [string, string] => e[1] !== undefined));
+  return process.platform === 'win32' ? withUpperCasePath(env) : env;
+}
+
+/**
+ * Windows names variables without regard to case, and an app started from the Start menu gets `Path`. Once
+ * copied into a plain object that is a different key from the `PATH` every lookup here reads, so it is
+ * renamed (keeping one entry, as a child process may otherwise get two). Pure, for testing.
+ */
+export function withUpperCasePath(env: Record<string, string>): Record<string, string> {
+  const key = Object.keys(env).find((k) => k !== 'PATH' && k.toUpperCase() === 'PATH');
+  if (!key) return env;
+  const { [key]: value, ...rest } = env;
+  return { ...rest, PATH: rest.PATH ?? value! };
 }
 
 /**
