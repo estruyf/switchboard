@@ -1,7 +1,7 @@
-import { useVirtualizer } from '@tanstack/react-virtual';
+import { defaultRangeExtractor, useVirtualizer, type Range } from '@tanstack/react-virtual';
 import { Archive, ArchiveRestore, Check, FolderCog, GitBranch, House, ListEnd, PencilLine, Pin, PinOff, Plus, Search, Settings, Trash2 } from 'lucide-react';
 import type { SidebarStyle } from '@switchboard/protocol/bridge';
-import { memo, useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type MouseEvent, type ReactNode } from 'react';
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type MouseEvent, type ReactNode } from 'react';
 import { shortAge } from '../../lib/format.ts';
 import { newSessionDraftTooltip, PenBadge } from '../drafts/PenBadge.tsx';
 import { openUnsentList } from '../drafts/UnsentList.tsx';
@@ -19,7 +19,7 @@ import { toRows, useSessions, type SessionRowData } from '../../state/sessionsSt
 import { usePreferences } from '../../state/preferencesStore.ts';
 import { useSidebar } from '../../state/sidebarStore.ts';
 import { useDrafts } from '../../state/draftsStore.ts';
-import { archivedFiller, buildListRows, buildSessionList, GROUP_LABEL, headerSummary, inScope, isActive, rowStatus, sessionsByHeader, waitingLabel, type HeaderKey, type RowStatus, type SidebarListRow } from '../../state/sidebarRows.ts';
+import { archivedPlacement, archivedRevealTop, buildListRows, buildSessionList, GROUP_LABEL, headerSummary, inScope, isActive, rowStatus, sessionsByHeader, waitingLabel, type HeaderKey, type RowStatus, type SidebarListRow } from '../../state/sidebarRows.ts';
 import { NO_PICKS, pickGroup, rangePick, stepPick, togglePick, visiblePicks, type Picks } from '../../state/sessionPicks.ts';
 import { FocusCounter } from '../focus/FocusCounter.tsx';
 import type { MenuEntry } from '../Menu.tsx';
@@ -38,6 +38,7 @@ import { formatKeys, keysFor, matches } from '../../lib/shortcuts.ts';
 import { useQueueMenu } from '../queue/queueMenu.tsx';
 import { useQueueDrag } from '../queue/useQueueDrag.ts';
 import { QueueRow } from './QueueRow.tsx';
+import { reducedMotion, tween } from './archivedMotion.ts';
 
 const SESSION_ROW_HEIGHT: Record<SidebarStyle, number> = { large: 52, standard: 48, compact: 34 };
 const ARCHIVED_HEADER_HEIGHT = 34;
@@ -46,8 +47,6 @@ const GROUP_HEADER_HEIGHT = 34;
 const HIDDEN_ROW_HEIGHT = 18;
 /** The space below each session button inside its row: picked rows fill it, so a run of picks reads as one block. */
 const SESSION_ROW_GAP: Record<SidebarStyle, number> = { large: 4, standard: 4, compact: 2 };
-/** The list's bottom padding (`pb-2`) while nothing is picked. */
-const LIST_PADDING_BOTTOM = 8;
 
 const rowHeight = (row: SidebarListRow, style: SidebarStyle) =>
   row.kind === 'session'
@@ -72,7 +71,7 @@ const pickButton = 'min-w-0 px-1.5!';
 
 /**
  * A section header in the list, with its count. Needs you and Working take their status colour. Every section but
- * Needs you can close: the chevron sits in the gutter (on hover and focus, always while closed), a closed header
+ * Needs you can close: the chevron sits in the gutter, pointing down while open, a closed header
  * says what matters inside ("2 unread"), ⌥-click opens or closes them all, and ← → close and open the focused one.
  */
 function GroupHeader({ row, selectAll, onToggle }: { row: Extract<SidebarListRow, { kind: 'group' | 'queue-header' }>; selectAll: ReactNode; onToggle(section: SectionKey, all: boolean): void }) {
@@ -117,6 +116,26 @@ function GroupHeader({ row, selectAll, onToggle }: { row: Extract<SidebarListRow
         {label}
       </SectionHeader>
     </div>
+  );
+}
+
+/** The Archived header, docked under the list while closed and in the list while open: the same toggle in both places. */
+function ArchivedHeader({ count, open, onToggle, action }: { count: number; open: boolean; onToggle(): void; action?: ReactNode }) {
+  return (
+    <SectionHeader
+      count={count}
+      toggle={{
+        expanded: open,
+        onToggle,
+        leading: true,
+        tooltip: 'Quiet for 48 hours, or archived by you. They come back when there is something new.',
+        data: { 'data-archived-toggle': true, 'data-open': open },
+      }}
+      action={action}
+      className="h-[22px] flex-1"
+    >
+      Archived
+    </SectionHeader>
   );
 }
 
@@ -426,12 +445,15 @@ export function Sidebar() {
     return map;
   }, [all, now]);
 
-  // Sections (Needs you, Working, the Queue, Pinned, Today, Yesterday, Earlier), then Archived. Closed sections keep
-  // their header (and the open session's row). While searching, archived matches are shown too.
+  // Sections (Needs you, Working, the Queue, Pinned, Today, Yesterday, Earlier), then Archived while it's open. Closed
+  // sections keep their header (and the open session's row). Closed, Archived is docked under the list; while
+  // searching, its matches are listed under the rest.
+  const searching = search.trim() !== '';
+  const archivedAt = archivedPlacement(archived.length, { open: archivedOpen, searching });
   const listSelected = listView === 'session' ? selectedId : null;
   const rows = useMemo(
-    () => buildListRows(active, archived, { now, archivedOpen: archivedOpen || search.trim() !== '', queue: { entries: queueEntries, ready: queueReady }, closed, selectedId: listSelected }),
-    [active, archived, archivedOpen, search, now, queueEntries, queueReady, closed, listSelected],
+    () => buildListRows(active, archived, { now, archivedOpen: archivedAt === 'list', queue: { entries: queueEntries, ready: queueReady }, closed, selectedId: listSelected }),
+    [active, archived, archivedAt, now, queueEntries, queueReady, closed, listSelected],
   );
   const queueMenus = useQueueMenu(queue.rows);
   const drag = useQueueDrag();
@@ -470,21 +492,11 @@ export function Sidebar() {
   };
 
   const scrollRef = useRef<HTMLDivElement>(null);
-  const [listHeight, setListHeight] = useState(0);
-  useEffect(() => {
-    const list = scrollRef.current;
-    if (!list) return;
-    const observer = new ResizeObserver(() => setListHeight(list.clientHeight));
-    observer.observe(list);
-    return () => observer.disconnect();
-  }, []);
-  // Archived sits at the bottom of the sidebar, out of the way, while the list is short: its row takes the room
-  // left over. Search results stay together, archived matches right under the rest.
-  const filler = search.trim() ? 0 : archivedFiller(rows, (row) => rowHeight(row, sidebarStyle), listHeight - LIST_PADDING_BOTTOM);
+  const archivedIndex = rows.findIndex((row) => row.kind === 'archived');
   const virtualizer = useVirtualizer({
     count: rows.length,
     getScrollElement: () => scrollRef.current,
-    estimateSize: (i) => rowHeight(rows[i]!, sidebarStyle) + (rows[i]!.kind === 'archived' ? filler : 0),
+    estimateSize: (i) => rowHeight(rows[i]!, sidebarStyle),
     // Keyed by row, not index: archiving or unarchiving moves the headers without changing the count,
     // and the virtualiser only recomputes positions when the count or this function changes.
     getItemKey: useCallback((i: number) => {
@@ -501,24 +513,107 @@ export function Sidebar() {
                 ? 'queue-header'
                 : 'archived-header';
     }, [rows]),
+    // The Archived header is always rendered, even far below the fold: it slides in from the dock and keeps focus.
+    rangeExtractor: useCallback(
+      (range: Range) => {
+        const indexes = defaultRangeExtractor(range);
+        return archivedIndex === -1 || indexes.includes(archivedIndex) ? indexes : [...indexes, archivedIndex].sort((a, b) => a - b);
+      },
+      [archivedIndex],
+    ),
     overscan: 10,
   });
   // Row heights change with the sidebar style, and a header's height with its place (the first has less room above).
-  useEffect(() => virtualizer.measure(), [sidebarStyle, rows, filler, virtualizer]);
+  useEffect(() => virtualizer.measure(), [sidebarStyle, rows, virtualizer]);
 
-  // Opening Archived at the bottom would list its sessions below the fold: bring its header to the top instead.
-  const revealArchived = useRef(false);
+  // Archived moves between the dock under the list and its place in the list, right under the last active row.
+  // Opening, the header slides up from the dock (FLIP) while the list scrolls it near the top when it would land
+  // low, and its sessions fade in after; closing, they fade out and the header slides back down to the dock.
+  const dockRef = useRef<HTMLDivElement>(null);
+  const [archivedMotion, setArchivedMotion] = useState<'opening' | 'closing' | null>(null);
+  /** Set just before Archived opens or closes: where its header was, for the layout effect to animate from. */
+  const archivedMove = useRef<{ to: 'list' | 'dock'; from: number | null; focus: boolean } | null>(null);
+  const stopArchivedMotion = useRef<(() => void) | null>(null);
+  useEffect(() => () => stopArchivedMotion.current?.(), []);
+  const archivedToggle = (where: 'list' | 'dock') =>
+    (where === 'dock' ? dockRef.current : scrollRef.current?.querySelector('[data-archived-header]'))?.querySelector<HTMLElement>('[data-archived-toggle]') ?? null;
   const toggleArchivedSection = () => {
-    revealArchived.current = !archivedOpen;
-    toggleArchived();
+    stopArchivedMotion.current?.();
+    stopArchivedMotion.current = null;
+    // While searching the header stays in the list either way.
+    if (searching) return toggleArchived();
+    // Clicked again while its sessions fade out: it stays open.
+    if (archivedMotion === 'closing') return setArchivedMotion(null);
+    const focus = !!document.activeElement?.closest('[data-archived-dock], [data-archived-header]');
+    if (!archivedOpen) {
+      archivedMove.current = { to: 'list', from: archivedToggle('dock')?.getBoundingClientRect().top ?? null, focus };
+      setArchivedMotion('opening');
+      toggleArchived();
+      return;
+    }
+    const close = () => {
+      stopArchivedMotion.current = null;
+      archivedMove.current = { to: 'dock', from: archivedToggle('list')?.getBoundingClientRect().top ?? null, focus };
+      setArchivedMotion(null);
+      toggleArchived();
+    };
+    if (reducedMotion()) return close();
+    setArchivedMotion('closing');
+    const timer = window.setTimeout(close, 100);
+    stopArchivedMotion.current = () => window.clearTimeout(timer);
   };
-  useEffect(() => {
-    if (!revealArchived.current) return;
-    revealArchived.current = false;
-    const index = rows.findIndex((row) => row.kind === 'archived');
-    // Set directly rather than with scrollToIndex: that aims at the row's top (the room above the header), and keeps
-    // pulling the list back to it for a few seconds whenever the rows change, as unarchiving does.
-    if (index !== -1) scrollRef.current?.scrollTo({ top: rows.slice(0, index).reduce((top, row) => top + rowHeight(row, sidebarStyle), 0) + filler });
+  useLayoutEffect(() => {
+    const move = archivedMove.current;
+    if (!move) return;
+    archivedMove.current = null;
+    const list = scrollRef.current;
+    const toggle = archivedToggle(move.to);
+    if (move.focus) toggle?.focus({ preventScroll: true });
+    if (!list || !toggle) return setArchivedMotion(null);
+    const still = reducedMotion() || move.from === null;
+    if (move.to === 'list') {
+      const header = toggle.closest<HTMLElement>('[data-archived-header]')!;
+      const offset = rows.slice(0, archivedIndex).reduce((top, row) => top + rowHeight(row, sidebarStyle), 0);
+      const start = list.scrollTop;
+      // Set directly rather than with scrollToIndex: that keeps pulling the list back to the row for a few seconds
+      // whenever the rows change, as unarchiving does.
+      const end = archivedRevealTop(offset, { scrollTop: start, height: list.clientHeight, maxScroll: list.scrollHeight - list.clientHeight }) ?? start;
+      if (still) {
+        list.scrollTop = end;
+        return setArchivedMotion(null);
+      }
+      // The scroll and the slide run on the same frames, so the header moves in one line from the dock to its place.
+      const from = move.from!;
+      const natural = toggle.getBoundingClientRect().top;
+      const to = natural - (end - start);
+      stopArchivedMotion.current = tween(
+        200,
+        (t) => {
+          list.scrollTop = start + (end - start) * t;
+          header.style.transform = `translateY(${from + (to - from) * t - (natural - (list.scrollTop - start))}px)`;
+        },
+        () => {
+          header.style.transform = '';
+          stopArchivedMotion.current = null;
+          setArchivedMotion(null);
+        },
+      );
+      return;
+    }
+    if (still) return;
+    // Back to the dock, from wherever the header was in sight.
+    const dock = dockRef.current!;
+    const to = toggle.getBoundingClientRect().top;
+    const bounds = list.getBoundingClientRect();
+    const from = Math.min(Math.max(move.from!, bounds.top), to);
+    stopArchivedMotion.current = tween(
+      200,
+      (t) => (dock.style.transform = `translateY(${(from - to) * (1 - t)}px)`),
+      () => {
+        dock.style.transform = '';
+        stopArchivedMotion.current = null;
+      },
+    );
   }, [rows]);
 
   // One Tab stop for the whole list: the selected row while it's rendered, else the first rendered one.
@@ -560,7 +655,12 @@ export function Sidebar() {
   // focused row's group; ⌘⌫ deletes the picked sessions, or the focused (else the selected) one; F2 renames it.
   const onKeyDown = (event: KeyboardEvent) => {
     const target = event.target as HTMLElement;
-    // ← → on a section header close and open it.
+    // ← → on a section header close and open it, Archived's too.
+    if (target.closest('[data-archived-header]') && matches(event.nativeEvent, 'sidebar.section-toggle')) {
+      event.preventDefault();
+      if ((event.key === 'ArrowRight') !== archivedOpen) toggleArchivedSection();
+      return;
+    }
     const header = target.closest<HTMLElement>('[data-section-toggle]');
     if (header && matches(event.nativeEvent, 'sidebar.section-toggle')) {
       const section = header.dataset.sectionToggle;
@@ -632,11 +732,33 @@ export function Sidebar() {
     const ids = rows.flatMap((r, index) => (r.kind === 'session' ? [{ id: r.data.id, index }] : []));
     if (ids.length === 0) return;
     const current = ids.findIndex((r) => r.id === selectedId);
+    // ↓ from the last row goes on to the docked Archived header.
+    if (event.key === 'ArrowDown' && current === ids.length - 1 && archivedAt === 'dock') {
+      archivedToggle('dock')?.focus();
+      return;
+    }
     const next = ids[current === -1 ? 0 : Math.min(ids.length - 1, Math.max(0, current + (event.key === 'ArrowDown' ? 1 : -1)))]!;
     select(next.id);
     virtualizer.scrollToIndex(next.index, { align: 'auto' });
     // Focus follows the selection, so VoiceOver reads the new row and Tab stays where you are.
     focusRow(next.id);
+  };
+
+  /** On the docked Archived header: ↑ goes back to the last row of the list, → opens it. */
+  const onDockKeyDown = (event: KeyboardEvent) => {
+    if (matches(event.nativeEvent, 'sidebar.section-toggle')) {
+      event.preventDefault();
+      if (event.key === 'ArrowRight') toggleArchivedSection();
+      return;
+    }
+    if (event.key !== 'ArrowUp' || !matches(event.nativeEvent, 'sidebar.move')) return;
+    const last = order.at(-1);
+    if (!last) return;
+    event.preventDefault();
+    setPicks(NO_PICKS);
+    select(last);
+    virtualizer.scrollToIndex(rows.findIndex((r) => r.kind === 'session' && r.data.id === last), { align: 'auto' });
+    focusRow(last);
   };
 
   // What the picked sessions can do: only indexed ones have flags and a transcript to delete.
@@ -778,6 +900,8 @@ export function Sidebar() {
                   aria-setsize={rows.length}
                   aria-posinset={item.index + 1}
                   style={{ position: 'absolute', top: 0, left: 0, right: 0, height: item.size, transform: `translateY(${item.start}px)` }}
+                  // Archived sessions fade in once their header has landed, and out before it goes back to the dock.
+                  className={row.kind === 'session' && row.archived ? `transition-opacity ${archivedMotion === 'closing' ? 'duration-100' : 'duration-150'} ${archivedMotion ? 'opacity-0' : ''}` : undefined}
                 >
                   {block && (
                     <div
@@ -822,22 +946,9 @@ export function Sidebar() {
                       onMiddleClick={menus.middleClick}
                     />
                   ) : (
-                    // The row holds the room above the header that keeps it at the bottom; the header sits at its foot.
-                    <div className="flex h-full flex-col justify-end">
-                      <SectionHeader
-                        count={row.count}
-                        toggle={{
-                          expanded: row.open,
-                          onToggle: toggleArchivedSection,
-                          leading: true,
-                          tooltip: 'Quiet for 48 hours, or archived by you. They come back when there is something new.',
-                          data: { 'data-archived-toggle': true, 'data-open': row.open },
-                        }}
-                        action={selectAll('archived')}
-                        className="mt-2 h-[26px] shrink-0 pr-1 pl-2.5"
-                      >
-                        Archived
-                      </SectionHeader>
+                    // Like a section header: the label sits at the foot of the row, just above its sessions.
+                    <div className="flex h-full items-end px-2.5 pb-1.5" data-archived-header>
+                      <ArchivedHeader count={row.count} open={row.open} onToggle={toggleArchivedSection} action={selectAll('archived')} />
                     </div>
                   )}
                 </div>
@@ -891,6 +1002,13 @@ export function Sidebar() {
         </div>
       )}
       </div>
+
+      {/* Closed, Archived is docked under the list, so a short list never scrolls and a long one keeps it in sight. */}
+      {archivedAt === 'dock' && (
+        <div ref={dockRef} onKeyDown={onDockKeyDown} className="relative z-10 flex h-9 shrink-0 items-center border-t border-border bg-sidebar px-4.5" data-archived-dock>
+          <ArchivedHeader count={archived.length} open={false} onToggle={toggleArchivedSection} />
+        </div>
+      )}
 
       <footer className="flex h-10 shrink-0 items-center gap-2 border-t border-border px-3 text-meta text-muted">
         {/* The focus limit, while it's on: how many sessions are going, out of how many. */}
