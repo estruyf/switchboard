@@ -1742,10 +1742,14 @@ async function runProjectBranchesStep(win: BrowserWindow, root: string): Promise
   if (!(await waitInPage(win, `${q('[data-project-tab="branches"]')}.getAttribute('aria-selected') === 'true' && (${q('[data-branches-tab]')} || ${q('[data-branches-not-repo]')})`, 20_000))) return 'the Branches tab did not load';
   if (await js(`!!${q('[data-branches-not-repo]')}`)) return 'ok: not a git repository, so no branches';
 
-  // The base branch (or the one checked out) is in use and can't be picked.
+  // The base branch is in use and can't be picked. (Another branch in use, checked out in a worktree, may still be
+  // picked when its remote copy can go, so the check looks at the base itself.)
   const inUse = '[data-branch-row][data-group="in-use"]';
   if (!(await js(`!!${q(inUse)}`))) return 'no branch is listed as in use';
-  if (!(await js(`${q(inUse)}.hasAttribute('data-locked') && !${q(`${inUse} [data-branch-pick]`)}`))) return 'a branch in use can be picked';
+  const baseRow = `${inUse}[data-base]`;
+  if (await js(`!!${q(baseRow)}`)) {
+    if (!(await js(`${q(baseRow)}.hasAttribute('data-locked') && !${q(`${baseRow} [data-branch-pick]`)}`))) return 'the base branch can be picked';
+  }
   const rows = await count('[data-branch-row]');
   const groups = (await js(`[...document.querySelectorAll(${JSON.stringify(`${pageSelector} [data-branch-group]`)})].map((e) => e.dataset.branchGroup)`)) as string[];
   await shot(win, 'project-branches.png');
@@ -3691,8 +3695,13 @@ async function runControlsStep(win: BrowserWindow): Promise<string> {
   const tip = await center('[data-new-session]');
   win.webContents.sendInputEvent({ type: 'mouseMove', x: tip.x, y: tip.y });
   const tooltip = await waitInPage(win, "document.querySelector('[data-tooltip-layer]')?.innerText.includes('New session')", 2_000);
+  const under = tooltip
+    ? null
+    : ((await js(
+        `(() => { const el = document.elementFromPoint(${tip.x}, ${tip.y}); return { at: el ? el.tagName + (el.closest('[data-new-session]') ? ' in the button' : '') : 'nothing', layer: document.querySelector('[data-tooltip-layer]')?.innerText ?? null }; })()`,
+      )) as { at: string; layer: string | null });
   win.webContents.sendInputEvent({ type: 'mouseMove', x: tip.x + 400, y: tip.y + 300 });
-  if (!tooltip) return 'no themed tooltip on the New session button';
+  if (!tooltip) return `no themed tooltip on the New session button (${JSON.stringify(under)})`;
 
   // Tab that picks a slash command stays in the message box: it must not turn on the keyboard focus ring.
   // Picking only fills in the text; the box is emptied again and nothing is sent.
