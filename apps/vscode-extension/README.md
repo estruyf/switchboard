@@ -10,11 +10,13 @@
 
 Send what you're looking at in VS Code to a [Switchboard](https://github.com/estruyf/switchboard) session: the open file, the selected lines, several files from the Explorer, problems, terminal output and changed files. It arrives as chips in the session's message box. Nothing is sent to Claude until you add your question and press ⌘↵ in Switchboard.
 
+It also works the other way: when a session in this workspace asks for a permission, has a question or a plan, you can answer it from a VS Code notification.
+
 This is a companion, not a chat. Claude Code's own extension stays the chat inside VS Code; Switchboard is where you manage your sessions and talk to them.
 
 ## Requirements
 
-- [Switchboard](https://github.com/estruyf/switchboard) 0.0.13 or later, on the same Mac.
+- [Switchboard](https://github.com/estruyf/switchboard) 0.0.13 or later, on the same Mac. Answering prompts needs 0.0.14 or later.
 - VS Code 1.95 or later (or Cursor, Windsurf, VSCodium).
 
 ## What you can send
@@ -26,10 +28,21 @@ This is a companion, not a chat. Claude Code's own extension stays the chat insi
 | Files and folders in the Explorer (several at once) | one chip each |
 | Open editors, all or one tab group | one chip per file |
 | Problems in a file or the whole workspace | the errors and warnings, as text |
+| **Fix in Switchboard** in the quick fixes (⌘.) of an error or warning | the problem as text, and the lines it is on |
 | Selected terminal output (⌥⇧K in the terminal, or right-click) | the output, as text |
 | Files in Source Control | the changed files |
 
 Files go as references (a path and its lines), so a large selection stays small. Two things go as text instead: a selection in a file with **unsaved changes** (Claude would read the old version on disk), and things that aren't files, such as problems and terminal output.
+
+## Answer prompts
+
+When a session in this workspace waits for you, a notification says which session and what it asks:
+
+- **A permission** ("Claude wants to run `npm test`"): **Allow**, **Always allow** (when Claude Code offers a rule), **Deny…** (with what to do instead, if you like) or **Show in Switchboard**.
+- **A question**: **Answer…** asks each question in a list (pick several where the question allows, or type your own answer), or **Skip**.
+- **A plan**: **Read the plan** opens it in a Markdown preview, then **Approve and accept edits**, **Approve, ask before edits** or **Keep planning…** with what to change.
+
+Closing a notification leaves the prompt waiting in Switchboard; **Switchboard: Answer Prompts** shows it again. If you already answered in Switchboard, the extension says so.
 
 ## Which session
 
@@ -55,12 +68,14 @@ The connection is a socket only your user account can open, with a token Switchb
 |---|---|
 | `switchboard.bringToFront` | Bring Switchboard to the front on the session when you add something (on by default). Turn it off to add context quietly. |
 | `switchboard.statusBar` | Show the status bar item (on by default). |
+| `switchboard.prompts` | Show prompts, questions and plans from this workspace's sessions as notifications you can answer (on by default). |
+| `switchboard.quickFix` | Offer **Fix in Switchboard** in the quick fixes of errors and warnings (on by default). |
 | `switchboard.editorTitleButton` | A button in the editor title bar that adds the selection or the file (off by default). |
 | `switchboard.appDataFolder` | Where Switchboard keeps its data, for a build started with `SWITCHBOARD_DATA_DIR`. |
 
 ## Commands
 
-All under **Switchboard:** in the command palette: *Add Selection to Switchboard*, *Add to Switchboard*, *Add Open Editors*, *Add Editors in This Group*, *Add Problems in This File*, *Add Problems in the Workspace*, *Add Terminal Selection*, *Add Changes*, *Show Sessions* and *Reconnect*.
+All under **Switchboard:** in the command palette: *Add Selection to Switchboard*, *Add to Switchboard*, *Add Open Editors*, *Add Editors in This Group*, *Add Problems in This File*, *Add Problems in the Workspace*, *Fix in Switchboard*, *Add Terminal Selection*, *Add Changes*, *Answer Prompts*, *Show Sessions* and *Reconnect*.
 
 ## License
 

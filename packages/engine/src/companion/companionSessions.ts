@@ -1,10 +1,12 @@
-import type { CompanionSession, CompanionStatus, LiveSession, SessionHostInfo, SessionSummary } from '@switchboard/protocol';
+import type { CompanionSession, CompanionStatus, LiveSession, PermissionRequest, SessionHostInfo, SessionSummary } from '@switchboard/protocol';
 
 /** What the engine knows about sessions: transcripts, running processes, and the ones this app runs. */
 export interface SessionSources {
   summaries: readonly SessionSummary[];
   live: readonly LiveSession[];
   hosts: readonly SessionHostInfo[];
+  /** Permission prompts, questions and plans the sessions this app runs are waiting on. */
+  permissions?: readonly PermissionRequest[];
 }
 
 const activeHost = (host: SessionHostInfo | undefined): host is SessionHostInfo => !!host && host.state !== 'closed' && host.state !== 'error';
@@ -145,4 +147,10 @@ export function sessionsFor(all: readonly CompanionSession[], folders: readonly 
     .filter((s) => inFolders(s, folders))
     .sort((a, b) => URGENCY[a.status] - URGENCY[b.status] || b.updatedAt - a.updatedAt)
     .slice(0, limit);
+}
+
+/** The prompts of these sessions, oldest first. */
+export function promptsFor(permissions: readonly PermissionRequest[], sessions: readonly Pick<CompanionSession, 'id'>[]): PermissionRequest[] {
+  const ids = new Set(sessions.map((s) => s.id));
+  return permissions.filter((p) => ids.has(p.sessionId)).sort((a, b) => a.createdAt - b.createdAt);
 }

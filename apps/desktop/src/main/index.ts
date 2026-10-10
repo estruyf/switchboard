@@ -4,7 +4,7 @@ import { homedir, tmpdir } from 'node:os';
 import { createConnection } from 'node:net';
 import { join } from 'node:path';
 import { app, BrowserWindow, dialog, ipcMain, Menu, MessageChannelMain, nativeTheme, screen, shell, type MenuItemConstructorOptions } from 'electron';
-import { IpcChannel, isThemeId, sanitizePreferences, type AppInfo, type DeepLinkMessage, type RendererReadyReport, type ThemeCommand, type UpdateCommand } from '@switchboard/protocol/bridge';
+import { IMAGE_EXTENSIONS, IpcChannel, isThemeId, sanitizePreferences, type AppInfo, type DeepLinkMessage, type RendererReadyReport, type ThemeCommand, type UpdateCommand } from '@switchboard/protocol/bridge';
 import { COMPANION_DIR, COMPANION_INFO_FILE, COMPANION_PROTOCOL, createRpcClient, lineTransport, type CompanionContract, type CompanionInfo } from '@switchboard/protocol/companion-client';
 import { BUILT_IN_THEMES } from '../../../ui/src/themes/index.ts';
 import { EngineProcess } from './engineProcess.ts';
@@ -563,6 +563,41 @@ ipcMain.handle(IpcChannel.chooseImportFile, async (event) => {
   return result.canceled ? null : (result.filePaths[0] ?? null);
 });
 
+/** The smoke run has no one to answer the save dialog: images go to a folder in its throwaway profile. */
+const smokeImageExports = () => join(app.getPath('userData'), 'smoke-image-exports');
+/** Images saved this run: the only paths Show in Finder will reveal. */
+const savedImages = new Set<string>();
+
+ipcMain.handle(IpcChannel.saveImage, async (event, request: unknown) => {
+  const { mediaType, data, fileName } = (request ?? {}) as Record<string, unknown>;
+  const extension = typeof mediaType === 'string' ? IMAGE_EXTENSIONS[mediaType] : undefined;
+  if (!extension || typeof data !== 'string' || !data) throw new Error('Not an image that can be saved');
+  const name = typeof fileName === 'string' && /^[\w .-]{1,80}$/.test(fileName) && fileName.toLowerCase().endsWith(`.${extension}`) ? fileName : `image.${extension}`;
+  let path: string;
+  if (smokeOutDir) {
+    mkdirSync(smokeImageExports(), { recursive: true });
+    path = join(smokeImageExports(), name);
+  } else {
+    const win = BrowserWindow.fromWebContents(event.sender);
+    const options: Electron.SaveDialogOptions = {
+      title: 'Save image',
+      defaultPath: join(app.getPath('downloads'), name),
+      filters: [{ name: `${extension.toUpperCase()} image`, extensions: extension === 'jpg' ? ['jpg', 'jpeg'] : [extension] }],
+      properties: ['createDirectory', 'showOverwriteConfirmation'],
+    };
+    const result = win ? await dialog.showSaveDialog(win, options) : await dialog.showSaveDialog(options);
+    if (result.canceled || !result.filePath) return null;
+    path = result.filePath;
+  }
+  writeFileSync(path, Buffer.from(data, 'base64'));
+  savedImages.add(path);
+  return path;
+});
+
+ipcMain.on(IpcChannel.showSavedImage, (_event, path: unknown) => {
+  if (typeof path === 'string' && savedImages.has(path)) shell.showItemInFolder(path);
+});
+
 const readyReports: TimedReport[] = [];
 ipcMain.on(IpcChannel.rendererReady, (event, report: RendererReadyReport) => {
   const timed: TimedReport = {
@@ -659,6 +694,17 @@ async function runLiveSessionStep(win: BrowserWindow, cwd: string): Promise<stri
   await new Promise((resolve) => setTimeout(resolve, 800));
   await shot('session.png');
   if (!(await waitInPage(win, "document.querySelector('[data-transcript-image] img')", 5_000))) return 'the attached image is not shown in the transcript';
+  // Save it from its context menu: the smoke run writes it to its throwaway profile instead of asking where.
+  await win.webContents.executeJavaScript(`(() => {
+    const thumb = document.querySelector('[data-transcript-image]');
+    const r = thumb.getBoundingClientRect();
+    thumb.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: r.left + 4, clientY: r.top + 4 }));
+  })()`);
+  if (!(await waitInPage(win, "document.querySelector('[data-image-menu-save]')", 3_000))) return 'the image has no Save image… in its context menu';
+  await click('[data-image-menu-save]');
+  if (!(await waitInPage(win, "document.querySelector('[data-image-saved]')", 5_000))) return 'saving the image did not confirm';
+  const savedPath = (await win.webContents.executeJavaScript("document.querySelector('[data-image-saved]').dataset.imageSaved")) as string;
+  if (!savedPath.startsWith(smokeImageExports()) || !existsSync(savedPath) || !readFileSync(savedPath).subarray(1, 4).equals(Buffer.from('PNG'))) return `the saved image is not a PNG at ${savedPath}`;
   const colour = await win.webContents.executeJavaScript(
     "[...document.querySelectorAll('[data-item-kind=\"text\"]')].map((el) => el.innerText).find((t) => t.includes('SMOKE OK'))",
   );
@@ -3040,6 +3086,137 @@ async function runSectionsStep(win: BrowserWindow): Promise<string> {
   return `ok: closed ${group} (${before} ${before === 1 ? 'row' : 'rows'} hidden, header "${header}"${summary ? `, summary "${summary}"` : ''}), ← → on the header, Earlier ${earlier === 'none' ? 'not shown' : 'starts closed'}`;
 }
 
+/**
+ * Archived docks under the list while closed (a list that fits doesn't scroll), moves into the list right under the
+ * last active row when opened (no gap, its header in the upper half), and back to the dock when closed; → and ← do the
+ * same from the keyboard, with focus following the header. Every collapsible header shows its chevron. Sidebar shots
+ * of both, in light and dark. Only the throwaway profile's UI state changes.
+ */
+async function runArchivedDockStep(win: BrowserWindow): Promise<string> {
+  const js = (code: string) => win.webContents.executeJavaScript(code);
+  const list = "document.querySelector('[data-session-list]')";
+  const dock = "document.querySelector('[data-archived-dock]')";
+  const header = "document.querySelector('[data-archived-header]')";
+  const toggle = (where: string) => `${where}?.querySelector('[data-archived-toggle]')`;
+  // Done moving: the header carries no FLIP transform and the archived rows are fully shown.
+  const landed = `!!${header} && !${dock} && ${header}.style.transform === '' && ![...document.querySelectorAll('[data-session-list] [role=listitem].opacity-0')].length`;
+  const scheme = preferences.get().colorScheme;
+  try {
+    await js(`${list}.scrollTop = 0`);
+    if (await js(`${toggle(header)}?.dataset.open === 'true'`)) {
+      await js(`${toggle(header)}.click()`);
+      if (!(await waitInPage(win, `!!${dock}`, 2_000))) return 'closing Archived did not dock it';
+    }
+    if (!(await js(`!!${dock}`))) return 'ok: skipped, no archived sessions';
+    // Every collapsible header shows its chevron, open or closed, without hovering.
+    const hidden = (await js("[...document.querySelectorAll('[data-section-toggle], [data-archived-toggle]')].filter((b) => { const svg = b.querySelector('svg'); return !svg || getComputedStyle(svg).opacity !== '1'; }).length")) as number;
+    if (hidden) return `${hidden} section header(s) without a visible chevron`;
+    const docked = (await js(`(() => {
+      const l = ${list}, d = ${dock}, lr = l.getBoundingClientRect(), dr = d.getBoundingClientRect();
+      const content = l.firstElementChild.offsetHeight + parseFloat(getComputedStyle(l).paddingBottom);
+      return { outside: !l.contains(d), below: dr.top >= lr.bottom - 1, fits: content <= l.clientHeight, scrolls: l.scrollHeight > l.clientHeight };
+    })()`)) as { outside: boolean; below: boolean; fits: boolean; scrolls: boolean };
+    if (!docked.outside || !docked.below) return 'the closed Archived header is not docked under the list';
+    if (docked.fits && docked.scrolls) return 'a list that fits still scrolls';
+    const sidebarShot = async (name: string) => {
+      await settle(win);
+      const rect = (await js("(() => { const r = document.querySelector('[data-sidebar-open]').getBoundingClientRect(); return { x: Math.round(r.x), y: Math.round(r.y), width: Math.round(r.width), height: Math.round(r.height) }; })()")) as Electron.Rectangle;
+      writeFileSync(join(smokeOutDir!, name), (await win.webContents.capturePage(rect)).toPNG());
+    };
+    for (const colorScheme of ['light', 'dark'] as const) {
+      await setColorScheme(win, colorScheme);
+      await sidebarShot(`archived-closed-${colorScheme}.png`);
+    }
+
+    await js(`${toggle(dock)}.click()`);
+    if (!(await waitInPage(win, landed, 2_000))) return 'opening Archived did not move its header into the list';
+    const open = (await js(`(() => {
+      const item = ${header}.closest('[role=listitem]'), at = Number(item.getAttribute('aria-posinset'));
+      const prev = [...document.querySelectorAll('[data-session-list] [role=listitem]')].find((r) => Number(r.getAttribute('aria-posinset')) === at - 1);
+      const l = ${list};
+      return { gap: prev ? Math.round(item.getBoundingClientRect().top - prev.getBoundingClientRect().bottom) : 0, top: item.getBoundingClientRect().top - l.getBoundingClientRect().top, half: l.clientHeight / 2 };
+    })()`)) as { gap: number; top: number; half: number };
+    if (open.gap !== 0) return `a ${open.gap}px gap above the open Archived header`;
+    if (open.top > open.half) return `the open Archived header sits low in the list (${Math.round(open.top)}px of ${Math.round(open.half * 2)}px)`;
+    for (const colorScheme of ['light', 'dark'] as const) {
+      await setColorScheme(win, colorScheme);
+      await sidebarShot(`archived-open-${colorScheme}.png`);
+    }
+
+    await js(`${toggle(header)}.click()`);
+    if (!(await waitInPage(win, `!!${dock} && !${header} && ${dock}.style.transform === ''`, 2_000))) return 'closing Archived did not dock it again';
+    // From the keyboard: → opens it and focus follows the header into the list, ← sends both back to the dock.
+    await js(`${toggle(dock)}.focus()`);
+    pressKey(win, 'Right');
+    if (!(await waitInPage(win, `${landed} && document.activeElement === ${toggle(header)}`, 2_000))) return '→ on the docked header did not open Archived with focus on its header';
+    pressKey(win, 'Left');
+    if (!(await waitInPage(win, `!!${dock} && document.activeElement === ${toggle(dock)}`, 2_000))) return '← on the open header did not dock it with focus';
+    // A long list: check a short one too, with the project that has the fewest sessions.
+    const short = docked.fits ? null : await shortArchivedList(win, sidebarShot);
+    if (short && !short.startsWith('ok')) return short;
+    return `ok: docked under the list${docked.fits ? ' (no scrollbar)' : ' (long list scrolls)'}, opens with no gap at ${Math.round(open.top)}px, closes to the dock, → ← with focus${short ? `; ${short.slice(4)}` : ''}`;
+  } finally {
+    updatePreferences({ colorScheme: scheme });
+  }
+}
+
+/**
+ * The Archived dock on a short list: with every section closed (⌥-click), the list fits without scrolling and Archived
+ * opens right under it. The sections that were open are opened again afterwards, from the bottom up.
+ */
+async function shortArchivedList(win: BrowserWindow, sidebarShot: (name: string) => Promise<void>): Promise<string> {
+  const js = (code: string) => win.webContents.executeJavaScript(code);
+  const list = "document.querySelector('[data-session-list]')";
+  const dock = "document.querySelector('[data-archived-dock]')";
+  const header = "document.querySelector('[data-archived-header]')";
+  // Which sections are open: the list is virtualised, so walk it from top to bottom.
+  const open: string[] = [];
+  const seen = new Set<string>();
+  await js(`${list}.scrollTop = 0`);
+  for (let i = 0; i < 60; i++) {
+    await settle(win, 100);
+    const headers = (await js("[...document.querySelectorAll('[data-section-toggle]')].map((b) => [b.dataset.sectionToggle, b.dataset.open])")) as Array<[string, string]>;
+    for (const [section, state] of headers) {
+      if (seen.has(section)) continue;
+      seen.add(section);
+      if (state === 'true') open.push(section);
+    }
+    if (await js(`${list}.scrollTop + ${list}.clientHeight >= ${list}.scrollHeight - 1`)) break;
+    await js(`${list}.scrollTop += ${list}.clientHeight / 2`);
+  }
+  await js(`${list}.scrollTop = 0`);
+  if (open.length === 0) return 'ok: every section already closed';
+  const toggle = (section: string) => `document.querySelector('[data-section-toggle="${section}"]')`;
+  await settle(win, 100);
+  await js(`${toggle(open[0]!)}.dispatchEvent(new MouseEvent('click', { bubbles: true, altKey: true }))`);
+  try {
+    if (!(await waitInPage(win, "[...document.querySelectorAll('[data-section-toggle]')].every((b) => b.dataset.open === 'false')", 2_000))) return '⌥-click did not close every section';
+    await settle(win);
+    const fit = (await js(`(() => { const l = ${list}; const content = l.firstElementChild.offsetHeight + parseFloat(getComputedStyle(l).paddingBottom); return { fits: content <= l.clientHeight, scrolls: l.scrollHeight > l.clientHeight }; })()`)) as { fits: boolean; scrolls: boolean };
+    if (!fit.fits) return 'ok: the list fills the sidebar even with every section closed';
+    if (fit.scrolls) return 'a short list still scrolls';
+    await sidebarShot('archived-short-closed.png');
+    await js(`${dock}.querySelector('[data-archived-toggle]').click()`);
+    if (!(await waitInPage(win, `!!${header} && !${dock} && ${header}.style.transform === '' && ![...document.querySelectorAll('[data-session-list] [role=listitem].opacity-0')].length`, 2_000))) return 'Archived did not open on the short list';
+    const placed = (await js(`(() => {
+      const item = ${header}.closest('[role=listitem]'), at = Number(item.getAttribute('aria-posinset'));
+      const prev = [...document.querySelectorAll('[data-session-list] [role=listitem]')].find((r) => Number(r.getAttribute('aria-posinset')) === at - 1);
+      return { gap: prev ? Math.round(item.getBoundingClientRect().top - prev.getBoundingClientRect().bottom) : 0, top: item.getBoundingClientRect().top - ${list}.getBoundingClientRect().top, half: ${list}.clientHeight / 2 };
+    })()`)) as { gap: number; top: number; half: number };
+    await sidebarShot('archived-short-open.png');
+    await js(`${header}.querySelector('[data-archived-toggle]').click()`);
+    if (!(await waitInPage(win, `!!${dock}`, 2_000))) return 'Archived did not dock again on the short list';
+    if (placed.gap !== 0) return `a ${placed.gap}px gap above the open Archived header on a short list`;
+    if (placed.top > placed.half) return `the open Archived header sits low on a short list (${Math.round(placed.top)}px)`;
+    return 'ok: a short list (every section closed) has no scrollbar, and Archived opens right under it';
+  } finally {
+    for (const section of [...open].reverse()) {
+      await js(`${toggle(section)}?.dataset.open === 'false' && ${toggle(section)}.click()`);
+      await settle(win, 50);
+    }
+  }
+}
+
 /** Presses a key in the page (down and up), with modifiers. */
 function pressKey(win: BrowserWindow, keyCode: string, modifiers: Array<'meta' | 'shift' | 'alt' | 'control'> = []): void {
   win.webContents.sendInputEvent({ type: 'keyDown', keyCode, modifiers });
@@ -4035,6 +4212,7 @@ async function runSmokeStep(win: BrowserWindow | null): Promise<void> {
   await step('VS Code companion', () => runCompanionStep(win));
   await step('queue', () => runQueueStep(win));
   await step('collapsible sections', () => runSectionsStep(win));
+  await step('archived dock', () => runArchivedDockStep(win));
   await step('quick question', () => runQuickQuestionStep(win));
   await step('usage band above the composer', async () => {
     if (!(await waitInPage(win, "document.querySelector('[data-usage-band]')", 15_000))) return 'failed: not shown';

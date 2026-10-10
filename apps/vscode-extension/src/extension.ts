@@ -7,6 +7,7 @@ import type { CompanionSessions, CompanionTarget, ContextItemInput } from '@swit
 import { SwitchboardConnection, type CompanionClient } from './connection.ts';
 import { deniedByRead, excludedBy, readRules, type ClaudeSettingsFile } from './exclusions.ts';
 import { describeItems, itemPaths, problemsItem, resourceItems, selectionItem, terminalItem, type EditorSelection, type Problem } from './payload.ts';
+import { PromptNotifier } from './promptNotifier.ts';
 import { focusedTarget, folderFor, sessionRow, statusBarView } from './targets.ts';
 
 /** Switchboard's bundle id, to open it without changing what it shows. */
@@ -38,8 +39,9 @@ export function activate(context: vscode.ExtensionContext): void {
     version: String(context.extension.packageJSON.version ?? '0.0.0'),
     log: (message) => output.info(message),
   });
-  const statusBar = new StatusBar(connection);
-  context.subscriptions.push(output, statusBar, { dispose: () => connection.dispose() });
+  const prompts = new PromptNotifier(connection, () => config().get<boolean>('prompts', true));
+  const statusBar = new StatusBar(connection, (snapshot) => prompts.update(snapshot));
+  context.subscriptions.push(output, prompts, statusBar, { dispose: () => connection.dispose() });
 
   /** Opens Switchboard (it isn't running), then waits for its engine. */
   const launch = async (folder: string | null): Promise<CompanionClient | null> => {
@@ -100,28 +102,26 @@ export function activate(context: vscode.ExtensionContext): void {
     if (!editor) return void vscode.window.showInformationMessage('Open a file first.');
     const { document } = editor;
     if (document.uri.scheme !== 'file' && document.uri.scheme !== 'untitled') return void vscode.window.showInformationMessage('Only files on this Mac can be added to Switchboard.');
-    const path = document.uri.scheme === 'file' ? document.uri.fsPath : null;
     const selections = editor.selections.filter((s) => !s.isEmpty);
-    const withhold = path && document.isDirty ? await withholdReason(path) : null;
-    const results = (selections.length ? selections : [editor.selection]).map((selection) =>
-      selectionItem(
-        {
-          path,
-          name: basename(document.fileName),
-          startLine: selection.start.line,
-          endLine: selection.end.line,
-          endCharacter: selection.end.character,
-          isEmpty: selection.isEmpty,
-          dirty: document.isDirty,
-          text: selection.isEmpty ? document.getText() : document.getText(selection),
-          languageId: document.languageId,
-        } satisfies EditorSelection,
-        withhold,
-      ),
-    );
-    const withheld = results.find((r) => r.kind === 'withheld');
-    if (withheld?.kind === 'withheld') void vscode.window.showWarningMessage(`Sent a reference without your unsaved changes: ${withheld.reason}. Save the file for Claude to see them.`);
-    await send(results.map((r) => r.item));
+    await send(await rangeItems(document, selections.length ? selections : [editor.selection]));
+  });
+
+  // The quick fix on an error or warning: the problem, and the lines it is on.
+  command('switchboard.fixProblems', async (uri?: vscode.Uri, diagnostics?: vscode.Diagnostic[]) => {
+    const editor = vscode.window.activeTextEditor;
+    const target = uri ?? editor?.document.uri;
+    if (!target || target.scheme !== 'file') return void vscode.window.showInformationMessage('Open a file first.');
+    // From the command palette: the problems where the cursor is, else every problem in the file.
+    const all = vscode.languages.getDiagnostics(target).filter(isProblem);
+    const atCursor = editor && editor.document.uri.toString() === target.toString() ? all.filter((d) => editor.selections.some((s) => d.range.intersection(s) !== undefined)) : [];
+    const picked = diagnostics?.length ? diagnostics : atCursor.length ? atCursor : all;
+    const problems = problemsItem(toProblems([[target, picked]]), shortPath, target.fsPath);
+    if (!problems) return void vscode.window.showInformationMessage(`No errors or warnings in ${basename(target.fsPath)}.`);
+    const document = await vscode.workspace.openTextDocument(target);
+    // The whole lines the problems are on (a problem on an empty line leaves the whole file).
+    const span = picked.reduce((range, d) => range.union(d.range), picked[0]!.range);
+    const lines = new vscode.Selection(span.start.line, 0, span.end.line, document.lineAt(span.end.line).text.length);
+    await send([...(await rangeItems(document, [lines])), problems]);
   });
 
   command('switchboard.addFile', async (uri?: vscode.Uri, uris?: vscode.Uri[]) => {
@@ -174,6 +174,12 @@ export function activate(context: vscode.ExtensionContext): void {
     else if (target?.kind === 'new') await run('open', [`switchboard://new-session?cwd=${encodeURIComponent(target.cwd)}`]);
   };
   command('switchboard.showSessions', () => showSessions().catch((error: Error) => vscode.window.showErrorMessage(`Couldn't reach Switchboard: ${error.message}`)));
+  command('switchboard.answerPrompts', async () => {
+    const client = await connection.connect();
+    if (!client) return void showOffline(connection);
+    const snapshot = await client.call('sessions.list', { folders: workspaceFolders() });
+    if (prompts.showAll(snapshot) === 0) void vscode.window.showInformationMessage('Nothing in this workspace is waiting for you in Switchboard.');
+  });
   command('switchboard.reconnect', async () => {
     const client = await connection.reconnect();
     if (client) vscode.window.setStatusBarMessage('$(check) Connected to Switchboard', 3_000);
@@ -187,6 +193,7 @@ export function activate(context: vscode.ExtensionContext): void {
   });
 
   context.subscriptions.push(
+    vscode.languages.registerCodeActionsProvider({ scheme: 'file' }, new FixInSwitchboard(), { providedCodeActionKinds: FixInSwitchboard.kinds }),
     vscode.workspace.onDidChangeWorkspaceFolders(() => statusBar.watch()),
     vscode.workspace.onDidChangeConfiguration((event) => {
       if (event.affectsConfiguration('switchboard.appDataFolder')) void connection.reconnect();
@@ -206,7 +213,10 @@ class StatusBar implements vscode.Disposable {
   private readonly stop: () => void;
   view = statusBarView(null);
 
-  constructor(private readonly connection: SwitchboardConnection) {
+  constructor(
+    private readonly connection: SwitchboardConnection,
+    private readonly onSnapshot: (snapshot: CompanionSessions | null) => void,
+  ) {
     this.item.name = 'Switchboard';
     this.item.command = 'switchboard.statusBarClick';
     this.stop = connection.onChange(() => this.watch());
@@ -220,17 +230,20 @@ class StatusBar implements vscode.Disposable {
     const client = this.connection.client;
     if (!client) {
       this.snapshot = null;
+      this.onSnapshot(null);
       return this.render();
     }
     const folders = workspaceFolders();
     this.off = client.on('sessions.changed', (snapshot) => {
       this.snapshot = snapshot;
+      this.onSnapshot(snapshot);
       this.render();
     });
     void client
       .call('sessions.list', { folders })
       .then((snapshot) => {
         this.snapshot = snapshot;
+        this.onSnapshot(snapshot);
         this.render();
         return client.call('sessions.watch', { folders });
       })
@@ -251,6 +264,52 @@ class StatusBar implements vscode.Disposable {
     this.stop();
     this.item.dispose();
   }
+}
+
+const isProblem = (d: vscode.Diagnostic) => d.severity === vscode.DiagnosticSeverity.Error || d.severity === vscode.DiagnosticSeverity.Warning;
+
+/** "Fix in Switchboard" in the light bulb of an error or warning. */
+class FixInSwitchboard implements vscode.CodeActionProvider {
+  static readonly kinds = [vscode.CodeActionKind.QuickFix];
+
+  provideCodeActions(document: vscode.TextDocument, _range: vscode.Range, context: vscode.CodeActionContext): vscode.CodeAction[] {
+    if (!config().get<boolean>('quickFix', true)) return [];
+    const diagnostics = context.diagnostics.filter(isProblem);
+    if (diagnostics.length === 0) return [];
+    const action = new vscode.CodeAction('Fix in Switchboard', vscode.CodeActionKind.QuickFix);
+    action.diagnostics = diagnostics;
+    action.command = { command: 'switchboard.fixProblems', title: 'Fix in Switchboard', arguments: [document.uri, diagnostics] };
+    return [action];
+  }
+}
+
+/**
+ * Selections in a document as context: references to their lines, or their text when the document has unsaved
+ * changes (unless the file's text must not be sent; then a warning says the reference went without them). An empty
+ * selection is the whole document.
+ */
+async function rangeItems(document: vscode.TextDocument, selections: readonly vscode.Selection[]): Promise<ContextItemInput[]> {
+  const path = document.uri.scheme === 'file' ? document.uri.fsPath : null;
+  const withhold = path && document.isDirty ? await withholdReason(path) : null;
+  const results = selections.map((selection) =>
+    selectionItem(
+      {
+        path,
+        name: basename(document.fileName),
+        startLine: selection.start.line,
+        endLine: selection.end.line,
+        endCharacter: selection.end.character,
+        isEmpty: selection.isEmpty,
+        dirty: document.isDirty,
+        text: selection.isEmpty ? document.getText() : document.getText(selection),
+        languageId: document.languageId,
+      } satisfies EditorSelection,
+      withhold,
+    ),
+  );
+  const withheld = results.find((r) => r.kind === 'withheld');
+  if (withheld?.kind === 'withheld') void vscode.window.showWarningMessage(`Sent a reference without your unsaved changes: ${withheld.reason}. Save the file for Claude to see them.`);
+  return results.map((r) => r.item);
 }
 
 function showOffline(connection: SwitchboardConnection): void {
@@ -303,7 +362,7 @@ async function gitChanges(): Promise<vscode.Uri[]> {
 function toProblems(entries: ReadonlyArray<readonly [vscode.Uri, readonly vscode.Diagnostic[]]>): Problem[] {
   return entries.flatMap(([uri, diagnostics]) =>
     diagnostics
-      .filter((d) => d.severity === vscode.DiagnosticSeverity.Error || d.severity === vscode.DiagnosticSeverity.Warning)
+      .filter(isProblem)
       .map((d) => ({
         path: uri.fsPath,
         line: d.range.start.line,

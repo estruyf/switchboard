@@ -74,6 +74,11 @@
         "category": "Switchboard"
       },
       {
+        "command": "switchboard.fixProblems",
+        "title": "Fix in Switchboard",
+        "category": "Switchboard"
+      },
+      {
         "command": "switchboard.addWorkspaceProblems",
         "title": "Add Problems in the Workspace to Switchboard",
         "category": "Switchboard"
@@ -86,6 +91,11 @@
       {
         "command": "switchboard.addChanges",
         "title": "Add Changes to Switchboard",
+        "category": "Switchboard"
+      },
+      {
+        "command": "switchboard.answerPrompts",
+        "title": "Answer Prompts",
         "category": "Switchboard"
       },
       {
@@ -161,6 +171,10 @@
         {
           "command": "switchboard.addFile",
           "when": "resourceScheme == file"
+        },
+        {
+          "command": "switchboard.fixProblems",
+          "when": "resourceScheme == file"
         }
       ]
     },
@@ -188,6 +202,16 @@
           "type": "boolean",
           "default": true,
           "markdownDescription": "Show what needs you in Switchboard (for this workspace) in the status bar."
+        },
+        "switchboard.prompts": {
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "Show permission prompts, questions and plans from this workspace's sessions as notifications, and answer them in VS Code. Dismissing one leaves it waiting in Switchboard; **Switchboard: Answer Prompts** shows it again."
+        },
+        "switchboard.quickFix": {
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "Offer **Fix in Switchboard** in the quick fixes of an error or warning: it adds the problem and its lines to a session."
         },
         "switchboard.editorTitleButton": {
           "type": "boolean",
