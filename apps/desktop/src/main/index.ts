@@ -3917,8 +3917,9 @@ async function runArchiveStep(win: BrowserWindow): Promise<string> {
     return `archived session not found under Archived: ${seen}`;
   }
   if (!(await menu('Unarchive'))) return 'no Unarchive item';
-  await js(toTop);
-  if (!(await waitInPage(win, inMainList, 3_000))) return 'unarchiving did nothing';
+  // Scroll to the top on every check: opening Archived above slides the list down to it for 200ms, which would undo a
+  // single scroll made while it runs and leave the unarchived row out of the virtualised list.
+  if (!(await waitInPage(win, `(${toTop}, ${inMainList})`, 3_000))) return 'unarchiving did nothing';
   return `ok: archived ${working ? 'a working session' : 'a session'} and unarchived it`;
 }
 
