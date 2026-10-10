@@ -28,7 +28,7 @@ function describeDefaults(d: ProjectDefaults): string {
 }
 
 /** Where a menu opened from the keyboard goes (no pointer position): under the button. */
-const menuPoint = (event: MouseEvent<HTMLElement>) => {
+export const menuPoint = (event: MouseEvent<HTMLElement>) => {
   const rect = event.currentTarget.getBoundingClientRect();
   return event.detail ? { x: event.clientX, y: event.clientY } : { x: rect.left, y: rect.bottom + 4 };
 };
@@ -143,11 +143,7 @@ export function ProjectManagerView() {
   };
 
   // The icon opens only the icon and name choices; ⋯ has everything, removing included.
-  const entries: MenuEntry[] = menu
-    ? menu.full
-      ? icons.entries(menu.root, menu)
-      : icons.entries(menu.root, menu).filter((e) => typeof e === 'string' || !('label' in e) || !/^(Remove|Project settings|Open project|Worktrees)/.test(e.label))
-    : [];
+  const entries: MenuEntry[] = menu ? icons.entries(menu.root, menu, { identity: !menu.full }) : [];
 
   return (
     <div className="@container flex h-full min-h-0 flex-col" data-project-manager>

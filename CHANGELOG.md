@@ -8,12 +8,13 @@ All notable changes to Switchboard are listed here. Each release is also on the 
 
 - **Answer prompts from VS Code.** With the VS Code companion, a permission prompt, question or plan from a session in the open workspace shows as a VS Code notification you can answer there. Your answer works as if you gave it in Switchboard, and the card goes away.
 - Save an image from the conversation: use the save button on the image, right-click it and choose Save image…, or press ⌘S while it is open full size.
-- **A page for each project.** Click a project in Projects, choose **Open project** in its menu in the sidebar, or run *Project: &lt;name&gt;* in the command palette. Its tabs hold an Overview (sessions, worktrees, queue and git at a glance), its Sessions, its Worktrees, its Actions and its Defaults. A project opens on the tab you left it on, and ⌘N there starts a session in it.
+- **A page for each project.** Click a project in Projects, choose **Open project** in its menu in the sidebar, or run *Project: &lt;name&gt;* in the command palette. Its tabs hold an Overview (sessions, worktrees, queue and git at a glance), its Sessions (archived ones in their own section at the end), its Worktrees, its Actions and its Settings. A project opens on the tab you left it on, and ⌘N there starts a session in it. Click its icon at the top to choose an image, an emoji or a letter, or to rename it; the Settings tab has Choose image… too.
 - **Worktree overview and clean-up.** A project's Worktrees tab lists every worktree with its sessions, uncommitted changes, commits ahead of the base branch, whether it's pushed and merged (or its pull request, with the GitHub CLI), its size on disk and when it was last active. It groups them into *Safe to remove*, *Probably done*, *Keep* (with the reason) and *Stale*, and removes the ones you tick after one confirmation that shows the space freed and any ignored files that would be lost. Branches can go too, with a recovery ref if you like. Worktrees with uncommitted changes, a session working in them, or a lock are never removed, and removing always goes through `git worktree remove`. Open it from the project page, the new worktree pill in Projects, **Worktrees…** in a project's menu, or the command palette (*Worktrees…*, *Clean up worktrees in &lt;project&gt;…*).
 
 ### Changed
 
 - **Projects list.** Each project shows its defaults on one line, a worktree pill, New session, ⋯ and the reorder buttons. Defaults, the profile choice and actions moved to the project's page; Remove is in the ⋯ menu.
+- **Images in your messages.** They show above the text, so Show more never hides them: one image at its own shape, two to four as thumbnails, and five or more as tiles with a +N for the rest. Hover one for its type, size and pixel size. Full size, ← and → step through all of a message's images, with a filmstrip at the bottom.
 
 ### Fixed
 

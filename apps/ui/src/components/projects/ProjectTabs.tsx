@@ -1,4 +1,4 @@
-import { Check, Pencil, Plus, Settings2 } from 'lucide-react';
+import { Check, Image, Pencil, Plus, RotateCcw, Settings2 } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import type { ListedAction, ProjectDefaults, ProjectInfo, WorktreeStatus } from '@switchboard/protocol/client';
 import { useEngineConnection } from '../../engine/useEngine.ts';
@@ -10,12 +10,14 @@ import { useProjects } from '../../state/projectsStore.ts';
 import { projectOf } from '../../state/queue.ts';
 import { useSessions } from '../../state/sessionsStore.ts';
 import { sidebarGroups, sidebarOrder } from '../../state/sidebarOrder.ts';
-import { GROUP_LABEL as SESSION_GROUP_LABEL, rowStatus, waitingLabel } from '../../state/sidebarRows.ts';
+import type { SessionRowData } from '../../state/sessionsStore.ts';
+import { buildSessionList, GROUP_LABEL as SESSION_GROUP_LABEL, rowStatus, waitingLabel } from '../../state/sidebarRows.ts';
 import { useListedRows, useQueue } from '../../state/useQueue.ts';
 import { useWorktreeRows, useWorktreeSizes } from '../../state/worktreesStore.ts';
 import { ActionEditor } from '../actions/ActionEditor.tsx';
 import { ACTION_ICON } from '../actions/actionIcon.ts';
 import { useProjectActionList } from '../actions/useActions.ts';
+import { ProjectIcon } from '../ProjectIcon.tsx';
 import { QueuedInProject } from '../queue/QueuedInProject.tsx';
 import { SessionRow } from '../sidebar/Sidebar.tsx';
 import { useSessionMenu } from '../sidebar/useSessionMenu.tsx';
@@ -149,23 +151,47 @@ export function ProjectOverview({ root, status }: { root: string; status: Worktr
   );
 }
 
-/** Sessions: the project's sessions with the sidebar's rows and grouping (Needs you, Working, then by day), and its queue. */
+/**
+ * Sessions: the project's sessions with the sidebar's rows and grouping (Needs you, Working, then by day), its queue,
+ * and its archived sessions in their own section at the end, closed unless nothing else is listed.
+ */
 export function ProjectSessions({ root, name }: { root: string; name: string }) {
   const rows = useProjectSessionRows(root);
   const now = useNow();
   const permissions = useHosts((s) => s.permissions);
   const groups = useMemo(() => sidebarGroups(rows, { now, project: root }), [rows, now, root]);
-  const order = useMemo(() => sidebarOrder(groups).map((row) => row.id), [groups]);
+  const archived = useMemo(() => buildSessionList(rows, { search: '', project: root, now }).archived, [rows, now, root]);
+  const [archivedOpen, setArchivedOpen] = useState<boolean | null>(null);
+  const showArchived = archivedOpen ?? groups.length === 0;
+  const order = useMemo(() => [...sidebarOrder(groups), ...(showArchived ? archived : [])].map((row) => row.id), [groups, archived, showArchived]);
   const menus = useSessionMenu(order);
   const waitingTool = useMemo(() => new Map([...permissions.values()].map((p) => [p.sessionId, p.toolName])), [permissions]);
   const startHere = () => {
     useProjects.getState().startIn(root);
     useSessions.getState().openNewSession();
   };
+  const row = (data: SessionRowData, isArchived: boolean) => (
+    <SessionRow
+      key={data.id}
+      data={data}
+      selected={false}
+      archived={isArchived}
+      picked={false}
+      picking={false}
+      now={now}
+      tabbable
+      waitingFor={rowStatus(data) === 'needs-you' ? waitingLabel(waitingTool.get(data.id) ?? null) : null}
+      draft={null}
+      onClick={(event, clicked) => (event.altKey ? useSessions.getState().openBeside(clicked.id) : useSessions.getState().select(clicked.id))}
+      onTogglePick={() => {}}
+      onMenu={menus.openSessionMenu}
+      onMiddleClick={menus.middleClick}
+    />
+  );
   return (
     <div className="grid gap-4" data-project-sessions>
       <QueuedInProject cwd={root} projectName={name} now={now} />
-      {groups.length === 0 ? (
+      {rows.length === 0 ? (
         <div className="grid justify-items-start gap-2 rounded-xl border border-dashed border-border px-4 py-5">
           <p className="text-ui text-muted">No sessions in {name} yet.</p>
           <Button onClick={startHere}>New session</Button>
@@ -176,28 +202,27 @@ export function ProjectSessions({ root, name }: { root: string; name: string }) 
             <SectionHeader count={inGroup.length} tone={group === 'needs-you' || group === 'working' ? group : 'neutral'} className="px-3">
               {SESSION_GROUP_LABEL[group]}
             </SectionHeader>
-            <div className="grid gap-1">
-              {inGroup.map((row) => (
-                <SessionRow
-                  key={row.id}
-                  data={row}
-                  selected={false}
-                  archived={false}
-                  picked={false}
-                  picking={false}
-                  now={now}
-                  tabbable
-                  waitingFor={rowStatus(row) === 'needs-you' ? waitingLabel(waitingTool.get(row.id) ?? null) : null}
-                  draft={null}
-                  onClick={(event, data) => (event.altKey ? useSessions.getState().openBeside(data.id) : useSessions.getState().select(data.id))}
-                  onTogglePick={() => {}}
-                  onMenu={menus.openSessionMenu}
-                  onMiddleClick={menus.middleClick}
-                />
-              ))}
-            </div>
+            <div className="grid gap-1">{inGroup.map((r) => row(r, false))}</div>
           </section>
         ))
+      )}
+      {archived.length > 0 && (
+        <section aria-label="Archived" className="grid gap-1" data-project-archived>
+          <SectionHeader
+            count={archived.length}
+            toggle={{
+              expanded: showArchived,
+              onToggle: () => setArchivedOpen(!showArchived),
+              leading: true,
+              tooltip: 'Quiet for 48 hours, or archived by you. They come back when there is something new.',
+              data: { 'data-archived-toggle': true, 'data-open': showArchived },
+            }}
+            className="h-[22px] px-3"
+          >
+            Archived
+          </SectionHeader>
+          {showArchived && <div className="grid gap-1">{archived.map((r) => row(r, true))}</div>}
+        </section>
       )}
       {menus.overlays}
     </div>
@@ -298,13 +323,14 @@ function ProfilePicker({ project }: { project: ProjectInfo }) {
   );
 }
 
-/** Defaults: the profile and choices new sessions in the project start with, and its name in Switchboard. */
-export function ProjectDefaultsTab({ project, isGitRepo }: { project: ProjectInfo; isGitRepo: boolean }) {
+/** Settings: the profile and choices new sessions in the project start with, and its name and icon in Switchboard. */
+export function ProjectSettingsTab({ project, isGitRepo }: { project: ProjectInfo; isGitRepo: boolean }) {
   const connection = useEngineConnection();
   const client = connection.status === 'connected' ? connection.client : null;
   const reload = useProjects((s) => s.reload);
   const [error, setError] = useState<string | null>(null);
   const [renaming, setRenaming] = useState(false);
+  const projectActions = useProjectActions();
   const save = async (defaults: ProjectDefaults) => {
     if (!client) return;
     try {
@@ -332,6 +358,19 @@ export function ProjectDefaultsTab({ project, isGitRepo }: { project: ProjectInf
           <Button size="sm" icon={<Pencil size={12} aria-hidden />} onClick={() => setRenaming(true)} data-project-rename>
             Rename…
           </Button>
+        </span>
+        <span className="text-ui text-muted">Icon</span>
+        <span className="flex min-w-0 items-center gap-2">
+          <ProjectIcon project={project} root={project.root} size={20} />
+          <Button size="sm" icon={<Image size={12} aria-hidden />} onClick={() => void projectActions.chooseImage(project.root)} data-project-choose-image>
+            Choose image…
+          </Button>
+          {/* Back to the icon found in the folder (or the letter) after picking one. */}
+          {project.iconSource === 'custom' && (
+            <Button size="sm" variant="quiet" icon={<RotateCcw size={12} aria-hidden />} onClick={() => void projectActions.setIcon(project.root, { kind: 'auto' })} data-project-reset-icon>
+              Detect automatically
+            </Button>
+          )}
         </span>
       </div>
       {renaming && <RenameProjectDialog root={project.root} onClose={() => setRenaming(false)} />}

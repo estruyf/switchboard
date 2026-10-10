@@ -1540,8 +1540,8 @@ async function runProjectsStep(win: BrowserWindow): Promise<string> {
   if (!(await waitInPage(win, "document.querySelector('[data-known-project][data-added=\"true\"]')", 3_000))) return 'the folder was not marked as added';
   win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Escape' });
 
-  // Closing the dialog opens the page of the project just added, on Defaults, so its profile and defaults can be set.
-  if (!(await waitInPage(win, `!document.querySelector('[data-add-project-dialog]') && ${page('[data-default-effort]')} && !document.querySelector('[data-sidebar-onboarding]')`, 3_000))) return "the new project's page did not open on Defaults";
+  // Closing the dialog opens the page of the project just added, on Settings, so its profile and defaults can be set.
+  if (!(await waitInPage(win, `!document.querySelector('[data-add-project-dialog]') && ${page('[data-default-effort]')} && !document.querySelector('[data-sidebar-onboarding]')`, 3_000))) return "the new project's page did not open on Settings";
   // Themed dropdown: open with a click, ↓ moves, Escape closes and focus returns.
   const modelSelect = `${pageSelector} [data-default-model]`;
   await js(`document.querySelector(${JSON.stringify(modelSelect)}).click()`);
@@ -1569,9 +1569,9 @@ async function runProjectsStep(win: BrowserWindow): Promise<string> {
   const renameDialog = "document.querySelector('[data-rename-project-dialog]')";
   const folder = root.split('/').pop()!;
   await js(`${row('[data-project-open]')}.click()`);
-  if (!(await waitInPage(win, page('[data-project-tab="defaults"]'), 3_000))) return 'a click on the project did not open its page';
-  await js(`${page('[data-project-tab="defaults"]')}.click()`);
-  if (!(await waitInPage(win, page('[data-project-rename]'), 3_000))) return 'no Rename… on the Defaults tab';
+  if (!(await waitInPage(win, page('[data-project-tab="settings"]'), 3_000))) return 'a click on the project did not open its page';
+  await js(`${page('[data-project-tab="settings"]')}.click()`);
+  if (!(await waitInPage(win, page('[data-project-rename]'), 3_000))) return 'no Rename… on the Settings tab';
   await js(`${page('[data-project-rename]')}.click()`);
   if (!(await waitInPage(win, `${renameDialog} && document.activeElement?.matches('[data-rename-project-input]') && document.activeElement.value === ${JSON.stringify(folder)}`, 3_000))) return "Rename… did not open with the folder's name";
   await setFieldValue(win, '[data-rename-project-input]', 'Smoke project');
@@ -1659,14 +1659,33 @@ async function runProjectPageStep(win: BrowserWindow, root: string): Promise<str
   const tab = async (id: string) => js(`${q(`[data-project-tab="${id}"]`)}.click()`);
   if (!(await waitInPage(win, `${q('[data-project-name]')} && ${q('[data-project-tab="worktrees"]')}`, 3_000))) return 'the project page has no header or tabs';
 
+  // The header's icon opens the icon choices (only opened and closed: picking an image needs the system dialog).
+  await js(`${q('[data-project-icon-button]')}.click()`);
+  if (!(await waitInPage(win, "[...document.querySelectorAll('[role=menu] [role=menuitem]')].some((e) => e.innerText.includes('Choose image'))", 2_000))) return "the project's icon did not open its icon menu";
+  win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Escape' });
+  if (!(await waitInPage(win, "!document.querySelector('[role=menu]')", 2_000))) return 'Escape did not close the icon menu';
+
   await tab('overview');
   if (!(await waitInPage(win, `document.querySelectorAll(${JSON.stringify(`${pageSelector} [data-overview-card]`)}).length >= 3`, 3_000))) return 'the Overview cards did not show';
   const cards = (await js(`document.querySelectorAll(${JSON.stringify(`${pageSelector} [data-overview-card]`)}).length`)) as number;
   await tab('sessions');
   if (!(await waitInPage(win, q('[data-project-sessions]'), 3_000))) return 'the Sessions tab did not show';
+  if (await js(`(() => { const t = ${q('[role=tablist]')}; return t.scrollHeight > t.clientHeight; })()`)) return 'the tab row scrolls vertically';
+  // Archived sessions have their own section at the end, opening and closing from its header.
+  let archived = 'no archived sessions';
+  if (await js(`!!${q('[data-project-archived]')}`)) {
+    const toggle = q('[data-project-archived] [data-archived-toggle]');
+    const open = (await js(`${toggle}.dataset.open === 'true'`)) as boolean;
+    await js(`${toggle}.click()`);
+    if (!(await waitInPage(win, `${toggle}.dataset.open === ${JSON.stringify(String(!open))} && !!${q('[data-project-archived] [data-session-id]')} === ${!open}`, 2_000))) return 'the Archived section did not open or close';
+    const count = (await js(`document.querySelector(${JSON.stringify(`${pageSelector} [data-project-archived] [data-archived-toggle]`)}).querySelector('.sr-only')?.innerText ?? ''`)) as string;
+    await js(`${toggle}.click()`);
+    if (!(await waitInPage(win, `${toggle}.dataset.open === ${JSON.stringify(String(open))}`, 2_000))) return 'the Archived section did not toggle back';
+    archived = `${count.replace(/\D/g, '')} archived, opened and closed`;
+  }
   await tab('worktrees');
   if (!(await waitInPage(win, `${q('[data-project-tab="worktrees"]')}.getAttribute('aria-selected') === 'true' && (${q('[data-worktrees-tab]')} || ${q('[data-worktrees-not-repo]')})`, 20_000))) return 'the Worktrees tab did not load';
-  if (await js(`!!${q('[data-worktrees-not-repo]')}`)) return `ok: ${cards} overview cards, sessions; not a git repository, so no worktrees`;
+  if (await js(`!!${q('[data-worktrees-not-repo]')}`)) return `ok: ${cards} overview cards, sessions (${archived}); not a git repository, so no worktrees`;
 
   const main = '[data-worktree-row][data-group="main"]';
   if (!(await js(`!!${q(main)}`))) return 'the main checkout is not listed';
@@ -1696,7 +1715,7 @@ async function runProjectPageStep(win: BrowserWindow, root: string): Promise<str
     if (!(await waitInPage(win, "!document.querySelector('[data-worktree-cleanup]')", 2_000))) return 'Escape did not close the clean-up confirmation';
     cleanup = 'clean-up confirmation opened and cancelled';
   }
-  return `ok: ${cards} overview cards, sessions, ${rows} worktree rows (groups: ${groups.join(', ') || 'none'}), main checkout locked, ${menu}, ${cleanup}`;
+  return `ok: ${cards} overview cards, sessions (${archived}), ${rows} worktree rows (groups: ${groups.join(', ') || 'none'}), main checkout locked, ${menu}, ${cleanup}`;
 }
 
 /**

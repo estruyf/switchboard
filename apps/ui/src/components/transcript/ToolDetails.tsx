@@ -14,8 +14,8 @@ export function ToolImages({ item, sessionId }: { item: ToolItem; sessionId: str
   if (!item.result || item.result.images.length === 0) return null;
   return (
     <div className="mt-1.5 flex flex-wrap gap-2">
-      {item.result.images.map((image) => (
-        <TranscriptImage key={image.imageId} sessionId={sessionId} image={image} />
+      {item.result.images.map((image, index) => (
+        <TranscriptImage key={image.imageId} sessionId={sessionId} image={image} variant="single" gallery={item.result!.images} index={index} />
       ))}
     </div>
   );

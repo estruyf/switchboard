@@ -8,15 +8,18 @@ import { useProjects } from '../../state/projectsStore.ts';
 import { useSessions } from '../../state/sessionsStore.ts';
 import { useWorktreesOf } from '../../state/worktreesStore.ts';
 import { useProjectActionList } from '../actions/useActions.ts';
+import { Menu } from '../Menu.tsx';
 import { useOpenIn } from '../OpenInButton.tsx';
 import { ProjectIcon } from '../ProjectIcon.tsx';
+import { useProjectIconEntries } from '../sidebar/ProjectMenu.tsx';
 import { SidebarToggle } from '../sidebar/SidebarToggle.tsx';
 import { Button } from '../ui/Button.tsx';
 import { CountBadge } from '../ui/Pill.tsx';
 import { WorktreesTab } from '../worktrees/WorktreesTab.tsx';
-import { ProjectActionsTab, ProjectDefaultsTab, ProjectOverview, ProjectSessions, useProjectSessionRows } from './ProjectTabs.tsx';
+import { menuPoint } from './ProjectManagerView.tsx';
+import { ProjectActionsTab, ProjectSettingsTab, ProjectOverview, ProjectSessions, useProjectSessionRows } from './ProjectTabs.tsx';
 
-const TAB_LABEL: Record<ProjectTab, string> = { overview: 'Overview', sessions: 'Sessions', worktrees: 'Worktrees', actions: 'Actions', defaults: 'Defaults' };
+const TAB_LABEL: Record<ProjectTab, string> = { overview: 'Overview', sessions: 'Sessions', worktrees: 'Worktrees', actions: 'Actions', settings: 'Settings' };
 
 /** Where the project's own checkout stands (branch, upstream, changes); null outside git or until read. */
 function useCheckoutStatus(root: string, isGitRepo: boolean): WorktreeStatus | null {
@@ -40,7 +43,7 @@ function useCheckoutStatus(root: string, isGitRepo: boolean): WorktreeStatus | n
 
 /**
  * Projects › <project>: a project's own page. The header says where it is (path, branch, upstream) with Open in
- * editor and New session; tabs below hold its Overview, Sessions, Worktrees, Actions and Defaults. The tab you
+ * editor and New session; tabs below hold its Overview, Sessions, Worktrees, Actions and Settings. The tab you
  * leave a project on is the one it opens on next time (while the app runs).
  */
 export function ProjectPage() {
@@ -56,6 +59,8 @@ export function ProjectPage() {
   const [isGitRepo, setIsGitRepo] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const tabRefs = useRef(new Map<ProjectTab, HTMLButtonElement>());
+  const icons = useProjectIconEntries();
+  const [iconMenu, setIconMenu] = useState<{ x: number; y: number } | null>(null);
 
   useEffect(() => {
     setIsGitRepo(false);
@@ -127,7 +132,19 @@ export function ProjectPage() {
           </nav>
         </div>
         <div className="mt-1.5 flex min-w-0 items-center gap-3">
-          <ProjectIcon project={project} root={root} size={34} />
+          {/* The icon opens its choices (image, emoji, letter) and the name, as on the Projects list. */}
+          <button
+            type="button"
+            onClick={(e) => setIconMenu(menuPoint(e))}
+            data-tooltip="Change icon or name"
+            aria-label={`Change the icon or name of ${project.name}`}
+            aria-haspopup="menu"
+            aria-expanded={!!iconMenu}
+            className="no-drag shrink-0 rounded-lg hover:opacity-80"
+            data-project-icon-button
+          >
+            <ProjectIcon project={project} root={root} size={34} />
+          </button>
           <div className="grid min-w-0 flex-1">
             <h1 className="truncate text-hero leading-tight font-semibold" data-project-name>
               {project.name}
@@ -160,7 +177,9 @@ export function ProjectPage() {
             </Button>
           </div>
         </div>
-        <div role="tablist" aria-label={`${project.name} sections`} className="no-drag mt-3 flex gap-1 overflow-x-auto" onKeyDown={onTabKey}>
+        {/* The row, not the tabs, overlaps the header's border by 1px: overflow-x-auto clips on both axes, so a tab
+            hanging out of the row would make it scroll vertically. */}
+        <div role="tablist" aria-label={`${project.name} sections`} className="no-drag -mb-px mt-3 flex gap-1 overflow-x-auto [scrollbar-width:none]" onKeyDown={onTabKey}>
           {PROJECT_TABS.map((id) => {
             const active = id === tab;
             const count = counts[id];
@@ -178,7 +197,7 @@ export function ProjectPage() {
                 aria-controls="project-tab-panel"
                 tabIndex={active ? 0 : -1}
                 onClick={() => setTab(id)}
-                className={`-mb-px flex h-9 shrink-0 items-center gap-1.5 border-b-2 px-3 text-ui ${active ? 'border-accent-ink font-semibold text-text' : 'border-transparent text-muted hover:text-text'}`}
+                className={`flex h-9 shrink-0 items-center gap-1.5 border-b-2 px-3 text-ui ${active ? 'border-accent-ink font-semibold text-text' : 'border-transparent text-muted hover:text-text'}`}
                 data-project-tab={id}
               >
                 {id === 'worktrees' && <GitBranch size={13} aria-hidden />}
@@ -201,10 +220,12 @@ export function ProjectPage() {
           ) : tab === 'actions' ? (
             <ProjectActionsTab root={root} />
           ) : (
-            <ProjectDefaultsTab project={project} isGitRepo={isGitRepo} />
+            <ProjectSettingsTab project={project} isGitRepo={isGitRepo} />
           )}
         </div>
       </div>
+      {iconMenu && <Menu x={iconMenu.x} y={iconMenu.y} entries={icons.entries(root, iconMenu, { identity: true })} label="Project icon" onClose={() => setIconMenu(null)} />}
+      {icons.overlays}
     </div>
   );
 }

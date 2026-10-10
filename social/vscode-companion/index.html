@@ -1,0 +1,154 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<link rel="stylesheet" href="../shared/base.css">
+<style>
+  :root { --vs-bg: #1e1e1e; --vs-bar: #181818; --vs-sel: #264f78; }
+
+  .vscode {
+    position: absolute; left: 0; top: 0; width: 470px; height: 300px;
+    background: var(--vs-bg); border-radius: 12px; overflow: hidden;
+    box-shadow: 0 0 0 1px rgba(255,255,255,0.08), 0 24px 60px -12px rgba(0,0,0,0.75);
+  }
+  .titlebar { height: 34px; background: var(--vs-bar); display: flex; align-items: center; padding: 0 12px; gap: 7px; border-bottom: 1px solid #2b2b2b; }
+  .tl { width: 11px; height: 11px; border-radius: 50%; }
+  .titlebar .t { flex: 1; text-align: center; font-size: 12px; color: #9d9d9d; margin-right: 40px; }
+  .tabs { height: 32px; background: var(--vs-bar); display: flex; }
+  .tab { padding: 0 14px; display: flex; align-items: center; gap: 7px; font-size: 12px; color: #9d9d9d; border-right: 1px solid #2b2b2b; }
+  .tab.on { background: var(--vs-bg); color: #e6e6e6; border-top: 1px solid #0078d4; }
+  .ts { font-size: 9px; font-weight: 700; color: #3178c6; }
+  .code { padding: 10px 0; font-size: 12.5px; line-height: 21px; }
+  .ln { display: flex; white-space: pre; }
+  .ln .n { width: 44px; text-align: right; padding-right: 16px; color: #6e7681; }
+  .ln.sel { background: var(--vs-sel); }
+  .ln.sel .n { color: #c6c6c6; }
+  .k { color: #c586c0; } .f { color: #dcdcaa; } .s { color: #ce9178; } .ty { color: #4ec9b0; } .v { color: #9cdcfe; } .c { color: #6a9955; }
+  .squig { text-decoration: underline wavy #f14c4c; text-underline-offset: 3px; }
+
+  .ctx {
+    position: absolute; left: 206px; top: 150px; width: 252px; padding: 5px;
+    background: #252526; border-radius: 8px; font-size: 12.5px; color: #cccccc;
+    box-shadow: 0 0 0 1px #454545, 0 12px 30px rgba(0,0,0,0.6);
+  }
+  .ctx .it { padding: 5px 10px; border-radius: 4px; display: flex; justify-content: space-between; }
+  .ctx .it .kb { color: #8b8b8b; }
+  .ctx .sep { height: 1px; background: #454545; margin: 4px 6px; }
+  .ctx .it.on { background: #04395e; color: #fff; box-shadow: inset 0 0 0 1px #2b79d4; }
+
+  .sb { right: 0; top: 268px; }
+
+  /* A prompt answered as a VS Code notification. */
+  .toast {
+    position: absolute; left: 14px; bottom: 0; width: 330px;
+    background: #252526; border-radius: 9px; padding: 12px 14px;
+    box-shadow: 0 0 0 1px #454545, 0 18px 40px -8px rgba(0,0,0,0.75);
+    font-size: 12.5px; color: #cccccc;
+  }
+  .toast .row { display: flex; gap: 10px; align-items: flex-start; }
+  .toast .ic { flex: none; width: 16px; height: 16px; border-radius: 50%; background: #cca700; color: #1e1e1e; font-weight: 800; font-size: 11px; display: grid; place-items: center; margin-top: 1px; }
+  .toast .src { margin-top: 6px; font-size: 11px; color: #8b8b8b; }
+  .toast .acts { display: flex; gap: 6px; justify-content: flex-end; margin-top: 10px; }
+  .toast .a { height: 24px; padding: 0 10px; border-radius: 4px; font-size: 12px; display: flex; align-items: center; background: #3a3d41; color: #e6e6e6; }
+  .toast .a.p { background: #0078d4; color: #fff; }
+</style>
+</head>
+<body>
+  <div class="dots"></div>
+
+  <div class="copy">
+    <div class="brand">
+      <img src="../../apps/vscode-extension/assets/icon.png" alt="">
+      <span class="name">Switchboard Companion</span>
+    </div>
+    <div class="eyebrow"><span class="dot"></span>New for VS Code</div>
+    <h1>Your editor, wired into <span class="hl">Switchboard</span></h1>
+    <p class="sub">Send the <b>selection</b>, <b>files</b>, <b>problems</b> and <b>terminal output</b> to a Claude Code session. Answer its permission prompts and plans right in VS Code.</p>
+  </div>
+
+  <div class="cta">
+    <span class="btn">Install the extension</span>
+    <span class="where">VS Code Marketplace · Open VSX</span>
+  </div>
+
+  <div class="stage">
+    <!-- VS Code with lines selected and the companion's menu items -->
+    <div class="vscode">
+      <div class="titlebar">
+        <span class="tl" style="background:#ff5f57"></span><span class="tl" style="background:#febc2e"></span><span class="tl" style="background:#28c840"></span>
+        <span class="t">theme.ts · acme-store</span>
+      </div>
+      <div class="tabs">
+        <div class="tab on"><span class="ts">TS</span>theme.ts</div>
+        <div class="tab"><span class="ts">TS</span>Settings.tsx</div>
+      </div>
+      <div class="code mono">
+        <div class="ln"><span class="n">12</span><span><span class="k">export type</span> <span class="ty">ThemeChoice</span> = <span class="ty">Theme</span> | <span class="s">'system'</span>;</span></div>
+        <div class="ln"><span class="n">13</span><span> </span></div>
+        <div class="ln sel"><span class="n">14</span><span><span class="k">export function</span> <span class="f">currentTheme</span>(<span class="v">choice</span>) {</span></div>
+        <div class="ln sel"><span class="n">15</span><span>  <span class="k">if</span> (<span class="v">choice</span> === <span class="s">'system'</span>)</span></div>
+        <div class="ln sel"><span class="n">16</span><span>    <span class="k">return</span> <span class="v">media</span>.<span class="squig">matchs</span> ? <span class="s">'dark'</span> : <span class="s">'light'</span>;</span></div>
+        <div class="ln sel"><span class="n">17</span><span>  <span class="k">return</span> <span class="v">choice</span>;</span></div>
+        <div class="ln sel"><span class="n">18</span><span>}</span></div>
+        <div class="ln"><span class="n">19</span><span> </span></div>
+        <div class="ln"><span class="n">20</span><span><span class="c">// Follow the system until someone picks</span></span></div>
+        <div class="ln"><span class="n">21</span><span><span class="v">media</span>.<span class="f">addEventListener</span>(<span class="s">'change'</span>, …);</span></div>
+      </div>
+      <div class="ctx">
+        <div class="it"><span>Go to Definition</span><span class="kb">F12</span></div>
+        <div class="it"><span>Find All References</span><span class="kb">⇧F12</span></div>
+        <div class="sep"></div>
+        <div class="it on"><span>Add Selection to Switchboard</span></div>
+        <div class="it"><span>Fix in Switchboard</span></div>
+      </div>
+    </div>
+
+    <!-- The cable from the menu item to Switchboard, in the icon's colours -->
+    <svg class="cable" viewBox="0 0 600 540">
+      <defs>
+        <linearGradient id="warm" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0" stop-color="#f3a27f"/><stop offset="1" stop-color="#c95f3d"/>
+        </linearGradient>
+        <filter id="sh" x="-20%" y="-20%" width="140%" height="140%"><feDropShadow dx="0" dy="6" stdDeviation="5" flood-color="#000" flood-opacity="0.5"/></filter>
+      </defs>
+      <g filter="url(#sh)">
+        <path d="M 462 226 C 545 226, 580 236, 548 270" fill="none" stroke="url(#warm)" stroke-width="7" stroke-linecap="round"/>
+        <circle cx="462" cy="226" r="9" fill="#f3a27f"/>
+        <circle cx="548" cy="270" r="9" fill="#c95f3d"/>
+      </g>
+    </svg>
+
+    <!-- Switchboard's message box with what arrived from VS Code -->
+    <div class="sb">
+      <div class="head">
+        <img src="../../apps/desktop/build/icon.png" alt="">
+        <span class="title">Add dark mode toggle to settings</span>
+        <span class="meta">acme-store</span>
+      </div>
+      <div class="chips mono">
+        <span class="chip new"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4 1.5h5l3 3v10H4z"/><path d="M9 1.5v3h3"/></svg>theme.ts#L14-18</span>
+        <span class="chip new"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="6"/><path d="M8 5v3.5M8 10.8v.2"/></svg>Problems (1)</span>
+        <span class="chip"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="1.5" y="2.5" width="13" height="11" rx="1.5"/><path d="M4 6l2 2-2 2M8 10h4"/></svg>Terminal</span>
+      </div>
+      <div class="msg">Fix the typo and add a test for it<span class="caret"></span></div>
+      <div class="foot">
+        <span>Opus · High</span>
+        <span class="send">Send <span class="kbd">⌘↵</span></span>
+      </div>
+    </div>
+
+    <div class="toast">
+      <div class="row">
+        <span class="ic">!</span>
+        <div>
+          <div>Claude wants to run <span class="mono" style="color:#e6e6e6">npm test</span></div>
+          <div class="src">Switchboard · Add dark mode toggle to settings</div>
+        </div>
+      </div>
+      <div class="acts">
+        <span class="a p">Allow</span><span class="a">Always allow</span><span class="a">Deny…</span>
+      </div>
+    </div>
+  </div>
+</body>
+</html>
