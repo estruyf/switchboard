@@ -28,6 +28,7 @@ import { createProjectResolver } from './claude/projectResolver.ts';
 import { sdkSessionSource, type SessionSource } from './claude/sessionSource.ts';
 import { findCheckout, githubPage } from './git/remotes.ts';
 import { checkoutRoot, DivergedError, fileDiff, git, listBranches, listChanges, removeWorktree, revert, stage, stageForCommit, switchBranch, syncCommand, updateCheckout, worktreeStatus } from './git/gitChanges.ts';
+import { deleteBranches, fetchAllRemotes, listBranchOverview } from './git/branches.ts';
 import { fetchPullRequests, ignoredFiles, listWorktrees, measureSize, removeWorktrees, type SessionActivity, type SessionPlace } from './git/worktrees.ts';
 import { SearchIndex } from './sessions/searchIndex.ts';
 import { installedPlugins } from './host/capabilities.ts';
@@ -1165,6 +1166,37 @@ export function createEngine(options: EngineOptions): Engine {
       } catch (error) {
         throw new RpcError('GIT_FAILED', (error as Error).message);
       }
+    },
+    'branches.list': async ({ root, fetch }) => {
+      if (!resolver.resolve(root).gitDir) throw new RpcError('NOT_A_REPO', 'Not a git repository');
+      if (fetch) {
+        // Gone and merged are only as current as the last fetch. Offline or signed out, the list still comes.
+        await fetchAllRemotes(root, (await shell.ready).env).catch((error: Error) => log('warn', `branches: fetch in ${root} failed: ${error.message}`));
+      }
+      const pullRequests = await pullRequestsFor(root, fetch);
+      try {
+        return await listBranchOverview(root, { pullRequests });
+      } catch (error) {
+        throw new RpcError('GIT_FAILED', (error as Error).message);
+      }
+    },
+    'branches.delete': async ({ root, items }) => {
+      if (!resolver.resolve(root).gitDir) throw new RpcError('NOT_A_REPO', 'Not a git repository');
+      // Deleting a branch on GitHub closes its open pull request: refuse those, as far as gh can tell.
+      const prs = await pullRequestsFor(root, false);
+      const results = await deleteBranches(root, items, {
+        env: (await shell.ready).env,
+        openPullRequest: (name) => {
+          const pr = prs?.get(name);
+          return pr?.state === 'open' ? pr : null;
+        },
+      }).catch((error: Error) => {
+        throw new RpcError('GIT_FAILED', error.message);
+      });
+      for (const result of results) {
+        if (result.ok) log('info', `branches: deleted ${result.name}${result.localDeleted ? ' here' : ''}${result.localDeleted && result.remoteDeleted ? ' and' : ''}${result.remoteDeleted ? ' on the remote' : ''}${result.recoveryRef ? ` (kept ${result.recoveryRef})` : ''}`);
+      }
+      return { results };
     },
     'terminal.open': async (params) => {
       if (params.kind === 'claude' && params.sessionId && !params.fork) {

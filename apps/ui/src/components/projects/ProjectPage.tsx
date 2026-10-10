@@ -1,9 +1,10 @@
-import { ChevronRight, FolderOpen, GitBranch, Plus } from 'lucide-react';
+import { ChevronRight, FolderGit2, FolderOpen, GitBranch, Plus } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
 import type { WorktreeStatus } from '@switchboard/protocol/client';
 import { useEngineConnection } from '../../engine/useEngine.ts';
 import { guessHome, tildify } from '../../lib/format.ts';
 import { PROJECT_TABS, useProjectPage, type ProjectTab } from '../../state/projectPageStore.ts';
+import { useBranchesOf } from '../../state/branchesStore.ts';
 import { useProjects } from '../../state/projectsStore.ts';
 import { useSessions } from '../../state/sessionsStore.ts';
 import { useWorktreesOf } from '../../state/worktreesStore.ts';
@@ -14,12 +15,13 @@ import { ProjectIcon } from '../ProjectIcon.tsx';
 import { useProjectIconEntries } from '../sidebar/ProjectMenu.tsx';
 import { SidebarToggle } from '../sidebar/SidebarToggle.tsx';
 import { Button } from '../ui/Button.tsx';
+import { BranchesTab } from '../branches/BranchesTab.tsx';
 import { CountBadge } from '../ui/Pill.tsx';
 import { WorktreesTab } from '../worktrees/WorktreesTab.tsx';
 import { menuPoint } from './ProjectManagerView.tsx';
 import { ProjectActionsTab, ProjectSettingsTab, ProjectOverview, ProjectSessions, useProjectSessionRows } from './ProjectTabs.tsx';
 
-const TAB_LABEL: Record<ProjectTab, string> = { overview: 'Overview', sessions: 'Sessions', worktrees: 'Worktrees', actions: 'Actions', settings: 'Settings' };
+const TAB_LABEL: Record<ProjectTab, string> = { overview: 'Overview', sessions: 'Sessions', worktrees: 'Worktrees', branches: 'Branches', actions: 'Actions', settings: 'Settings' };
 
 /** Where the project's own checkout stands (branch, upstream, changes); null outside git or until read. */
 function useCheckoutStatus(root: string, isGitRepo: boolean): WorktreeStatus | null {
@@ -43,7 +45,7 @@ function useCheckoutStatus(root: string, isGitRepo: boolean): WorktreeStatus | n
 
 /**
  * Projects › <project>: a project's own page. The header says where it is (path, branch, upstream) with Open in
- * editor and New session; tabs below hold its Overview, Sessions, Worktrees, Actions and Settings. The tab you
+ * editor and New session; tabs below hold its Overview, Sessions, Worktrees, Branches, Actions and Settings. The tab you
  * leave a project on is the one it opens on next time (while the app runs).
  */
 export function ProjectPage() {
@@ -75,10 +77,12 @@ export function ProjectPage() {
   const status = useCheckoutStatus(root ?? '', isGitRepo && !!root);
   const sessions = useProjectSessionRows(root ?? '');
   const worktrees = useWorktreesOf(root);
+  const branches = useBranchesOf(isGitRepo ? root : null);
   const { actions } = useProjectActionList(root);
   const counts: Partial<Record<ProjectTab, number>> = {
     sessions: sessions.length,
     worktrees: worktrees.list ? worktrees.list.worktrees.filter((w) => !w.isMain).length : undefined,
+    branches: branches.list ? branches.list.branches.filter((b) => b.local).length : undefined,
     actions: actions.length,
   };
 
@@ -200,7 +204,8 @@ export function ProjectPage() {
                 className={`flex h-9 shrink-0 items-center gap-1.5 border-b-2 px-3 text-ui ${active ? 'border-accent-ink font-semibold text-text' : 'border-transparent text-muted hover:text-text'}`}
                 data-project-tab={id}
               >
-                {id === 'worktrees' && <GitBranch size={13} aria-hidden />}
+                {id === 'worktrees' && <FolderGit2 size={13} aria-hidden />}
+                {id === 'branches' && <GitBranch size={13} aria-hidden />}
                 {TAB_LABEL[id]}
                 {count !== undefined && <CountBadge count={count} />}
               </button>
@@ -209,7 +214,7 @@ export function ProjectPage() {
         </div>
       </header>
       <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto">
-        <div role="tabpanel" id="project-tab-panel" aria-labelledby={`project-tab-${tab}`} className={`mx-auto px-6 py-5 ${tab === 'worktrees' ? 'max-w-6xl' : 'max-w-3xl'}`}>
+        <div role="tabpanel" id="project-tab-panel" aria-labelledby={`project-tab-${tab}`} className={`mx-auto px-6 py-5 ${tab === 'worktrees' || tab === 'branches' ? 'max-w-6xl' : 'max-w-3xl'}`}>
           {tab === 'overview' ? (
             <ProjectOverview root={root} status={status} />
           ) : tab === 'sessions' ? (
@@ -217,6 +222,8 @@ export function ProjectPage() {
           ) : tab === 'worktrees' ? (
             // Keyed by project: its picks start from that project's suggestions.
             <WorktreesTab key={root} root={root} name={project.name} scrollRef={scrollRef} />
+          ) : tab === 'branches' ? (
+            <BranchesTab key={root} root={root} name={project.name} scrollRef={scrollRef} />
           ) : tab === 'actions' ? (
             <ProjectActionsTab root={root} />
           ) : (

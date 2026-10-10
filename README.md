@@ -38,6 +38,7 @@ It uses the Claude Code you already have installed, with your login, settings, c
 - **Quick questions** (⌘⇧N): ask Claude something without picking a project. Choose *Quick question* under the project tiles in New session. Claude works in a scratch folder of Switchboard's own, so there are no git options and nothing is added to your projects. These sessions show as *Questions* in the sidebar.
 - **Projects** are the folders you choose to work in. Add them from the folders you've used Claude Code in, or any folder, then reorder, rename or remove them in the **Projects** view (the folder icon at the bottom of the sidebar). Renaming only changes the name Switchboard shows; the folder keeps its own. Each project has its own **page**: see [Project pages and worktrees](#project-pages-and-worktrees). Give a project its own defaults for new sessions there: model, effort, permission mode, worktree or current folder, and a branch. The New session view starts from them; change something there for one session, or click *Save as project default*.
 - **Clean up worktrees.** A project's **Worktrees** tab lists every worktree with its sessions, changes, commits, pull request and size on disk, and suggests which ones can go. Remove several at once after one confirmation. See [Project pages and worktrees](#project-pages-and-worktrees).
+- **Clean up branches.** A project's **Branches** tab lists its branches here and on the remote, says which are merged or deleted on the remote, and deletes the ones you tick: the local copy, the one on the remote, or both. See [Branches](#branches).
 - Chat as you would in the terminal. You get streaming replies, `/` commands (your own commands and skills included), `@` file mentions, and images you paste, drop or attach. Drag files anywhere over a session and the message box shows what a drop does: images are attached, other files and folders are added as context.
 - **Context** shows as chips above the message: files you drop, pick from the `@` list, or choose several at once with **Add context** (⌘⇧A, or the paperclip). Remove one with its ×. Files go to Claude as references it reads itself, so a large file stays small. With the [VS Code companion](#vs-code-companion) you can send the lines you have selected in VS Code, problems and terminal output too.
 - Approve or deny permission requests, answer Claude's questions and review plans in the conversation.
@@ -338,9 +339,10 @@ When the project you picked in New session has a session working, a line under t
 
 Click a project in the **Projects** view, choose **Open project** in a project's menu in the sidebar, or run *Project: &lt;name&gt;* in the command palette to open its page. The header shows the folder, the branch checked out and its upstream, with **Open in editor** and **New session** (⌘N starts in this project while its page is open). The tabs below:
 
-- **Overview:** a card per area: sessions (working, needing you, in total), worktrees (how many, their size, how many can go), the queue (when something is queued here) and git (branch, commits behind its upstream, changed files). Each card opens its tab.
+- **Overview:** a card per area: sessions (working, needing you, in total), worktrees (how many, their size, how many can go), branches (here, on the remote, how many can go), the queue (when something is queued here) and git (branch, commits behind its upstream, changed files). Each card opens its tab.
 - **Sessions:** the project's sessions as the sidebar groups them, and its queued prompts.
 - **Worktrees:** every worktree of the repository, not only the ones Switchboard made. See below.
+- **Branches:** every branch, here and on the remote. See [Branches](#branches).
 - **Actions:** the project's [actions](docs/project-actions.md); click one to edit it, or add a new one.
 - **Settings:** the Claude profile and the choices new sessions start with, and the project's name and icon in Switchboard.
 
@@ -365,6 +367,22 @@ Safe and stale worktrees start ticked. Tick others with their checkboxes (⇧-cl
 - a worktree where a session is working, or where a Claude Code session is open in another app or a terminal. A session that is idle in Switchboard is stopped first; its conversation stays.
 
 Worktrees outside `.claude/worktrees` are listed but never suggested: they're only removed when you tick them yourself.
+
+### Branches
+
+The **Branches** tab has one row per branch: its copy here (in sync, commits that aren't pushed, checked out, or *upstream gone* when it was deleted on the remote), its copy on the remote, how far it is ahead of and behind the base branch, its pull request (with the GitHub CLI) and its last commit. Branches that are only on the remote have a row too. Type in **Filter branches** to narrow the list. Open it from the project page, **Branches…** in a project's menu in the sidebar, or *Branches…* in the command palette.
+
+They're grouped:
+
+- **In use:** the base branch, and branches checked out in the project or one of its worktrees.
+- **Safe to delete:** merged into the base branch (or its pull request was merged), or no commits of its own, with nothing that isn't pushed.
+- **Deleted on the remote:** its upstream is gone, which often means it was squash-merged.
+- **Inactive:** no commits for 90 days.
+- **Active:** everything else.
+
+Safe local branches start ticked. Tick others (⇧-click for a range, Space on a row), then **Delete N selected…**. The confirmation asks which copies go: the local branches (on), their copies on the remote (off; deleting there removes them for everyone), and whether to keep a recovery ref for each local branch under `refs/switchboard/removed/`. A branch that would lose commits gets a warning, with **Keep this branch**. Right-click a row (or its ⋯) to copy its name, open its pull request, or delete it here, on the remote, or both. **Refresh** fetches from every remote first and drops branches deleted there.
+
+Switchboard never deletes the base branch (here or on any remote), the remote's default branch, a branch that is checked out, or a branch on the remote with an open pull request (deleting it would close the pull request).
 
 ## Unsent messages
 

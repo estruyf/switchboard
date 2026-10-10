@@ -1559,6 +1559,7 @@ async function runProjectsStep(win: BrowserWindow): Promise<string> {
 
   // The page's other tabs, read-only: Overview, Sessions, and the worktrees of a real repository.
   const pageResult = await smokeRun.step('project page and worktrees', () => runProjectPageStep(win, root), { cleanup: false });
+  await smokeRun.step('project branches', () => runProjectBranchesStep(win, root), { cleanup: false });
 
   // The Projects list shows the saved default (and a worktree pill when the project has worktrees).
   await click('[data-project-breadcrumb]');
@@ -1716,6 +1717,59 @@ async function runProjectPageStep(win: BrowserWindow, root: string): Promise<str
     cleanup = 'clean-up confirmation opened and cancelled';
   }
   return `ok: ${cards} overview cards, sessions (${archived}), ${rows} worktree rows (groups: ${groups.join(', ') || 'none'}), main checkout locked, ${menu}, ${cleanup}`;
+}
+
+/**
+ * A project's Branches tab, read-only on a real project: the base branch is locked, the groups render, the filter
+ * narrows the rows, and a row's menu and the delete confirmation open and close with Escape. Nothing is ever
+ * deleted, and Refresh (which fetches) is never pressed.
+ */
+async function runProjectBranchesStep(win: BrowserWindow, root: string): Promise<string> {
+  const js = (code: string) => win.webContents.executeJavaScript(code);
+  const pageSelector = `[data-project-page=${JSON.stringify(root)}]`;
+  const q = (selector: string) => `document.querySelector(${JSON.stringify(`${pageSelector} ${selector}`)})`;
+  const count = (selector: string) => js(`document.querySelectorAll(${JSON.stringify(`${pageSelector} ${selector}`)}).length`) as Promise<number>;
+  if (!(await waitInPage(win, q('[data-project-tab="branches"]'), 3_000))) return 'the project page has no Branches tab';
+  await js(`${q('[data-project-tab="branches"]')}.click()`);
+  if (!(await waitInPage(win, `${q('[data-project-tab="branches"]')}.getAttribute('aria-selected') === 'true' && (${q('[data-branches-tab]')} || ${q('[data-branches-not-repo]')})`, 20_000))) return 'the Branches tab did not load';
+  if (await js(`!!${q('[data-branches-not-repo]')}`)) return 'ok: not a git repository, so no branches';
+
+  // The base branch (or the one checked out) is in use and can't be picked.
+  const inUse = '[data-branch-row][data-group="in-use"]';
+  if (!(await js(`!!${q(inUse)}`))) return 'no branch is listed as in use';
+  if (!(await js(`${q(inUse)}.hasAttribute('data-locked') && !${q(`${inUse} [data-branch-pick]`)}`))) return 'a branch in use can be picked';
+  const rows = await count('[data-branch-row]');
+  const groups = (await js(`[...document.querySelectorAll(${JSON.stringify(`${pageSelector} [data-branch-group]`)})].map((e) => e.dataset.branchGroup)`)) as string[];
+  await shot(win, 'project-branches.png');
+
+  // The filter narrows the rows to what matches, and clearing it brings them back.
+  const first = (await js(`${q('[data-branch-row]')}.dataset.branchRow`)) as string;
+  const filter = q('[data-branch-filter]');
+  const type = (text: string) => js(`(() => { const f = ${filter}; Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(f, ${JSON.stringify(text)}); f.dispatchEvent(new Event('input', { bubbles: true })); })()`);
+  await type(first);
+  if (!(await waitInPage(win, `[...document.querySelectorAll(${JSON.stringify(`${pageSelector} [data-branch-row]`)})].every((r) => r.innerText.toLowerCase().includes(${JSON.stringify(first.toLowerCase())})) && !!document.querySelector(${JSON.stringify(`${pageSelector} [data-branch-row="${first}"]`)})`, 2_000))) return 'the filter did not narrow the rows';
+  await type('');
+  if (!(await waitInPage(win, `document.querySelectorAll(${JSON.stringify(`${pageSelector} [data-branch-row]`)}).length === ${rows}`, 2_000))) return 'clearing the filter did not bring the rows back';
+
+  // A row's ⋯ menu opens and closes.
+  await js(`${q('[data-branch-more]')}.click()`);
+  if (!(await waitInPage(win, "document.querySelector('[role=menu]')", 2_000))) return 'the row menu did not open';
+  win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Escape' });
+  if (!(await waitInPage(win, "!document.querySelector('[role=menu]')", 2_000))) return 'Escape did not close the row menu';
+
+  // The delete confirmation opens on Cancel and closes with Escape. Its Delete button is never pressed.
+  let confirm = 'nothing picked';
+  if (await js(`!!document.querySelector(${JSON.stringify(`${pageSelector} [data-branch-delete-selected]:not(:disabled)`)})`)) {
+    await js(`${q('[data-branch-delete-selected]')}.click()`);
+    if (!(await waitInPage(win, "document.querySelector('[data-branch-delete]')", 3_000))) return 'the delete confirmation did not open';
+    if (!(await waitInPage(win, "document.activeElement && !document.activeElement.matches('[data-branch-delete-confirm]') && document.querySelector('[data-branch-delete]').contains(document.activeElement)", 2_000))) return 'the delete confirmation did not start on Cancel';
+    if (await js(`document.querySelector('[data-branch-delete-remote]')?.getAttribute('aria-checked') === 'true'`)) return 'deleting on the remote was on by default';
+    await shot(win, 'branch-delete.png');
+    win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Escape' });
+    if (!(await waitInPage(win, "!document.querySelector('[data-branch-delete]')", 2_000))) return 'Escape did not close the delete confirmation';
+    confirm = 'delete confirmation opened and cancelled';
+  }
+  return `ok: ${rows} branch rows (groups: ${groups.join(', ') || 'none'}), in-use branch locked, filter narrowed and cleared, row menu opened and closed, ${confirm}`;
 }
 
 /**

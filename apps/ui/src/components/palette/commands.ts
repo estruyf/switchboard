@@ -110,7 +110,7 @@ export interface PaletteApi {
   goToNextNeedsYou(): void;
   manageProjects(): void;
   /** A project's page, on a tab or the one it was last left on. */
-  openProject(root: string, tab?: 'worktrees'): void;
+  openProject(root: string, tab?: 'worktrees' | 'branches'): void;
   /** A project's Worktrees tab with the clean-up confirmation for what it suggests. */
   cleanUpWorktrees(root: string): void;
   addProject(): void;
@@ -331,6 +331,25 @@ export const COMMANDS: PaletteCommand[] = [
     keywords: 'worktree branches clean up remove disk space overview project',
     when: (ctx) => ctx.projects.length > 0 && ctx.connected,
     next: () => ({ kind: 'projects', purpose: 'worktrees', worktree: false, chip: 'Worktrees' }),
+  },
+  {
+    id: 'branches-here',
+    title: (ctx) => `Branches in ${ctx.currentProject?.name ?? 'this project'}`,
+    group: 'general',
+    hint: 'current project',
+    icon: GitBranch,
+    keywords: 'git branches local remote origin delete prune merged clean up overview',
+    when: (ctx) => ctx.currentProject !== null && ctx.projects.some((p) => p.root === ctx.currentProject!.root),
+    run: (api, ctx) => api.openProject(ctx.currentProject!.root, 'branches'),
+  },
+  {
+    id: 'branches',
+    title: 'Branches…',
+    group: 'general',
+    icon: GitBranch,
+    keywords: 'git branches local remote origin delete prune merged clean up overview project',
+    when: (ctx) => ctx.projects.length > 0 && ctx.connected,
+    next: () => ({ kind: 'projects', purpose: 'branches', worktree: false, chip: 'Branches' }),
   },
   {
     id: 'clean-up-worktrees',

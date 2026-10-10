@@ -365,9 +365,9 @@ export function CommandPalette() {
           usePaletteBus.getState().showDialog({ kind: 'rename-project', root: row.root });
           return;
         }
-        if (step?.kind === 'projects' && step.purpose === 'worktrees') {
+        if (step?.kind === 'projects' && (step.purpose === 'worktrees' || step.purpose === 'branches')) {
           close();
-          openProject(row.root, 'worktrees');
+          openProject(row.root, step.purpose);
           return;
         }
         const worktree = alt || (step?.kind === 'projects' && step.worktree);
