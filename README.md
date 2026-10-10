@@ -21,7 +21,7 @@ It uses the Claude Code you already have installed, with your login, settings, c
 
 **Watch the one-minute tour:**
 
-<a href="docs/videos/promo-720p.mp4"><img src="docs/videos/promo-poster.png" alt="Play the Switchboard tour video: the Switchboard title card, All your Claude Code sessions, in one window" width="640"></a>
+<a href="docs/videos/promo-720p.mp4"><img src="docs/videos/promo.gif" alt="A one-minute tour of Switchboard: Home, Claude profiles, a project's page and worktrees, the VS Code companion, split view, Changes, the command palette and search" width="720"></a>
 
 ## What you can do
 

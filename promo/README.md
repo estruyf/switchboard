@@ -22,7 +22,7 @@ npm install
 npm run capture          # every still and every recorded beat, retaken (about two minutes)
 npm start                # the Remotion studio, with a scrubbable timeline
 npm run render           # out/promo.mp4, the master (CRF 17)
-npm run web              # out/web/: smaller copies without audio, and a poster
+npm run web              # out/web/: smaller copies without audio, a GIF for the README, and a poster
 ```
 
 `npm run capture shots` and `npm run capture clips` do half each; naming a shot or a beat (`home`, `profile`,
