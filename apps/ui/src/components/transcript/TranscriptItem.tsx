@@ -261,8 +261,8 @@ export const TranscriptItem = memo(function TranscriptItem({
       return (
         <div className={`group/message relative text-body ${indent}`}>
           <Speaker name={item.subagent ? 'Subagent' : 'Claude'} />
-          <MessageToolbar itemKey={item.key} kind="text" text={item.text} copyOnly={item.subagent} />
           <Markdown text={item.text} />
+          <MessageToolbar itemKey={item.key} kind="text" text={item.text} copyOnly={item.subagent} />
         </div>
       );
     case 'thinking':

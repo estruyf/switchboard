@@ -39,17 +39,20 @@ function CopyAction({ text, label }: { text: string; label: string }) {
 /**
  * Small toolbar that appears when you hover a message. It's invisible rather than removed the
  * rest of the time, so Tab still reaches its buttons and it shows up while one has focus.
+ * On your prompt cards it floats over the card's top edge; under Claude's replies it's a row of
+ * its own below the text, with its height kept, so it never covers the reply or makes it jump.
  * Copy is always there; fork, edit and rewind need the session view and a top-level message.
  */
 export function MessageToolbar({ itemKey, kind, text, copyOnly = false }: { itemKey: string; kind: 'user' | 'command' | 'text'; text: string; copyOnly?: boolean }) {
   const context = useContext(MessageActionsContext);
   const actions = copyOnly ? null : context;
   const uuid = messageUuid(itemKey);
+  const placement = kind === 'text' ? '-ml-1 mt-1 h-6' : 'absolute -top-3 right-2 z-10 rounded-md border border-border bg-card px-0.5 shadow-sm';
   return (
     <div
       role="toolbar"
       aria-label={kind === 'text' ? 'Actions for Claude’s message' : 'Actions for your message'}
-      className="pointer-events-none absolute -top-3 right-2 z-10 flex items-center gap-0.5 rounded-md border border-border bg-card px-0.5 opacity-0 shadow-sm group-hover/message:pointer-events-auto group-hover/message:opacity-100 focus-within:pointer-events-auto focus-within:opacity-100"
+      className={`pointer-events-none flex items-center gap-0.5 opacity-0 group-hover/message:pointer-events-auto group-hover/message:opacity-100 focus-within:pointer-events-auto focus-within:opacity-100 ${placement}`}
       data-message-actions
     >
       {actions && kind === 'user' && (

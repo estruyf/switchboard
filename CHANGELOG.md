@@ -16,6 +16,7 @@ All notable changes to Switchboard are listed here. Each release is also on the 
 ### Changed
 
 - Dropping files and folders on the message box adds them as chips instead of `@` mentions in the text.
+- The Copy and Fork buttons of Claude's replies show in a row under the reply when you hover it, instead of over its text.
 - **A calmer New session message box.** **Add to queue** moved into Start's menu (the ▾ next to **Start**), with **Start session** and **Start in a new worktree**; ⌘↩ and ⌘⇧↩ work as before. The chips under the message show only their value ("Personal", "Opus 4.5", "Medium", "Auto") without borders, and the image button comes first. In a narrow window effort and mode show only their icon, then the model drops its version, instead of cutting words off. A session's message box has the same chips. With a strict focus limit, Start waits while you're at the limit, and Add to queue stays in its menu.
 - **Updates show as a message in the window's corner.** A new Switchboard or Claude Code shows in the bottom right instead of taking the sidebar's footer, with **Download**, **Restart to update** or **Update**, and **What's new** for the release notes. You see it with the sidebar closed too, and the footer keeps showing your sessions.
 
