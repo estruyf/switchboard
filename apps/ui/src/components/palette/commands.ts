@@ -6,6 +6,7 @@ import {
   ArrowLeftRight,
   BellRing,
   Blocks,
+  Brain,
   CloudDownload,
   Code,
   ChevronsDown,
@@ -58,6 +59,7 @@ import {
   Save,
   Settings,
   Settings2,
+  Share2,
   ShieldCheck,
   Shrink,
   SlidersHorizontal,
@@ -110,7 +112,7 @@ export interface PaletteApi {
   goToNextNeedsYou(): void;
   manageProjects(): void;
   /** A project's page, on a tab or the one it was last left on. */
-  openProject(root: string, tab?: 'worktrees' | 'branches'): void;
+  openProject(root: string, tab?: 'worktrees' | 'branches' | 'memory'): void;
   /** A project's Worktrees tab with the clean-up confirmation for what it suggests. */
   cleanUpWorktrees(root: string): void;
   addProject(): void;
@@ -350,6 +352,25 @@ export const COMMANDS: PaletteCommand[] = [
     keywords: 'git branches local remote origin delete prune merged clean up overview project',
     when: (ctx) => ctx.projects.length > 0 && ctx.connected,
     next: () => ({ kind: 'projects', purpose: 'branches', worktree: false, chip: 'Branches' }),
+  },
+  {
+    id: 'memory-here',
+    title: (ctx) => `Memory of ${ctx.currentProject?.name ?? 'this project'}`,
+    group: 'general',
+    hint: 'current project',
+    icon: Brain,
+    keywords: 'claude.md rules instructions knowledge remember',
+    when: (ctx) => ctx.currentProject !== null && ctx.projects.some((p) => p.root === ctx.currentProject!.root),
+    run: (api, ctx) => api.openProject(ctx.currentProject!.root, 'memory'),
+  },
+  {
+    id: 'share-memory',
+    title: 'Share memory with the team…',
+    group: 'general',
+    icon: Share2,
+    keywords: 'memory claude.md rules instructions promote move project knowledge',
+    when: (ctx) => ctx.connected && ctx.currentProject !== null && ctx.projects.some((p) => p.root === ctx.currentProject!.root),
+    next: () => ({ kind: 'pick', list: 'memory', chip: 'Share memory' }),
   },
   {
     id: 'clean-up-worktrees',
