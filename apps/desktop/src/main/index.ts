@@ -2224,6 +2224,46 @@ async function runCopyMessageStep(win: BrowserWindow): Promise<string> {
 }
 
 /**
+ * The actions of Claude's replies sit in a row of their own under the text, so they never cover it;
+ * the row is hidden until you hover or tab to it, and showing it doesn't change the reply's height.
+ * Your prompt cards keep the toolbar floating over their top edge. Read-only: it focuses a button but
+ * never clicks one.
+ */
+async function runReplyActionsStep(win: BrowserWindow): Promise<string> {
+  const js = (code: string) => win.webContents.executeJavaScript(code);
+  const replies = `[...document.querySelectorAll('[data-item-kind="text"]')].filter((row) => row.querySelector('.markdown') && row.querySelector('[data-message-actions]'))`;
+  const layout = (await js(`(() => {
+    const rows = ${replies};
+    const covered = rows.filter((row) => row.querySelector('[data-message-actions]').getBoundingClientRect().top < row.querySelector('.markdown').getBoundingClientRect().bottom - 1).length;
+    const floating = rows.filter((row) => getComputedStyle(row.querySelector('[data-message-actions]')).position === 'absolute').length;
+    const prompt = document.querySelector('[data-item-kind="user"] [data-message-actions]');
+    return { rows: rows.length, covered, floating, promptPosition: prompt ? getComputedStyle(prompt).position : null };
+  })()`)) as { rows: number; covered: number; floating: number; promptPosition: string | null };
+  if (layout.rows === 0) return 'ok: no replies from Claude on screen';
+  if (layout.covered > 0) return `the actions overlap the text of ${layout.covered} of ${layout.rows} replies`;
+  if (layout.floating > 0) return `the actions float over ${layout.floating} of ${layout.rows} replies instead of taking a row`;
+  if (layout.promptPosition && layout.promptPosition !== 'absolute') return `your prompt's actions are ${layout.promptPosition}, not floating over the card`;
+
+  // Tab to Copy on the first reply in view: the row shows, and the reply keeps its height.
+  const target = `(${replies}.find((row) => { const r = row.getBoundingClientRect(); return r.top >= 0 && r.bottom <= innerHeight; }) ?? ${replies}[0])`;
+  await js(`${target}.dataset.smokeReplyActions = '1'`);
+  const row = "document.querySelector('[data-smoke-reply-actions]')";
+  const bar = `${row}.querySelector('[data-message-actions]')`;
+  try {
+    const before = (await js(`({ height: ${row}.getBoundingClientRect().height, opacity: getComputedStyle(${bar}).opacity })`)) as { height: number; opacity: string };
+    if (before.opacity !== '0') return `the actions of a reply show (opacity ${before.opacity}) without hover or focus`;
+    await js(`${bar}.querySelector('button[aria-label^="Copy"]').focus()`);
+    if (!(await waitInPage(win, `getComputedStyle(${bar}).opacity === '1'`, 2_000))) return 'tabbing to Copy did not show the actions of the reply';
+    const height = (await js(`${row}.getBoundingClientRect().height`)) as number;
+    if (Math.abs(height - before.height) > 0.5) return `showing the actions changed the reply's height from ${before.height}px to ${height}px`;
+    await shot(win, 'reply-actions.png');
+    return `ok: actions under the text of ${layout.rows} replies, hidden until focus, no jump${layout.promptPosition ? '; prompt cards keep the floating toolbar' : ''}`;
+  } finally {
+    await js(`(document.activeElement instanceof HTMLElement && document.activeElement.blur(), delete ${row}?.dataset.smokeReplyActions)`);
+  }
+}
+
+/**
  * Shell code blocks in the conversation have a Run button and other blocks don't. Read-only: Run is
  * never clicked, since it would run the command in a real project.
  */
@@ -3892,6 +3932,7 @@ async function runSmokeStep(win: BrowserWindow | null): Promise<void> {
   await step('file links', () => runFileLinksStep(win));
   await step('long prompts', () => runLongPromptStep(win));
   await step('copy messages', () => runCopyMessageStep(win));
+  await step('reply actions', () => runReplyActionsStep(win));
   await step('run code blocks', () => runCodeRunStep(win));
   await step('unsent drafts', () => runDraftStep(win));
   await step('unsent messages', () => runUnsentStep(win));
