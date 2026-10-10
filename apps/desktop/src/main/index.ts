@@ -3691,15 +3691,18 @@ async function runControlsStep(win: BrowserWindow): Promise<string> {
   const cursors = (await js("({ button: getComputedStyle(document.querySelector('[data-new-session]')).cursor, handle: getComputedStyle(document.querySelector('[data-sidebar-resize]')).cursor })")) as { button: string; handle: string };
   if (cursors.button !== 'pointer' || cursors.handle !== 'col-resize') return `cursors: ${JSON.stringify(cursors)}`;
 
-  // Tooltip on hover.
+  // Tooltip on hover. The layer drops a tooltip that is waiting to show on a scroll around it, a key, a
+  // click or the window losing focus, so note those to say why it didn't show. The conversation scrolls
+  // to its end after the resize above, which must not count.
+  await js(
+    "(() => { const seen = []; const stop = new AbortController(); window.__smokeTooltipWatch = { seen, stop }; const opts = { capture: true, signal: stop.signal }; const name = (t) => !t || t === document ? 'document' : t.tagName + Object.keys(t.dataset ?? {}).map((k) => '[data-' + k + ']').join(''); for (const type of ['scroll', 'keydown', 'pointerdown']) document.addEventListener(type, (e) => seen.push(type + ' on ' + name(e.target)), opts); window.addEventListener('blur', () => seen.push('window blur'), { signal: stop.signal }); document.addEventListener('mouseout', (e) => e.relatedTarget === null && seen.push('pointer left the window'), { signal: stop.signal }); })()",
+  );
   const tip = await center('[data-new-session]');
   win.webContents.sendInputEvent({ type: 'mouseMove', x: tip.x, y: tip.y });
   const tooltip = await waitInPage(win, "document.querySelector('[data-tooltip-layer]')?.innerText.includes('New session')", 2_000);
-  const under = tooltip
-    ? null
-    : ((await js(
-        `(() => { const el = document.elementFromPoint(${tip.x}, ${tip.y}); return { at: el ? el.tagName + (el.closest('[data-new-session]') ? ' in the button' : '') : 'nothing', layer: document.querySelector('[data-tooltip-layer]')?.innerText ?? null }; })()`,
-      )) as { at: string; layer: string | null });
+  const under = (await js(
+    `(() => { const watch = window.__smokeTooltipWatch; watch.stop.abort(); delete window.__smokeTooltipWatch; const el = document.elementFromPoint(${tip.x}, ${tip.y}); return { at: el ? el.tagName + (el.closest('[data-new-session]') ? ' in the button' : '') : 'nothing', layer: document.querySelector('[data-tooltip-layer]')?.innerText ?? null, events: [...new Set(watch.seen)] }; })()`,
+  )) as { at: string; layer: string | null; events: string[] };
   win.webContents.sendInputEvent({ type: 'mouseMove', x: tip.x + 400, y: tip.y + 300 });
   if (!tooltip) return `no themed tooltip on the New session button (${JSON.stringify(under)})`;
 
@@ -3725,7 +3728,8 @@ async function runControlsStep(win: BrowserWindow): Promise<string> {
   }
 
   if (smokeSessionId) await js(`document.querySelector('[data-session-id="${smokeSessionId}"]')?.click()`);
-  return `ok: sidebar ${start} → ${widest} → ${narrowest} → ${reset}px, pointer cursors, themed tooltip${slashTab}`;
+  const scrolledElsewhere = under.events.some((event) => event.startsWith('scroll')) ? ' (through a scroll elsewhere)' : '';
+  return `ok: sidebar ${start} → ${widest} → ${narrowest} → ${reset}px, pointer cursors, themed tooltip${scrolledElsewhere}${slashTab}`;
 }
 
 /**
