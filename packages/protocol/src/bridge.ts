@@ -22,6 +22,8 @@ export const IpcChannel = {
   pickImage: "switchboard:pick-image",
   chooseExportFile: "switchboard:choose-export-file",
   chooseImportFile: "switchboard:choose-import-file",
+  saveImage: "switchboard:save-image",
+  showSavedImage: "switchboard:show-saved-image",
   focusSession: "switchboard:focus-session",
   selectSession: "switchboard:select-session",
   quitRequested: "switchboard:quit-requested",
@@ -264,6 +266,21 @@ export type ThemeCommand =
   | { kind: "open-folder" }
   | { kind: "show-file"; id: string };
 
+/** File extensions for the image types a transcript can hold (what Claude accepts), by media type. */
+export const IMAGE_EXTENSIONS: Record<string, string> = {
+  "image/png": "png",
+  "image/jpeg": "jpg",
+  "image/gif": "gif",
+  "image/webp": "webp",
+};
+
+/** An image from the conversation to save: base64 `data` of `mediaType`, suggested as `fileName`. */
+export interface SaveImageRequest {
+  mediaType: string;
+  data: string;
+  fileName: string;
+}
+
 /** Sent once per engine connection by the renderer. Used for startup timing and the smoke test. */
 export interface RendererReadyReport {
   /** Epoch ms when the first ping came back, i.e. when the UI could talk to the engine. */
@@ -296,6 +313,10 @@ export interface SwitchboardBridge {
   chooseExportFile(defaultName: string): Promise<string | null>;
   /** Native open dialog for a settings file to import. Resolves to null when cancelled. */
   chooseImportFile(): Promise<string | null>;
+  /** Native save dialog for an image from the conversation, then writes it. Resolves to the path, or null when cancelled. */
+  saveImage(request: SaveImageRequest): Promise<string | null>;
+  /** Shows an image saved with `saveImage` in Finder (only those, never any other path). */
+  showSavedImage(path: string): void;
   /** The path on disk of a dropped file or folder; empty for files that aren't on disk (made in the page, pasted). */
   getPathForFile(file: File): string;
   /** ⌘Q was pressed: show the quit prompt. Pressing ⌘Q again while it's open quits without it. */
