@@ -1,0 +1,26 @@
+{
+  "name": "switchboard-promo",
+  "version": "1.0.0",
+  "private": true,
+  "description": "The Switchboard promo video, cut with Remotion from a scripted capture of the real app (and VS Code) in a made-up demo world.",
+  "license": "MIT",
+  "type": "module",
+  "scripts": {
+    "capture": "node scripts/capture.mjs",
+    "start": "remotion studio",
+    "render": "remotion render Promo out/promo.mp4 --codec=h264 --crf=17",
+    "web": "node scripts/web.mjs",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@remotion/cli": "4.0.518",
+    "react": "19.2.0",
+    "react-dom": "19.2.0",
+    "remotion": "4.0.518"
+  },
+  "devDependencies": {
+    "@types/react": "19.2.0",
+    "playwright": "1.62.1",
+    "typescript": "5.9.3"
+  }
+}
