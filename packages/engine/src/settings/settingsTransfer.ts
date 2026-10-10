@@ -207,6 +207,9 @@ export interface ThemeToAdd {
  */
 const isFolder = (path: string) => isLocalAbsolutePath(path, process.platform) && existsSync(path) && statSync(path).isDirectory();
 
+/** How the import preview names the machine. */
+const THIS_COMPUTER = process.platform === 'darwin' ? 'this Mac' : 'this computer';
+
 /**
  * Works out what importing a file would change and how. Merge adds what is missing and keeps your
  * values where both have one; Replace makes projects, actions, app choices and preferences match the
@@ -296,7 +299,7 @@ export function planImport(stores: SettingsStores, file: SettingsFile, options: 
       const entry = parsed.data;
       const root = locate(entry.path);
       if (!root) {
-        note('projects', entry.path, 'skip', 'folder not found on this Mac');
+        note('projects', entry.path, 'skip', `folder not found on ${THIS_COMPUTER}`);
         continue;
       }
       if (order.includes(root)) continue;
@@ -380,7 +383,7 @@ export function planImport(stores: SettingsStores, file: SettingsFile, options: 
           continue;
         }
         if (scope.path !== null && !root) {
-          note('actions', label, 'skip', 'folder not found on this Mac');
+          note('actions', label, 'skip', `folder not found on ${THIS_COMPUTER}`);
           continue;
         }
         const action = parsed.data;

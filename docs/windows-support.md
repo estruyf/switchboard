@@ -2,7 +2,7 @@
 
 The plan for running Switchboard on Windows with the same features as on macOS. It is written for whoever does the work (a person or an agent); the README stays about using the app.
 
-Status: **Phase 1 done on Windows; not yet checked on macOS.** See "Phase 1 outcome" below.
+Status: **Phases 1 and 2 done on Windows; neither checked on macOS yet.** See "Phase 1 outcome" and "Phase 2 outcome" below. Phase 3 (an installer and releases) is next.
 
 ## Where we start
 
@@ -278,6 +278,32 @@ Goal: every feature in the README works on Windows, and looks and feels native t
 - A manual pass through the README's feature list on Windows finds nothing missing.
 - Screenshots of the main views look right in light and dark mode.
 
+### Phase 2 outcome
+
+On branch `feat/windows-feature-parity`, one commit per section. On Windows `npm run check` passes (1077 tests, 14 skipped: the symlink test without Developer Mode, the POSIX-only fakes, and the ones skipped everywhere) and so do all 57 smoke steps.
+
+What was done differently from the plan above, and why:
+- **2.1 Window:** the system's own title bar on Windows, not `titleBarOverlay`. The overlay puts the window buttons over the top-right corner, and three different headers end up there (the conversation, Changes, a terminal docked right), each of which would need room for them. The native frame follows light and dark mode (`nativeTheme.themeSource`). Moving to the overlay is polish for later.
+- **2.2 Shortcuts in the terminal:** Ctrl keys are the shell's and Ctrl+Shift keys are Switchboard's (as in Windows Terminal), with Ctrl+C copying a selection and Ctrl+V pasting. VS Code instead lets its own shortcuts (Ctrl+B, Ctrl+P) win over the shell. Decision 7 below.
+- **2.6 Shell choice:** not built. macOS has no picker either (it's `$SHELL`), and safe quoting for Command Prompt is hard (`%VAR%` expands inside quotes). What was fixed instead:
+  - chained commands work in Windows PowerShell 5.1 (`UserShell.sequence`, no `&&` there);
+  - the environment on Windows is the process's own, with `PATH` under that name;
+  - diagnostics name the real shell.
+- **2.7 Claude Code updates:** the npm package's command is now a native `bin\claude.exe`, which is found next to npm's `claude.cmd` shim and runs without a shell. A WinGet install shows its command (`winget upgrade Anthropic.ClaudeCode`) instead of running it.
+- **2.9 Long paths:** git runs with `core.longpaths` on Windows. Without it Git for Windows leaves out files whose full path is over 260 characters without an error, so they were missing from Changes.
+- **Not reproduced:** the ConPTY concern from phase 1 (output lost at exit). 15 short actions in a row kept their last line; only an interactive shell typing `exit` lost its final output.
+
+Found in passing:
+- File links to Windows paths were `file://C:%5C…`; now `file:///C:/…`.
+- The Changes button shows until the engine answers that a folder isn't a git checkout, then disappears. That's also true on macOS, with a 500 ms delay; a smoke step raced it.
+- Under memory pressure (2–3 GB free), Electron's GPU process can crash while the smoke test takes a screenshot (`UnknownVizError`), and the steps after it fail. That's the machine, not the app: rerun when memory is free.
+
+Still to check by hand on Windows:
+- the title bar and menu (Alt) in light and dark mode;
+- a real notification and the taskbar dot;
+- Continue in VS Code;
+- a live session through the SDK (`SWITCHBOARD_SMOKE_LIVE_CWD` on a throwaway repo).
+
 ## Phase 3: building and releasing for Windows
 
 Goal: a signed installer that updates itself, built by CI with every release.
@@ -323,14 +349,16 @@ Goal: a signed installer that updates itself, built by CI with every release.
 
 ## Decisions for the maintainer
 
-These shape the work. Phase 1 uses the defaults in brackets until decided.
+These shape the work. The defaults in brackets are what is built until they are decided.
 
-1. **Default shell on Windows** [PowerShell 7 if installed, else Windows PowerShell].
+1. **Default shell on Windows** [PowerShell 7 if installed, else Windows PowerShell; no picker in Settings].
 2. **Menu bar on Windows** [hidden, shown with Alt].
-3. **Quit shortcut on Windows** [Ctrl+Q twice as on macOS, plus Alt+F4 closing the window].
+3. **Quit shortcut on Windows** [Ctrl+Q twice as on macOS; closing the window asks too].
 4. **README shortcuts table** [macOS keys, with a note that ⌘ is Ctrl on Windows].
 5. **Code signing** [no Windows release until there is a certificate].
 6. **Windows on ARM** [built, but tested only when someone has the hardware].
+7. **Shortcuts in the terminal on Windows** [Ctrl+Shift keys are Switchboard's, Ctrl keys the shell's; the alternative is VS Code's way, where Switchboard's own shortcuts such as Ctrl+B win over the shell].
+8. **Window frame on Windows** [the system's title bar; `titleBarOverlay` for a frameless look is later polish].
 
 ## Effort
 

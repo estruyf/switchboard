@@ -8,6 +8,8 @@ All notable changes to Switchboard are listed here. Each release is also on the 
 
 - **Answer prompts from VS Code.** With the VS Code companion, a permission prompt, question or plan from a session in the open workspace shows as a VS Code notification you can answer there. Your answer works as if you gave it in Switchboard, and the card goes away.
 - Save an image from the conversation: use the save button on the image, right-click it and choose Save image…, or press ⌘S while it is open full size.
+- **Switchboard runs on Windows**, built from source for now. Shortcuts use Ctrl, the terminal panel runs PowerShell, Open in knows VS Code, Cursor, File Explorer and Windows Terminal, the VS Code companion connects, and a session that needs you flashes the taskbar button. See [Windows support](docs/windows-support.md).
+- Settings files move between a Mac and a Windows PC: their project folders show as missing until you point them at folders on the new computer.
 
 ### Fixed
 
