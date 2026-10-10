@@ -29,6 +29,16 @@ export function detectInstall(path: string, realPath: string, options: { home: s
   if (under(join(home, '.local', 'share', 'claude'))) return { method: 'native', cask: null, command: 'claude update', run: { file: path, args: ['update'] } };
   // On Windows the native installer copies claude.exe into ~/.local/bin instead of linking it there.
   if (windows && same(realPath) === same(join(home, '.local', 'bin', 'claude.exe'))) return { method: 'native', cask: null, command: 'claude update', run: { file: path, args: ['update'] } };
+  if (windows) {
+    // WinGet installs under its own Packages folder, and only WinGet should update what it installed. It may ask
+    // for permission, so Switchboard shows the command instead of running it.
+    if (/\\Microsoft\\WinGet\\/i.test(realPath)) return { method: 'winget', cask: null, command: 'winget upgrade Anthropic.ClaudeCode', run: null };
+    // npm's package, below any prefix; its npm.cmd lives with Node, not the prefix, so it is found on PATH.
+    if (/\\node_modules\\@anthropic-ai\\claude-code\\/i.test(realPath)) {
+      const spec = `@anthropic-ai/claude-code@${channel}`;
+      return { method: 'npm', cask: null, command: `npm install -g ${spec}`, run: { file: 'npm', args: ['install', '-g', spec] } };
+    }
+  }
 
   const cask = /^(.*)\/Caskroom\/(claude-code(?:@[\w.-]+)?)\//.exec(realPath);
   if (cask) {

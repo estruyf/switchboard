@@ -1,11 +1,13 @@
 import { spawn } from 'node:child_process';
 import { readFileSync, realpathSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { join } from 'node:path';
+import { join, win32 } from 'node:path';
 import { RpcError, type ClaudeInstall, type ClaudeUpdateState, type LogLevel } from '@switchboard/protocol';
 import type { AppStateStore } from '../db/appState.ts';
 import { autoUpdaterDisabled, claudeChannel, CLAUDE_DIST_TAGS_URL, detectInstall, versionFromDistTags, type ClaudeInstallInfo } from './claudeInstall.ts';
 import * as reduce from './claudeUpdateState.ts';
+import { findOnPath } from './editors.ts';
+import { needsCmd, viaCmd } from './windowsCommand.ts';
 
 /** Well after startup, so the check never competes with the first sessions and transcripts. */
 export const FIRST_CHECK_DELAY_MS = 20_000;
@@ -60,7 +62,10 @@ export const runCommand: RunCommand = (file, args, env, onOutput) =>
       clearTimeout(timer);
       resolve(result);
     };
-    const child = spawn(file, args, { env, stdio: ['ignore', 'pipe', 'pipe'] });
+    // On Windows a bare name (`npm`) is found with its command ending, and a `.cmd` runs through cmd.exe.
+    const resolved = process.platform === 'win32' && !win32.isAbsolute(file) ? (findOnPath(file, env, 'win32') ?? file) : file;
+    const launch = process.platform === 'win32' && needsCmd(resolved) ? viaCmd(resolved, args, env) : { command: resolved, args };
+    const child = spawn(launch.command, launch.args, { env, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true, windowsVerbatimArguments: launch.command !== resolved });
     const timer = setTimeout(() => {
       child.kill('SIGTERM');
       finish({ exitCode: null, error: `The update took longer than ${UPDATE_TIMEOUT_MS / 60_000} minutes and was stopped.` });

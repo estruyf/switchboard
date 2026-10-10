@@ -33,9 +33,17 @@ describe('claude binary', () => {
     expect(candidates).toContain('/home/me/.claude/local/claude');
   });
 
-  it('looks for claude.exe on Windows, on PATH and where the native installer puts it', () => {
-    const candidates = claudeCandidates({ PATH: 'C:\\tools;C:\\Users\\me\\.local\\bin' }, 'C:\\Users\\me', 'win32');
-    expect(candidates).toEqual(['C:\\tools\\claude.exe', 'C:\\Users\\me\\.local\\bin\\claude.exe']);
+  it('looks for claude.exe on Windows: on PATH, in npm\'s package next to its shim, and where installers put it', () => {
+    const npm = (dir: string) => `${dir}\\node_modules\\@anthropic-ai\\claude-code\\bin\\claude.exe`;
+    const candidates = claudeCandidates({ PATH: 'C:\\tools;C:\\Users\\me\\.local\\bin', APPDATA: 'C:\\Users\\me\\AppData\\Roaming', LOCALAPPDATA: 'C:\\Users\\me\\AppData\\Local' }, 'C:\\Users\\me', 'win32');
+    expect(candidates).toEqual([
+      'C:\\tools\\claude.exe',
+      npm('C:\\tools'),
+      'C:\\Users\\me\\.local\\bin\\claude.exe',
+      npm('C:\\Users\\me\\.local\\bin'),
+      npm('C:\\Users\\me\\AppData\\Roaming\\npm'),
+      'C:\\Users\\me\\AppData\\Local\\Microsoft\\WinGet\\Links\\claude.exe',
+    ]);
   });
 
   it('finds an executable on PATH and reads its version', async () => {

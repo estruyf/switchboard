@@ -13,18 +13,28 @@ function isExecutable(path: string): boolean {
   }
 }
 
+/** Where npm keeps the package's own `claude.exe`, below a folder npm installs commands into. */
+const NPM_PACKAGE_EXE = ['node_modules', '@anthropic-ai', 'claude-code', 'bin', 'claude.exe'];
+
 /**
- * Candidate locations in priority order: PATH first, then the usual install spots. On Windows that is the
- * native installer's `claude.exe` (npm's `claude.cmd` shim is not run directly; see docs/windows-support.md).
+ * Candidate locations in priority order: PATH first, then the usual install spots. On Windows that is a
+ * `claude.exe`: the native installer's, WinGet's, or the one npm's `claude.cmd` shim starts (in the package
+ * next to it), which runs without a shell where the shim can't.
  */
 export function claudeCandidates(env: Record<string, string>, home = homedir(), platform = process.platform): string[] {
   const { delimiter, join } = platform === 'win32' ? win32 : posix;
-  const binary = platform === 'win32' ? 'claude.exe' : 'claude';
-  const fromPath = (env.PATH ?? '').split(delimiter).filter(Boolean).map((dir) => join(dir, binary));
-  const wellKnown =
-    platform === 'win32'
-      ? [join(home, '.local', 'bin', 'claude.exe')]
-      : [join(home, '.claude', 'local', 'claude'), join(home, '.local', 'bin', 'claude'), '/opt/homebrew/bin/claude', '/usr/local/bin/claude'];
+  const dirs = (env.PATH ?? '').split(delimiter).filter(Boolean);
+  if (platform === 'win32') {
+    const fromPath = dirs.flatMap((dir) => [join(dir, 'claude.exe'), join(dir, ...NPM_PACKAGE_EXE)]);
+    const wellKnown = [
+      join(home, '.local', 'bin', 'claude.exe'),
+      ...(env.APPDATA ? [join(env.APPDATA, 'npm', ...NPM_PACKAGE_EXE)] : []),
+      ...(env.LOCALAPPDATA ? [join(env.LOCALAPPDATA, 'Microsoft', 'WinGet', 'Links', 'claude.exe')] : []),
+    ];
+    return [...new Set([...fromPath, ...wellKnown])];
+  }
+  const fromPath = dirs.map((dir) => join(dir, 'claude'));
+  const wellKnown = [join(home, '.claude', 'local', 'claude'), join(home, '.local', 'bin', 'claude'), '/opt/homebrew/bin/claude', '/usr/local/bin/claude'];
   return [...new Set([...fromPath, ...wellKnown])];
 }
 
