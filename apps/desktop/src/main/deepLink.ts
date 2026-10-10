@@ -25,13 +25,23 @@ export type ParsedLink = { ok: true; link: DeepLink } | { ok: false; error: stri
 
 const fail = (error: string): ParsedLink => ({ ok: false, error });
 
-/** Checks a folder from a link: absolute, local, no `..`, nothing hidden. Returns it without a trailing slash. */
-function checkFolder(cwd: string): string | ParsedLink {
+/**
+ * Checks a folder from a link: absolute, local, no `..`, nothing hidden. Returns it without a trailing slash.
+ * On Windows that is a drive path (`C:\…` or `C:/…`); `/…` (the current drive) is not absolute enough there.
+ */
+function checkFolder(cwd: string, platform: string): string | ParsedLink {
+  const windows = platform === 'win32';
+  const drive = windows && /^[A-Za-z]:[\\/]/.test(cwd);
   if (CONTROL.test(cwd) || INVISIBLE.test(cwd)) return fail('The folder in the link contains hidden or control characters.');
-  if (cwd.startsWith('//') || cwd.startsWith('\\\\') || /^[a-z][a-z0-9+.-]*:/i.test(cwd)) return fail('The folder in the link is a network location; use a local folder.');
-  if (!cwd.startsWith('/')) return fail('The folder in the link must be an absolute path, like /Users/you/dev/project.');
-  if (cwd.split('/').some((part) => part === '..' || part === '.')) return fail('The folder in the link may not contain . or .. segments.');
+  // On Windows a drive letter looks like a one-letter URL scheme; anything else with a scheme is not a local folder.
+  const scheme = windows ? /^[a-z][a-z0-9+.-]+:/i : /^[a-z][a-z0-9+.-]*:/i;
+  if (cwd.startsWith('//') || cwd.startsWith('\\\\') || scheme.test(cwd)) return fail('The folder in the link is a network location; use a local folder.');
+  if (windows ? !drive : !cwd.startsWith('/')) return fail(`The folder in the link must be an absolute path, like ${windows ? 'C:\\Users\\you\\dev\\project' : '/Users/you/dev/project'}.`);
+  // After the drive, a colon names an alternate data stream, never a folder.
+  if (windows && cwd.slice(2).includes(':')) return fail('The folder in the link may not contain a colon after the drive.');
+  if (cwd.split(windows ? /[\\/]/ : '/').some((part) => part === '..' || part === '.')) return fail('The folder in the link may not contain . or .. segments.');
   if (cwd.length > 4096) return fail('The folder in the link is too long.');
+  if (windows) return cwd.length > 3 ? cwd.replace(/[\\/]+$/, '') : cwd;
   return cwd.length > 1 ? cwd.replace(/\/+$/, '') : cwd;
 }
 
@@ -44,8 +54,10 @@ function checkFolder(cwd: string): string | ParsedLink {
  *   of `prompt`). `autostart=1` starts the session; by default it waits for the user to press Enter.
  *   `question=1` makes it a quick question, without a project (a folder, project or repo is then ignored).
  * - `switchboard://session/<sessionId>`
+ *
+ * `platform` decides what an absolute folder looks like (a drive path on Windows); tests pass it.
  */
-export function parseDeepLink(raw: string): ParsedLink {
+export function parseDeepLink(raw: string, platform: string = process.platform): ParsedLink {
   if (raw.length > MAX_URL_LENGTH) return fail('The link is too long.');
   let url: URL;
   try {
@@ -74,7 +86,7 @@ export function parseDeepLink(raw: string): ParsedLink {
     let cwd: string | null = null;
     const rawCwd = params.get('cwd');
     if (rawCwd !== null && rawCwd !== '') {
-      const checked = checkFolder(rawCwd);
+      const checked = checkFolder(rawCwd, platform);
       if (typeof checked !== 'string') return checked;
       cwd = checked;
     }
