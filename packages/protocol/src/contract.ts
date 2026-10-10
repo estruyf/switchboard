@@ -34,6 +34,7 @@ import { ActionRunResult, ActionSuggestion, ListedAction, ProjectAction } from '
 import { ChangesBase, GitChanges, GitSyncAction, WorktreeStatus } from './git.ts';
 import { Capabilities } from './capabilities.ts';
 import { WorktreeList, WorktreeRemoveItem, WorktreeRemoveResult, WorktreeSize } from './worktrees.ts';
+import { BranchDeleteItem, BranchDeleteResult, BranchList } from './branches.ts';
 import { ProfileColor, ProfilesSnapshot } from './profiles.ts';
 import { ClaudeUpdateState } from './claudeUpdate.ts';
 import { BackupSectionSchema, FolderMapping, ImportMode, ImportPreview } from './backup.ts';
@@ -441,6 +442,20 @@ export const contract = {
     'worktrees.push': { params: z.object({ path: AbsolutePath }), result: z.object({}) },
     /** Ignored files in a worktree that removing it would delete, leaving out dependencies and build output (node_modules, dist, …). */
     'worktrees.ignoredFiles': { params: z.object({ path: AbsolutePath }), result: z.object({ files: z.array(z.string()), total: z.number() }) },
+
+    // --- Branch overview (a project's branches, here and on its remotes) ---------------------------
+    /**
+     * Every local branch of the repository at `root`, each with its copy on a remote, and the remote branches that have
+     * no local copy, with what it takes to decide whether they can go. `fetch` runs `git fetch --prune` first, so
+     * branches deleted on the remote show as gone. Pull requests come from `gh` (shared with `worktrees.list`). NOT_A_REPO outside git.
+     */
+    'branches.list': { params: z.object({ root: AbsolutePath, fetch: z.boolean().default(false) }), result: BranchList },
+    /**
+     * Deletes branches of the repository at `root`, one after the other: the local branch with `git branch -D` (after an
+     * optional recovery ref), the remote one with `git push <remote> --delete`. Refuses (per item) the base branch, the
+     * remote's default branch, a branch checked out in a worktree, and a remote branch with an open pull request.
+     */
+    'branches.delete': { params: z.object({ root: AbsolutePath, items: z.array(BranchDeleteItem).min(1).max(500) }), result: z.object({ results: z.array(BranchDeleteResult) }) },
 
     // --- Terminals ---------------------------------------------------------------------------
     /**

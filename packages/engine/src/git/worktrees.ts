@@ -40,7 +40,7 @@ const shortBranch = (ref: string) => ref.replace(/^refs\/heads\//, '');
 const inside = (path: string, folder: string) => path === folder || path.startsWith(folder.endsWith(sep) ? folder : folder + sep);
 
 /** Runs a few promises at a time, keeping the order of `items`. */
-async function mapLimit<T, R>(items: readonly T[], limit: number, run: (item: T) => Promise<R>): Promise<R[]> {
+export async function mapLimit<T, R>(items: readonly T[], limit: number, run: (item: T) => Promise<R>): Promise<R[]> {
   const results = new Array<R>(items.length);
   let next = 0;
   const worker = async () => {
@@ -251,7 +251,7 @@ export function removalRefusal(entry: WorktreeEntry): WorktreeRefusal | null {
 }
 
 /** `refs/switchboard/removed/<branch>-<YYYY-MM-DD>`, with `-2`, `-3`… when that one is taken. */
-async function saveRecoveryRef(root: string, branch: string, sha: string, now: Date): Promise<string> {
+export async function saveRecoveryRef(root: string, branch: string, sha: string, now: Date): Promise<string> {
   const day = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
   for (let n = 1; n < 100; n++) {
     const ref = `refs/switchboard/removed/${branch}-${day}${n > 1 ? `-${n}` : ''}`;

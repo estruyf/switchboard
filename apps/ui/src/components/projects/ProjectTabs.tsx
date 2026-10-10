@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from 'react';
 import type { ListedAction, ProjectDefaults, ProjectInfo, WorktreeStatus } from '@switchboard/protocol/client';
 import { useEngineConnection } from '../../engine/useEngine.ts';
 import { formatShortcut } from '../../lib/shortcuts.ts';
+import { useBranchRows } from '../../state/branchesStore.ts';
 import { useHosts } from '../../state/hostsStore.ts';
 import { openProject, type ProjectTab } from '../../state/projectPageStore.ts';
 import { useProfiles } from '../../state/profilesStore.ts';
@@ -15,6 +16,7 @@ import { buildSessionList, GROUP_LABEL as SESSION_GROUP_LABEL, rowStatus, waitin
 import { useListedRows, useQueue } from '../../state/useQueue.ts';
 import { useWorktreeRows, useWorktreeSizes } from '../../state/worktreesStore.ts';
 import { ActionEditor } from '../actions/ActionEditor.tsx';
+import { branchSummary } from '../branches/branchGroups.ts';
 import { ACTION_ICON } from '../actions/actionIcon.ts';
 import { useProjectActionList } from '../actions/useActions.ts';
 import { ProjectIcon } from '../ProjectIcon.tsx';
@@ -66,12 +68,14 @@ function OverviewCard({ title, tab, root, children }: { title: string; tab: Proj
 
 const sep = <span className="text-faint"> · </span>;
 
-/** Overview: one card per area (sessions, worktrees, the queue, git), each opening its tab. */
+/** Overview: one card per area (sessions, worktrees, branches, the queue, git), each opening its tab. */
 export function ProjectOverview({ root, status }: { root: string; status: WorktreeStatus | null }) {
   const sessions = useProjectSessionRows(root);
   const queue = useProjectQueue(root);
   const { state, rows } = useWorktreeRows(root);
   const sizes = useWorktreeSizes(state.list);
+  const branches = useBranchRows(root);
+  const branchCounts = branchSummary(branches.rows);
   const working = sessions.filter((row) => rowStatus(row) === 'running').length;
   const needsYou = sessions.filter((row) => rowStatus(row) === 'needs-you').length;
   const summary = worktreeSummary(rows, sizes);
@@ -113,6 +117,25 @@ export function ProjectOverview({ root, status }: { root: string; status: Worktr
           </>
         )}
       </OverviewCard>
+      <OverviewCard title="Branches" tab="branches" root={root}>
+        {branches.state.notRepo ? (
+          <span className="text-muted">Not a git repository</span>
+        ) : !branches.state.list ? (
+          <span className="text-muted">Reading…</span>
+        ) : (
+          <>
+            {branchCounts.local} local
+            {branchCounts.remote > 0 && (
+              <>
+                {sep}
+                {branchCounts.remote} on {branches.state.list.remotes.length === 1 ? branches.state.list.remotes[0] : 'remotes'}
+              </>
+            )}
+            {sep}
+            <span className={branchCounts.safe ? 'text-ok' : 'text-muted'}>{branchCounts.safe} safe to delete</span>
+          </>
+        )}
+      </OverviewCard>
       {queue.length > 0 && (
         <OverviewCard title="Queue" tab="sessions" root={root}>
           {queue.length} queued
@@ -124,7 +147,7 @@ export function ProjectOverview({ root, status }: { root: string; status: Worktr
           )}
         </OverviewCard>
       )}
-      <OverviewCard title="Git" tab="worktrees" root={root}>
+      <OverviewCard title="Git" tab="branches" root={root}>
         {status ? (
           <>
             {status.branch ?? 'detached HEAD'}

@@ -358,4 +358,17 @@ describe('project pages and worktrees', () => {
     expect(ids(context({ currentProject: { root: '/tmp/x', name: 'x' } }))).not.toContain('clean-up-worktrees');
     expect(ids(context({ projects: [] }))).not.toContain('worktrees');
   });
+
+  it("opens the current project's branches, or asks which project", () => {
+    const api = { openProject: vi.fn() } as unknown as PaletteApi;
+    expect(ids(context())).toContain('branches');
+    expect(ids(context())).not.toContain('branches-here');
+    expect(byId(context(), 'branches')!.next!(context())).toEqual({ kind: 'projects', purpose: 'branches', worktree: false, chip: 'Branches' });
+
+    const ctx = context({ view: 'project', currentProject: app });
+    expect(titleOf(byId(ctx, 'branches-here')!, ctx)).toBe('Branches in app');
+    byId(ctx, 'branches-here')!.run!(api, ctx);
+    expect(api.openProject).toHaveBeenCalledWith('/work/app', 'branches');
+    expect(ids(context({ projects: [] }))).not.toContain('branches');
+  });
 });
